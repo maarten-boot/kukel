@@ -132,8 +132,8 @@ source files ──lexer──▶ tokens ──parser──▶ AST ──checker
 
 ## 4. AST + parser (`internal/ast`, `internal/parser`)
 
-- [ ] AST node types for every rule in §1–3 of the grammar, each with a position
-- [ ] Recursive descent for definitions and statements:
+- [x] AST node types for every rule in §1–3 of the grammar, each with a position
+- [x] Recursive descent for definitions and statements:
   - top level: class, function, member-function definitions, `global` and `const` declarations
   - class definition (no `;` after `}`), member declarations (`static`, data vs. function declarations, `..` in declared parameters, `=` in a declaration is an error)
   - function / member-function definitions with `parameter_part` (`params ; temporaries`, both optional)
@@ -142,16 +142,18 @@ source files ──lexer──▶ tokens ──parser──▶ AST ──checker
   - labelled statement: IDENT followed by a `:` token **on the same line** (the lexer already separates `::`)
   - `case <constant expression at logical_or level>:` and `default:` are statements in their own right (they may appear nested, C style)
   - `for (` → after `local IDENT [, IDENT]` look ahead: `in` = for-each, otherwise a local list as for initializer
-- [ ] Expressions: precedence climbing or one function per level, with this exact structure:
+- [x] Expressions: precedence climbing or one function per level, with this exact structure:
   - comma < assignment (right associative) < `?:` (middle part = full expression, last part = assignment) < `||` < `&&` < `|` < `^` < `&` < equality < relational < shift < additive < multiplicative < unary < postfix < primary
   - unary operators nest: `!!x`, `- -x`; `--x` is a decrement
-  - fold `-` followed directly by an Integer/Float/Character literal into one literal (this allows `-9223372036854775808`)
+  - fold `-` followed directly by an Integer/Float/Character literal into one literal (this allows `-9223372036854775808`); not when a postfix operator follows the literal (`-5[0]` is `-(5[0])`)
   - postfix: call, index, `->name(args)` (method call), `->name` (member / bound method), `++`, `--`
   - arguments and vector elements may be spread: `e..`
   - primary: literals, `this`, `( )`, vector, map (only in expression position), `new C(args)` (postfix may follow), `fn (params) block`, `C::x`, identifier
-- [ ] Good error messages ("expected ';' after expression at f.kkl:3:14"); stop at the first error (v1)
-- [ ] `kukel ast` pretty printer
-- [ ] Tests: parse every construct; check the trees against expected dumps; error cases from the grammar comments
+- [x] Good error messages ("expected ';' after expression at f.kkl:3:14"); stop at the first error (v1)
+- [x] `kukel ast [-pos]` tree printer (`-pos` adds `@line:col` to each node)
+- [x] Nesting limit: more than 1000 levels of statements or expressions is a syntax error ("nesting too deep") instead of a Go stack overflow
+- [x] Shared error type `internal/diag` (`file:line:col: message`) for lexer, parser and later passes
+- [x] Tests: precedence/associativity table (S-expressions), literal folding values, statement shapes, 35 error cases with positions, `FuzzParser`; golden `tests/ast/*.kkl` → `.ast` (`make golden`)
 
 ## 5. Semantic checks + scope resolution (`internal/check`)
 
@@ -256,7 +258,7 @@ All the "Rule:" comments in syntax.ebnf:
 ## 10. Milestones (suggested order)
 
 1. [x] Setup + lexer + `kukel tokens` (done 2026-10-12)
-2. [ ] Parser + AST + `kukel ast`
+2. [x] Parser + AST + `kukel ast` (done 2026-10-12, branch `milestone-2-parser`)
 3. [ ] Values + compiler + VM for expressions, globals, constants, functions, `if`/`while`/`for`, `print`: run fizzbuzz
 4. [ ] Locals (incl. in for initializers), temporaries, default/rest parameters, spread, labelled break/continue, switch
 5. [ ] Vectors, maps, strings + their built-ins; for-each

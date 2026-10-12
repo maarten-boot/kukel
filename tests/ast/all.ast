@@ -1,0 +1,374 @@
+File all.kkl
+  Global
+    Var count
+      Int 0
+    Var names
+  Const
+    Var MAX
+      Int 1_000 = 1000
+    Var MASK
+      Binary |
+        Int 0xFF_FF = 65535
+        Int 0b1010_0101 = 165
+    Var BIG
+      Int -9223372036854775808
+  Class Shape
+    Data name
+    Method Shape(name)
+    Method area()
+    Method static make(kind, args..)
+  Class Point : Shape
+    Data x, y
+    Data static origin, total
+    Method Point(x, y)
+    Method len()
+  Func Point::Point
+    Param a
+    Param b =
+      Binary *
+        Name a
+        Int 2
+    Block
+      ExprStmt
+        Call
+          Static Shape::Shape
+          String "point"
+      ExprStmt
+        Assign =
+          Member x
+            This
+          Name a
+      ExprStmt
+        Assign =
+          Name y
+          Name b
+      ExprStmt
+        Postfix ++
+          Static Point::total
+  Func Point::len
+    Temp sq
+    Block
+      ExprStmt
+        Assign =
+          Name sq
+          Binary +
+            Binary *
+              Name x
+              Name x
+            Binary *
+              Member y
+                This
+              Member y
+                This
+      Return
+        Call
+          Name sqrt
+          Name sq
+  Func Shape::make
+    Param kind
+    Param args..
+    Block
+      Return
+        New Point
+          Spread
+            Name args
+  Func main
+    Param args
+    Temp t
+    Block
+      Local
+        Var p
+          MethodCall len
+            New Point
+              Int 1
+              Float 2.5
+        Var f
+          Fn
+            Param a
+            Param b =
+              Float .5 = 0.5
+            Param rest..
+            Temp tmp
+            Block
+              Return
+                Binary +
+                  Name a
+                  Name count
+      Local
+        Var bound
+          Member len
+            Name p
+        Var v
+          Vector
+            Int 1
+            Spread
+              Name args
+            Int -2
+        Var m
+          Map
+            Entry
+              String "k"
+              Char 'x' = 120
+            Entry
+              Int 1
+              Vector
+            Entry
+              Name name
+              Map
+      If
+        Binary >
+          Name p
+          Int 1
+        Then
+          ExprStmt
+            Assign =
+              Name t
+              Int 1
+        Else
+          If
+            Binary <
+              Name p
+              Int -1
+            Then
+              ExprStmt
+                Assign =
+                  Name t
+                  Int -1
+            Else
+              Block
+                ExprStmt
+                  Assign =
+                    Name t
+                    Int 0
+      While
+        Binary <
+          Name t
+          Name MAX
+        ExprStmt
+          Assign +=
+            Name t
+            Int 1
+      Do
+        ExprStmt
+          Prefix --
+            Name t
+        Binary >
+          Name t
+          Int 0
+      For
+        Init Local
+          Var i
+            Int 0
+          Var j
+            Int 10
+        Cond
+          Binary <
+            Name i
+            Name j
+        Post
+          Comma
+            Postfix ++
+              Name i
+            Postfix --
+              Name j
+        Body
+          ExprStmt
+            Assign +=
+              Name count
+              Name i
+      For
+        Init
+          Assign =
+            Name count
+            Int 0
+        Body
+          Break
+      ForEach e
+        Name v
+        Block
+          If
+            Unary !
+              Unary !
+                Name e
+            Then
+              Continue
+      ForEach k, val
+        Name m
+        ExprStmt
+          Call
+            Name println
+            Name k
+            Name val
+      Label outer
+        For
+          Body
+            Block
+              Label inner
+                While
+                  Int 1
+                  Block
+                    Break outer
+      Switch
+        Name count
+        Block
+          Case
+            Binary +
+              Name MAX
+              Int 1
+          Case
+            Int -1
+          Block
+            Case
+              Char 'q' = 113
+            ExprStmt
+              Assign =
+                Name t
+                Int 2
+          Break
+          Case
+            String "s"
+          Default
+          Empty
+      Try
+        Block
+          Throw
+            String "multi\nline"
+        Catch e
+          Block
+            ExprStmt
+              Assign %=
+                Member x
+                  Name p
+                Binary ^
+                  Binary >>
+                    Float 1.5E-3 = 0.0015
+                    Int 2
+                  Unary ~
+                    Name t
+        Finally
+          Block
+            ExprStmt
+              Assign =
+                Name names
+                Nil
+      Try
+        Block
+          ExprStmt
+            Call
+              Name f
+              Int 1
+        Finally
+          Block
+      ExprStmt
+        Assign -=
+          Name a
+          Assign *=
+            Name b
+            Assign /=
+              Name c
+              Assign &=
+                Name d
+                Assign |=
+                  Name e
+                  Assign ^=
+                    Name g
+                    Assign <<=
+                      Name h
+                      Assign >>=
+                        Int 1
+                        Int 2
+      ExprStmt
+        Assign =
+          Name t
+          Cond
+            Binary ==
+              Name a
+              Name b
+            Comma
+              Name c
+              Name d
+            Assign =
+              Name e
+              Int 3
+      ExprStmt
+        Assign =
+          Name t
+          Binary |
+            Binary &
+              Binary -
+                Binary +
+                  Unary !
+                    Unary -
+                      Name x
+                  Unary -
+                    Unary -
+                      Name y
+                Binary %
+                  Binary /
+                    Binary *
+                      Char -'a' = -97
+                      Int 3
+                    Int 4
+                  Int 5
+              Int 6
+            Binary ^
+              Int 7
+              Binary >>
+                Binary <<
+                  Int 8
+                  Int 9
+                Int 10
+      ExprStmt
+        Assign =
+          Name t
+          Binary ||
+            Binary ||
+              Binary &&
+                Binary <
+                  Name a
+                  Name b
+                Binary <=
+                  Name c
+                  Name d
+              Binary &&
+                Binary >
+                  Name e
+                  Name f
+                Binary >=
+                  Name g
+                  Name h
+            Binary !=
+              Name a
+              Name b
+      ExprStmt
+        Assign =
+          Index
+            Index
+              Name v
+              Int 0
+            Int 1
+          Index
+            Name m
+            String "k"
+      ExprStmt
+        Call
+          Member len
+            Name p
+      ExprStmt
+        Call
+          Name bound
+          Bool true
+          Bool false
+          Nil
+      ExprStmt
+        Call
+          Static Shape::make
+          String "p"
+          Int 1
+          Int 2
+      ExprStmt
+        Assign =
+          Name t
+          Static C::x
+      Return
+        Int 0

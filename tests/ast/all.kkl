@@ -1,0 +1,90 @@
+#!/usr/bin/env kukel
+// Every syntax construct of Kukel syntax version 2.
+
+global count = 0, names;
+const MAX = 1_000, MASK = 0xFF_FF | 0b1010_0101, BIG = -9223372036854775808;
+
+class Shape {
+    name;
+    Shape(name);
+    area();
+    static make(kind, args..);
+}
+
+class Point : Shape {
+    x, y;
+    static origin, total;
+    Point(x, y);
+    len();
+}
+
+Point::Point(a, b = a * 2) {
+    Shape::Shape("point");
+    this->x = a;
+    y = b;
+    Point::total++;
+}
+
+Point::len(; sq) {
+    sq = x * x + this->y * this->y;
+    return sqrt(sq);
+}
+
+Shape::make(kind, args..) {
+    return new Point(args..);
+}
+
+main(args; t) {
+    local p = new Point(1, 2.5)->len(), f = fn(a, b = .5, rest..; tmp) { return a + count; };
+    local bound = p->len, v = [1, args.., -2], m = {"k": 'x', 1: [], name: {}};
+
+    if (p > 1) t = 1;
+    elseif (p < -1) t = -1;
+    else { t = 0; }
+
+    while (t < MAX) t += 1;
+    do --t; while (t > 0);
+
+    for (local i = 0, j = 10; i < j; i++, j--) count += i;
+    for (count = 0; ; ) break;
+    for (local e in v) { if (!!e) continue; }
+    for (local k, val in m) println(k, val);
+
+    outer: for (;;) {
+        inner: while (1) { break outer; }
+    }
+
+    switch (count) {
+        case MAX + 1:
+        case -1:
+            {
+        case 'q':
+                t = 2;
+            }
+            break;
+        case "s":
+        default:
+            ;
+    }
+
+    try {
+        throw "multi
+line";
+    } catch (e) {
+        p->x %= 1.5E-3 >> 2 ^ ~t;
+    } finally {
+        names = nil;
+    }
+    try { f(1); } finally { }
+
+    a -= b *= c /= d &= e |= g ^= h <<= 1 >>= 2;
+    t = a == b ? c, d : e = 3;
+    t = !-x + - -y - -'a' * 3 / 4 % 5 & 6 | 7 ^ 8 << 9 >> 10;
+    t = a < b && c <= d || e > f && g >= h || a != b;
+    v[0][1] = m["k"];
+    (p->len)();
+    bound(true, false, nil);
+    Shape::make("p", 1, 2);
+    t = C::x;
+    return 0;
+}

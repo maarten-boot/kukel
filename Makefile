@@ -23,6 +23,7 @@ fmt:
 # Run each fuzz test for FUZZTIME (make fuzz FUZZTIME=5m).
 fuzz:
 	$(GO) test -run '^$$' -fuzz '^FuzzLexer$$' -fuzztime $(FUZZTIME) ./internal/lexer
+	$(GO) test -run '^$$' -fuzz '^FuzzParser$$' -fuzztime $(FUZZTIME) ./internal/parser
 
 bench:
 	$(GO) test -run '^$$' -bench . -benchmem ./...

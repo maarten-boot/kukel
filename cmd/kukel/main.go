@@ -9,7 +9,9 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"kukel/internal/ast"
 	"kukel/internal/lexer"
+	"kukel/internal/parser"
 	"kukel/internal/token"
 )
 
@@ -21,7 +23,7 @@ commands:
   exec prog.kkc [args]            run a bytecode file
   disasm prog.kkc                 show the bytecode in readable form
   tokens a.kkl ...                show the tokens of source files
-  ast a.kkl ...                   show the syntax tree of source files
+  ast [-pos] a.kkl ...            show the syntax tree of source files
   help                            show this text
 `
 
@@ -43,7 +45,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "tokens":
 		return cmdTokens(args, stdout, stderr)
 	case "ast":
-		return notYet(cmd, 2, stderr)
+		return cmdAST(args, stdout, stderr)
 	case "run":
 		return notYet(cmd, 3, stderr)
 	case "build", "exec", "disasm":
@@ -86,6 +88,35 @@ func cmdTokens(files []string, stdout, stderr io.Writer) int {
 			}
 		}
 		w.Flush()
+	}
+	return 0
+}
+
+// cmdAST prints the syntax tree of each file; -pos adds node positions.
+func cmdAST(args []string, stdout, stderr io.Writer) int {
+	withPos := false
+	if len(args) > 0 && args[0] == "-pos" {
+		withPos, args = true, args[1:]
+	}
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "usage: kukel ast [-pos] a.kkl ...")
+		return 2
+	}
+	for _, file := range args {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			fmt.Fprintf(stderr, "kukel: %v\n", err)
+			return 1
+		}
+		f, err := parser.ParseFile(file, src)
+		if err != nil {
+			fmt.Fprintf(stderr, "%v\n", err)
+			return 1
+		}
+		if err := ast.FprintFile(stdout, f, withPos); err != nil {
+			fmt.Fprintf(stderr, "kukel: %v\n", err)
+			return 1
+		}
 	}
 	return 0
 }

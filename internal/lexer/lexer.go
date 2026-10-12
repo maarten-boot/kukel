@@ -9,18 +9,14 @@ import (
 	"strconv"
 	"strings"
 
+	"kukel/internal/diag"
 	"kukel/internal/token"
 )
 
 const maxNameLen = 255 // identifiers and float literals
 
 // Error is a lexical error at a source position.
-type Error struct {
-	Pos token.Pos
-	Msg string
-}
-
-func (e *Error) Error() string { return e.Pos.String() + ": " + e.Msg }
+type Error = diag.Error
 
 // Lexer scans one source file.
 type Lexer struct {
@@ -100,7 +96,7 @@ func (l *Lexer) advance() {
 }
 
 func (l *Lexer) errorf(p token.Pos, format string, args ...any) error {
-	return &Error{Pos: p, Msg: fmt.Sprintf(format, args...)}
+	return diag.Errorf(p, format, args...)
 }
 
 // Next returns the next token, or an error.
