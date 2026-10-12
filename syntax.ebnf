@@ -1,0 +1,436 @@
+(*
+   Kukel syntax, version 2.
+
+   Notation: ISO/IEC 14977 EBNF.
+       =  definition        ;  end of rule        |  alternative
+       [ ] optional         { } zero or more       ( ) grouping
+       "x" terminal         (* ... *) comment      - exception
+
+   Rules whose names start with an upper-case letter are lexical (tokens).
+   Between tokens, white space and comments may appear (see Skip).
+   Comments marked "Rule:" state checks the compiler makes beyond the grammar.
+
+   Changes from version 1:
+     - "this" is a keyword (an expression); "const", "fn", "global" and
+       "in" are new keywords.
+     - Globals are declared with "global"; using an undeclared name is a
+       compile error. Top-level constants with "const"; case labels take
+       constant expressions.
+     - p->x reads or assigns a data member; p->m without "(" gives a
+       bound method.
+     - "local" is allowed in a for initializer; new for-each loop
+       "for (local k, v in e)".
+     - Spread "e.." in call arguments and vector literals.
+     - Function literals (closures): fn (params) { ... }.
+     - "new C()" may be followed by postfix operators; unary operators
+       may be nested ("!!x", "- -x").
+     - Binary integer literals (0b1010) and "_" digit separators.
+     - Unknown escapes, ''' and an unclosed /* comment are errors.
+*)
+
+
+(* ======================================================================
+   1. Programs and definitions
+   ====================================================================== *)
+
+start               = program ;
+                      (* The start symbol: a source file. *)
+
+program             = { definition } ;
+                      (* Rule: all top-level names (globals, constants,
+                         functions, classes) and the built-ins share one
+                         name space; each name is defined once. *)
+
+definition          = class_definition
+                    | function_definition
+                    | member_function_definition
+                    | global_declaration
+                    | const_declaration ;
+
+global_declaration  = "global" , global_variable , { "," , global_variable } , ";" ;
+
+global_variable     = Identifier , [ "=" , assignment ] ;
+                      (* A global without an initializer is nil. Rules:
+                         initializers run in program order (files in
+                         command-line order) before main is called; a
+                         global may be used anywhere in the program, also
+                         above its declaration (an initializer that runs
+                         earlier sees nil). *)
+
+const_declaration   = "const" , const_definition , { "," , const_definition } , ";" ;
+
+const_definition    = Identifier , "=" , conditional ;
+                      (* Rules: the value is a constant expression: literals,
+                         constants defined earlier in program order, and the
+                         unary, binary and ?: operators applied to them; it
+                         is evaluated at compile time (an error such as a
+                         division by zero is a compile error) and must be
+                         nil, a boolean, a number or a string. A constant
+                         cannot be assigned to. *)
+
+class_definition    = "class" , Identifier , [ ":" , Identifier ] ,
+                      "{" , { member_declaration } , "}" ;
+                      (* Rule: the base class must already be defined.
+                         No ";" after the closing brace. *)
+
+member_declaration  = [ "static" ] , Identifier ,
+                      "(" , [ declared_parameters ] , ")" , ";"
+                                              (* a (static) member function *)
+                    | [ "static" ] , Identifier , { "," , Identifier } , ";" ;
+                                              (* (static) data members *)
+
+declared_parameters = Identifier , { "," , Identifier } , [ ".." ] ;
+                      (* Names are documentation only. Rule: a default value
+                         ("=") here is an error; it belongs in the definition. *)
+
+function_definition = Identifier , "(" , parameter_part , ")" , block ;
+
+member_function_definition
+                    = Identifier , "::" , Identifier ,
+                      "(" , parameter_part , ")" , block ;
+                      (* Rules: the class must be defined and declare the
+                         function; the definition has the same shape as the
+                         declaration (number of parameters, rest parameter
+                         or not; names may differ; temporaries do not count).
+                         A function declared "static" has no 'this'. *)
+
+parameter_part      = [ parameters ] , [ ";" , [ temporaries ] ] ;
+
+parameters          = parameter , { "," , parameter } ;
+
+parameter           = Identifier                          (* required *)
+                    | Identifier , "=" , assignment        (* optional, with default *)
+                    | Identifier , ".." ;                  (* rest: a vector *)
+                    (* Rules: after an optional parameter every parameter
+                       must have a default (or be the rest parameter); the
+                       rest parameter is the last one; at most 255 optional
+                       parameters. A default may use the parameters before it. *)
+
+temporaries         = Identifier , { "," , Identifier } ;
+
+
+(* ======================================================================
+   2. Statements
+   ====================================================================== *)
+
+block               = "{" , { statement } , "}" ;
+
+statement           = if_statement
+                    | switch_statement
+                    | case_label
+                    | default_label
+                    | while_statement
+                    | do_statement
+                    | for_statement
+                    | foreach_statement
+                    | break_statement
+                    | continue_statement
+                    | return_statement
+                    | local_declaration
+                    | try_statement
+                    | throw_statement
+                    | labelled_statement
+                    | block
+                    | expression , ";"
+                    | ";" ;
+                    (* A "{" that starts a statement is a block, never a
+                       map literal. *)
+
+if_statement        = "if" , condition , statement , [ else_part ] ;
+
+else_part           = "else" , statement
+                    | "elseif" , condition , statement , [ else_part ] ;
+                    (* "elseif (e) s" is "else if (e) s". An else belongs
+                       to the nearest if. *)
+
+condition           = "(" , expression , ")" ;
+
+switch_statement    = "switch" , condition , block ;
+                      (* The block's statements may carry case and default
+                         labels, also inside nested statements (as in C).
+                         Control falls through from one label to the next. *)
+
+case_label          = "case" , logical_or , ":" ;
+default_label       = "default" , ":" ;
+                      (* Rules: the case value is a constant expression (see
+                         const_definition); case and default only inside a
+                         switch body; no two case values of one switch equal
+                         as == compares them (1 and 1.0 are equal); at most
+                         one default per switch; a label may not be placed
+                         where jumping to it would enter a try block or skip
+                         the initialization of a local still in scope. *)
+
+while_statement     = "while" , condition , statement ;
+
+do_statement        = "do" , statement , "while" , condition , ";" ;
+
+for_statement       = "for" , "(" , [ for_init ] , ";" ,
+                                    [ expression ] , ";" ,
+                                    [ expression ] , ")" , statement ;
+                      (* An empty test loops until break. *)
+
+for_init            = "local" , local_variable , { "," , local_variable }
+                    | expression ;
+                      (* Locals declared here are visible in the test, the
+                         update and the body, not after the loop. Each
+                         iteration has its own copy of them (a closure made
+                         in the body keeps that iteration's value); the copy
+                         for the next iteration starts with the value at the
+                         end of the previous one, before the update runs. *)
+
+foreach_statement   = "for" , "(" , "local" , Identifier , [ "," , Identifier ] ,
+                      "in" , expression , ")" , statement ;
+                      (* With one name: the elements of a vector, the keys
+                         of a map (insertion order), the bytes (ints) of a
+                         string. With two names: index and element, key and
+                         value, index and byte. The names are fresh locals
+                         of each iteration. A vector is walked by index while
+                         the index is below its current length; a map is
+                         walked over a snapshot of its keys taken at the
+                         start, skipping keys deleted in the meantime. Rule:
+                         any other value is a runtime error. *)
+
+break_statement     = "break" , [ Identifier ] , ";" ;
+continue_statement  = "continue" , [ Identifier ] , ";" ;
+                      (* Without a label: the innermost loop (or switch, for
+                         break). With one: the labelled statement (break) or
+                         labelled loop (continue). Rules: a plain break needs
+                         an enclosing loop or switch, a plain continue a loop;
+                         the label must name an enclosing statement (a loop,
+                         for continue) in the same function. *)
+
+labelled_statement  = Identifier , ":" , statement ;
+                      (* The ":" must follow the identifier on the same line
+                         and must not be part of "::". Rule: a label may not
+                         repeat the label of an enclosing statement. *)
+
+return_statement    = "return" , [ expression ] , ";" ;
+
+local_declaration   = "local" , local_variable , { "," , local_variable } , ";" ;
+
+local_variable      = Identifier , [ "=" , assignment ] ;
+                      (* A local without an initializer is nil. Rules: a
+                         declaration must be a statement directly in a block
+                         (not, say, the body of an if) or a for initializer,
+                         not directly in a switch body, and may not repeat a
+                         name declared in the same block. The name is visible
+                         after its initializer. *)
+
+try_statement       = "try" , block ,
+                      ( catch_part , [ finally_part ] | finally_part ) ;
+catch_part          = "catch" , "(" , Identifier , ")" , block ;
+                      (* The identifier is a new local of the catch block. *)
+finally_part        = "finally" , block ;
+                      (* Rule: return, and break or continue to a statement
+                         outside the finally block, are compile errors. *)
+
+throw_statement     = "throw" , expression , ";" ;
+
+
+(* ======================================================================
+   3. Expressions, lowest to highest precedence
+   ====================================================================== *)
+
+expression          = assignment , { "," , assignment } ;
+                      (* comma: evaluated left to right, value of the last *)
+
+assignment          = conditional , [ assignment_operator , assignment ] ;
+                      (* right associative. Rule: the left side must be an
+                         lvalue: a variable (global, parameter, temporary,
+                         local, captured variable, member), a static member
+                         C::x, an indexed element e[i] or a data member e->x.
+                         Constants, functions, classes, built-ins and 'this'
+                         cannot be assigned. *)
+
+assignment_operator = "=" | "+=" | "-=" | "*=" | "/=" | "%="
+                    | "&=" | "|=" | "^=" | "<<=" | ">>=" ;
+
+conditional         = logical_or , [ "?" , expression , ":" , assignment ] ;
+                      (* As in C, the middle part may contain commas and the
+                         last part is an assignment: a ? b : c = d is
+                         a ? b : (c = d). *)
+
+logical_or          = logical_and , { "||" , logical_and } ;
+logical_and         = bitwise_or , { "&&" , bitwise_or } ;
+bitwise_or          = bitwise_xor , { "|" , bitwise_xor } ;
+bitwise_xor         = bitwise_and , { "^" , bitwise_and } ;
+bitwise_and         = equality , { "&" , equality } ;
+equality            = relational , { ( "==" | "!=" ) , relational } ;
+relational          = shift , { ( "<" | "<=" | ">=" | ">" ) , shift } ;
+shift               = additive , { ( "<<" | ">>" ) , additive } ;
+additive            = multiplicative , { ( "+" | "-" ) , multiplicative } ;
+multiplicative      = unary , { ( "*" | "/" | "%" ) , unary } ;
+
+unary               = ( "-" | "!" | "~" ) , unary
+                    | ( "++" | "--" ) , unary       (* Rule: an lvalue *)
+                    | postfix ;
+                    (* "-" directly followed by an Integer, Float or
+                       Character literal is folded into one negative literal;
+                       this allows -9223372036854775808. "--x" is a
+                       decrement; write "- -x" for a double negation. *)
+
+postfix             = primary , { postfix_operator } ;
+
+postfix_operator    = "(" , [ arguments ] , ")"                      (* call *)
+                    | "[" , expression , "]"                         (* index *)
+                    | "->" , Identifier , "(" , [ arguments ] , ")"  (* method call *)
+                    | "->" , Identifier                              (* data member *)
+                    | "++" | "--" ;              (* Rule: on an lvalue *)
+                    (* "->" followed by "(" is always a method call; call a
+                       function held in a data member as (p->f)(x).
+                       e->x names a data member of the object; if the class
+                       has no such data member but a method x, the value is
+                       a bound method (e->x() calls it later) that cannot be
+                       assigned to. Static members are reached as C::x only. *)
+
+arguments           = argument , { "," , argument } ;
+
+argument            = assignment , [ ".." ] ;
+                      (* "v.." spreads the elements of vector v as separate
+                         arguments. Rule: a spread value that is not a vector
+                         is a runtime error. *)
+
+primary             = "(" , expression , ")"
+                    | Integer | Float | Character | String
+                    | "true" | "false" | "nil"
+                    | "this"
+                    | vector_literal
+                    | map_literal
+                    | new_expression
+                    | function_literal
+                    | Identifier , "::" , Identifier      (* static member or
+                                                             static function *)
+                    | Identifier ;
+                    (* An identifier is, in order: a block local, a
+                       parameter, a temporary, a variable of an enclosing
+                       function (for a function literal), a member of the
+                       method's class, a top-level name (global, constant,
+                       function, class, built-in). Rules: an identifier that
+                       is none of these is a compile error; 'this' only in
+                       a non-static member function (or a function literal
+                       inside one). *)
+
+new_expression      = "new" , Identifier , "(" , [ arguments ] , ")" ;
+                      (* A class name, or a variable holding a class.
+                         new C()->m() is (new C())->m(). *)
+
+function_literal    = "fn" , "(" , parameter_part , ")" , block ;
+                      (* A closure. It captures variables of the enclosing
+                         functions by reference (they are shared and outlive
+                         the call that created them), and 'this' inside a
+                         member function. return leaves the literal's own
+                         body; break and continue do not cross it. *)
+
+vector_literal      = "[" , [ argument , { "," , argument } ] , "]" ;
+                      (* "v.." inserts the elements of vector v. *)
+
+map_literal         = "{" , [ map_entry , { "," , map_entry } ] , "}" ;
+                      (* Only where an expression is expected: a "{" that
+                         starts a statement is a block. *)
+
+map_entry           = conditional , ":" , assignment ;
+                      (* The key is evaluated: {name: 1} uses the value of
+                         the variable name; write {"name": 1} for a string
+                         key. Rule: keys are strings and numbers (1 and 1.0
+                         are the same key); a later equal key replaces an
+                         earlier one. *)
+
+
+(* ======================================================================
+   4. Lexical grammar (tokens)
+   ====================================================================== *)
+
+Identifier          = ( Letter | "_" ) , { Letter | Digit | "_" } - Keyword ;
+                      (* at most 255 characters; case sensitive *)
+
+Keyword             = "break" | "case" | "catch" | "class" | "const" | "continue"
+                    | "default" | "do" | "else" | "elseif" | "false" | "finally"
+                    | "fn" | "for" | "global" | "if" | "in" | "local" | "new"
+                    | "nil" | "return" | "static" | "switch" | "this" | "throw"
+                    | "true" | "try" | "while" ;
+
+Integer             = Decimal_Digits
+                    | "0" , ( "x" | "X" ) , Hex_Digit , { [ "_" ] , Hex_Digit }
+                    | "0" , ( "b" | "B" ) , Bin_Digit , { [ "_" ] , Bin_Digit } ;
+                      (* Decimal: at most 2^63 - 1 (2^63 only directly after
+                         a unary minus); leading zeros do not mean octal.
+                         Hexadecimal: 1 to 16 digits, binary: 1 to 64 digits,
+                         any 64-bit pattern (0xFFFFFFFFFFFFFFFF is -1).
+                         A "_" stands only between two digits and is
+                         ignored: 1_000_000, 0xFF_FF, 0b1010_0101. *)
+
+Float               = Decimal_Digits , "." , [ Decimal_Digits ] , [ Exponent ]
+                    | "." , Decimal_Digits , [ Exponent ]
+                    | Decimal_Digits , Exponent ;
+                      (* e.g. 1.5  1.  .5  2e10  1.5E-3  1_000.25. The
+                         integer part may exceed 2^63. Rule: a value beyond
+                         the float range ("Number too large") is an error; at
+                         most 255 characters. *)
+
+Exponent            = ( "e" | "E" ) , [ "+" | "-" ] , Decimal_Digits ;
+
+Decimal_Digits      = Digit , { [ "_" ] , Digit } ;
+
+Character           = "'" , Char_Item , "'" ;
+                      (* exactly one (possibly escaped) character; its value
+                         is the integer character code. The quote character
+                         is written '\''. *)
+
+String              = '"' , { String_Item } , '"' ;
+                      (* any length; may contain NUL bytes (\0) and, written
+                         literally, newlines. Adjacent strings are not joined. *)
+
+String_Item         = Any_Character - ( '"' | "\" ) | Escape ;
+Char_Item           = Any_Character - ( "'" | "\" ) | Escape ;
+
+Escape              = "\" , ( "n" | "t" | "r" | "0" )      (* newline, tab, CR, NUL *)
+                    | "\" , ( "\" | '"' | "'" )            (* the character itself *)
+                    | "\" , "x" , Hex_Digit , [ Hex_Digit ] ;  (* a byte *)
+                      (* Rule: any other character after "\" is an error. *)
+
+Operator            = "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "~" | "!"
+                    | "<" | ">" | "=" | "?" | ":" | "," | ";"
+                    | "(" | ")" | "[" | "]" | "{" | "}"
+                    | "<=" | ">=" | "==" | "!=" | "<<" | ">>" | "&&" | "||"
+                    | "++" | "--" | "->" | "::" | ".."
+                    | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^="
+                    | "<<=" | ">>=" ;
+                      (* The longest match wins: "<<=" before "<<" before
+                         "<", "::" before ":", ".." before ".". A lone "."
+                         is not a valid token in any rule. *)
+
+Skip                = White_Space | Comment ;
+
+Comment             = "/*" , { Any_Character } , "*/"      (* not nested *)
+                    | "//" , { Any_Character - Newline } , Newline
+                    | "#" , { Any_Character - Newline } , Newline ;
+                      (* "#" also allows a "#!" first line. Rule: a "/*"
+                         without a closing "*/" is an error ("unterminated
+                         comment"). A line comment may end at the end of the
+                         file. *)
+
+White_Space         = " " | Tab | Newline | Carriage_Return | Form_Feed
+                    | Vertical_Tab ;
+
+Letter              = "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I"
+                    | "J" | "K" | "L" | "M" | "N" | "O" | "P" | "Q" | "R"
+                    | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z"
+                    | "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i"
+                    | "j" | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r"
+                    | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" ;
+
+Digit               = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+
+Bin_Digit           = "0" | "1" ;
+
+Hex_Digit           = Digit | "A" | "B" | "C" | "D" | "E" | "F"
+                            | "a" | "b" | "c" | "d" | "e" | "f" ;
+
+Any_Character       = ? any byte except NUL ? ;
+                      (* a raw NUL byte in a source line ends the line *)
+
+Tab                 = ? horizontal tab, 0x09 ? ;
+Newline             = ? line feed, 0x0A ? ;
+Vertical_Tab        = ? 0x0B ? ;
+Form_Feed           = ? 0x0C ? ;
+Carriage_Return     = ? 0x0D ? ;

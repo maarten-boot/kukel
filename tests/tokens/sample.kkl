@@ -1,0 +1,25 @@
+#!/usr/bin/env kukel
+// Every kind of token in Kukel syntax version 2.
+
+global count = 0, names;
+const MAX = 1_000, MASK = 0xFF_FF | 0b1010_0101, BIG = -9223372036854775808;
+
+class Point : Base {
+    x, y;
+    static origin;
+    Point(x, y);
+    len();
+}
+
+Point::Point(a, b) { Base::Base(); this->x = a; y = b; }
+
+main(args; t) {
+    local p = new Point(1, 2.5)->len(), f = fn(a, b = .5, rest..) { return a; };
+    for (local k, v in {"a\tb": 'x', 'q': '\''}) count += k <<= 1e3;
+    outer: for (local i = 0; i < MAX && !done; i++) { if (i >= 3 || x != y) continue outer; }
+    switch (count) { case -1: default: break; }
+    try { throw "multi
+line"; } catch (e) { p->x %= 1.5E-3 >> 2 ^ ~t; } finally { ; }
+    a -= b *= c /= d &= e |= f ^= g >>= h; a == b ? c : d; [args.., 2];
+    return --count ++ - -1 / 2 * 3 % 4 & 5 | 6;
+}

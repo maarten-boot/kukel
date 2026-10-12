@@ -1,0 +1,263 @@
+sample.kkl:4:1    global    global
+sample.kkl:4:8    IDENT     count
+sample.kkl:4:14   =         =
+sample.kkl:4:16   INT       0  = 0
+sample.kkl:4:17   ,         ,
+sample.kkl:4:19   IDENT     names
+sample.kkl:4:24   ;         ;
+sample.kkl:5:1    const     const
+sample.kkl:5:7    IDENT     MAX
+sample.kkl:5:11   =         =
+sample.kkl:5:13   INT       1_000  = 1000
+sample.kkl:5:18   ,         ,
+sample.kkl:5:20   IDENT     MASK
+sample.kkl:5:25   =         =
+sample.kkl:5:27   INT       0xFF_FF  = 65535
+sample.kkl:5:35   |         |
+sample.kkl:5:37   INT       0b1010_0101  = 165
+sample.kkl:5:48   ,         ,
+sample.kkl:5:50   IDENT     BIG
+sample.kkl:5:54   =         =
+sample.kkl:5:56   -         -
+sample.kkl:5:57   INT       9223372036854775808  = 2^63 (only valid after unary minus)
+sample.kkl:5:76   ;         ;
+sample.kkl:7:1    class     class
+sample.kkl:7:7    IDENT     Point
+sample.kkl:7:13   :         :
+sample.kkl:7:15   IDENT     Base
+sample.kkl:7:20   {         {
+sample.kkl:8:5    IDENT     x
+sample.kkl:8:6    ,         ,
+sample.kkl:8:8    IDENT     y
+sample.kkl:8:9    ;         ;
+sample.kkl:9:5    static    static
+sample.kkl:9:12   IDENT     origin
+sample.kkl:9:18   ;         ;
+sample.kkl:10:5   IDENT     Point
+sample.kkl:10:10  (         (
+sample.kkl:10:11  IDENT     x
+sample.kkl:10:12  ,         ,
+sample.kkl:10:14  IDENT     y
+sample.kkl:10:15  )         )
+sample.kkl:10:16  ;         ;
+sample.kkl:11:5   IDENT     len
+sample.kkl:11:8   (         (
+sample.kkl:11:9   )         )
+sample.kkl:11:10  ;         ;
+sample.kkl:12:1   }         }
+sample.kkl:14:1   IDENT     Point
+sample.kkl:14:6   ::        ::
+sample.kkl:14:8   IDENT     Point
+sample.kkl:14:13  (         (
+sample.kkl:14:14  IDENT     a
+sample.kkl:14:15  ,         ,
+sample.kkl:14:17  IDENT     b
+sample.kkl:14:18  )         )
+sample.kkl:14:20  {         {
+sample.kkl:14:22  IDENT     Base
+sample.kkl:14:26  ::        ::
+sample.kkl:14:28  IDENT     Base
+sample.kkl:14:32  (         (
+sample.kkl:14:33  )         )
+sample.kkl:14:34  ;         ;
+sample.kkl:14:36  this      this
+sample.kkl:14:40  ->        ->
+sample.kkl:14:42  IDENT     x
+sample.kkl:14:44  =         =
+sample.kkl:14:46  IDENT     a
+sample.kkl:14:47  ;         ;
+sample.kkl:14:49  IDENT     y
+sample.kkl:14:51  =         =
+sample.kkl:14:53  IDENT     b
+sample.kkl:14:54  ;         ;
+sample.kkl:14:56  }         }
+sample.kkl:16:1   IDENT     main
+sample.kkl:16:5   (         (
+sample.kkl:16:6   IDENT     args
+sample.kkl:16:10  ;         ;
+sample.kkl:16:12  IDENT     t
+sample.kkl:16:13  )         )
+sample.kkl:16:15  {         {
+sample.kkl:17:5   local     local
+sample.kkl:17:11  IDENT     p
+sample.kkl:17:13  =         =
+sample.kkl:17:15  new       new
+sample.kkl:17:19  IDENT     Point
+sample.kkl:17:24  (         (
+sample.kkl:17:25  INT       1  = 1
+sample.kkl:17:26  ,         ,
+sample.kkl:17:28  FLOAT     2.5  = 2.5
+sample.kkl:17:31  )         )
+sample.kkl:17:32  ->        ->
+sample.kkl:17:34  IDENT     len
+sample.kkl:17:37  (         (
+sample.kkl:17:38  )         )
+sample.kkl:17:39  ,         ,
+sample.kkl:17:41  IDENT     f
+sample.kkl:17:43  =         =
+sample.kkl:17:45  fn        fn
+sample.kkl:17:47  (         (
+sample.kkl:17:48  IDENT     a
+sample.kkl:17:49  ,         ,
+sample.kkl:17:51  IDENT     b
+sample.kkl:17:53  =         =
+sample.kkl:17:55  FLOAT     .5  = 0.5
+sample.kkl:17:57  ,         ,
+sample.kkl:17:59  IDENT     rest
+sample.kkl:17:63  ..        ..
+sample.kkl:17:65  )         )
+sample.kkl:17:67  {         {
+sample.kkl:17:69  return    return
+sample.kkl:17:76  IDENT     a
+sample.kkl:17:77  ;         ;
+sample.kkl:17:79  }         }
+sample.kkl:17:80  ;         ;
+sample.kkl:18:5   for       for
+sample.kkl:18:9   (         (
+sample.kkl:18:10  local     local
+sample.kkl:18:16  IDENT     k
+sample.kkl:18:17  ,         ,
+sample.kkl:18:19  IDENT     v
+sample.kkl:18:21  in        in
+sample.kkl:18:24  {         {
+sample.kkl:18:25  STRING    "a\tb"  = "a\tb"
+sample.kkl:18:31  :         :
+sample.kkl:18:33  CHAR      'x'  = 120
+sample.kkl:18:36  ,         ,
+sample.kkl:18:38  CHAR      'q'  = 113
+sample.kkl:18:41  :         :
+sample.kkl:18:43  CHAR      '\''  = 39
+sample.kkl:18:47  }         }
+sample.kkl:18:48  )         )
+sample.kkl:18:50  IDENT     count
+sample.kkl:18:56  +=        +=
+sample.kkl:18:59  IDENT     k
+sample.kkl:18:61  <<=       <<=
+sample.kkl:18:65  FLOAT     1e3  = 1000
+sample.kkl:18:68  ;         ;
+sample.kkl:19:5   IDENT     outer
+sample.kkl:19:10  :         :
+sample.kkl:19:12  for       for
+sample.kkl:19:16  (         (
+sample.kkl:19:17  local     local
+sample.kkl:19:23  IDENT     i
+sample.kkl:19:25  =         =
+sample.kkl:19:27  INT       0  = 0
+sample.kkl:19:28  ;         ;
+sample.kkl:19:30  IDENT     i
+sample.kkl:19:32  <         <
+sample.kkl:19:34  IDENT     MAX
+sample.kkl:19:38  &&        &&
+sample.kkl:19:41  !         !
+sample.kkl:19:42  IDENT     done
+sample.kkl:19:46  ;         ;
+sample.kkl:19:48  IDENT     i
+sample.kkl:19:49  ++        ++
+sample.kkl:19:51  )         )
+sample.kkl:19:53  {         {
+sample.kkl:19:55  if        if
+sample.kkl:19:58  (         (
+sample.kkl:19:59  IDENT     i
+sample.kkl:19:61  >=        >=
+sample.kkl:19:64  INT       3  = 3
+sample.kkl:19:66  ||        ||
+sample.kkl:19:69  IDENT     x
+sample.kkl:19:71  !=        !=
+sample.kkl:19:74  IDENT     y
+sample.kkl:19:75  )         )
+sample.kkl:19:77  continue  continue
+sample.kkl:19:86  IDENT     outer
+sample.kkl:19:91  ;         ;
+sample.kkl:19:93  }         }
+sample.kkl:20:5   switch    switch
+sample.kkl:20:12  (         (
+sample.kkl:20:13  IDENT     count
+sample.kkl:20:18  )         )
+sample.kkl:20:20  {         {
+sample.kkl:20:22  case      case
+sample.kkl:20:27  -         -
+sample.kkl:20:28  INT       1  = 1
+sample.kkl:20:29  :         :
+sample.kkl:20:31  default   default
+sample.kkl:20:38  :         :
+sample.kkl:20:40  break     break
+sample.kkl:20:45  ;         ;
+sample.kkl:20:47  }         }
+sample.kkl:21:5   try       try
+sample.kkl:21:9   {         {
+sample.kkl:21:11  throw     throw
+sample.kkl:21:17  STRING    "multi\nline"  = "multi\nline"
+sample.kkl:22:6   ;         ;
+sample.kkl:22:8   }         }
+sample.kkl:22:10  catch     catch
+sample.kkl:22:16  (         (
+sample.kkl:22:17  IDENT     e
+sample.kkl:22:18  )         )
+sample.kkl:22:20  {         {
+sample.kkl:22:22  IDENT     p
+sample.kkl:22:23  ->        ->
+sample.kkl:22:25  IDENT     x
+sample.kkl:22:27  %=        %=
+sample.kkl:22:30  FLOAT     1.5E-3  = 0.0015
+sample.kkl:22:37  >>        >>
+sample.kkl:22:40  INT       2  = 2
+sample.kkl:22:42  ^         ^
+sample.kkl:22:44  ~         ~
+sample.kkl:22:45  IDENT     t
+sample.kkl:22:46  ;         ;
+sample.kkl:22:48  }         }
+sample.kkl:22:50  finally   finally
+sample.kkl:22:58  {         {
+sample.kkl:22:60  ;         ;
+sample.kkl:22:62  }         }
+sample.kkl:23:5   IDENT     a
+sample.kkl:23:7   -=        -=
+sample.kkl:23:10  IDENT     b
+sample.kkl:23:12  *=        *=
+sample.kkl:23:15  IDENT     c
+sample.kkl:23:17  /=        /=
+sample.kkl:23:20  IDENT     d
+sample.kkl:23:22  &=        &=
+sample.kkl:23:25  IDENT     e
+sample.kkl:23:27  |=        |=
+sample.kkl:23:30  IDENT     f
+sample.kkl:23:32  ^=        ^=
+sample.kkl:23:35  IDENT     g
+sample.kkl:23:37  >>=       >>=
+sample.kkl:23:41  IDENT     h
+sample.kkl:23:42  ;         ;
+sample.kkl:23:44  IDENT     a
+sample.kkl:23:46  ==        ==
+sample.kkl:23:49  IDENT     b
+sample.kkl:23:51  ?         ?
+sample.kkl:23:53  IDENT     c
+sample.kkl:23:55  :         :
+sample.kkl:23:57  IDENT     d
+sample.kkl:23:58  ;         ;
+sample.kkl:23:60  [         [
+sample.kkl:23:61  IDENT     args
+sample.kkl:23:65  ..        ..
+sample.kkl:23:67  ,         ,
+sample.kkl:23:69  INT       2  = 2
+sample.kkl:23:70  ]         ]
+sample.kkl:23:71  ;         ;
+sample.kkl:24:5   return    return
+sample.kkl:24:12  --        --
+sample.kkl:24:14  IDENT     count
+sample.kkl:24:20  ++        ++
+sample.kkl:24:23  -         -
+sample.kkl:24:25  -         -
+sample.kkl:24:26  INT       1  = 1
+sample.kkl:24:28  /         /
+sample.kkl:24:30  INT       2  = 2
+sample.kkl:24:32  *         *
+sample.kkl:24:34  INT       3  = 3
+sample.kkl:24:36  %         %
+sample.kkl:24:38  INT       4  = 4
+sample.kkl:24:40  &         &
+sample.kkl:24:42  INT       5  = 5
+sample.kkl:24:44  |         |
+sample.kkl:24:46  INT       6  = 6
+sample.kkl:24:47  ;         ;
+sample.kkl:25:1   }         }
+sample.kkl:26:1   EOF

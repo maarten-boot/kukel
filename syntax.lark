@@ -1,0 +1,327 @@
+// Lark grammar for Kukel syntax version 2 (syntax.ebnf).
+//
+// Intended for:  Lark(grammar, parser="lalr", lexer="contextual")
+// (the default lexer for LALR; the start rule is "start"). The contextual
+// lexer is needed for LABEL, see section 4.
+//
+// Differences from syntax.ebnf, all forced by LALR(1):
+//  * "-" followed by a literal is not folded here; "-5" parses as
+//    unary(-, 5). Fold it in a Transformer (that is also where the
+//    -9223372036854775808 range check belongs).
+//  * A "{" that starts a statement is a block, never a map. Enforced by the
+//    *_nb ("no brace") copies of the leftmost spine of the expression
+//    grammar, used only by expression statements.
+//  * labelled_statement uses the LABEL token ("name:" on one line, not "::").
+//    Its value includes the colon; strip it with  tok.value.rstrip(": \t").
+//  * The local list of a for initializer is written out inline (for_local),
+//    so that "for (local k, v in m)" and "for (local i, j = 0; ...)" share a
+//    prefix without a conflict.
+//  * Expected shift/reduce conflicts, all resolved by shift as the language
+//    wants: the dangling else; a ? b : c = d  (is  a ? b : (c = d));
+//    p->m(...)  (a method call, not a call of the data member p->m).
+//
+// The "Rule:" checks of syntax.ebnf (lvalues, label scope, constant
+// expressions, default parameter order, ...) are semantic and are not
+// expressed here.
+
+
+// ======================================================================
+// 1. Programs and definitions
+// ======================================================================
+
+// Lark's default start rule. "?" inlines it, so the tree root stays "program".
+?start: program
+
+program: definition*
+
+?definition: class_definition
+           | function_definition
+           | member_function_definition
+           | global_declaration
+           | const_declaration
+
+global_declaration: "global" global_variable ("," global_variable)* ";"
+global_variable: IDENTIFIER ["=" assignment]
+
+const_declaration: "const" const_definition ("," const_definition)* ";"
+const_definition: IDENTIFIER "=" conditional
+
+class_definition: "class" IDENTIFIER [":" IDENTIFIER] "{" member_declaration* "}"
+
+member_declaration: [STATIC] IDENTIFIER "(" [declared_parameters] ")" ";"   -> member_function_declaration
+                  | [STATIC] IDENTIFIER ("," IDENTIFIER)* ";"              -> member_data_declaration
+
+declared_parameters: IDENTIFIER ("," IDENTIFIER)* [REST]
+
+function_definition: IDENTIFIER "(" parameter_part ")" block
+
+member_function_definition: IDENTIFIER "::" IDENTIFIER "(" parameter_part ")" block
+
+parameter_part: [parameters] [";" [temporaries]]
+
+parameters: parameter ("," parameter)*
+
+parameter: IDENTIFIER                    -> required_parameter
+         | IDENTIFIER "=" assignment     -> optional_parameter
+         | IDENTIFIER ".."               -> rest_parameter
+
+temporaries: IDENTIFIER ("," IDENTIFIER)*
+
+
+// ======================================================================
+// 2. Statements
+// ======================================================================
+
+block: "{" statement* "}"
+
+?statement: if_statement
+          | switch_statement
+          | case_label
+          | default_label
+          | while_statement
+          | do_statement
+          | for_statement
+          | foreach_statement
+          | break_statement
+          | continue_statement
+          | return_statement
+          | local_declaration
+          | try_statement
+          | throw_statement
+          | labelled_statement
+          | block
+          | expression_nb ";"          -> expression_statement
+          | ";"                        -> empty_statement
+
+if_statement: "if" condition statement [else_part]
+
+?else_part: "else" statement
+          | "elseif" condition statement [else_part]    -> elseif_part
+
+?condition: "(" expression ")"
+
+switch_statement: "switch" condition block
+
+case_label: "case" logical_or ":"
+default_label: "default" ":"
+
+while_statement: "while" condition statement
+
+do_statement: "do" statement "while" condition ";"
+
+for_statement: "for" "(" [for_init] ";" [expression] ";" [expression] ")" statement
+
+?for_init: for_local
+         | expression
+
+// Pairs of (name, initializer or None).
+for_local: "local" IDENTIFIER ["=" assignment] ("," IDENTIFIER ["=" assignment])*
+
+foreach_statement: "for" "(" "local" IDENTIFIER ["," IDENTIFIER] "in" expression ")" statement
+
+break_statement: "break" [IDENTIFIER] ";"
+continue_statement: "continue" [IDENTIFIER] ";"
+
+labelled_statement: LABEL statement
+
+return_statement: "return" [expression] ";"
+
+local_declaration: "local" local_variable ("," local_variable)* ";"
+
+local_variable: IDENTIFIER ["=" assignment]
+
+try_statement: "try" block (catch_part [finally_part] | finally_part)
+catch_part: "catch" "(" IDENTIFIER ")" block
+finally_part: "finally" block
+
+throw_statement: "throw" expression ";"
+
+
+// ======================================================================
+// 3. Expressions, lowest to highest precedence
+//    Binary levels are left recursive, so a - b - c is binop(binop(a,-,b),-,c).
+// ======================================================================
+
+?expression: assignment
+           | assignment ("," assignment)+                   -> comma
+
+?assignment: conditional
+           | conditional assignment_operator assignment     -> assign
+
+!assignment_operator: "=" | "+=" | "-=" | "*=" | "/=" | "%="
+                    | "&=" | "|=" | "^=" | "<<=" | ">>="
+
+?conditional: logical_or
+            | logical_or "?" expression ":" assignment      -> ternary
+
+?logical_or: logical_and
+           | logical_or "||" logical_and                    -> or_
+?logical_and: bitwise_or
+            | logical_and "&&" bitwise_or                   -> and_
+?bitwise_or: bitwise_xor
+           | bitwise_or "|" bitwise_xor                     -> bit_or
+?bitwise_xor: bitwise_and
+            | bitwise_xor "^" bitwise_and                   -> bit_xor
+?bitwise_and: equality
+            | bitwise_and "&" equality                      -> bit_and
+?equality: relational
+         | equality equality_op relational                  -> binop
+?relational: shift
+           | relational relational_op shift                 -> binop
+?shift: additive
+      | shift shift_op additive                             -> binop
+?additive: multiplicative
+         | additive additive_op multiplicative              -> binop
+?multiplicative: unary
+               | multiplicative multiplicative_op unary     -> binop
+
+!equality_op: "==" | "!="
+!relational_op: "<" | "<=" | ">=" | ">"
+!shift_op: "<<" | ">>"
+!additive_op: "+" | "-"
+!multiplicative_op: "*" | "/" | "%"
+
+?unary: unary_op unary                -> unary
+      | incdec unary                  -> preincdec
+      | postfix
+
+!unary_op: "-" | "!" | "~"
+!incdec: "++" | "--"
+
+?postfix: primary
+        | postfix "(" [arguments] ")"                       -> call
+        | postfix "[" expression "]"                        -> index
+        | postfix "->" IDENTIFIER "(" [arguments] ")"       -> method_call
+        | postfix "->" IDENTIFIER                           -> member
+        | postfix incdec                                    -> postincdec
+
+arguments: argument ("," argument)*
+
+?argument: assignment
+         | assignment ".."                                  -> spread
+
+?primary: "(" expression ")"
+        | literal
+        | THIS                                              -> this
+        | vector_literal
+        | map_literal
+        | new_expression
+        | function_literal
+        | IDENTIFIER "::" IDENTIFIER                        -> static_member
+        | IDENTIFIER                                        -> variable
+
+?literal: INTEGER | FLOAT | CHARACTER | STRING | TRUE | FALSE | NIL
+
+new_expression: "new" IDENTIFIER "(" [arguments] ")"
+
+function_literal: "fn" "(" parameter_part ")" block
+
+vector_literal: "[" [argument ("," argument)*] "]"
+
+map_literal: "{" [map_entry ("," map_entry)*] "}"
+
+map_entry: conditional ":" assignment
+
+
+// ----------------------------------------------------------------------
+// 3b. Expression statements: the same grammar, but the leftmost primary
+//     may not be a map literal (a "{" starting a statement is a block).
+//     Only the leftmost spine is copied; every non-leftmost operand uses
+//     the ordinary rules above. Aliases match, so the trees are identical.
+// ----------------------------------------------------------------------
+
+?expression_nb: assignment_nb
+              | assignment_nb ("," assignment)+             -> comma
+?assignment_nb: conditional_nb
+              | conditional_nb assignment_operator assignment -> assign
+?conditional_nb: logical_or_nb
+               | logical_or_nb "?" expression ":" assignment -> ternary
+?logical_or_nb: logical_and_nb
+              | logical_or_nb "||" logical_and              -> or_
+?logical_and_nb: bitwise_or_nb
+               | logical_and_nb "&&" bitwise_or             -> and_
+?bitwise_or_nb: bitwise_xor_nb
+              | bitwise_or_nb "|" bitwise_xor               -> bit_or
+?bitwise_xor_nb: bitwise_and_nb
+               | bitwise_xor_nb "^" bitwise_and             -> bit_xor
+?bitwise_and_nb: equality_nb
+               | bitwise_and_nb "&" equality                -> bit_and
+?equality_nb: relational_nb
+            | equality_nb equality_op relational            -> binop
+?relational_nb: shift_nb
+              | relational_nb relational_op shift           -> binop
+?shift_nb: additive_nb
+         | shift_nb shift_op additive                       -> binop
+?additive_nb: multiplicative_nb
+            | additive_nb additive_op multiplicative        -> binop
+?multiplicative_nb: unary_nb
+                  | multiplicative_nb multiplicative_op unary -> binop
+?unary_nb: unary_op unary             -> unary
+         | incdec unary               -> preincdec
+         | postfix_nb
+?postfix_nb: primary_nb
+           | postfix_nb "(" [arguments] ")"                 -> call
+           | postfix_nb "[" expression "]"                  -> index
+           | postfix_nb "->" IDENTIFIER "(" [arguments] ")" -> method_call
+           | postfix_nb "->" IDENTIFIER                     -> member
+           | postfix_nb incdec                              -> postincdec
+?primary_nb: "(" expression ")"
+           | literal
+           | THIS                                           -> this
+           | vector_literal
+           | new_expression
+           | function_literal
+           | IDENTIFIER "::" IDENTIFIER                     -> static_member
+           | IDENTIFIER                                     -> variable
+
+
+// ======================================================================
+// 4. Lexical grammar (tokens)
+// ======================================================================
+
+// Keywords are excluded from IDENTIFIER and LABEL by a lookahead, so that
+// even the contextual lexer never turns a keyword into a name.
+// (Max length of 255 characters is a semantic check.)
+IDENTIFIER: /(?!(?:break|case|catch|class|const|continue|default|do|else|elseif|false|finally|fn|for|global|if|in|local|new|nil|return|static|switch|this|throw|true|try|while)(?![A-Za-z0-9_]))[A-Za-z_][A-Za-z0-9_]*/
+
+// "name:" with the ":" on the same line, and not the start of "::".
+// Only offered by the contextual lexer where a statement may start, so
+// "a ? b : c", "{k: v}" and "case K:" are unaffected.
+LABEL.2: /(?!(?:break|case|catch|class|const|continue|default|do|else|elseif|false|finally|fn|for|global|if|in|local|new|nil|return|static|switch|this|throw|true|try|while)(?![A-Za-z0-9_]))[A-Za-z_][A-Za-z0-9_]*[ \t]*:(?!:)/
+
+STATIC: "static"
+THIS: "this"
+TRUE: "true"
+FALSE: "false"
+NIL: "nil"
+REST: ".."
+
+// "_" only between two digits (ignored). Ranges are semantic checks.
+INTEGER: /0[xX][0-9A-Fa-f](?:_?[0-9A-Fa-f])*/
+       | /0[bB][01](?:_?[01])*/
+       | /[0-9](?:_?[0-9])*/
+
+FLOAT.2: /[0-9](?:_?[0-9])*\.(?:[0-9](?:_?[0-9])*)?(?:[eE][+-]?[0-9](?:_?[0-9])*)?/
+       | /\.[0-9](?:_?[0-9])*(?:[eE][+-]?[0-9](?:_?[0-9])*)?/
+       | /[0-9](?:_?[0-9])*[eE][+-]?[0-9](?:_?[0-9])*/
+
+// Exactly one (possibly escaped) character; the quote is written '\''.
+CHARACTER: /'(?:\\x[0-9A-Fa-f]{1,2}|\\[ntr0\\"']|[^\\'])'/
+
+// Any length, may span lines. Escapes: \n \t \r \0 \\ \" \' \xH[H]; any
+// other escape is an error.
+STRING: /"(?:[^"\\]|\\x[0-9A-Fa-f]{1,2}|\\[ntr0\\"'])*"/
+
+// ---- Skip -----------------------------------------------------------
+
+// Must be closed; an unclosed "/*" lexes as "/" "*", which is always a
+// syntax error.
+BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
+LINE_COMMENT: /\/\/[^\n]*/
+HASH_COMMENT: /#[^\n]*/                        // also a "#!" first line
+WHITESPACE: /[ \t\n\r\f\v]+/
+
+%ignore WHITESPACE
+%ignore BLOCK_COMMENT
+%ignore LINE_COMMENT
+%ignore HASH_COMMENT
