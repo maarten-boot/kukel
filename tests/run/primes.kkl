@@ -1,0 +1,31 @@
+// Globals, constants, nested loops, break and continue.
+
+const LIMIT = 50;
+global found = 0;
+
+isPrime(n; d) {
+    if (n < 2) return false;
+    for (d = 2; d * d <= n; d++)
+        if (n % d == 0) return false;
+    return true;
+}
+
+main() {
+    for (local n = 0; n <= LIMIT; n++) {
+        if (!isPrime(n)) continue;
+        print(n, "");
+        found++;
+    }
+    println();
+    println(found, "primes up to", LIMIT);
+
+    // the first number above 1000 whose digit sum is 20
+    local n = 1000;
+    while (true) {
+        local sum = 0, m = n;
+        do { sum += m % 10; m /= 10; } while (m > 0);
+        if (sum == 20) break;
+        n++;
+    }
+    println(n);
+}

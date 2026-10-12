@@ -1,0 +1,8 @@
+// args: one two three
+// exit: 3
+// main receives the command-line arguments; an int result is the exit code.
+
+main(args) {
+    println("arguments:", args);
+    return 3;
+}

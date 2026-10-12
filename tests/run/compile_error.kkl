@@ -1,0 +1,6 @@
+// A compile error is reported before anything runs.
+
+main() {
+    println("not printed");
+    total = 0;
+}

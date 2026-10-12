@@ -1,0 +1,4 @@
+ZeroDivisionError: integer division by zero
+  at average (runtime_error.kkl:4)
+  at report (runtime_error.kkl:8)
+  at main (runtime_error.kkl:13)

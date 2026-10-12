@@ -159,14 +159,14 @@ source files ──lexer──▶ tokens ──parser──▶ AST ──checker
 
 All the "Rule:" comments in syntax.ebnf:
 
-- [ ] One top-level name space: globals, constants, functions, classes and built-ins; each name defined once (Q18)
-- [ ] Constants: evaluate in program order at compile time (literals, earlier constants, unary/binary/`?:`); result must be nil/bool/number/string; errors (e.g. division by zero) are compile errors
+- [x] One top-level name space: globals, constants, functions, classes and built-ins; each name defined once (Q18) — done in the compiler (milestone 3)
+- [x] Constants: evaluate in program order at compile time (literals, earlier constants, unary/binary/`?:`); result must be nil/bool/number/string; errors (e.g. division by zero) are compile errors
 - [ ] The base class must already be defined (in file order, across files in command-line order)
 - [ ] `C::m` definition: class C must exist and declare `m`; shape matches the declaration: same number of parameters (required + optional; temporaries not counted) and a rest `..` in both or neither; names may differ (Q19)
 - [ ] `this` only in non-static member functions and in function literals nested in them
 - [ ] Parameters: once an optional parameter appears, all later ones need defaults (or are the rest parameter); the rest parameter is last; at most 255 optional parameters; a default may use earlier parameters
 - [ ] Lvalues: the target of an assignment or `++`/`--` must be a variable (global, local, parameter, temporary, captured, member), `C::x`, `e[i]` or `e->x`; not a constant, function, class, built-in or `this`
-- [ ] `local`: only directly inside a block or in a for initializer, not directly in a switch body, no duplicate in the same block; the name is visible *after* its initializer
+- [ ] `local`: only directly inside a block or in a for initializer, not directly in a switch body, no duplicate in the same block; the name is visible *after* its initializer (all but the switch rule done in milestone 3)
 - [ ] `catch (e)`: `e` is a new local of the catch block
 - [ ] `case`/`default`: only inside a switch body; case values are constant expressions; no two equal case values (1 and 1.0 are equal); at most one default
 - [ ] Q9: reject `case` labels that would jump into a try block
@@ -174,84 +174,85 @@ All the "Rule:" comments in syntax.ebnf:
 - [ ] `break`/`continue`: a plain break needs a loop or switch, a plain continue a loop; a label must name an enclosing statement (a loop, for continue) in the same function (they never cross a `fn` literal); a label may not repeat the label of an enclosing statement
 - [ ] `finally`: no `return`, and no break/continue to a target outside it
 - [ ] `new X(...)`: X is a class name or a variable (checked at run time if it's a variable)
-- [ ] Identifier resolution in order: block local → parameter → temporary → variable of an enclosing function (closure capture) → member of the method's class (incl. inherited) → top-level name. Unresolved = compile error. Record the result on the AST node (local slot, upvalue index, member, static, global index, constant value)
+- [ ] Identifier resolution in order: block local → parameter → temporary → variable of an enclosing function (closure capture) → member of the method's class (incl. inherited) → top-level name. Unresolved = compile error. (Milestone 3: the compiler resolves locals, parameters, temporaries and top-level names itself while generating code; captures and members come with milestones 6 and 8.)
 - [ ] Closure analysis: mark every local/parameter/temporary that is captured by a `fn` literal (these live in heap cells; the others stay in plain slots)
 
 ## 6. Runtime values (`internal/value`)
 
-- [ ] `Value` representation: a tagged struct (kind + int64/float64 + pointer) to keep allocation low, or a Go interface (simpler; start with this and measure)
-- [ ] Kinds: Nil, Bool, Int, Float, String (immutable `string`), Vector (`*[]Value`), Map, Class, Object, Function (code + captured upvalue cells), BoundMethod (object + method), Builtin, Error (Q13: `message`, `kind`, `trace`)
+- [x] `Value` representation: a tagged struct `{kind, num uint64, obj any}` (32 bytes), so numbers never allocate
+- [ ] Kinds (milestone 3: Nil, Bool, Int, Float, String, Vector (for `main(args)`), Function, Builtin): Nil, Bool, Int, Float, String (immutable `string`), Vector (`*[]Value`), Map, Class, Object, Function (code + captured upvalue cells), BoundMethod (object + method), Builtin, Error (Q13: `message`, `kind`, `trace`)
 - [ ] `typeof`: Function, BoundMethod and Builtin all report `"function"`
 - [ ] Map: keys are strings and numbers only; a float key with an integral value is normalized to an int key (so 1 and 1.0 are the same key); insertion order kept (Q6)
-- [ ] Equality, truthiness, ordering, `typeof` names, string conversion (Q2, Q10, Q11)
-- [ ] Memory: rely on Go's GC
+- [x] Equality, truthiness, ordering, `typeof` names, string conversion (Q2, Q10, Q11); int/float comparisons are exact (no rounding through float64); floats print as `1.0`, `1e+21`, `inf`, `-inf`, `nan`; inside containers strings are quoted with Kukel escapes
+- [x] All operator semantics live in `internal/value` and are shared by the VM and the compiler's constant folding
+- [x] Memory: rely on Go's GC
 
 ## 7. Bytecode + compiler (`internal/bytecode`, `internal/compiler`)
 
-### Instruction set (first draft; 1-byte opcode + operands as uvarint or fixed u16/u32)
-- [ ] Stack: `CONST k`, `NIL`, `TRUE`, `FALSE`, `POP`, `DUP`, `DUP2`, `SWAP`/`ROT` (for compound assignment to `e[i]` and `e->x`)
-- [ ] Variables: `LOAD_LOCAL i`/`STORE_LOCAL i` (params, temporaries, locals and catch variables share frame slots), `LOAD_GLOBAL g`/`STORE_GLOBAL g`, `LOAD_MEMBER i`/`STORE_MEMBER i` (on `this`, slot known at compile time), `LOAD_STATIC c,i`/`STORE_STATIC c,i`, `LOAD_THIS`
+### Instruction set (1-byte opcode + fixed little-endian operands: u16 for indices and counts, u32 for absolute jump targets)
+- [ ] Stack: `CONST k`, `NIL`, `TRUE`, `FALSE`, `POP`, `DUP` (done), `DUP2`, `SWAP`/`ROT` (for compound assignment to `e[i]` and `e->x`)
+- [ ] Variables (local and global done): `LOAD_LOCAL i`/`STORE_LOCAL i` (params, temporaries, locals and catch variables share frame slots), `LOAD_GLOBAL g`/`STORE_GLOBAL g`, `LOAD_MEMBER i`/`STORE_MEMBER i` (on `this`, slot known at compile time), `LOAD_STATIC c,i`/`STORE_STATIC c,i`, `LOAD_THIS`
 - [ ] Fields on any object: `GET_FIELD name` (data member, else bound method, else error), `SET_FIELD name` (data member only); slot lookup by name per class, cached later
 - [ ] Closures: `CLOSURE fn, n` + capture list (local slot or enclosing upvalue), `LOAD_UPVALUE i`/`STORE_UPVALUE i`, `LOAD_CELL i`/`STORE_CELL i` / `NEW_CELL i` for captured locals in the defining frame
-- [ ] Arithmetic/logic: `ADD SUB MUL DIV MOD NEG NOT BITNOT AND OR XOR SHL SHR EQ NE LT LE GT GE`
-- [ ] Control: `JUMP off`, `JUMP_IF_FALSE off`, `JUMP_IF_TRUE off` (for `&&`, `||`, `?:`) (`&&`/`||` produce `true`/`false`, Q4)
-- [ ] Calls: `CALL argc`, `CALL_METHOD name argc`, `CALL_SUPER class,name argc` (Q3), `CALL_STATIC class,fn argc`, `NEW class argc`, `NEW_DYN argc` (class in a variable), `RETURN`, `RETURN_NIL`
+- [x] Arithmetic/logic: `ADD SUB MUL DIV MOD NEG NOT BITNOT BITAND BITOR BITXOR SHL SHR EQ NE LT LE GT GE INC DEC` (int fast paths in the VM)
+- [x] Control: `JUMP off`, `JUMP_IF_FALSE off`, `JUMP_IF_TRUE off` (for `&&`, `||`, `?:`) (`&&`/`||` produce `true`/`false`, Q4)
+- [ ] Calls (`CALL`, `RETURN`, `RETURN_NIL` done): `CALL argc`, `CALL_METHOD name argc`, `CALL_SUPER class,name argc` (Q3), `CALL_STATIC class,fn argc`, `NEW class argc`, `NEW_DYN argc` (class in a variable), `RETURN`, `RETURN_NIL`
 - [ ] Spread: calls with a spread argument build an argument vector (`MAKE_VECTOR` + `EXTEND`) and use `CALL_V` / `CALL_METHOD_V` / `NEW_V`; vector literals with spread use `EXTEND`
 - [ ] Collections: `MAKE_VECTOR n`, `MAKE_MAP n`, `EXTEND`, `INDEX_GET`, `INDEX_SET`
 - [ ] For-each: `ITER_INIT` (vector: index; map: key snapshot; string: index; else throw), `ITER_NEXT off` (pushes 1 or 2 values, or jumps to `off` at the end)
 - [ ] Exceptions: `TRY_PUSH handler_off`, `TRY_POP`, `THROW`, `RETHROW`
-- [ ] Every instruction maps to a source line (a run-length line table per function) for stack traces
+- [x] Every instruction maps to a source line (a run-length line table per function) for stack traces
 
 ### Compiler
-- [ ] One code object per function/method/fn literal: name, class, params (required count, optional count, has-rest), number of slots, upvalue descriptors, max stack depth (computed), code, constants, line table
+- [ ] One code object per function/method/fn literal: name, class, params (required count, optional count, has-rest), number of slots, upvalue descriptors, max stack depth (computed), code, constants, line table (done except class, optional/rest and upvalues)
 - [ ] Function prologue: check argc (too few required args, or too many without a rest parameter → error); evaluate defaults for missing optional args in order; pack extra args into a vector for the rest parameter
-- [ ] Statements leave the stack empty; expression statement = expression + `POP`
-- [ ] Short-circuit `&&`, `||`, `?:`
-- [ ] Comma operator: evaluate and `POP` all but the last
-- [ ] Constants are inlined as `CONST` (folded by the checker); `-literal` folded
-- [ ] Compound assignment and `++`/`--` (pre and post) for each lvalue kind (local, cell, upvalue, global, member, static, index, field); the index and field forms evaluate `e` (and `i`) only once
-- [ ] Loops: `while`, `do-while`, `for` (an empty test = loop forever), for-each; break/continue targets, with labels, patched via jump lists
+- [x] Statements leave the stack empty (checked after every statement); expression statement = expression + `POP`, except assignments and `++`/`--`, which skip the value
+- [x] Short-circuit `&&`, `||`, `?:`; conditions compile to jumps (no boolean is built for `if (a && !b)`)
+- [x] Comma operator: evaluate and `POP` all but the last
+- [x] Constants are inlined as `CONST` (evaluated by the compiler); `-literal` folded
+- [ ] Compound assignment and `++`/`--` (pre and post) for each lvalue kind (local and global done) (local, cell, upvalue, global, member, static, index, field); the index and field forms evaluate `e` (and `i`) only once
+- [ ] Loops: `while`, `do-while`, `for` (an empty test = loop forever), for-each; break/continue targets, with labels, patched via jump lists (done except for-each and labels)
 - [ ] Per-iteration loop variables (Q16): only when the variable is captured by a closure, give each iteration a new cell (copy the old value before the update for `for`); uncaptured variables keep a plain slot (no cost)
 - [ ] `switch`: evaluate the value into a hidden slot, then a chain of `EQ` + jump to each case label's address (labels may sit inside nested statements, Duff's-device style); jump to `default` or past the end. Later, maybe: a jump table for dense int cases
   - A case label that a jump would reach past a `local` declaration still in scope is rejected by the checker (§5), so no slot clearing is needed
 - [ ] `try/catch/finally`: `TRY_PUSH` handler; the catch body binds the exception to a slot. `finally` is compiled inline on every way out (normal end, catch end, and break/continue/return passing through), plus a catch-all handler that runs the finally code and then does `RETHROW`
 - [ ] Classes in the image: name, base, data member names (instance slot layout incl. inherited members), static member slots, method table (name → code index, static flag)
-- [ ] Program init: functions, classes and built-ins bound to their global slots; then one generated init function runs the `global` initializers in program order; then `main`
+- [x] Program init: functions, classes and built-ins bound to their global slots; then one generated init function runs the `global` initializers in program order; then `main` (built-ins get a global slot only when used)
 
 ### Bytecode file `.kkc`
 - [ ] Format (little-endian, uvarints):
   `magic "KUKL"`, `format version`, `flags`, string table, constant pool (int/float/string), globals table (names), classes, functions (code, upvalue descriptors, line tables, source file names), init function, entry info, optional CRC32 at the end
 - [ ] Writer + reader with a round-trip test (compile → write → read → deep-equal)
 - [ ] Validate on load: opcodes, operand ranges, jump targets inside the code (never trust the file)
-- [ ] `kukel disasm`
+- [ ] `kukel disasm` (of `.kkl` sources done in milestone 3; `.kkc` files here)
 
 ## 8. VM (`internal/vm`) + built-ins (`internal/builtins`)
 
 ### VM
-- [ ] Value stack, frames (function/closure, ip, base pointer, `this`), a global array, static member storage per class
-- [ ] Main loop: `switch op` dispatch; keep the hot path free of allocations
+- [ ] Value stack (grows as needed, sized by each function's MaxStack), frames (function/closure, ip, base pointer, `this`), a global array, static member storage per class (done except closures, `this`, statics)
+- [x] Main loop: `switch op` dispatch; keep the hot path free of allocations (milestone 3: fib(27) ≈ 29 ms, 1M-iteration loop ≈ 40 ms)
 - [ ] Calls: user functions, closures, bound methods, built-ins, classes via `new` (allocate the object, then call the constructor if one exists)
 - [ ] Upvalues: captured variables live in heap cells shared by the frame and the closures (simple and GC-friendly in Go; no open/closed upvalue juggling needed)
 - [ ] Method dispatch by name up the class chain (Q7); cache lookups per class later
 - [ ] Exceptions: a handler stack per frame; unwind frames; runtime errors (type errors, bad index, division by zero, unknown method or member, wrong argument count, spread of a non-vector, for-each over a non-iterable, ...) become thrown values (Q13)
-- [ ] Uncaught exception: print the message and trace (function, file:line for each frame) to stderr; exit code 1
-- [ ] Deep recursion: frame depth limit → a catchable "stack overflow" error
-- [ ] Integer semantics: wraparound; `MinInt64 / -1` and `% -1` don't panic in Go (handle them explicitly); a negative or ≥64 shift count throws
+- [x] Uncaught exception: print the message and trace (function, file:line for each frame) to stderr; exit code 1 (milestone 3: every runtime error is uncaught; a trace longer than 21 frames shows the first and last 10)
+- [ ] Deep recursion: frame depth limit (10000 frames) → a catchable "stack overflow" error (the limit is done; catching comes in milestone 7)
+- [x] Integer semantics: wraparound; `MinInt64 / -1` and `% -1` don't panic in Go (handle them explicitly); a negative or ≥64 shift count throws
 
 ### Built-ins (v1). Final names to be agreed; proposal:
-- [ ] I/O: `print(...)` (no newline), `println(...)`, `readline()` (nil at EOF), `readfile(path)`, `writefile(path, s)`, `appendfile(path, s)`, `eprint(...)`
+- [ ] I/O (`print`, `println` done; arguments are separated by one space, strings unquoted): `print(...)` (no newline), `println(...)`, `readline()` (nil at EOF), `readfile(path)`, `writefile(path, s)`, `appendfile(path, s)`, `eprint(...)`
 - [ ] Strings and collections: `len(x)`, `substr(s, start [, len])`, `find(s, sub [, from])`, `split(s, sep)`, `join(vec, sep)`, `upper`/`lower`, `trim`, `replace(s, old, new)`, `char(code)`, `ord(s [, i])`, `push(v, x)`, `pop(v)`, `insert(v, i, x)`, `remove(v, i)`, `slice(v, a, b)`, `sort(v [, cmpfn])` (cmpfn may be a closure or bound method), `keys(m)`, `values(m)`, `haskey(m, k)`, `delete(m, k)`
-- [ ] Type and conversion: `typeof(x)` (returns "nil", "bool", "int", "float", "string", "vector", "map", "class", "object", "function"), `int(x)`, `float(x)`, `str(x)`, `isnil(x)`, `classof(obj)`, `instanceof(obj, C)`
+- [ ] Type and conversion (`typeof`, `str` done): `typeof(x)` (returns "nil", "bool", "int", "float", "string", "vector", "map", "class", "object", "function"), `int(x)`, `float(x)`, `str(x)`, `isnil(x)`, `classof(obj)`, `instanceof(obj, C)`
 - [ ] Math and system: `abs`, `min`, `max`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `sin`/`cos`/`tan`/`atan2`, `log`/`exp`, `random()` / `randint(a, b)` / `seed(n)`, `time()`, `clock()`, `exit(code)`, `getenv(name)`; command-line arguments come through `main(args)`
-- [ ] Built-in names live in the top-level name space; redefining or assigning one is a compile error (Q18)
+- [x] Built-in names live in the top-level name space; redefining or assigning one is a compile error (Q18)
 
 ## 9. Tests, examples, docs
 
-- [ ] `tests/*.kkl` + `tests/*.out` (expected stdout, and `.err` / exit code for error tests); a Go test runs all of them through both `run` and `build`+`exec`
+- [ ] `tests/run/*.kkl` + `.out` (expected stdout) and `.err` (expected stderr); `// args:` and `// exit:` comment lines; a Go test runs all of them through `run` (done) and `build`+`exec` (milestone 10)
 - [ ] Coverage list: every statement kind, every operator incl. wraparound and int/float mixing, default/rest parameters, temporaries, globals and constants (incl. use before declaration, constant folding errors), classes/inheritance/static members/constructors, `p->x` and bound methods, labelled break/continue, switch fall-through, nested case labels and constant case values, for-each over vector/map/string (incl. mutation during the loop), spread in calls/new/vectors, closures (shared captured variables, counters, closures in loops), try/catch/finally with break/continue/return through the finally, runtime errors being caught, uncaught error trace, maps with 1/1.0 keys
 - [ ] Error tests for every compile-time rule (unknown name, assignment to a constant, unterminated comment, bad escape, `'''`, `1__0`, ...)
 - [ ] Example programs: fizzbuzz, recursive fib, word count (file + map), a small class hierarchy, a JSON-ish pretty-printer, sort with a closure comparator
-- [ ] Fuzzing: lexer, parser, bytecode loader (malformed `.kkc` must never crash the VM)
+- [ ] Fuzzing: lexer, parser, compiler (done: `make fuzz`), bytecode loader (malformed `.kkc` must never crash the VM)
 - [ ] Benchmarks: fib(30), loop of 10M additions, string building, closure calls; compare before and after optimizations
 - [ ] `docs/reference.md`: language reference (incl. the evaluated map keys, `->` rules, closure semantics, for-each mutation rules)
 
@@ -259,8 +260,8 @@ All the "Rule:" comments in syntax.ebnf:
 
 1. [x] Setup + lexer + `kukel tokens` (done 2026-10-12)
 2. [x] Parser + AST + `kukel ast` (done 2026-10-12, branch `milestone-2-parser`)
-3. [ ] Values + compiler + VM for expressions, globals, constants, functions, `if`/`while`/`for`, `print`: run fizzbuzz
-4. [ ] Locals (incl. in for initializers), temporaries, default/rest parameters, spread, labelled break/continue, switch
+3. [x] Values + compiler + VM for expressions, globals, constants, functions, `if`/`while`/`for`, `print`: run fizzbuzz (done 2026-10-13, branch `milestone-3-vm`; also basic locals, parameters and temporaries, `do`, `break`/`continue`, `kukel disasm` of sources)
+4. [ ] Default/rest parameters, spread, labelled break/continue, switch (basic locals, for-initializer locals and temporaries were done in milestone 3)
 5. [ ] Vectors, maps, strings + their built-ins; for-each
 6. [ ] Classes, objects, methods, `this`, `p->x`, bound methods, static members, constructors, inheritance
 7. [ ] Exceptions: try/catch/finally, runtime errors as exceptions, stack traces

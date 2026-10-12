@@ -24,6 +24,7 @@ fmt:
 fuzz:
 	$(GO) test -run '^$$' -fuzz '^FuzzLexer$$' -fuzztime $(FUZZTIME) ./internal/lexer
 	$(GO) test -run '^$$' -fuzz '^FuzzParser$$' -fuzztime $(FUZZTIME) ./internal/parser
+	$(GO) test -run '^$$' -fuzz '^FuzzCompile$$' -fuzztime $(FUZZTIME) ./internal/compiler
 
 bench:
 	$(GO) test -run '^$$' -bench . -benchmem ./...

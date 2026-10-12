@@ -29,7 +29,7 @@ func TestGolden(t *testing.T) {
 		}
 		for _, src := range files {
 			var stdout, stderr bytes.Buffer
-			if code := run([]string{tc.cmd, src}, &stdout, &stderr); code != 0 {
+			if code := run([]string{tc.cmd, src}, nil, &stdout, &stderr); code != 0 {
 				t.Errorf("kukel %s %s: exit code %d: %s", tc.cmd, src, code, stderr.String())
 				continue
 			}
@@ -51,6 +51,84 @@ func TestGolden(t *testing.T) {
 					tc.cmd, src, golden, firstDiff(got, string(want)))
 			}
 		}
+	}
+}
+
+// TestRunGolden runs every tests/run/*.kkl with `kukel run` and compares
+// stdout with the .out file and stderr with the .err file (empty if there
+// is none). Comment lines at the top set the arguments and the expected
+// exit code: "// args: a b" and "// exit: 3" (default 0, or 1 with a .err
+// file). `make golden` rewrites .out and .err files.
+func TestRunGolden(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join(testdir, "run", "*.kkl"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no test files in run: %v", err)
+	}
+	for _, src := range files {
+		t.Run(filepath.Base(src), func(t *testing.T) {
+			text, err := os.ReadFile(src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			base := strings.TrimSuffix(src, ".kkl")
+			_, statErr := os.Stat(base + ".err")
+			wantCode := 0
+			if statErr == nil {
+				wantCode = 1
+			}
+			var args []string
+			for _, line := range strings.Split(string(text), "\n") {
+				if !strings.HasPrefix(line, "//") {
+					break
+				}
+				line = strings.TrimSpace(strings.TrimPrefix(line, "//"))
+				if v, ok := strings.CutPrefix(line, "args:"); ok {
+					args = strings.Fields(v)
+				}
+				if v, ok := strings.CutPrefix(line, "exit:"); ok {
+					wantCode, _ = strconv.Atoi(strings.TrimSpace(v))
+				}
+			}
+			var stdout, stderr bytes.Buffer
+			code := run(append([]string{"run", src, "--"}, args...), strings.NewReader(""), &stdout, &stderr)
+			gotErr := strings.ReplaceAll(stderr.String(), filepath.Dir(src)+string(filepath.Separator), "")
+			if *update {
+				if err := os.WriteFile(base+".out", stdout.Bytes(), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if gotErr != "" {
+					if err := os.WriteFile(base+".err", []byte(gotErr), 0o644); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return
+			}
+			wantOut, err := os.ReadFile(base + ".out")
+			if err != nil {
+				t.Fatalf("%v (run with -update to create it)", err)
+			}
+			wantErr, _ := os.ReadFile(base + ".err")
+			if stdout.String() != string(wantOut) {
+				t.Errorf("stdout differs from %s.out\n%s", base, firstDiff(stdout.String(), string(wantOut)))
+			}
+			if gotErr != string(wantErr) {
+				t.Errorf("stderr differs from %s.err\n got:  %q\n want: %q", base, gotErr, wantErr)
+			}
+			if code != wantCode {
+				t.Errorf("exit code %d, want %d", code, wantCode)
+			}
+		})
+	}
+}
+
+func TestRunSeveralFiles(t *testing.T) {
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "a.kkl"), filepath.Join(dir, "b.kkl")
+	os.WriteFile(a, []byte("main(args) { greet(args); }\n"), 0o644)
+	os.WriteFile(b, []byte("global greeting = \"hello\";\ngreet(who) { println(greeting, who); }\n"), 0o644)
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"run", a, b, "--", "x"}, nil, &stdout, &stderr); code != 0 || stdout.String() != "hello [\"x\"]\n" {
+		t.Errorf("exit %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
 	}
 }
 
@@ -78,7 +156,7 @@ func TestTokensError(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := run([]string{"tokens", src}, &stdout, &stderr); code != 1 {
+	if code := run([]string{"tokens", src}, nil, &stdout, &stderr); code != 1 {
 		t.Errorf("exit code %d, want 1", code)
 	}
 	want := src + ":2:9: unknown escape sequence \\'q'\n"
@@ -94,7 +172,7 @@ func TestASTError(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := run([]string{"ast", src}, &stdout, &stderr); code != 1 {
+	if code := run([]string{"ast", src}, nil, &stdout, &stderr); code != 1 {
 		t.Errorf("exit code %d, want 1", code)
 	}
 	want := src + ":3:1: expected ';' after expression, found '}'\n"
@@ -105,19 +183,19 @@ func TestASTError(t *testing.T) {
 
 func TestUsage(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if code := run(nil, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "usage: kukel") {
+	if code := run(nil, nil, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "usage: kukel") {
 		t.Errorf("no args: exit %d, stderr %q", code, stderr.String())
 	}
 	stderr.Reset()
-	if code := run([]string{"frobnicate"}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), `unknown command "frobnicate"`) {
+	if code := run([]string{"frobnicate"}, nil, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), `unknown command "frobnicate"`) {
 		t.Errorf("unknown command: exit %d, stderr %q", code, stderr.String())
 	}
 	stderr.Reset()
-	if code := run([]string{"ast"}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "usage: kukel ast") {
+	if code := run([]string{"ast"}, nil, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "usage: kukel ast") {
 		t.Errorf("ast without files: exit %d, stderr %q", code, stderr.String())
 	}
 	stderr.Reset()
-	if code := run([]string{"run", "x.kkl"}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "not implemented yet") {
-		t.Errorf("run: exit %d, stderr %q", code, stderr.String())
+	if code := run([]string{"build", "x.kkl"}, nil, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "not implemented yet") {
+		t.Errorf("build: exit %d, stderr %q", code, stderr.String())
 	}
 }

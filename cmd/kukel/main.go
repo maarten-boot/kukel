@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -10,9 +11,13 @@ import (
 	"text/tabwriter"
 
 	"kukel/internal/ast"
+	"kukel/internal/builtins"
+	"kukel/internal/bytecode"
+	"kukel/internal/compiler"
 	"kukel/internal/lexer"
 	"kukel/internal/parser"
 	"kukel/internal/token"
+	"kukel/internal/vm"
 )
 
 const usage = `usage: kukel <command> [arguments]
@@ -21,18 +26,18 @@ commands:
   run a.kkl b.kkl [-- args]       compile in memory and run
   build -o prog.kkc a.kkl b.kkl   compile to a bytecode file
   exec prog.kkc [args]            run a bytecode file
-  disasm prog.kkc                 show the bytecode in readable form
+  disasm a.kkl ... | prog.kkc     show the bytecode in readable form
   tokens a.kkl ...                show the tokens of source files
   ast [-pos] a.kkl ...            show the syntax tree of source files
   help                            show this text
 `
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
 // run executes the command line args and returns the exit code.
-func run(args []string, stdout, stderr io.Writer) int {
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
 		return 2
@@ -47,8 +52,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "ast":
 		return cmdAST(args, stdout, stderr)
 	case "run":
-		return notYet(cmd, 3, stderr)
-	case "build", "exec", "disasm":
+		return cmdRun(args, stdin, stdout, stderr)
+	case "disasm":
+		return cmdDisasm(args, stdout, stderr)
+	case "build", "exec":
 		return notYet(cmd, 10, stderr)
 	}
 	fmt.Fprintf(stderr, "kukel: unknown command %q\n\n%s", cmd, usage)
@@ -58,6 +65,82 @@ func run(args []string, stdout, stderr io.Writer) int {
 func notYet(cmd string, milestone int, stderr io.Writer) int {
 	fmt.Fprintf(stderr, "kukel: %s is not implemented yet (milestone %d)\n", cmd, milestone)
 	return 2
+}
+
+// compileFiles parses and compiles source files into one program.
+func compileFiles(files []string) (*bytecode.Program, error) {
+	var parsed []*ast.File
+	for _, file := range files {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			return nil, err
+		}
+		f, err := parser.ParseFile(file, src)
+		if err != nil {
+			return nil, err
+		}
+		parsed = append(parsed, f)
+	}
+	return compiler.Compile(parsed, builtins.Names())
+}
+
+// cmdRun compiles the source files before "--" and runs the program with
+// the arguments after it.
+func cmdRun(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	files, progArgs := args, []string(nil)
+	for i, a := range args {
+		if a == "--" {
+			files, progArgs = args[:i], args[i+1:]
+			break
+		}
+	}
+	if len(files) == 0 {
+		fmt.Fprintln(stderr, "usage: kukel run a.kkl ... [-- args]")
+		return 2
+	}
+	prog, err := compileFiles(files)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	out := bufio.NewWriter(stdout)
+	defer out.Flush()
+	machine, err := vm.New(prog, builtins.Lookup, out, stdin)
+	if err != nil {
+		fmt.Fprintln(stderr, "kukel:", err)
+		return 1
+	}
+	code, err := machine.Run(progArgs)
+	if err != nil {
+		out.Flush()
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return code
+}
+
+// cmdDisasm prints the bytecode of a program compiled from source files.
+// (Reading .kkc files comes with milestone 10.)
+func cmdDisasm(files []string, stdout, stderr io.Writer) int {
+	if len(files) == 0 {
+		fmt.Fprintln(stderr, "usage: kukel disasm a.kkl ...")
+		return 2
+	}
+	for _, f := range files {
+		if strings.HasSuffix(f, ".kkc") {
+			return notYet("disasm of a .kkc file", 10, stderr)
+		}
+	}
+	prog, err := compileFiles(files)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if err := bytecode.Disassemble(stdout, prog); err != nil {
+		fmt.Fprintln(stderr, "kukel:", err)
+		return 1
+	}
+	return 0
 }
 
 // cmdTokens prints one line per token, in aligned columns: position, kind,

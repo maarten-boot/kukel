@@ -1,0 +1,15 @@
+// A runtime error stops the program with a stack trace (exit code 1).
+
+average(total, count) {
+    return total / count;
+}
+
+report(total, count) {
+    println("average:", average(total, count));
+}
+
+main() {
+    report(10, 4);
+    report(10, 0);
+    println("not reached");
+}
