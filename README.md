@@ -49,6 +49,7 @@ caught RangeError: index 5 out of range for vector of length 3
   member functions and bound methods (`p->method`)
 - `try`/`catch`/`finally`, `throw`, and runtime errors as `Error` objects
 - `switch` with fall-through, labelled `break`/`continue`
+- modules: `use geometry;` loads `geometry.kkl`, reached as `geometry::name`
 - 57 built-in functions (strings, collections, math, files, ...)
 
 The full description is in [docs/reference.md](docs/reference.md); the
@@ -100,6 +101,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 |---|---|
 | `internal/token`, `internal/diag` | token kinds and source positions; the error type all stages share |
 | `internal/lexer`, `internal/parser`, `internal/ast` | source to syntax tree |
+| `internal/loader` | finds and reads the modules a program uses |
 | `internal/compiler` | name resolution, the language's rules, code generation |
 | `internal/bytecode` | instruction set, `.kkc` files, the verifier that checks loaded files |
 | `internal/vm` | the stack machine: calls, objects, closures, exceptions (specified in [docs/vm.md](docs/vm.md)) |

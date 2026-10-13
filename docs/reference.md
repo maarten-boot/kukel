@@ -50,7 +50,10 @@ hello, Kukel
 The exit code is `main`'s result when it returns an int, else 0. A compile
 error or an uncaught exception gives exit code 1; `exit(code)` ends the
 program with that code. A wrong command line (an unknown command, a missing
-file name) gives exit code 2. The operating system keeps only the low 8
+file name) gives exit code 2.
+
+Files used as modules (`use name;`) are found next to the file that uses
+them or through `KUKEL_PATH`; see [Modules](#modules). The operating system keeps only the low 8
 bits of an exit code: `return 263` exits with 7, `return -1` with 255.
 
 A `.kkc` file starts with a format version; a file written by another
@@ -71,7 +74,7 @@ first line `#!/usr/bin/env ...` is allowed) and `/* ... */` (not nested; a
 
 **Keywords**: `break case catch class const continue default do else elseif
 false finally fn for global if in local new nil return static switch this
-throw true try while`.
+throw true try use while`.
 
 **Integers**: `42`, `1_000_000` (`_` only between digits), `0xFF_FF`,
 `0b1010`. A leading zero does not mean octal. Decimal literals go up to
@@ -140,8 +143,9 @@ Point::Point(x, y) { this->x = x; this->y = y; }
 main(args) { println(square(MAX), HALF, count, names, new Point(1, 2)); }
 ```
 
-- All top-level names (globals, constants, functions, classes), the
-  built-in functions and the class `Error` share one name space: each name
+- All top-level names (globals, constants, functions, classes) of the
+  program, the built-in functions and the class `Error` share one name
+  space (modules have their own, see [Modules](#modules)): each name
   is defined once, and the built-in names cannot be redefined or assigned.
   A local, parameter or member may reuse a built-in's name; it hides the
   built-in where it is visible.
@@ -156,6 +160,67 @@ main(args) { println(square(MAX), HALF, count, names, new Point(1, 2)); }
   an initializer that runs earlier sees `nil`.
 - The program starts at `main()` or `main(args)`, where `args` is a vector
   of the command-line arguments (strings).
+
+### Modules
+
+A file can use other source files as *modules*:
+
+```
+// geometry.kkl
+const PI = 3.14159;
+
+class Circle { r; Circle(r); area(); }
+Circle::Circle(r) { this->r = r; }
+Circle::area() { return PI * r * r; }
+
+_square(x) { return x * x; }             // private to the module
+hypot(a, b) { return sqrt(_square(a) + _square(b)); }
+```
+
+```
+// main.kkl
+use geometry;
+
+class Ring : geometry::Circle { inner; Ring(r, inner); area(); }
+Ring::Ring(r, inner) { geometry::Circle::Circle(r); this->inner = inner; }
+Ring::area() { return geometry::Circle::area() - geometry::PI * inner * inner; }
+
+main() {
+    println(geometry::hypot(3, 4), round(new Ring(2, 1)->area()));
+    println(new geometry::Circle(1));
+}
+```
+
+```
+$ kukel run main.kkl
+5.0 9
+geometry::Circle{r: 1}
+```
+
+- `use name;` at the top of a file, before its definitions, loads module
+  `name`: the file `name.kkl` in the directory of the file with the `use`,
+  else in one of the directories listed in the environment variable
+  `KUKEL_PATH` (separated by `:`, or `;` on Windows).
+- A module is an ordinary source file with its own name space. Its
+  top-level names are reached as `name::x`: functions (`geometry::hypot(3,
+  4)`), constants (also in constant expressions), globals (which can be
+  assigned), and classes (`new geometry::Circle(1)`, `class Ring :
+  geometry::Circle`, `geometry::Circle::x` for a static member).
+- `use` holds for the file that contains it. A module sees its own names,
+  the built-ins, `Error`, and the modules it uses itself; it does not see the
+  program's names. A program and its modules may define the same names.
+- Names that start with `_` are private: `geometry::_square` is a compile
+  error outside the module.
+- Each module is loaded once, however many files use it, and its global
+  initializers run before those of the files that use it. A module name
+  stands for one file in the whole program. Modules may not use each other
+  in a cycle, and a file given on the command line cannot also be a module.
+- A module's name cannot be the name of a built-in or `Error`, nor a
+  top-level name of the program or module whose file uses it.
+- A class of a module is printed and named in messages with its module:
+  `geometry::Circle`. Its constructor is still `Circle`.
+- `kukel build` stores the program and all its modules in one `.kkc` file;
+  `kukel exec` does not need the module files.
 
 ---
 
@@ -245,7 +310,7 @@ are strings and numbers; `1` and `1.0` are the same key.
 `name`; write `{"name": 1}` for a string key. A `{` that starts a statement
 is a block, never a map.
 
-**Assignable**: variables, `C::x` (static data member), `v[i]`, `p->x`. In
+**Assignable**: variables, a module's globals (`m::x`), `C::x` (static data member), `v[i]`, `p->x`. In
 `v[f()] += 1` and `p->x++`, `v`, `f()` and `p` are evaluated once.
 
 ---

@@ -1,5 +1,5 @@
 (*
-   Kukel syntax, as implemented by kukel v0.1 (syntax version 2).
+   Kukel syntax, as implemented by kukel v0.2 (syntax version 3).
 
    Notation: ISO/IEC 14977 EBNF.
        =  definition        ;  end of rule        |  alternative
@@ -12,9 +12,14 @@
    What programs mean is described in docs/reference.md; how they are
    compiled and run in docs/vm.md.
 
-   History: syntax version 2 changed version 1 as follows (later changes,
-   such as inherited constructors and compile-time argument checks, are
-   rules, not syntax, and appear in the rules below):
+   History: syntax version 3 added modules: "use" declarations at the top
+   of a file ("use" is a new keyword), and module-qualified names
+   (module::name, module::Class::name, new module::Class(...) and
+   "class C : module::Base").
+
+   Syntax version 2 changed version 1 as follows (later changes, such as
+   inherited constructors and compile-time argument checks, are rules, not
+   syntax, and appear in the rules below):
      - "this" is a keyword (an expression); "const", "fn", "global" and
        "in" are new keywords.
      - Globals are declared with "global"; using an undeclared name is a
@@ -40,14 +45,38 @@
 start               = program ;
                       (* The start symbol: a source file. *)
 
-program             = { definition } ;
-                      (* Rules: all top-level names (globals, constants,
-                         functions, classes), the built-ins and the
-                         prelude's class Error share one name space; each
-                         name is defined once. (Locals, parameters and
-                         members may reuse a built-in's name: they hide it
-                         where they are visible.) The program defines a
-                         function main with at most one parameter. *)
+program             = { use_declaration } , { definition } ;
+                      (* A source file. The files given to kukel form the
+                         program; a file loaded by "use" is a module.
+                         Rules: the top-level names (globals, constants,
+                         functions, classes) of the program, or of one
+                         module, share one name space with the built-ins and
+                         the prelude's class Error; each name is defined
+                         once. (Locals, parameters and members may reuse a
+                         built-in's name: they hide it where they are
+                         visible.) A program and each module have their own
+                         name space, so a module may reuse the program's
+                         names and the other way round. The program defines
+                         a function main with at most one parameter (a
+                         module's main is an ordinary function). *)
+
+use_declaration     = "use" , Identifier , ";" ;
+                      (* Loads module name: the file name.kkl in the
+                         directory of the file that uses it, else in the
+                         directories of KUKEL_PATH. Its top-level names are
+                         then reached as name::x in this file, and only in
+                         this file. A module does not see the program's
+                         names: only its own, the built-ins, and the modules
+                         it uses itself.
+                         Rules: a module name stands for one file in the
+                         whole program, and is loaded once; its globals are
+                         initialized before those of the files that use it.
+                         Modules may not use each other in a cycle; a file of
+                         the program may not also be a module. A file uses a
+                         module once; the module name may not be a built-in,
+                         Error, or a top-level name of the using file's
+                         program or module. Names starting with "_" are
+                         private: name::_x is an error outside the module. *)
 
 definition          = class_definition
                     | function_definition
@@ -76,7 +105,7 @@ const_definition    = Identifier , "=" , conditional ;
                          nil, a boolean, a number or a string. A constant
                          cannot be assigned to. *)
 
-class_definition    = "class" , Identifier , [ ":" , Identifier ] ,
+class_definition    = "class" , Identifier , [ ":" , [ Identifier , "::" ] , Identifier ] ,
                       "{" , { member_declaration } , "}" ;
                       (* Rule: the base class must already be defined.
                          No ";" after the closing brace. *)
@@ -251,8 +280,9 @@ expression          = assignment , { "," , assignment } ;
 assignment          = conditional , [ assignment_operator , assignment ] ;
                       (* right associative. Rule: the left side must be an
                          lvalue: a variable (global, parameter, temporary,
-                         local, captured variable, member), a static member
-                         C::x, an indexed element e[i] or a data member e->x.
+                         local, captured variable, member, a module's global
+                         m::x), a static member C::x, an indexed element e[i]
+                         or a data member e->x.
                          Constants, functions, classes, built-ins and 'this'
                          cannot be assigned. *)
 
@@ -321,14 +351,20 @@ primary             = "(" , expression , ")"
                     | new_expression
                     | function_literal
                     | Identifier , "::" , Identifier      (* static member,
-                                                             static function, or
-                                                             Base::m(...) *)
+                                                             static function,
+                                                             Base::m(...), or a
+                                                             module's name *)
+                    | Identifier , "::" , Identifier , "::" , Identifier
+                                                          (* the same for a class
+                                                             of a module *)
                     | Identifier ;
                     (* An identifier is, in order: a block local, a
                        parameter, a temporary, a variable of an enclosing
                        function (for a function literal), a member of the
-                       method's class, a top-level name (global, constant,
-                       function, class, built-in). Rules: an identifier that
+                       method's class, a top-level name of the file's
+                       program or module (global, constant, function,
+                       class), a built-in. In a::b, a is a module the file
+                       uses, else a class. Rules: an identifier that
                        is none of these is a compile error; 'this' only in
                        a non-static member function (or a function literal
                        inside one). C::m(...) with a non-static member
@@ -337,7 +373,7 @@ primary             = "(" , expression , ")"
                        or of a class derived from it, and without spread
                        arguments. *)
 
-new_expression      = "new" , Identifier , "(" , [ arguments ] , ")" ;
+new_expression      = "new" , [ Identifier , "::" ] , Identifier , "(" , [ arguments ] , ")" ;
                       (* A class name, or a variable holding a class.
                          The new object's data members are nil; then the
                          constructor runs with the arguments: C::C, or, if C
@@ -378,7 +414,7 @@ Keyword             = "break" | "case" | "catch" | "class" | "const" | "continue
                     | "default" | "do" | "else" | "elseif" | "false" | "finally"
                     | "fn" | "for" | "global" | "if" | "in" | "local" | "new"
                     | "nil" | "return" | "static" | "switch" | "this" | "throw"
-                    | "true" | "try" | "while" ;
+                    | "true" | "try" | "use" | "while" ;
 
 Integer             = Decimal_Digits
                     | "0" , ( "x" | "X" ) , Hex_Digit , { [ "_" ] , Hex_Digit }

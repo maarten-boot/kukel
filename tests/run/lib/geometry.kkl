@@ -1,0 +1,26 @@
+// Module geometry (tests/run/modules.kkl): shapes, found through KUKEL_PATH.
+use textfmt;
+
+const PI = 3.14159;
+global made = 0;
+
+class Shape { name; Shape(name); area(); describe(); }
+Shape::Shape(name) { this->name = name; made++; }
+Shape::describe() { return textfmt::pad(name, 8) + _round(area()); }
+
+class Circle : Shape { r; static count; Circle(r); area(); static unit(); }
+Circle::Circle(r) {
+    Shape::Shape("circle");
+    this->r = r;
+    count = count == nil ? 1 : count + 1;
+}
+Circle::area() { return PI * r * r; }
+Circle::unit() { return new Circle(1); }
+
+// Private: names starting with _ are only visible inside this module.
+_round(x) { return str(round(x * 100) / 100.0); }
+
+checkPositive(x) {
+    if (x <= 0) throw new Error("not positive: " + str(x), "ValueError");
+    return x;
+}

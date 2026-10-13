@@ -43,8 +43,13 @@ func Inspect(n Node, f func(Node) bool) {
 
 	switch n := n.(type) {
 	// Definitions
+	case *UseDecl:
+		walk(n.Name)
 	case *ClassDecl:
 		walk(n.Name)
+		if n.BaseModule != nil {
+			walk(n.BaseModule)
+		}
 		if n.Base != nil {
 			walk(n.Base)
 		}
@@ -143,12 +148,18 @@ func Inspect(n Node, f func(Node) bool) {
 	case *MapEntry:
 		walk(n.Key, n.Value)
 	case *NewExpr:
+		if n.Module != nil {
+			walk(n.Module)
+		}
 		walk(n.Class)
 		exprs(n.Args)
 	case *FuncLit:
 		params(n.Params)
 		walk(n.Body)
 	case *StaticRef:
+		if n.Module != nil {
+			walk(n.Module)
+		}
 		walk(n.Class, n.Name)
 	case *Spread:
 		walk(n.X)

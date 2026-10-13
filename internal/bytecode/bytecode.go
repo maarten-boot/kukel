@@ -9,6 +9,7 @@ package bytecode
 import (
 	"encoding/binary"
 	"sort"
+	"strings"
 
 	"github.com/maarten-boot/kukel/internal/token"
 	"github.com/maarten-boot/kukel/internal/value"
@@ -252,6 +253,16 @@ func ReadU32(code []byte, at int) int { return int(binary.LittleEndian.Uint32(co
 type LineInfo struct {
 	PC   int
 	Line int
+}
+
+// LocalName returns the last part of a qualified name: "Stack" for
+// "util::Stack". A class's constructor is the member function with the
+// local name of the class.
+func LocalName(name string) string {
+	if i := strings.LastIndex(name, "::"); i >= 0 {
+		return name[i+2:]
+	}
+	return name
 }
 
 // Function is a compiled function: its code and constants.

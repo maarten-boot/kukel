@@ -1,0 +1,6 @@
+// Module textfmt: used by module geometry (found next to it) and by the
+// program.
+pad(s, width) {
+    while (len(s) < width) s += " ";
+    return s;
+}

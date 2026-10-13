@@ -1,0 +1,9 @@
+circle  12.57
+square  9.0
+circle  3.14
+made    3
+circles 2
+tau     6.28318
+geometry::Circle{name: "circle", r: 2}
+class true
+ValueError: not positive: -1

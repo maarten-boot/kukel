@@ -19,6 +19,13 @@ func ParseFile(name string, src []byte) (f *ast.File, err error) {
 	}
 	defer p.recover(&err)
 	f = &ast.File{Name: name}
+	for p.at(token.USE) {
+		pos := p.tok.Pos
+		p.next()
+		id := p.ident("module name after 'use'")
+		p.expect(token.SEMICOLON, "after use declaration")
+		f.Decls = append(f.Decls, &ast.UseDecl{Use: pos, Name: id})
+	}
 	for !p.at(token.EOF) {
 		f.Decls = append(f.Decls, p.parseDecl())
 	}
@@ -181,6 +188,8 @@ func (p *parser) parseDecl() ast.Decl {
 		}
 		p.next()
 		p.errorExpected("'(' or '::' after function name")
+	case token.USE:
+		p.errorf(p.tok.Pos, "use declarations come before all other definitions of a file")
 	case token.SEMICOLON:
 		p.errorf(p.tok.Pos, "unexpected ';' (no ';' follows a class or function body)")
 	}
@@ -214,6 +223,9 @@ func (p *parser) parseClass() *ast.ClassDecl {
 	c.Name = p.ident("class name")
 	if p.accept(token.COLON) {
 		c.Base = p.ident("base class name after ':'")
+		if p.accept(token.SCOPE) {
+			c.BaseModule, c.Base = c.Base, p.ident("class name after '::'")
+		}
 	}
 	lbrace := p.expect(token.LBRACE, "to start the class body")
 	for !p.at(token.RBRACE) {
@@ -711,11 +723,15 @@ func (p *parser) parsePrimary() ast.Expr {
 		return p.parseMap()
 	case token.NEW:
 		p.next()
+		var module *ast.Ident
 		class := p.ident("class name after 'new'")
+		if p.accept(token.SCOPE) {
+			module, class = class, p.ident("class name after '::'")
+		}
 		p.expect(token.LPAREN, "after class name")
 		args := p.parseArgs(token.RPAREN)
 		p.expect(token.RPAREN, "after arguments")
-		return &ast.NewExpr{New: t.Pos, Class: class, Args: args}
+		return &ast.NewExpr{New: t.Pos, Module: module, Class: class, Args: args}
 	case token.FN:
 		p.next()
 		p.expect(token.LPAREN, "after 'fn'")
@@ -725,7 +741,11 @@ func (p *parser) parsePrimary() ast.Expr {
 	case token.IDENT:
 		id := p.ident("name")
 		if p.accept(token.SCOPE) {
-			return &ast.StaticRef{Class: id, Name: p.ident("member name after '::'")}
+			r := &ast.StaticRef{Class: id, Name: p.ident("name after '::'")}
+			if p.accept(token.SCOPE) {
+				r.Module, r.Class, r.Name = r.Class, r.Name, p.ident("member name after '::'")
+			}
+			return r
 		}
 		return id
 	}

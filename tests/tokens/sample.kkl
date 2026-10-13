@@ -1,5 +1,6 @@
 #!/usr/bin/env kukel
-// Every kind of token in Kukel syntax version 2.
+// Every kind of token in Kukel syntax version 3.
+use util;
 
 global count = 0, names;
 const MAX = 1_000, MASK = 0xFF_FF | 0b1010_0101, BIG = -9223372036854775808;

@@ -1,0 +1,32 @@
+// Modules: "use name;" loads name.kkl (here from lib/, through KUKEL_PATH).
+use geometry;
+use textfmt;
+
+const TAU = 2 * geometry::PI;   // module constants are constants here too
+
+// A class derived from a class of a module.
+class Square : geometry::Shape { side; Square(side); area(); }
+Square::Square(side) {
+    geometry::Shape::Shape("square");
+    this->side = side;
+}
+Square::area() { return side * side; }
+
+main() {
+    local shapes = [new geometry::Circle(2), new Square(3), geometry::Circle::unit()];
+    for (local s in shapes) println(s->describe());
+
+    println(textfmt::pad("made", 8) + str(geometry::made));
+    println(textfmt::pad("circles", 8) + str(geometry::Circle::count));
+    println(textfmt::pad("tau", 8) + str(TAU));
+    println(shapes[0]);
+
+    local k = geometry::Circle;          // a module's class is a value
+    println(typeof(k), new k(10)->area() > 314);
+
+    try {
+        geometry::checkPositive(-1);
+    } catch (e) {
+        println(e->kind + ":", e->message);
+    }
+}

@@ -63,12 +63,18 @@ func (c *compiler) staticCallee(fun ast.Expr) *paramShape {
 		if c.memberOf(fun.Name) != nil {
 			return nil
 		}
-		if g, ok := c.globals[fun.Name]; ok && g.kind == symFunc {
+		if g, ok := c.lookup(fun.Name); ok && g.kind == symFunc {
 			return g.params
 		}
 	case *ast.StaticRef:
-		if g, ok := c.globals[fun.Class.Name]; ok && g.kind == symClass {
-			if m := g.class.lookup(fun.Name.Name); m != nil && m.kind == memberMethod && m.static {
+		if c.isModuleRef(fun) {
+			if g := c.moduleMember(fun.Class, fun.Name); g.kind == symFunc {
+				return g.params
+			}
+			return nil
+		}
+		if k := c.findClass(fun.Module, fun.Class); k != nil {
+			if m := k.lookup(fun.Name.Name); m != nil && m.kind == memberMethod && m.static {
 				return m.def
 			}
 		}
@@ -80,17 +86,18 @@ func (c *compiler) staticCallee(fun ast.Expr) *paramShape {
 // holding one): the parameters of the constructor that runs (C's own, else
 // the nearest base class's, Q33), or no arguments at all when there is none.
 func (c *compiler) checkNew(e *ast.NewExpr) {
-	if _, ok := c.lookupLocal(e.Class.Name); ok {
+	if e.Module == nil {
+		if _, ok := c.lookupLocal(e.Class.Name); ok {
+			return
+		}
+		if _, ok := c.upvalue(c.fs, e.Class.Name); ok {
+			return
+		}
+	}
+	k := c.findClass(e.Module, e.Class)
+	if k == nil {
 		return
 	}
-	if _, ok := c.upvalue(c.fs, e.Class.Name); ok {
-		return
-	}
-	g, ok := c.globals[e.Class.Name]
-	if !ok || g.kind != symClass {
-		return
-	}
-	k := g.class
 	ctor := k.constructor()
 	switch {
 	case ctor == nil:

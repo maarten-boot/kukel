@@ -1,4 +1,4 @@
-// Lark grammar for Kukel (syntax.ebnf, syntax version 2; kukel v0.1).
+// Lark grammar for Kukel (syntax.ebnf, syntax version 3; kukel v0.2).
 //
 // Intended for:  Lark(grammar, parser="lalr", lexer="contextual")
 // (the default lexer for LALR; the start rule is "start"). The contextual
@@ -39,7 +39,9 @@
 // Lark's default start rule. "?" inlines it, so the tree root stays "program".
 ?start: program
 
-program: definition*
+program: use_declaration* definition*
+
+use_declaration: "use" IDENTIFIER ";"
 
 ?definition: class_definition
            | function_definition
@@ -53,7 +55,7 @@ global_variable: IDENTIFIER ["=" assignment]
 const_declaration: "const" const_definition ("," const_definition)* ";"
 const_definition: IDENTIFIER "=" conditional
 
-class_definition: "class" IDENTIFIER [":" IDENTIFIER] "{" member_declaration* "}"
+class_definition: "class" IDENTIFIER [":" [IDENTIFIER "::"] IDENTIFIER] "{" member_declaration* "}"
 
 member_declaration: [STATIC] IDENTIFIER "(" [declared_parameters] ")" ";"   -> member_function_declaration
                   | [STATIC] IDENTIFIER ("," IDENTIFIER)* ";"              -> member_data_declaration
@@ -215,11 +217,12 @@ arguments: argument ("," argument)*
         | new_expression
         | function_literal
         | IDENTIFIER "::" IDENTIFIER                        -> static_member
+        | IDENTIFIER "::" IDENTIFIER "::" IDENTIFIER        -> module_static_member
         | IDENTIFIER                                        -> variable
 
 ?literal: INTEGER | FLOAT | CHARACTER | STRING | TRUE | FALSE | NIL
 
-new_expression: "new" IDENTIFIER "(" [arguments] ")"
+new_expression: "new" [IDENTIFIER "::"] IDENTIFIER "(" [arguments] ")"
 
 function_literal: "fn" "(" parameter_part ")" block
 
@@ -279,6 +282,7 @@ map_entry: conditional ":" assignment
            | new_expression
            | function_literal
            | IDENTIFIER "::" IDENTIFIER                     -> static_member
+           | IDENTIFIER "::" IDENTIFIER "::" IDENTIFIER     -> module_static_member
            | IDENTIFIER                                     -> variable
 
 
@@ -289,12 +293,12 @@ map_entry: conditional ":" assignment
 // Keywords are excluded from IDENTIFIER and LABEL by a lookahead, so that
 // even the contextual lexer never turns a keyword into a name.
 // (Max length of 255 characters is a semantic check.)
-IDENTIFIER: /(?!(?:break|case|catch|class|const|continue|default|do|else|elseif|false|finally|fn|for|global|if|in|local|new|nil|return|static|switch|this|throw|true|try|while)(?![A-Za-z0-9_]))[A-Za-z_][A-Za-z0-9_]*/
+IDENTIFIER: /(?!(?:break|case|catch|class|const|continue|default|do|else|elseif|false|finally|fn|for|global|if|in|local|new|nil|return|static|switch|this|throw|true|try|use|while)(?![A-Za-z0-9_]))[A-Za-z_][A-Za-z0-9_]*/
 
 // "name:" with the ":" on the same line, and not the start of "::".
 // Only offered by the contextual lexer where a statement may start, so
 // "a ? b : c", "{k: v}" and "case K:" are unaffected.
-LABEL.2: /(?!(?:break|case|catch|class|const|continue|default|do|else|elseif|false|finally|fn|for|global|if|in|local|new|nil|return|static|switch|this|throw|true|try|while)(?![A-Za-z0-9_]))[A-Za-z_][A-Za-z0-9_]*[ \t]*:(?!:)/
+LABEL.2: /(?!(?:break|case|catch|class|const|continue|default|do|else|elseif|false|finally|fn|for|global|if|in|local|new|nil|return|static|switch|this|throw|true|try|use|while)(?![A-Za-z0-9_]))[A-Za-z_][A-Za-z0-9_]*[ \t]*:(?!:)/
 
 STATIC: "static"
 THIS: "this"

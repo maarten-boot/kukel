@@ -72,6 +72,14 @@ func names(ids []*Ident) string {
 	return strings.Join(s, ", ")
 }
 
+// qualified is "module::name", or "name" without a module.
+func qualified(module, name *Ident) string {
+	if module != nil {
+		return module.Name + "::" + name.Name
+	}
+	return name.Name
+}
+
 func static(b bool) string {
 	if b {
 		return "static "
@@ -118,9 +126,11 @@ func exprs[T Node](xs []T) []Node {
 func (p *printer) node(n Node) {
 	switch n := n.(type) {
 	// Definitions
+	case *UseDecl:
+		p.line(n, "Use %s", n.Name.Name)
 	case *ClassDecl:
 		if n.Base != nil {
-			p.line(n, "Class %s : %s", n.Name.Name, n.Base.Name)
+			p.line(n, "Class %s : %s", n.Name.Name, qualified(n.BaseModule, n.Base))
 		} else {
 			p.line(n, "Class %s", n.Name.Name)
 		}
@@ -271,7 +281,7 @@ func (p *printer) node(n Node) {
 		p.line(n, "Entry")
 		p.children(n.Key, n.Value)
 	case *NewExpr:
-		p.line(n, "New %s", n.Class.Name)
+		p.line(n, "New %s", qualified(n.Module, n.Class))
 		p.children(exprs(n.Args)...)
 	case *FuncLit:
 		p.line(n, "Fn")
@@ -280,7 +290,7 @@ func (p *printer) node(n Node) {
 		p.node(n.Body)
 		p.indent--
 	case *StaticRef:
-		p.line(n, "Static %s::%s", n.Class.Name, n.Name.Name)
+		p.line(n, "Static %s::%s", qualified(n.Module, n.Class), n.Name.Name)
 	case *Spread:
 		p.line(n, "Spread")
 		p.children(n.X)

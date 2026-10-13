@@ -25,7 +25,7 @@ Contents:
 ## 1. Overview
 
 ```
-source files ──lexer──▶ tokens ──parser──▶ syntax trees ──compiler──▶ program image ──VM──▶ run
+source files ──loader (lexer, parser)──▶ syntax trees ──compiler──▶ program image ──VM──▶ run
                                                                            │    ▲
                                                                Encode      ▼    │ Decode + Verify
                                                                        .kkc file
@@ -34,6 +34,7 @@ source files ──lexer──▶ tokens ──parser──▶ syntax trees ─�
 | Package | Role |
 |---|---|
 | `internal/lexer`, `internal/parser`, `internal/ast` | source text to syntax trees |
+| `internal/loader` | reads the program's files and the modules they use (`use`), in compile order |
 | `internal/token`, `internal/diag` | token kinds and source positions; the error type all stages share |
 | `internal/compiler` | name resolution, the language's rules, constant evaluation, code generation; the prelude |
 | `internal/bytecode` | instructions, the program image, `.kkc` encoding and decoding, the verifier, the disassembler |
@@ -87,8 +88,8 @@ and what the VM runs:
 
 | Part | Contents |
 |---|---|
-| `Globals` | the global slots: name and kind (variable, function, built-in, class) and, for functions and classes, an index into `Funcs` or `Classes` |
-| `Classes` | name, base class index (a base always comes before its derived classes), own data members, own static data members, own member functions (name, static flag, function index or −1 if declared but not defined) |
+| `Globals` | the global slots: name and kind (variable, function, built-in, class) and, for functions and classes, an index into `Funcs` or `Classes`. Names of a module's top-level names are qualified (`geometry::hypot`) |
+| `Classes` | name (`module::Class` for a class of a module), base class index (a base always comes before its derived classes), own data members, own static data members, own member functions (name, static flag, function index or −1 if declared but not defined) |
 | `Funcs` | all functions: top-level functions, member functions, function literals |
 | `Init` | the function that runs the global initializers |
 | `Main` | the global index of `main` |
@@ -232,8 +233,9 @@ classes first:
 - **method table**: a copy of the base class's table, with the class's own
   member functions added or overriding (so all member functions are
   virtual, and finding one is a single lookup);
-- **constructor**: the class's own member function named like the class, or
-  else the base class's constructor (inherited), or none;
+- **constructor**: the class's own non-static member function named like
+  the class (for `geometry::Circle`, the part after the last `::`:
+  `Circle`), or else the base class's constructor (inherited), or none;
 - **statics**: the class's own static data members, all nil.
 
 An object is its class plus an array of data member slots (all nil when
@@ -433,8 +435,10 @@ The listings below are real compiler output (`kukel disasm`), shortened.
 The compiler resolves every name while it generates code. In order: a
 local (innermost block first), a parameter, a temporary, a captured
 variable of an enclosing function, a member of the current class
-(inherited ones too; not constructors), a top-level name. Anything else is
-a compile error. The result decides the instruction:
+(inherited ones too; not constructors), a top-level name of the file's
+program or module, a built-in. `m::x` is a top-level name of module `m`
+when the file uses `m`. Anything else is a compile error. The result
+decides the instruction:
 
 | Name is | Read | Write |
 |---|---|---|
@@ -444,7 +448,7 @@ a compile error. The result decides the instruction:
 | a data member of `this` | `LOAD_MEMBER` | `STORE_MEMBER` |
 | a static data member | `LOAD_STATIC` | `STORE_STATIC` |
 | a member function | `LOAD_THIS; GET_MEMBER` (bound) or `LOAD_FUNC` (static) | error |
-| a global variable, function, class or built-in | `LOAD_GLOBAL` | `STORE_GLOBAL` (variables only) |
+| a global variable, function, class or built-in (also `m::x` of a module) | `LOAD_GLOBAL` | `STORE_GLOBAL` (variables only) |
 | a constant | `CONST`/`NIL`/`TRUE`/`FALSE` with its value | error |
 
 Parameters take slots 0, 1, ... in order, then temporaries, then locals.
@@ -452,6 +456,12 @@ A block's locals get the next free slots and give them back at the end of
 the block, so sibling blocks share slots. Hidden slots (named in
 parentheses by the disassembler) hold a switch value, a for-each iterator,
 a pending exception, or a temporary value (below).
+
+Modules need nothing from the VM. The loader puts each module before the
+files that use it, and the compiler compiles all of them into one program
+image: a module's names become ordinary globals with qualified names, and
+its global initializers come first in `Init`. A `.kkc` file therefore
+holds the program together with all its modules.
 
 ### 6.2 Expressions and the stack depth
 

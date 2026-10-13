@@ -40,10 +40,28 @@ type global struct {
 	pos    token.Pos   // definition (zero for built-ins)
 }
 
+// module is a name space of top-level names: the program's own files
+// (name ""), or a module loaded by "use".
+type module struct {
+	name  string
+	names map[string]*global
+}
+
+// fileScope is what the code of one file sees: the names of its module,
+// then the built-ins and the prelude; and, as module::name, the modules
+// the file uses.
+type fileScope struct {
+	mod     *module
+	uses    map[string]*module
+	useDecl []*ast.UseDecl // in order, for checkUses
+}
+
 type compiler struct {
-	prog    *bytecode.Program
-	globals map[string]*global
-	fs      *funcState // the function being compiled
+	prog      *bytecode.Program
+	universal map[string]*global // the built-ins and the prelude's names
+	modules   map[string]*module // by name; "" is the program itself
+	file      *fileScope         // the file whose code is being compiled
+	fs        *funcState         // the function being compiled
 }
 
 // bailout carries a compile error up to Compile.
@@ -54,11 +72,14 @@ func (c *compiler) errorf(pos token.Pos, format string, args ...any) {
 }
 
 // Compile compiles the files of one program, in order. builtins lists the
-// names of the built-in functions.
+// names of the built-in functions. A file with a Module name belongs to that
+// module; a module must come before the files that use it (the loader
+// orders them so).
 func Compile(files []*ast.File, builtins []string) (prog *bytecode.Program, err error) {
 	c := &compiler{
-		prog:    &bytecode.Program{Main: -1},
-		globals: make(map[string]*global),
+		prog:      &bytecode.Program{Main: -1},
+		universal: make(map[string]*global),
+		modules:   map[string]*module{"": {names: make(map[string]*global)}},
 	}
 	defer func() {
 		if r := recover(); r != nil {
@@ -70,7 +91,7 @@ func Compile(files []*ast.File, builtins []string) (prog *bytecode.Program, err 
 		}
 	}()
 	for _, name := range builtins {
-		c.globals[name] = &global{kind: symBuiltin, index: -1}
+		c.universal[name] = &global{kind: symBuiltin, index: -1}
 	}
 	user := files
 	files = append([]*ast.File{preludeFile()}, files...)
@@ -79,24 +100,29 @@ func Compile(files []*ast.File, builtins []string) (prog *bytecode.Program, err 
 	// order. Every function and member function definition becomes a job;
 	// its index is its index in Program.Funcs.
 	var jobs []funcJob
-	var methodDefs []*ast.FuncDecl
-	var globals []*ast.VarSpec
-	for _, f := range files {
+	var methodDefs []funcJob
+	var globals []globalInit
+	var scopes []*fileScope
+	for i, f := range files {
+		c.file = c.fileScope(f, i == 0)
+		scopes = append(scopes, c.file)
 		for _, d := range f.Decls {
 			switch d := d.(type) {
+			case *ast.UseDecl:
+				c.use(d)
 			case *ast.FuncDecl:
 				if d.Class != nil {
-					methodDefs = append(methodDefs, d) // after all classes are known
+					methodDefs = append(methodDefs, funcJob{decl: d, file: c.file}) // after all classes are known
 					continue
 				}
 				g := c.define(d.Name, symFunc)
 				c.prog.Globals[g.index].Func = len(jobs)
-				g.params = shapeOf(d.Name.Name, d.Params)
-				jobs = append(jobs, funcJob{decl: d})
+				g.params = shapeOf(c.qualify(d.Name.Name), d.Params)
+				jobs = append(jobs, funcJob{decl: d, file: c.file})
 			case *ast.GlobalDecl:
 				for _, v := range d.Vars {
-					c.define(v.Name, symVar)
-					globals = append(globals, v)
+					g := c.define(v.Name, symVar)
+					globals = append(globals, globalInit{v, g, c.file})
 				}
 			case *ast.ConstDecl:
 				for _, v := range d.Vars {
@@ -108,19 +134,26 @@ func Compile(files []*ast.File, builtins []string) (prog *bytecode.Program, err 
 			}
 		}
 	}
-	for _, d := range methodDefs {
-		k, m := c.methodDefinition(d)
-		m.fn = len(jobs)
-		k.bc.Methods[m.method].Func = m.fn
-		jobs = append(jobs, funcJob{decl: d, class: k, member: m})
+	for _, job := range methodDefs {
+		c.file = job.file
+		job.class, job.member = c.methodDefinition(job.decl)
+		job.member.fn = len(jobs)
+		job.class.bc.Methods[job.member.method].Func = job.member.fn
+		jobs = append(jobs, job)
+	}
+	for _, s := range scopes {
+		c.checkUses(s)
 	}
 
 	// The entry point.
 	pos := token.Pos{Line: 1, Col: 1}
-	if len(user) > 0 {
-		pos.File = user[0].Name
+	for _, f := range user {
+		if f.Module == "" {
+			pos.File = f.Name
+			break
+		}
 	}
-	m, ok := c.globals["main"]
+	m, ok := c.modules[""].names["main"]
 	if !ok || m.kind != symFunc {
 		c.errorf(pos, "the program has no main function")
 	}
@@ -133,18 +166,20 @@ func Compile(files []*ast.File, builtins []string) (prog *bytecode.Program, err 
 	c.prog.Funcs = make([]*bytecode.Function, len(jobs)) // function literals are added after these
 	c.prog.Init = c.function("<init>", pos, &ast.ParamList{}, nil, false, nil, initializers(globals), func() {
 		for _, v := range globals {
-			if v.Value != nil {
-				c.mark(v.Pos())
-				c.expr(v.Value)
-				c.emit(bytecode.OpStoreGlobal, c.globals[v.Name.Name].index)
+			if v.spec.Value != nil {
+				c.file = v.file
+				c.mark(v.spec.Pos())
+				c.expr(v.spec.Value)
+				c.emit(bytecode.OpStoreGlobal, v.g.index)
 			}
 		}
 	})
 	for i, job := range jobs {
+		c.file = job.file
 		fd := job.decl
-		name, static := fd.Name.Name, false
+		name, static := c.qualify(fd.Name.Name), false
 		if job.class != nil {
-			name, static = job.class.name+"::"+name, job.member.static
+			name, static = job.class.name+"::"+fd.Name.Name, job.member.static
 		}
 		c.prog.Funcs[i] = c.function(name, fd.Pos(), fd.Params, job.class, static, nil, fd, func() {
 			c.block(fd.Body)
@@ -169,11 +204,11 @@ func (c *compiler) cache(pos token.Pos) int {
 
 // initializers collects the global initializers (the body of <init>) for
 // the capture analysis.
-func initializers(vars []*ast.VarSpec) ast.Node {
+func initializers(vars []globalInit) ast.Node {
 	var exprs []ast.Expr
 	for _, v := range vars {
-		if v.Value != nil {
-			exprs = append(exprs, v.Value)
+		if v.spec.Value != nil {
+			exprs = append(exprs, v.spec.Value)
 		}
 	}
 	return &ast.VectorLit{Elems: exprs}
@@ -182,28 +217,41 @@ func initializers(vars []*ast.VarSpec) ast.Node {
 // funcJob is a function or member function definition to compile.
 type funcJob struct {
 	decl   *ast.FuncDecl
+	file   *fileScope
 	class  *classInfo  // for a member function
 	member *memberInfo // for a member function
 }
 
-// define adds a top-level name.
+// globalInit is a global variable whose initializer <init> runs.
+type globalInit struct {
+	spec *ast.VarSpec
+	g    *global
+	file *fileScope
+}
+
+// define adds a top-level name to the module of the current file.
 func (c *compiler) define(id *ast.Ident, kind symKind) *global {
-	if old, ok := c.globals[id.Name]; ok {
+	old, ok := c.universal[id.Name]
+	if !ok {
+		old, ok = c.file.mod.names[id.Name]
+	}
+	if ok {
 		if old.kind == symBuiltin {
 			c.errorf(id.NamePos, "%s is a built-in function and cannot be redefined", id.Name)
 		}
 		c.errorf(id.NamePos, "%s is already defined at %s", id.Name, old.pos)
 	}
 	g := &global{kind: kind, index: -1, pos: id.NamePos}
+	name := c.qualify(id.Name)
 	switch kind {
 	case symVar:
-		g.index = c.addGlobal(id.Name, bytecode.GlobalVar, id.NamePos)
+		g.index = c.addGlobal(name, bytecode.GlobalVar, id.NamePos)
 	case symFunc:
-		g.index = c.addGlobal(id.Name, bytecode.GlobalFunc, id.NamePos)
+		g.index = c.addGlobal(name, bytecode.GlobalFunc, id.NamePos)
 	case symClass:
-		g.index = c.addGlobal(id.Name, bytecode.GlobalClass, id.NamePos)
+		g.index = c.addGlobal(name, bytecode.GlobalClass, id.NamePos)
 	}
-	c.globals[id.Name] = g
+	c.file.mod.names[id.Name] = g
 	return g
 }
 
@@ -1032,7 +1080,7 @@ func (c *compiler) expr(e ast.Expr) {
 			func() { c.emit(bytecode.OpCallMethodV, c.nameConst(e.Name), c.cache(e.Name.NamePos)) })
 	case *ast.NewExpr:
 		c.checkNew(e)
-		c.newClassValue(e.Class)
+		c.newClassValue(e.Module, e.Class)
 		c.callArgs(e.Args, e.New,
 			func(argc int) { c.emit(bytecode.OpNew, argc) },
 			func() { c.emit(bytecode.OpNewV) })
@@ -1248,10 +1296,15 @@ func (c *compiler) load(id *ast.Ident) {
 		c.loadMember(m, id.NamePos)
 		return
 	}
-	g, ok := c.globals[id.Name]
+	g, ok := c.lookup(id.Name)
 	if !ok {
 		c.errorf(id.NamePos, "undefined name %s", id.Name)
 	}
+	c.loadGlobal(g, id)
+}
+
+// loadGlobal pushes the value of top-level name g (named id).
+func (c *compiler) loadGlobal(g *global, id *ast.Ident) {
 	if g.kind == symConst {
 		c.pushValue(g.value, id.NamePos)
 		return
@@ -1276,21 +1329,11 @@ func (c *compiler) lvalue(e ast.Expr) variable {
 		if m := c.memberOf(e.Name); m != nil {
 			return c.memberVariable(m, e.NamePos)
 		}
-		g, ok := c.globals[e.Name]
+		g, ok := c.lookup(e.Name)
 		if !ok {
 			c.errorf(e.NamePos, "undefined name %s (declare globals with 'global')", e.Name)
 		}
-		switch g.kind {
-		case symConst:
-			c.errorf(e.NamePos, "cannot assign to constant %s", e.Name)
-		case symFunc:
-			c.errorf(e.NamePos, "cannot assign to function %s", e.Name)
-		case symBuiltin:
-			c.errorf(e.NamePos, "cannot assign to built-in function %s", e.Name)
-		case symClass:
-			c.errorf(e.NamePos, "cannot assign to class %s", e.Name)
-		}
-		return variable{kind: lvGlobal, index: g.index}
+		return c.globalVariable(g, e.Name, e.NamePos)
 	case *ast.IndexExpr:
 		c.expr(e.X)
 		c.expr(e.Index)
@@ -1304,15 +1347,33 @@ func (c *compiler) lvalue(e ast.Expr) variable {
 		c.mark(e.Name.NamePos)
 		return variable{kind: lvMember, index: c.nameConst(e.Name)}
 	case *ast.StaticRef:
-		k := c.classNamed(e.Class)
+		if c.isModuleRef(e) {
+			return c.globalVariable(c.moduleMember(e.Class, e.Name), e.Class.Name+"::"+e.Name.Name, e.Name.NamePos)
+		}
+		k := c.classNamed(e.Module, e.Class)
 		m := c.classMember(k, e.Name)
 		if m.kind != memberStatic {
-			c.errorf(e.Name.NamePos, "cannot assign to %s::%s: only static data members can be assigned this way", e.Class.Name, e.Name.Name)
+			c.errorf(e.Name.NamePos, "cannot assign to %s::%s: only static data members can be assigned this way", k.name, e.Name.Name)
 		}
 		return variable{kind: lvStatic, class: m.class.index, index: m.slot}
 	}
 	c.errorf(e.Pos(), "cannot assign to this expression")
 	return variable{}
+}
+
+// globalVariable is top-level name g as the target of an assignment.
+func (c *compiler) globalVariable(g *global, name string, pos token.Pos) variable {
+	switch g.kind {
+	case symConst:
+		c.errorf(pos, "cannot assign to constant %s", name)
+	case symFunc:
+		c.errorf(pos, "cannot assign to function %s", name)
+	case symBuiltin:
+		c.errorf(pos, "cannot assign to built-in function %s", name)
+	case symClass:
+		c.errorf(pos, "cannot assign to class %s", name)
+	}
+	return variable{kind: lvGlobal, index: g.index}
 }
 
 func (c *compiler) assign(e *ast.AssignExpr, keep bool) {
@@ -1401,8 +1462,15 @@ func (c *compiler) checkConst(e ast.Expr) {
 	switch e := e.(type) {
 	case *ast.IntLit, *ast.CharLit, *ast.FloatLit, *ast.StringLit, *ast.BoolLit, *ast.NilLit:
 	case *ast.Ident:
-		if g, ok := c.globals[e.Name]; !ok || g.kind != symConst {
+		if g, ok := c.lookup(e.Name); !ok || g.kind != symConst {
 			c.errorf(e.NamePos, "%s is not a constant defined earlier", e.Name)
+		}
+	case *ast.StaticRef:
+		if !c.isModuleRef(e) {
+			c.errorf(e.Pos(), "not a constant expression")
+		}
+		if g := c.moduleMember(e.Class, e.Name); g.kind != symConst {
+			c.errorf(e.Name.NamePos, "%s::%s is not a constant", e.Class.Name, e.Name.Name)
 		}
 	case *ast.UnaryExpr:
 		c.checkConst(e.X)
@@ -1435,10 +1503,12 @@ func (c *compiler) evalConst(e ast.Expr) value.Value {
 	case *ast.NilLit:
 		return value.NilValue
 	case *ast.Ident:
-		if g, ok := c.globals[e.Name]; ok && g.kind == symConst {
+		if g, ok := c.lookup(e.Name); ok && g.kind == symConst {
 			return g.value
 		}
 		c.errorf(e.NamePos, "%s is not a constant defined earlier", e.Name)
+	case *ast.StaticRef:
+		return c.moduleMember(e.Class, e.Name).value // checked by checkConst
 	case *ast.UnaryExpr:
 		x := c.evalConst(e.X)
 		var v value.Value

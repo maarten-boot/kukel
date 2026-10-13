@@ -29,19 +29,27 @@ type Expr interface {
 
 // File is one parsed source file.
 type File struct {
-	Name  string
-	Decls []Decl
+	Name   string
+	Module string // the module the file is, "" for the program's own files (set by the loader)
+	Decls  []Decl // the use declarations come first
 }
 
 // ----------------------------------------------------------------------
 // Definitions
 
-// ClassDecl is "class Name [: Base] { members }".
+// UseDecl is "use name;": the file uses module name.
+type UseDecl struct {
+	Use  token.Pos
+	Name *Ident
+}
+
+// ClassDecl is "class Name [: [module::]Base] { members }".
 type ClassDecl struct {
-	Class   token.Pos
-	Name    *Ident
-	Base    *Ident // nil without a base class
-	Members []Member
+	Class      token.Pos
+	Name       *Ident
+	BaseModule *Ident // the module of the base class, or nil
+	Base       *Ident // nil without a base class
+	Members    []Member
 }
 
 // Member is a member declaration inside a class: *MethodDecl or *FieldDecl.
@@ -309,11 +317,12 @@ type MapEntry struct {
 	Value Expr
 }
 
-// NewExpr is "new Class(args)".
+// NewExpr is "new [module::]Class(args)".
 type NewExpr struct {
-	New   token.Pos
-	Class *Ident
-	Args  []Expr // may contain *Spread
+	New    token.Pos
+	Module *Ident // nil without a module
+	Class  *Ident
+	Args   []Expr // may contain *Spread
 }
 
 // FuncLit is "fn (params) { ... }".
@@ -323,10 +332,13 @@ type FuncLit struct {
 	Body   *Block
 }
 
-// StaticRef is "Class::name": a static member or static function.
+// StaticRef is "Class::name" (a static member or static function),
+// "module::name" (a top-level name of a module; the compiler tells the two
+// apart) or "module::Class::name".
 type StaticRef struct {
-	Class *Ident
-	Name  *Ident
+	Module *Ident // set only for module::Class::name
+	Class  *Ident
+	Name   *Ident
 }
 
 // Spread is "x.." in an argument list or vector literal.
@@ -406,6 +418,7 @@ type MemberExpr struct {
 // ----------------------------------------------------------------------
 // Positions and marker methods
 
+func (d *UseDecl) Pos() token.Pos   { return d.Use }
 func (d *ClassDecl) Pos() token.Pos { return d.Class }
 func (d *FuncDecl) Pos() token.Pos {
 	if d.Class != nil {
@@ -439,20 +452,25 @@ func (s *TryStmt) Pos() token.Pos      { return s.Try }
 func (s *ThrowStmt) Pos() token.Pos    { return s.Throw }
 func (s *LabeledStmt) Pos() token.Pos  { return s.Label.NamePos }
 
-func (x *Ident) Pos() token.Pos      { return x.NamePos }
-func (x *IntLit) Pos() token.Pos     { return x.ValuePos }
-func (x *FloatLit) Pos() token.Pos   { return x.ValuePos }
-func (x *CharLit) Pos() token.Pos    { return x.ValuePos }
-func (x *StringLit) Pos() token.Pos  { return x.ValuePos }
-func (x *BoolLit) Pos() token.Pos    { return x.ValuePos }
-func (x *NilLit) Pos() token.Pos     { return x.ValuePos }
-func (x *ThisExpr) Pos() token.Pos   { return x.This }
-func (x *VectorLit) Pos() token.Pos  { return x.Lbrack }
-func (x *MapLit) Pos() token.Pos     { return x.Lbrace }
-func (x *MapEntry) Pos() token.Pos   { return x.Key.Pos() }
-func (x *NewExpr) Pos() token.Pos    { return x.New }
-func (x *FuncLit) Pos() token.Pos    { return x.Fn }
-func (x *StaticRef) Pos() token.Pos  { return x.Class.NamePos }
+func (x *Ident) Pos() token.Pos     { return x.NamePos }
+func (x *IntLit) Pos() token.Pos    { return x.ValuePos }
+func (x *FloatLit) Pos() token.Pos  { return x.ValuePos }
+func (x *CharLit) Pos() token.Pos   { return x.ValuePos }
+func (x *StringLit) Pos() token.Pos { return x.ValuePos }
+func (x *BoolLit) Pos() token.Pos   { return x.ValuePos }
+func (x *NilLit) Pos() token.Pos    { return x.ValuePos }
+func (x *ThisExpr) Pos() token.Pos  { return x.This }
+func (x *VectorLit) Pos() token.Pos { return x.Lbrack }
+func (x *MapLit) Pos() token.Pos    { return x.Lbrace }
+func (x *MapEntry) Pos() token.Pos  { return x.Key.Pos() }
+func (x *NewExpr) Pos() token.Pos   { return x.New }
+func (x *FuncLit) Pos() token.Pos   { return x.Fn }
+func (x *StaticRef) Pos() token.Pos {
+	if x.Module != nil {
+		return x.Module.NamePos
+	}
+	return x.Class.NamePos
+}
 func (x *Spread) Pos() token.Pos     { return x.X.Pos() }
 func (x *CommaExpr) Pos() token.Pos  { return x.List[0].Pos() }
 func (x *AssignExpr) Pos() token.Pos { return x.LHS.Pos() }
@@ -470,6 +488,7 @@ func (x *IndexExpr) Pos() token.Pos  { return x.X.Pos() }
 func (x *MethodCall) Pos() token.Pos { return x.X.Pos() }
 func (x *MemberExpr) Pos() token.Pos { return x.X.Pos() }
 
+func (*UseDecl) declNode()    {}
 func (*ClassDecl) declNode()  {}
 func (*FuncDecl) declNode()   {}
 func (*GlobalDecl) declNode() {}

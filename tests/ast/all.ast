@@ -1,4 +1,6 @@
 File all.kkl
+  Use util
+  Use shapes
   Global
     Var count
       Int 0
@@ -17,6 +19,7 @@ File all.kkl
     Method Shape(name)
     Method area()
     Method static make(kind, args..)
+  Class Circle : shapes::Shape
   Class Point : Shape
     Data x, y
     Data static origin, total
@@ -384,5 +387,14 @@ File all.kkl
         Assign =
           Name t
           Static C::x
+      ExprStmt
+        Assign =
+          Name t
+          Call
+            Static util::max
+            Static util::LIMIT
+            New shapes::Circle
+              Int 1
+            Static shapes::Circle::count
       Return
         Int 0

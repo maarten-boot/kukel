@@ -96,6 +96,7 @@ const (
 	THROW
 	TRUE
 	TRY
+	USE
 	WHILE
 	keywordEnd
 )
@@ -186,6 +187,7 @@ var names = [...]string{
 	THROW:    "throw",
 	TRUE:     "true",
 	TRY:      "try",
+	USE:      "use",
 	WHILE:    "while",
 }
 

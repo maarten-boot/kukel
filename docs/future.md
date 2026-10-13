@@ -50,7 +50,12 @@ main() {
   does not `use` them pays nothing.
 - Where modules come from (Kukel files, Go, C libraries) is in 1.6.
 
+*Done for Kukel source files (TODO.md Q35): `use name;` loads `name.kkl`
+from the using file's directory or `KUKEL_PATH`; see the language
+reference. Still to come: modules written in Go, and `.kkc` modules (1.6).*
+
 **F-1** Syntax: `use gui;` or `import gui;`? Also for `.kkl` files?
+*Answered: `use name;`, also for `.kkl` files.*
 **F-2** Do the current built-ins move into modules (`str::split`,
 `math::sqrt`), or stay global as a small core?
 
@@ -201,8 +206,10 @@ So the order is: Kukel modules and Go native modules first (they cover
 every idea here), `ffi` later and only if a library needs it.
 
 **F-19** Private names in modules: by a `_` prefix, an `export` list, or
-everything public?
+everything public? *Answered: a `_` prefix.*
 **F-20** `kukel build`: one `.kkc` per module, or one linked file?
+*Answered for now: one file holding the program and its modules;
+precompiled `.kkc` modules are a later step.*
 **F-21** Is `ffi` wanted at all, and with structs and callbacks?
 
 ---

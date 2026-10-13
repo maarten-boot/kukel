@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/maarten-boot/kukel/internal/ast"
 	"github.com/maarten-boot/kukel/internal/bytecode"
@@ -11,7 +12,8 @@ import (
 
 // classInfo is what the compiler knows about a class.
 type classInfo struct {
-	name    string
+	name    string // module::Class for a class of a module
+	local   string // the name in the class's module (and its constructor's name)
 	pos     token.Pos
 	index   int // in Program.Classes
 	base    *classInfo
@@ -69,7 +71,7 @@ func (k *classInfo) isSubclassOf(b *classInfo) bool {
 // nearest base class's (Q33), or nil.
 func (k *classInfo) constructor() *memberInfo {
 	for ; k != nil; k = k.base {
-		if m, ok := k.members[k.name]; ok && m.kind == memberMethod {
+		if m, ok := k.members[k.local]; ok && m.kind == memberMethod {
 			return m
 		}
 	}
@@ -77,7 +79,7 @@ func (k *classInfo) constructor() *memberInfo {
 }
 
 // isCtor reports whether m is the constructor of its class.
-func (m *memberInfo) isCtor() bool { return m.kind == memberMethod && m.name == m.class.name }
+func (m *memberInfo) isCtor() bool { return m.kind == memberMethod && m.name == m.class.local }
 
 func (m *memberInfo) fullName() string { return m.class.name + "::" + m.name }
 
@@ -86,14 +88,21 @@ func (m *memberInfo) fullName() string { return m.class.name + "::" + m.name }
 
 func (c *compiler) declareClass(d *ast.ClassDecl) {
 	k := &classInfo{
-		name:    d.Name.Name,
+		name:    c.qualify(d.Name.Name),
+		local:   d.Name.Name,
 		pos:     d.Name.NamePos,
 		index:   len(c.prog.Classes),
 		members: map[string]*memberInfo{},
-		bc:      &bytecode.Class{Name: d.Name.Name, Base: -1},
+		bc:      &bytecode.Class{Name: c.qualify(d.Name.Name), Base: -1},
 	}
 	if d.Base != nil {
-		g, ok := c.globals[d.Base.Name]
+		var g *global
+		ok := true
+		if d.BaseModule != nil {
+			g = c.moduleMember(d.BaseModule, d.Base)
+		} else {
+			g, ok = c.lookup(d.Base.Name)
+		}
 		switch {
 		case !ok:
 			c.errorf(d.Base.NamePos, "base class %s is not defined (a base class must be defined before the classes derived from it)", d.Base.Name)
@@ -134,7 +143,7 @@ func (c *compiler) declareClass(d *ast.ClassDecl) {
 				m.params--
 			}
 			if m.isCtor() && m.static {
-				c.errorf(mem.Pos(), "the constructor %s::%s cannot be static", k.name, k.name)
+				c.errorf(mem.Pos(), "the constructor %s::%s cannot be static", k.name, k.local)
 			}
 			k.bc.Methods = append(k.bc.Methods, bytecode.Method{Name: m.name, Static: m.static, Func: -1})
 			c.addMember(k, m)
@@ -160,7 +169,7 @@ func (c *compiler) addMember(k *classInfo, m *memberInfo) {
 
 // methodDefinition checks "C::m(params) { ... }" against the declaration.
 func (c *compiler) methodDefinition(d *ast.FuncDecl) (*classInfo, *memberInfo) {
-	k := c.classNamed(d.Class)
+	k := c.classNamed(nil, d.Class)
 	m, ok := k.members[d.Name.Name]
 	if !ok {
 		hint := ""
@@ -287,15 +296,41 @@ func (c *compiler) thisField(e *ast.MemberExpr) *memberInfo {
 	return nil
 }
 
-// classNamed resolves a class name (in C::x, Class::m(...) definitions and
-// base classes).
-func (c *compiler) classNamed(id *ast.Ident) *classInfo {
-	g, ok := c.globals[id.Name]
-	if !ok {
-		c.errorf(id.NamePos, "undefined class %s", id.Name)
+// classNamed resolves a class name, [module::]Class (in C::x and Class::m(...)
+// definitions).
+func (c *compiler) classNamed(mod, id *ast.Ident) *classInfo {
+	var g *global
+	if mod != nil {
+		g = c.moduleMember(mod, id)
+	} else {
+		var ok bool
+		if g, ok = c.lookup(id.Name); !ok {
+			if _, isMod := c.modules[id.Name]; isMod && id.Name != "" {
+				c.errorf(id.NamePos, "%s is not a module used by this file (add 'use %s;' at the top)", id.Name, id.Name)
+			}
+			c.errorf(id.NamePos, "undefined class %s", id.Name)
+		}
 	}
 	if g.kind != symClass {
 		c.errorf(id.NamePos, "%s is not a class", id.Name)
+	}
+	return g.class
+}
+
+// findClass is classNamed without errors: the class, or nil.
+func (c *compiler) findClass(mod, id *ast.Ident) *classInfo {
+	var g *global
+	if mod != nil {
+		m := c.usedModule(mod)
+		if m == nil || strings.HasPrefix(id.Name, "_") {
+			return nil
+		}
+		g = m.names[id.Name]
+	} else {
+		g, _ = c.lookup(id.Name)
+	}
+	if g == nil || g.kind != symClass {
+		return nil
 	}
 	return g.class
 }
@@ -311,7 +346,11 @@ func (c *compiler) classMember(k *classInfo, id *ast.Ident) *memberInfo {
 // loadStaticRef pushes the value of C::x: a static data member or a static
 // member function.
 func (c *compiler) loadStaticRef(e *ast.StaticRef) {
-	k := c.classNamed(e.Class)
+	if c.isModuleRef(e) {
+		c.loadGlobal(c.moduleMember(e.Class, e.Name), e.Name)
+		return
+	}
+	k := c.classNamed(e.Module, e.Class)
 	m := c.classMember(k, e.Name)
 	pos := e.Name.NamePos
 	switch {
@@ -330,7 +369,15 @@ func (c *compiler) loadStaticRef(e *ast.StaticRef) {
 // newClassValue pushes the class named in "new X(...)": a local or global
 // (members are not searched, so that the constructor's name in a member
 // function still means the class).
-func (c *compiler) newClassValue(id *ast.Ident) {
+func (c *compiler) newClassValue(mod, id *ast.Ident) {
+	if mod != nil {
+		g := c.moduleMember(mod, id)
+		if g.kind != symClass && g.kind != symVar {
+			c.errorf(id.NamePos, "%s::%s is not a class", mod.Name, id.Name)
+		}
+		c.emit(bytecode.OpLoadGlobal, g.index)
+		return
+	}
 	if _, ok := c.lookupLocal(id.Name); ok {
 		c.load(id)
 		return
@@ -339,7 +386,7 @@ func (c *compiler) newClassValue(id *ast.Ident) {
 		c.emit(bytecode.OpLoadUpvalue, up)
 		return
 	}
-	g, ok := c.globals[id.Name]
+	g, ok := c.lookup(id.Name)
 	if !ok {
 		c.errorf(id.NamePos, "undefined class %s", id.Name)
 	}
@@ -397,7 +444,10 @@ func (c *compiler) memberCall(e *ast.CallExpr) bool {
 			func() { c.emit(bytecode.OpCallMethodV, name, c.cache(fun.NamePos)) })
 		return true
 	case *ast.StaticRef:
-		k := c.classNamed(fun.Class)
+		if c.isModuleRef(fun) {
+			return false // a module's function: an ordinary call
+		}
+		k := c.classNamed(fun.Module, fun.Class)
 		m := c.classMember(k, fun.Name)
 		if m.kind != memberMethod || m.static {
 			return false // a static function or data member: an ordinary call

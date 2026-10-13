@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -15,6 +16,7 @@ import (
 	"github.com/maarten-boot/kukel/internal/bytecode"
 	"github.com/maarten-boot/kukel/internal/compiler"
 	"github.com/maarten-boot/kukel/internal/lexer"
+	"github.com/maarten-boot/kukel/internal/loader"
 	"github.com/maarten-boot/kukel/internal/parser"
 	"github.com/maarten-boot/kukel/internal/token"
 	"github.com/maarten-boot/kukel/internal/vm"
@@ -32,6 +34,9 @@ commands:
   ast [-pos] a.kkl ...            show the syntax tree of source files
   version                         show the version of kukel
   help                            show this text
+
+Modules ("use name;") are name.kkl files in the directory of the file that
+uses them, or in the directories of KUKEL_PATH.
 `
 
 func main() {
@@ -70,19 +75,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return 2
 }
 
-// compileFiles parses and compiles source files into one program.
+// compileFiles parses and compiles source files, with the modules they use,
+// into one program. Modules are also searched for in the directories of
+// KUKEL_PATH.
 func compileFiles(files []string) (*bytecode.Program, error) {
-	var parsed []*ast.File
-	for _, file := range files {
-		src, err := os.ReadFile(file)
-		if err != nil {
-			return nil, err
-		}
-		f, err := parser.ParseFile(file, src)
-		if err != nil {
-			return nil, err
-		}
-		parsed = append(parsed, f)
+	parsed, err := loader.Load(files, filepath.SplitList(os.Getenv("KUKEL_PATH")))
+	if err != nil {
+		return nil, err
 	}
 	return compiler.Compile(parsed, builtins.Names())
 }

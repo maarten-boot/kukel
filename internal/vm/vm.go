@@ -207,7 +207,7 @@ func (vm *VM) makeClasses() error {
 				mo.Fn = vm.prog.Funcs[m.Func]
 			}
 			k.Methods[m.Name] = mo
-			if m.Name == c.Name && !m.Static {
+			if m.Name == bytecode.LocalName(c.Name) && !m.Static {
 				k.Ctor = mo
 			}
 		}

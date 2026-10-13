@@ -58,9 +58,11 @@ func TestGolden(t *testing.T) {
 // stdout with the .out file and stderr with the .err file (empty if there
 // is none). A .in file is the program's standard input. Comment lines at
 // the top set the arguments and the expected exit code: "// args: a b" and
-// "// exit: 3" (default 0, or 1 with a .err file). `make golden` rewrites
-// .out and .err files.
+// "// exit: 3" (default 0, or 1 with a .err file). Modules are found in
+// tests/run/lib (through KUKEL_PATH). `make golden` rewrites .out and .err
+// files.
 func TestRunGolden(t *testing.T) {
+	t.Setenv("KUKEL_PATH", filepath.Join(testdir, "run", "lib"))
 	files, err := filepath.Glob(filepath.Join(testdir, "run", "*.kkl"))
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no test files in run: %v", err)
@@ -222,15 +224,23 @@ func TestReferenceExamples(t *testing.T) {
 		}
 		doc = append(doc, text...)
 	}
+	// A block without main that starts with "// name.kkl" is a module: it is
+	// written to the directory the examples run in.
+	dir := t.TempDir()
 	blocks := strings.Split(string(doc), "```")
 	n := 0
 	for i := 1; i < len(blocks); i += 2 {
-		code := blocks[i]
+		code := strings.TrimPrefix(blocks[i], "\n")
 		if !strings.Contains(code, "main(") {
+			if name, ok := strings.CutPrefix(strings.SplitN(code, "\n", 2)[0], "// "); ok && strings.HasSuffix(name, ".kkl") {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(code), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
 			continue
 		}
 		n++
-		src := filepath.Join(t.TempDir(), "example.kkl")
+		src := filepath.Join(dir, "example.kkl")
 		os.WriteFile(src, []byte(code), 0o644)
 		var stdout, stderr bytes.Buffer
 		if code := run([]string{"run", src}, strings.NewReader(""), &stdout, &stderr); code != 0 {

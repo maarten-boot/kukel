@@ -1,5 +1,8 @@
 #!/usr/bin/env kukel
-// Every syntax construct of Kukel syntax version 2.
+// Every syntax construct of Kukel syntax version 3.
+
+use util;
+use shapes;
 
 global count = 0, names;
 const MAX = 1_000, MASK = 0xFF_FF | 0b1010_0101, BIG = -9223372036854775808;
@@ -10,6 +13,8 @@ class Shape {
     area();
     static make(kind, args..);
 }
+
+class Circle : shapes::Shape {}
 
 class Point : Shape {
     x, y;
@@ -87,5 +92,6 @@ line";
     bound(true, false, nil);
     Shape::make("p", 1, 2);
     t = C::x;
+    t = util::max(util::LIMIT, new shapes::Circle(1), shapes::Circle::count);
     return 0;
 }

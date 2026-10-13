@@ -30,6 +30,7 @@ var ruleCases = map[string]struct {
 			{"global print; main() {}", "print is a built-in function and cannot be redefined"},
 		},
 	},
+	"use_declaration": {elsewhere: "internal/compiler TestModules; internal/loader TestLoadOrder, TestLoadErrors"},
 	"global_variable": {elsewhere: "internal/vm TestPrograms: \"global initializers run in order\", \"global used before its initializer\""},
 	"const_definition": {
 		ok: []string{`const A = 1, B = A * 2 + (A > 0 ? 1 : 0), S = "s" + "t", N = nil, T = !N && A != 2; main() {}`},
