@@ -549,6 +549,72 @@ func TestPrograms(t *testing.T) {
 				try { a = new A(1); } catch (e) { println("caught", e, a); }
 				println(new A(0));
 			}`, "caught no nil\nA{}\n"},
+		// milestone 8
+		{"closures share captured variables", `
+			counter(start = 0; n) {
+				n = start;
+				return [fn() { return ++n; }, fn() { return n; }, fn(v) { n = v; }];
+			}
+			main() {
+				local a = counter(10), b = counter();
+				a[0](); a[0](); b[0]();
+				println(a[1](), b[1](), a[0](), a[1]());
+				a[2](100);
+				println(a[1](), b[1]());
+				local y = 1, setY = fn(v) { y = v; };
+				setY(42);
+				println(y, typeof(setY));
+			}`, "12 1 13 13\n100 1\n42 function\n"},
+		{"fresh loop variables for every iteration", `main() {
+			local fs = [];
+			for (local i = 0; i < 3; i++) push(fs, fn() { return i; });
+			for (local x in ["a", "b"]) push(fs, fn() { return x; });
+			for (local k, v in {"p": 1}) push(fs, fn() { return k + str(v); });
+			local j = 0;
+			while (j < 2) { local w = j * 10; push(fs, fn() { return w; }); j++; }
+			local out = [];
+			for (local f in fs) push(out, f());
+			println(out);
+			// the loop sees changes a closure makes in its own iteration
+			for (local i = 0; i < 6; i++) { local skip = fn() { i++; }; skip(); print(i, ""); }
+			println();
+		}`, "[0, 1, 2, \"a\", \"b\", \"p1\", 0, 10]\n1 3 5 \n"},
+		{"nested function literals", `main() {
+			local add = fn(a) { return fn(b) { return fn(c) { return a + b + c; }; }; };
+			println(add(1)(2)(3));
+			local x = 0;
+			local outer = fn() { local mid = fn() { local inner = fn() { x += 5; }; inner(); }; mid(); };
+			outer(); outer();
+			println(x);
+		}`, "6\n10\n"},
+		{"recursion through a captured variable", `main() {
+			local fact;
+			fact = fn(n) { return n <= 1 ? 1 : n * fact(n - 1); };
+			println(fact(10));
+		}`, "3628800\n"},
+		{"closures capture parameters, temporaries and catch variables", `
+			make(p; t) { t = p * 2; return fn() { return [p, t]; }; }
+			catcher() { try { throw "e1"; } catch (e) { return fn() { return e; }; } }
+			main() { println(make(4)(), catcher()()); }`, "[4, 8] e1\n"},
+		{"closures in member functions see this and members", `
+			class Button { label, clicks; Button(l); onClick(); }
+			Button::Button(l) { label = l; clicks = 0; }
+			Button::onClick() { return fn(who) { clicks++; return who + " clicked " + label + " " + str(this->clicks); }; }
+			main() {
+				local b = new Button("ok"), h = b->onClick();
+				println(h("ann"));
+				println(h("bob"), b->clicks);
+			}`, "ann clicked ok 1\nbob clicked ok 2 2\n"},
+		{"function literals as values", `
+			global square = fn(x) { return x * x; };
+			apply(f, args..) { return f(args..); }
+			main() {
+				local words = ["ccc", "a", "bb"];
+				sort(words, fn(a, b) { return len(a) < len(b); });
+				println(words, apply(square, 9), apply(fn(a, b = 10) { return a + b; }, 1));
+				local f = fn() { };
+				println(f == f, f == fn() { }, f(), square);
+			}`, "[\"a\", \"bb\", \"ccc\"] 81 11\ntrue false nil <function <init>/fn@2>\n"},
 		{"deep recursion within the limit", `
 			down(n) { if (n == 0) return 0; return 1 + down(n - 1); }
 			main() { println(down(9000)); }`, "9000\n"},
@@ -680,6 +746,10 @@ main() {
 			"Oops\n  at main (t.kkl:3)"},
 		{"exception escaping a finally", "main() {\n try { 1 / 0; } finally { println(\"cleanup\"); }\n}",
 			"ZeroDivisionError: integer division by zero\n  at main (t.kkl:2)"},
+		{"error inside a function literal", "main() {\n local f = fn(x) {\n  return 1 / x;\n };\n f(0);\n}",
+			"ZeroDivisionError: integer division by zero\n  at main/fn@2 (t.kkl:3)\n  at main (t.kkl:5)"},
+		{"wrong argument count for a function literal", "main() {\n local f = fn(x) { };\n f();\n}",
+			"ArgumentError: main/fn@2 expects 1 argument(s), got 0\n  at main (t.kkl:3)"},
 		{"++ on a string", `main() { local s = "a"; s++; }`,
 			"TypeError: cannot apply ++ to string\n  at main (t.kkl:1)"},
 	}
@@ -748,4 +818,8 @@ func BenchmarkMethodCalls1M(b *testing.B) {
 		C::C() { n = 0; }
 		C::inc() { n++; }
 		main() { local c = new C(); for (local i = 0; i < 1000000; i++) c->inc(); }`)
+}
+
+func BenchmarkClosureCalls1M(b *testing.B) {
+	benchmarkSource(b, `main() { local n = 0; local inc = fn() { n++; }; for (local i = 0; i < 1000000; i++) inc(); }`)
 }

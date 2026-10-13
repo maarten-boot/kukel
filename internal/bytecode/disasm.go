@@ -74,6 +74,13 @@ func (d *disasm) function(f *Function) {
 	for i, name := range f.SlotNames {
 		d.printf("  slot %d: %s\n", i, name)
 	}
+	for i, u := range f.Upvalues {
+		from := "upvalue"
+		if u.FromLocal {
+			from = "slot"
+		}
+		d.printf("  upvalue %d: %s (from the enclosing function's %s %d)\n", i, u.Name, from, u.Index)
+	}
 	line := -1
 	for pc := 0; pc < len(f.Code); {
 		op := Op(f.Code[pc])
@@ -114,7 +121,15 @@ func (d *disasm) operand(f *Function, op Op, pc int) string {
 			return fmt.Sprintf("%d  ; %s", k, f.Consts[k].Repr())
 		}
 		return fmt.Sprintf("%d  ; ?", k)
-	case OpLoadLocal, OpStoreLocal:
+	case OpLoadUpvalue, OpStoreUpvalue:
+		u := ReadU16(f.Code, pc+1)
+		if u < len(f.Upvalues) {
+			return fmt.Sprintf("%d  ; %s", u, f.Upvalues[u].Name)
+		}
+		return fmt.Sprint(u)
+	case OpClosure:
+		return d.funcName(ReadU16(f.Code, pc+1))
+	case OpLoadLocal, OpStoreLocal, OpNewCell, OpLoadCell, OpStoreCell:
 		s := ReadU16(f.Code, pc+1)
 		if s < len(f.SlotNames) {
 			return fmt.Sprintf("%d  ; %s", s, f.SlotNames[s])

@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"sort"
 
+	"kukel/internal/token"
 	"kukel/internal/value"
 )
 
@@ -102,6 +103,14 @@ const (
 	OpThrow   // pop a value and throw it
 	OpRethrow // pop a pending exception (from a finally handler) and throw it again
 
+	// Closures. A captured local lives in a cell held by its slot.
+	OpNewCell      // slot u16: pop a value into a new cell in the slot
+	OpLoadCell     // slot u16: push the value in the slot's cell
+	OpStoreCell    // slot u16: pop into the slot's cell
+	OpLoadUpvalue  // index u16: push the value of the closure's captured cell
+	OpStoreUpvalue // index u16: pop into the closure's captured cell
+	OpClosure      // func u16: push a closure of Funcs[func] (see Function.Upvalues)
+
 	numOps
 )
 
@@ -115,72 +124,78 @@ var u16 = []int{2}
 var u32 = []int{4}
 
 var opInfo = [numOps]OpInfo{
-	OpNop:         {"NOP", nil},
-	OpConst:       {"CONST", u16},
-	OpNil:         {"NIL", nil},
-	OpTrue:        {"TRUE", nil},
-	OpFalse:       {"FALSE", nil},
-	OpPop:         {"POP", nil},
-	OpDup:         {"DUP", nil},
-	OpDup2:        {"DUP2", nil},
-	OpLoadLocal:   {"LOAD_LOCAL", u16},
-	OpStoreLocal:  {"STORE_LOCAL", u16},
-	OpLoadGlobal:  {"LOAD_GLOBAL", u16},
-	OpStoreGlobal: {"STORE_GLOBAL", u16},
-	OpAdd:         {"ADD", nil},
-	OpSub:         {"SUB", nil},
-	OpMul:         {"MUL", nil},
-	OpDiv:         {"DIV", nil},
-	OpMod:         {"MOD", nil},
-	OpBitAnd:      {"BITAND", nil},
-	OpBitOr:       {"BITOR", nil},
-	OpBitXor:      {"BITXOR", nil},
-	OpShl:         {"SHL", nil},
-	OpShr:         {"SHR", nil},
-	OpNeg:         {"NEG", nil},
-	OpNot:         {"NOT", nil},
-	OpBitNot:      {"BITNOT", nil},
-	OpEq:          {"EQ", nil},
-	OpNe:          {"NE", nil},
-	OpLt:          {"LT", nil},
-	OpLe:          {"LE", nil},
-	OpGt:          {"GT", nil},
-	OpGe:          {"GE", nil},
-	OpInc:         {"INC", nil},
-	OpDec:         {"DEC", nil},
-	OpJump:        {"JUMP", u32},
-	OpJumpIfFalse: {"JUMP_IF_FALSE", u32},
-	OpJumpIfTrue:  {"JUMP_IF_TRUE", u32},
-	OpJumpIfArg:   {"JUMP_IF_ARG", []int{2, 4}},
-	OpCall:        {"CALL", u16},
-	OpCallV:       {"CALL_V", nil},
-	OpReturn:      {"RETURN", nil},
-	OpReturnNil:   {"RETURN_NIL", nil},
-	OpMakeVector:  {"MAKE_VECTOR", u16},
-	OpAppend:      {"APPEND", nil},
-	OpExtend:      {"EXTEND", nil},
-	OpMakeMap:     {"MAKE_MAP", u16},
-	OpIndexGet:    {"INDEX_GET", nil},
-	OpIndexSet:    {"INDEX_SET", nil},
-	OpIterInit:    {"ITER_INIT", nil},
-	OpIterNext:    {"ITER_NEXT", []int{2, 2, 4}},
-	OpLoadThis:    {"LOAD_THIS", nil},
-	OpLoadMember:  {"LOAD_MEMBER", u16},
-	OpStoreMember: {"STORE_MEMBER", u16},
-	OpGetMember:   {"GET_MEMBER", u16},
-	OpSetMember:   {"SET_MEMBER", u16},
-	OpCallMethod:  {"CALL_METHOD", []int{2, 2}},
-	OpCallMethodV: {"CALL_METHOD_V", u16},
-	OpCallDirect:  {"CALL_DIRECT", []int{2, 2}},
-	OpLoadFunc:    {"LOAD_FUNC", u16},
-	OpLoadStatic:  {"LOAD_STATIC", []int{2, 2}},
-	OpStoreStatic: {"STORE_STATIC", []int{2, 2}},
-	OpNew:         {"NEW", u16},
-	OpNewV:        {"NEW_V", nil},
-	OpTryPush:     {"TRY_PUSH", []int{2, 4}},
-	OpTryPop:      {"TRY_POP", nil},
-	OpThrow:       {"THROW", nil},
-	OpRethrow:     {"RETHROW", nil},
+	OpNop:          {"NOP", nil},
+	OpConst:        {"CONST", u16},
+	OpNil:          {"NIL", nil},
+	OpTrue:         {"TRUE", nil},
+	OpFalse:        {"FALSE", nil},
+	OpPop:          {"POP", nil},
+	OpDup:          {"DUP", nil},
+	OpDup2:         {"DUP2", nil},
+	OpLoadLocal:    {"LOAD_LOCAL", u16},
+	OpStoreLocal:   {"STORE_LOCAL", u16},
+	OpLoadGlobal:   {"LOAD_GLOBAL", u16},
+	OpStoreGlobal:  {"STORE_GLOBAL", u16},
+	OpAdd:          {"ADD", nil},
+	OpSub:          {"SUB", nil},
+	OpMul:          {"MUL", nil},
+	OpDiv:          {"DIV", nil},
+	OpMod:          {"MOD", nil},
+	OpBitAnd:       {"BITAND", nil},
+	OpBitOr:        {"BITOR", nil},
+	OpBitXor:       {"BITXOR", nil},
+	OpShl:          {"SHL", nil},
+	OpShr:          {"SHR", nil},
+	OpNeg:          {"NEG", nil},
+	OpNot:          {"NOT", nil},
+	OpBitNot:       {"BITNOT", nil},
+	OpEq:           {"EQ", nil},
+	OpNe:           {"NE", nil},
+	OpLt:           {"LT", nil},
+	OpLe:           {"LE", nil},
+	OpGt:           {"GT", nil},
+	OpGe:           {"GE", nil},
+	OpInc:          {"INC", nil},
+	OpDec:          {"DEC", nil},
+	OpJump:         {"JUMP", u32},
+	OpJumpIfFalse:  {"JUMP_IF_FALSE", u32},
+	OpJumpIfTrue:   {"JUMP_IF_TRUE", u32},
+	OpJumpIfArg:    {"JUMP_IF_ARG", []int{2, 4}},
+	OpCall:         {"CALL", u16},
+	OpCallV:        {"CALL_V", nil},
+	OpReturn:       {"RETURN", nil},
+	OpReturnNil:    {"RETURN_NIL", nil},
+	OpMakeVector:   {"MAKE_VECTOR", u16},
+	OpAppend:       {"APPEND", nil},
+	OpExtend:       {"EXTEND", nil},
+	OpMakeMap:      {"MAKE_MAP", u16},
+	OpIndexGet:     {"INDEX_GET", nil},
+	OpIndexSet:     {"INDEX_SET", nil},
+	OpIterInit:     {"ITER_INIT", nil},
+	OpIterNext:     {"ITER_NEXT", []int{2, 2, 4}},
+	OpLoadThis:     {"LOAD_THIS", nil},
+	OpLoadMember:   {"LOAD_MEMBER", u16},
+	OpStoreMember:  {"STORE_MEMBER", u16},
+	OpGetMember:    {"GET_MEMBER", u16},
+	OpSetMember:    {"SET_MEMBER", u16},
+	OpCallMethod:   {"CALL_METHOD", []int{2, 2}},
+	OpCallMethodV:  {"CALL_METHOD_V", u16},
+	OpCallDirect:   {"CALL_DIRECT", []int{2, 2}},
+	OpLoadFunc:     {"LOAD_FUNC", u16},
+	OpLoadStatic:   {"LOAD_STATIC", []int{2, 2}},
+	OpStoreStatic:  {"STORE_STATIC", []int{2, 2}},
+	OpNew:          {"NEW", u16},
+	OpNewV:         {"NEW_V", nil},
+	OpTryPush:      {"TRY_PUSH", []int{2, 4}},
+	OpTryPop:       {"TRY_POP", nil},
+	OpThrow:        {"THROW", nil},
+	OpRethrow:      {"RETHROW", nil},
+	OpNewCell:      {"NEW_CELL", u16},
+	OpLoadCell:     {"LOAD_CELL", u16},
+	OpStoreCell:    {"STORE_CELL", u16},
+	OpLoadUpvalue:  {"LOAD_UPVALUE", u16},
+	OpStoreUpvalue: {"STORE_UPVALUE", u16},
+	OpClosure:      {"CLOSURE", u16},
 }
 
 // Info returns the description of op; ok is false for an unknown opcode.
@@ -231,6 +246,15 @@ type Function struct {
 	Consts      []value.Value
 	Lines       []LineInfo // sorted by PC
 	SlotNames   []string   // for the disassembler
+	Upvalues    []Upvalue  // a function literal's captured variables
+}
+
+// Upvalue says where a closure gets a captured cell when it is made: from a
+// slot of the function making it, or from that function's own upvalues.
+type Upvalue struct {
+	Name      string // for the disassembler
+	FromLocal bool
+	Index     int // slot or upvalue index
 }
 
 // ParamSlots is the number of slots that hold parameters.
@@ -241,6 +265,9 @@ func (f *Function) ParamSlots() int {
 	}
 	return n
 }
+
+// Pos returns the position of the function's definition.
+func (f *Function) Pos() token.Pos { return token.Pos{File: f.File, Line: f.Line, Col: 1} }
 
 // Name implements value.Named.
 func (f *Function) Name() string { return f.FuncName }

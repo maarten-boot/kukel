@@ -61,11 +61,12 @@ func (e *RuntimeError) Error() string {
 
 type frame struct {
 	fn   *bytecode.Function
-	ip   int         // next instruction (saved while the frame calls another)
-	base int         // first slot
-	argc int         // arguments passed (for JUMP_IF_ARG)
-	this value.Value // the object of a member function call
-	ctor bool        // a constructor called by new: it returns this
+	ip   int              // next instruction (saved while the frame calls another)
+	base int              // first slot
+	argc int              // arguments passed (for JUMP_IF_ARG)
+	this value.Value      // the object of a member function call
+	ctor bool             // a constructor called by new: it returns this
+	up   []*value.CellObj // a closure's captured variables
 }
 
 // handler is a registered try handler.
@@ -272,10 +273,13 @@ func (vm *VM) callValue(argc int) error {
 	callee := vm.stack[vm.sp-argc-1]
 	switch callee.Kind() {
 	case value.Function:
-		return vm.callFunction(callee.Obj().(*bytecode.Function), value.NilValue, argc, false)
+		return vm.callFunction(callee.Obj().(*bytecode.Function), value.NilValue, nil, argc, false)
 	case value.BoundMethod:
 		bm := callee.AsBoundMethod()
 		return vm.invoke(bm.Method, bm.Recv, argc)
+	case value.Closure:
+		cl := callee.AsClosure()
+		return vm.callFunction(cl.Fn.(*bytecode.Function), cl.This, cl.Cells, argc, false)
 	case value.Builtin:
 		b := callee.AsBuiltin()
 		args := make([]value.Value, argc)
@@ -303,7 +307,7 @@ func (vm *VM) invoke(m *value.MethodObj, recv value.Value, argc int) error {
 	if m.Static {
 		recv = value.NilValue
 	}
-	return vm.callFunction(m.Fn.(*bytecode.Function), recv, argc, false)
+	return vm.callFunction(m.Fn.(*bytecode.Function), recv, nil, argc, false)
 }
 
 // newObject runs new: the class is below the argc arguments; it is replaced
@@ -325,7 +329,7 @@ func (vm *VM) newObject(argc int) error {
 	if c.Ctor.Fn == nil {
 		return value.Errorf(value.MemberError, "%s is declared but not defined", c.Ctor.FullName())
 	}
-	return vm.callFunction(c.Ctor.Fn.(*bytecode.Function), obj, argc, true)
+	return vm.callFunction(c.Ctor.Fn.(*bytecode.Function), obj, nil, argc, true)
 }
 
 // callOp performs a call instruction; ip points just past its opcode. The
@@ -361,7 +365,7 @@ func (vm *VM) callOp(op bytecode.Op, f *frame, ip, sp int) error {
 		}
 		return vm.invoke(m, recv, argc)
 	case bytecode.OpCallDirect:
-		return vm.callFunction(vm.prog.Funcs[operand], vm.stack[vm.sp-argc-1], argc, false)
+		return vm.callFunction(vm.prog.Funcs[operand], vm.stack[vm.sp-argc-1], nil, argc, false)
 	case bytecode.OpNew, bytecode.OpNewV:
 		return vm.newObject(argc)
 	}
@@ -370,7 +374,7 @@ func (vm *VM) callOp(op bytecode.Op, f *frame, ip, sp int) error {
 
 // callFunction pushes a frame for fn; its arguments are the top argc stack
 // entries, below them is the callee's place.
-func (vm *VM) callFunction(fn *bytecode.Function, this value.Value, argc int, ctor bool) error {
+func (vm *VM) callFunction(fn *bytecode.Function, this value.Value, up []*value.CellObj, argc int, ctor bool) error {
 	{
 		maxArgs := fn.NumParams + fn.NumOptional
 		if argc < fn.NumParams || (argc > maxArgs && !fn.HasRest) {
@@ -396,7 +400,7 @@ func (vm *VM) callFunction(fn *bytecode.Function, this value.Value, argc int, ct
 			vm.stack[base+maxArgs] = value.MakeVector(rest)
 		}
 		vm.sp = base + fn.NumSlots
-		vm.frames = append(vm.frames, frame{fn: fn, base: base, argc: argc, this: this, ctor: ctor})
+		vm.frames = append(vm.frames, frame{fn: fn, base: base, argc: argc, this: this, ctor: ctor, up: up})
 		return nil
 	}
 }
@@ -860,6 +864,40 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			}
 			f = &vm.frames[len(vm.frames)-1]
 			code, consts, base, ip = f.fn.Code, f.fn.Consts, f.base, f.ip
+
+		case bytecode.OpNewCell:
+			sp--
+			stack[base+bytecode.ReadU16(code, ip)] = value.NewCell(stack[sp])
+			ip += 2
+		case bytecode.OpLoadCell:
+			stack[sp] = stack[base+bytecode.ReadU16(code, ip)].AsCell().V
+			ip += 2
+			sp++
+		case bytecode.OpStoreCell:
+			sp--
+			stack[base+bytecode.ReadU16(code, ip)].AsCell().V = stack[sp]
+			ip += 2
+		case bytecode.OpLoadUpvalue:
+			stack[sp] = f.up[bytecode.ReadU16(code, ip)].V
+			ip += 2
+			sp++
+		case bytecode.OpStoreUpvalue:
+			sp--
+			f.up[bytecode.ReadU16(code, ip)].V = stack[sp]
+			ip += 2
+		case bytecode.OpClosure:
+			fn := vm.prog.Funcs[bytecode.ReadU16(code, ip)]
+			ip += 2
+			cells := make([]*value.CellObj, len(fn.Upvalues))
+			for i, u := range fn.Upvalues {
+				if u.FromLocal {
+					cells[i] = stack[base+u.Index].AsCell()
+				} else {
+					cells[i] = f.up[u.Index]
+				}
+			}
+			stack[sp] = value.MakeClosure(&value.ClosureObj{Fn: fn, Cells: cells, This: f.this})
+			sp++
 
 		case bytecode.OpTryPush:
 			vm.handlers = append(vm.handlers, handler{

@@ -318,8 +318,12 @@ func (c *compiler) loadStaticRef(e *ast.StaticRef) {
 // (members are not searched, so that the constructor's name in a member
 // function still means the class).
 func (c *compiler) newClassValue(id *ast.Ident) {
-	if slot, ok := c.lookupLocal(id.Name); ok {
-		c.emit(bytecode.OpLoadLocal, slot)
+	if _, ok := c.lookupLocal(id.Name); ok {
+		c.load(id)
+		return
+	}
+	if up, ok := c.upvalue(c.fs, id.Name); ok {
+		c.emit(bytecode.OpLoadUpvalue, up)
 		return
 	}
 	g, ok := c.globals[id.Name]
@@ -357,6 +361,9 @@ func (c *compiler) memberCall(e *ast.CallExpr) bool {
 	switch fun := e.Fun.(type) {
 	case *ast.Ident:
 		if _, ok := c.lookupLocal(fun.Name); ok {
+			return false
+		}
+		if _, ok := c.upvalue(c.fs, fun.Name); ok {
 			return false
 		}
 		m := c.memberOf(fun.Name)

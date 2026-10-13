@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"kukel/internal/ast"
+	"kukel/internal/bytecode"
 	"kukel/internal/diag"
 	"kukel/internal/parser"
 )
@@ -130,10 +131,17 @@ func TestCompileErrors(t *testing.T) {
 		{"main() { switch (1) { case 1: try { } finally { case 2: } } }", "1:49", "a case label may not be inside a try, catch or finally block"},
 		{"main() { try { } catch (e) { local e; } }", "1:36", "local e is already declared in this block"},
 		{"class Error { }", "1:7", "Error is already defined at <prelude>:2:7"},
+		// function literals
+		{"main() { while (1) { local f = fn() { break; }; } }", "1:39", "break outside a loop or switch"},
+		{"main() { a: while (1) { local f = fn() { continue a; }; } }", "1:51", "no enclosing statement is labelled a"},
+		{"main() { local f = fn() { return this; }; }", "1:34", "'this' is only available in member functions"},
+		{"class A { static s(); } A::s() { local f = fn() { this; }; } main() {}", "1:51", "'this' is not available in static member function A::s"},
+		{"main() { local f = fn() { return q; }; }", "1:34", "undefined name q"},
+		{"main() { local f = fn(a, a) { }; }", "1:26", "parameter a repeats a parameter or temporary name"},
+		{"main() { local f = fn() { f(); }; }", "1:27", "undefined name f"}, // not visible in its own initializer
 		// later milestones
 		{"main() { for (local k, k in [1]) ; }", "1:24", "local k is already declared in this block"},
 		{"main() { for (local x in x) ; }", "1:26", "undefined name x"}, // the loop variable is not visible in the expression
-		{"main() { local f = fn() { }; }", "1:20", "function literals are not supported yet (milestone 8)"},
 	}
 	for _, tt := range tests {
 		err := compileSrc(t, tt.src)
@@ -156,6 +164,37 @@ func TestJumpsInsideFinallyAreAllowed(t *testing.T) {
 		if err := compileSrc(t, src); err != nil {
 			t.Errorf("%q: %v", src, err)
 		}
+	}
+}
+
+func TestOnlyCapturedLocalsGetCells(t *testing.T) {
+	f, err := parser.ParseFile("t.kkl", []byte(`g(p, q; t) { local a = 1, b = 2; local f = fn() { return a + p + t; }; } main() {}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prog, err := Compile([]*ast.File{f}, testBuiltins)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var main *bytecode.Function
+	for _, fn := range prog.Funcs {
+		if fn.FuncName == "g" {
+			main = fn
+		}
+	}
+	cells := map[int]bool{}
+	for pc := 0; pc < len(main.Code); pc += bytecode.Op(main.Code[pc]).Size() {
+		if bytecode.Op(main.Code[pc]) == bytecode.OpNewCell {
+			cells[bytecode.ReadU16(main.Code, pc+1)] = true
+		}
+	}
+	// slots: p=0, q=1, t=2, a=3, b=4, f=5; captured: p, t, a
+	if len(cells) != 3 || !cells[0] || !cells[2] || !cells[3] {
+		t.Errorf("cells in slots %v, want 0, 2 and 3", cells)
+	}
+	lit := prog.Funcs[len(prog.Funcs)-1]
+	if lit.FuncName != "g/fn@1" || len(lit.Upvalues) != 3 {
+		t.Errorf("function literal %s has %d upvalues, want g/fn@1 with 3", lit.FuncName, len(lit.Upvalues))
 	}
 }
 
@@ -205,6 +244,8 @@ func FuzzCompile(f *testing.F) {
 		"f(x) { a: for (;;) { try { try { if (x) return x; break a; } catch (e) { continue; } finally { x++; } } finally { } } } main() { f(1); }",
 		"main() { switch (1) { case 1: try { throw 1; } catch (e) { try { } finally { while (1) break; } } default: } }",
 		"class E : Error { E(); } E::E() { Error::Error(\"m\"); } main() { try { throw new E(); } catch (e) { throw e; } finally { return; } }",
+		"main(a; t) { local f = fn(x = a, y..; z) { return fn() { a++; t = x; return z = y; }; }; for (local i = 0; i < 2; i++) f(i)(); }",
+		"class K { v; m(); } K::m() { return fn() { return fn() { v++; return this; }; }; } main() { try { new K()->m()()(); } catch (e) { local g = fn() { return e; }; } }",
 	} {
 		f.Add(s)
 	}

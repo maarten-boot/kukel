@@ -345,8 +345,8 @@ func builtinSort(env value.Env, args []value.Value) (value.Value, error) {
 	}
 	if len(args) == 2 {
 		fn := args[1]
-		if k := fn.Kind(); k != value.Function && k != value.Builtin {
-			return value.NilValue, value.Errorf(value.TypeError, "sort: argument 2 must be a function, not %s", k)
+		if !fn.IsCallable() {
+			return value.NilValue, value.Errorf(value.TypeError, "sort: argument 2 must be a function, not %s", fn.Kind())
 		}
 		less = func(a, b value.Value) bool {
 			if sortErr != nil {

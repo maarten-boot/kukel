@@ -26,8 +26,10 @@ const (
 	Class
 	Object
 	BoundMethod
+	Closure  // a function literal with its captured variables
 	Iterator // internal: the state of a for-each loop
 	Internal // internal: a Go value the VM keeps in a slot (a pending exception)
+	Cell     // internal: a captured variable
 )
 
 var kindNames = [...]string{
@@ -43,8 +45,10 @@ var kindNames = [...]string{
 	Class:       "class",
 	Object:      "object",
 	BoundMethod: "function",
+	Closure:     "function",
 	Iterator:    "iterator",
 	Internal:    "internal",
+	Cell:        "cell",
 }
 
 // String returns the name typeof() reports for k.
@@ -227,6 +231,10 @@ func (v Value) write(b *strings.Builder, quote bool, open map[any]bool) {
 		b.WriteByte('}')
 	case BoundMethod:
 		b.WriteString("<method " + v.AsBoundMethod().Method.FullName() + ">")
+	case Closure:
+		b.WriteString("<function " + v.AsClosure().Fn.Name() + ">")
+	case Cell:
+		b.WriteString("<cell>")
 	case Iterator:
 		b.WriteString("<iterator>")
 	case Internal:
@@ -290,3 +298,33 @@ func Quote(s string) string {
 
 // MakeInternal wraps a Go value that only the VM uses.
 func MakeInternal(x any) Value { return Value{kind: Internal, obj: x} }
+
+// CellObj holds a captured variable, shared by the frame that declared it
+// and the closures that captured it.
+type CellObj struct {
+	V Value
+}
+
+func NewCell(v Value) Value      { return Value{kind: Cell, obj: &CellObj{V: v}} }
+func (v Value) AsCell() *CellObj { return v.obj.(*CellObj) }
+
+// ClosureObj is a function literal's value: the function, the cells of the
+// variables it captured, and the this of the member function it was made in.
+type ClosureObj struct {
+	Fn    Named
+	Cells []*CellObj
+	This  Value
+}
+
+func MakeClosure(c *ClosureObj) Value  { return Value{kind: Closure, obj: c} }
+func (v Value) AsClosure() *ClosureObj { return v.obj.(*ClosureObj) }
+
+// IsCallable reports whether v can be called: a function, function literal,
+// bound method or built-in.
+func (v Value) IsCallable() bool {
+	switch v.kind {
+	case Function, Closure, BoundMethod, Builtin:
+		return true
+	}
+	return false
+}

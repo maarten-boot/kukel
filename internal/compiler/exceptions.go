@@ -51,7 +51,7 @@ func (c *compiler) tryStmt(s *ast.TryStmt) {
 	c.patch([]int{h + 2}, c.here())
 	c.handlerEntry()
 	c.pushScope()
-	pending := c.declare(&ast.Ident{NamePos: s.Finally.Lbrace, Name: "(exception)"}, "hidden")
+	pending := c.declare(&ast.Ident{NamePos: s.Finally.Lbrace, Name: "(exception)"}, "hidden").slot
 	c.emit(bytecode.OpStoreLocal, pending)
 	c.finallyBlock(s.Finally)
 	c.emit(bytecode.OpLoadLocal, pending)
@@ -79,7 +79,7 @@ func (c *compiler) tryCatch(s *ast.TryStmt) {
 	c.handlerEntry()
 	c.mark(s.CatchVar.NamePos)
 	c.pushScope()
-	c.emit(bytecode.OpStoreLocal, c.declare(s.CatchVar, "local"))
+	c.declareInit(s.CatchVar)
 	c.pushTry(&tryCtx{}) // marks the catch block (for case labels); no handler
 	for _, st := range s.Catch.Stmts {
 		if d, ok := st.(*ast.LocalDecl); ok {

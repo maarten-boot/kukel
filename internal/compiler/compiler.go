@@ -135,7 +135,8 @@ func Compile(files []*ast.File, builtins []string) (prog *bytecode.Program, err 
 	c.prog.Main = m.index
 
 	// Pass 2: the global initializers, then the functions.
-	c.prog.Init = c.function("<init>", pos, &ast.ParamList{}, nil, false, func() {
+	c.prog.Funcs = make([]*bytecode.Function, len(jobs)) // function literals are added after these
+	c.prog.Init = c.function("<init>", pos, &ast.ParamList{}, nil, false, nil, initializers(globals), func() {
 		for _, v := range globals {
 			if v.Value != nil {
 				c.mark(v.Pos())
@@ -144,17 +145,29 @@ func Compile(files []*ast.File, builtins []string) (prog *bytecode.Program, err 
 			}
 		}
 	})
-	for _, job := range jobs {
+	for i, job := range jobs {
 		fd := job.decl
 		name, static := fd.Name.Name, false
 		if job.class != nil {
 			name, static = job.class.name+"::"+name, job.member.static
 		}
-		c.prog.Funcs = append(c.prog.Funcs, c.function(name, fd.Pos(), fd.Params, job.class, static, func() {
+		c.prog.Funcs[i] = c.function(name, fd.Pos(), fd.Params, job.class, static, nil, fd, func() {
 			c.block(fd.Body)
-		}))
+		})
 	}
 	return c.prog, nil
+}
+
+// initializers collects the global initializers (the body of <init>) for
+// the capture analysis.
+func initializers(vars []*ast.VarSpec) ast.Node {
+	var exprs []ast.Expr
+	for _, v := range vars {
+		if v.Value != nil {
+			exprs = append(exprs, v.Value)
+		}
+	}
+	return &ast.VectorLit{Elems: exprs}
 }
 
 // funcJob is a function or member function definition to compile.
@@ -208,9 +221,12 @@ func (c *compiler) globalIndex(name string, g *global, pos token.Pos) int {
 // funcState is the state of the function being compiled.
 type funcState struct {
 	fn       *bytecode.Function
-	scopes   []map[string]int // innermost last; scopes[0] holds params and temporaries
-	nslots   int              // slots in use
-	depth    int              // operand stack depth at the current instruction
+	parent   *funcState            // the enclosing function of a function literal
+	captured map[string]bool       // names used inside nested function literals
+	upvalues map[string]int        // a function literal's captured variables
+	scopes   []map[string]localVar // innermost last; scopes[0] holds params and temporaries
+	nslots   int                   // slots in use
+	depth    int                   // operand stack depth at the current instruction
 	maxDepth int
 	targets  []*target  // enclosing loops, switches and labelled statements
 	line     int        // line of the code being emitted
@@ -219,15 +235,28 @@ type funcState struct {
 	tries    []*tryCtx  // enclosing try, catch and finally blocks
 }
 
-// function compiles one function; body emits the code of its body.
-func (c *compiler) function(name string, pos token.Pos, params *ast.ParamList, class *classInfo, static bool, body func()) *bytecode.Function {
+// localVar is a local, parameter or temporary: its slot, and whether the
+// slot holds a cell (when a function literal may capture it).
+type localVar struct {
+	slot int
+	cell bool
+}
+
+// function compiles one function; body emits the code of its body, and
+// tree (the function's syntax, or nil) is used to find captured names.
+// parent is the enclosing function of a function literal.
+func (c *compiler) function(name string, pos token.Pos, params *ast.ParamList, class *classInfo, static bool,
+	parent *funcState, tree ast.Node, body func()) *bytecode.Function {
 	outer := c.fs
 	fs := &funcState{
-		fn:     &bytecode.Function{FuncName: name, File: pos.File, Line: pos.Line},
-		scopes: []map[string]int{{}},
-		line:   pos.Line,
-		class:  class,
-		static: static,
+		fn:       &bytecode.Function{FuncName: name, File: pos.File, Line: pos.Line},
+		parent:   parent,
+		captured: capturedNames(tree),
+		upvalues: map[string]int{},
+		scopes:   []map[string]localVar{{}},
+		line:     pos.Line,
+		class:    class,
+		static:   static,
 	}
 	c.fs = fs
 	defer func() { c.fs = outer }()
@@ -257,10 +286,16 @@ func (c *compiler) function(name string, pos token.Pos, params *ast.ParamList, c
 			}
 			fs.fn.NumParams++
 		}
-		c.declare(p.Name, "parameter")
+		if lv := c.declare(p.Name, "parameter"); lv.cell {
+			c.emit(bytecode.OpLoadLocal, lv.slot)
+			c.emit(bytecode.OpNewCell, lv.slot)
+		}
 	}
 	for _, t := range params.Temps {
-		c.declare(t, "temporary")
+		if lv := c.declare(t, "temporary"); lv.cell {
+			c.emit(bytecode.OpNil)
+			c.emit(bytecode.OpNewCell, lv.slot)
+		}
 	}
 
 	body()
@@ -270,8 +305,9 @@ func (c *compiler) function(name string, pos token.Pos, params *ast.ParamList, c
 	return fs.fn
 }
 
-// declare adds a name to the innermost scope and gives it a slot.
-func (c *compiler) declare(id *ast.Ident, what string) int {
+// declare adds a name to the innermost scope and gives it a slot. A name
+// that a nested function literal uses gets a cell (the caller fills it).
+func (c *compiler) declare(id *ast.Ident, what string) localVar {
 	fs := c.fs
 	scope := fs.scopes[len(fs.scopes)-1]
 	if _, ok := scope[id.Name]; ok {
@@ -285,7 +321,8 @@ func (c *compiler) declare(id *ast.Ident, what string) int {
 	}
 	slot := fs.nslots
 	fs.nslots++
-	scope[id.Name] = slot
+	lv := localVar{slot: slot, cell: fs.captured[id.Name]}
+	scope[id.Name] = lv
 	if slot == len(fs.fn.SlotNames) {
 		fs.fn.SlotNames = append(fs.fn.SlotNames, id.Name)
 	} else {
@@ -294,10 +331,22 @@ func (c *compiler) declare(id *ast.Ident, what string) int {
 	if fs.nslots > fs.fn.NumSlots {
 		fs.fn.NumSlots = fs.nslots
 	}
-	return slot
+	return lv
 }
 
-func (c *compiler) pushScope() { c.fs.scopes = append(c.fs.scopes, map[string]int{}) }
+// declareInit declares a variable and stores the value on the stack into
+// it (into a new cell for a captured one: each run of the declaration makes
+// a fresh variable, which closures in loops rely on).
+func (c *compiler) declareInit(id *ast.Ident) {
+	lv := c.declare(id, "local")
+	if lv.cell {
+		c.emit(bytecode.OpNewCell, lv.slot)
+	} else {
+		c.emit(bytecode.OpStoreLocal, lv.slot)
+	}
+}
+
+func (c *compiler) pushScope() { c.fs.scopes = append(c.fs.scopes, map[string]localVar{}) }
 
 // popScope ends the innermost block; its slots are reused afterwards.
 func (c *compiler) popScope() {
@@ -353,8 +402,10 @@ func stackEffect(op bytecode.Op, operands []int) int {
 		return -1
 	case bytecode.OpCallMethod, bytecode.OpCallDirect:
 		return -operands[1]
-	case bytecode.OpThrow, bytecode.OpRethrow:
+	case bytecode.OpThrow, bytecode.OpRethrow, bytecode.OpNewCell, bytecode.OpStoreCell, bytecode.OpStoreUpvalue:
 		return -1
+	case bytecode.OpLoadCell, bytecode.OpLoadUpvalue, bytecode.OpClosure:
+		return 1
 	case bytecode.OpNew:
 		return -operand
 	}
@@ -469,7 +520,7 @@ func (c *compiler) local(d *ast.LocalDecl) {
 			c.emit(bytecode.OpNil)
 		}
 		// The name becomes visible after its initializer.
-		c.emit(bytecode.OpStoreLocal, c.declare(v.Name, "local"))
+		c.declareInit(v.Name)
 	}
 }
 
@@ -594,6 +645,14 @@ func (c *compiler) forStmt(s *ast.ForStmt, labels []*ast.Ident) {
 	c.stmt(s.Body)
 	c.popTarget()
 	c.patch(t.continues, c.here())
+	// Each iteration has its own copy of captured loop variables (Q16): copy
+	// them into new cells before the update runs.
+	for _, v := range s.InitVars {
+		if lv := c.fs.scopes[len(c.fs.scopes)-1][v.Name.Name]; lv.cell {
+			c.emit(bytecode.OpLoadCell, lv.slot)
+			c.emit(bytecode.OpNewCell, lv.slot)
+		}
+	}
 	if s.Post != nil {
 		c.mark(s.Post.Pos())
 		c.exprDiscard(s.Post)
@@ -611,7 +670,7 @@ func (c *compiler) forStmt(s *ast.ForStmt, labels []*ast.Ident) {
 //	end:
 func (c *compiler) forEachStmt(s *ast.ForEachStmt, labels []*ast.Ident) {
 	c.pushScope()
-	it := c.declare(&ast.Ident{NamePos: s.For, Name: "(iterator)"}, "hidden")
+	it := c.declare(&ast.Ident{NamePos: s.For, Name: "(iterator)"}, "hidden").slot
 	c.mark(s.X.Pos())
 	c.expr(s.X)
 	c.emit(bytecode.OpIterInit)
@@ -620,7 +679,7 @@ func (c *compiler) forEachStmt(s *ast.ForEachStmt, labels []*ast.Ident) {
 	// The loop variables are visible in the body only (not in x).
 	n := 1
 	key := c.declare(s.Key, "local")
-	val := -1
+	var val localVar
 	if s.Value != nil {
 		n = 2
 		val = c.declare(s.Value, "local")
@@ -628,10 +687,10 @@ func (c *compiler) forEachStmt(s *ast.ForEachStmt, labels []*ast.Ident) {
 	top := c.here()
 	c.mark(s.For)
 	next := c.emit(bytecode.OpIterNext, it, n, 0)
-	if val >= 0 {
-		c.emit(bytecode.OpStoreLocal, val)
+	if n == 2 {
+		c.storeFresh(val)
 	}
-	c.emit(bytecode.OpStoreLocal, key)
+	c.storeFresh(key)
 
 	t := c.pushTarget(targetLoop, labels)
 	c.stmt(s.Body)
@@ -762,7 +821,7 @@ type switchCase struct {
 //	end:
 func (c *compiler) switchStmt(s *ast.SwitchStmt, labels []*ast.Ident) {
 	c.pushScope()
-	tag := c.declare(&ast.Ident{NamePos: s.Switch, Name: "(switch)"}, "hidden")
+	tag := c.declare(&ast.Ident{NamePos: s.Switch, Name: "(switch)"}, "hidden").slot
 	c.mark(s.Tag.Pos())
 	c.expr(s.Tag)
 	c.emit(bytecode.OpStoreLocal, tag)
@@ -816,9 +875,9 @@ func (c *compiler) innermostSwitch(pos token.Pos) *switchState {
 func (c *compiler) checkLabelScope(sw *switchState, pos token.Pos, what string) {
 	name, slot := "", -1
 	for _, scope := range c.fs.scopes[sw.firstScope:] {
-		for n, s := range scope {
-			if slot < 0 || s < slot { // report the first declared
-				name, slot = n, s
+		for n, lv := range scope {
+			if slot < 0 || lv.slot < slot { // report the first declared
+				name, slot = n, lv.slot
 			}
 		}
 	}
@@ -1010,7 +1069,7 @@ func (c *compiler) expr(e ast.Expr) {
 	case *ast.StaticRef:
 		c.loadStaticRef(e)
 	case *ast.FuncLit:
-		c.notYet(e.Pos(), "function literals are", 8)
+		c.emit(bytecode.OpClosure, c.funcLit(e))
 	case *ast.Spread:
 		c.errorf(e.Pos(), "a spread (x..) is only allowed in an argument list or vector literal")
 	default:
@@ -1099,6 +1158,8 @@ const (
 	lvMember    // p->x: lvalue has pushed p; index is the name constant
 	lvThisField // a data member of this: index is its slot
 	lvStatic    // a static data member: class and index
+	lvCell      // a captured local: index is the slot of its cell
+	lvUpvalue   // a variable of an enclosing function: index is the upvalue
 )
 
 // variable is a resolved assignment target.
@@ -1128,6 +1189,10 @@ func (v variable) load(c *compiler) {
 		c.emit(bytecode.OpLoadMember, v.index)
 	case lvStatic:
 		c.emit(bytecode.OpLoadStatic, v.class, v.index)
+	case lvCell:
+		c.emit(bytecode.OpLoadCell, v.index)
+	case lvUpvalue:
+		c.emit(bytecode.OpLoadUpvalue, v.index)
 	}
 }
 
@@ -1157,22 +1222,39 @@ func (v variable) store(c *compiler, keep bool) {
 		c.emit(bytecode.OpStoreMember, v.index)
 	case lvStatic:
 		c.emit(bytecode.OpStoreStatic, v.class, v.index)
+	case lvCell:
+		c.emit(bytecode.OpStoreCell, v.index)
+	case lvUpvalue:
+		c.emit(bytecode.OpStoreUpvalue, v.index)
 	}
 }
 
-// lookupLocal finds a local, parameter or temporary, innermost first.
-func (c *compiler) lookupLocal(name string) (int, bool) {
-	for i := len(c.fs.scopes) - 1; i >= 0; i-- {
-		if slot, ok := c.fs.scopes[i][name]; ok {
-			return slot, true
+// lookupLocal finds a local, parameter or temporary of the current
+// function, innermost first.
+func (c *compiler) lookupLocal(name string) (localVar, bool) {
+	return c.fs.lookup(name)
+}
+
+func (fs *funcState) lookup(name string) (localVar, bool) {
+	for i := len(fs.scopes) - 1; i >= 0; i-- {
+		if lv, ok := fs.scopes[i][name]; ok {
+			return lv, true
 		}
 	}
-	return 0, false
+	return localVar{}, false
 }
 
 func (c *compiler) load(id *ast.Ident) {
-	if slot, ok := c.lookupLocal(id.Name); ok {
-		c.emit(bytecode.OpLoadLocal, slot)
+	if lv, ok := c.lookupLocal(id.Name); ok {
+		if lv.cell {
+			c.emit(bytecode.OpLoadCell, lv.slot)
+		} else {
+			c.emit(bytecode.OpLoadLocal, lv.slot)
+		}
+		return
+	}
+	if up, ok := c.upvalue(c.fs, id.Name); ok {
+		c.emit(bytecode.OpLoadUpvalue, up)
 		return
 	}
 	if m := c.memberOf(id.Name); m != nil {
@@ -1195,8 +1277,14 @@ func (c *compiler) load(id *ast.Ident) {
 func (c *compiler) lvalue(e ast.Expr) variable {
 	switch e := e.(type) {
 	case *ast.Ident:
-		if slot, ok := c.lookupLocal(e.Name); ok {
-			return variable{kind: lvLocal, index: slot}
+		if lv, ok := c.lookupLocal(e.Name); ok {
+			if lv.cell {
+				return variable{kind: lvCell, index: lv.slot}
+			}
+			return variable{kind: lvLocal, index: lv.slot}
+		}
+		if up, ok := c.upvalue(c.fs, e.Name); ok {
+			return variable{kind: lvUpvalue, index: up}
 		}
 		if m := c.memberOf(e.Name); m != nil {
 			return c.memberVariable(m, e.NamePos)

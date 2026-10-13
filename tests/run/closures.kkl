@@ -1,0 +1,63 @@
+// Milestone 8: function literals and closures.
+
+// A tiny event system: handlers are closures over their own state.
+global handlers = {};
+
+on(event, handler) {
+    if (!haskey(handlers, event)) handlers[event] = [];
+    push(handlers[event], handler);
+}
+
+emit(event, args..) {
+    if (haskey(handlers, event))
+        for (local h in handlers[event]) h(args..);
+}
+
+// Functions that make functions.
+compose(f, g) { return fn(x) { return f(g(x)); }; }
+memoize(f; cache) {
+    cache = {};
+    return fn(n) {
+        if (!haskey(cache, n)) cache[n] = f(n);
+        return cache[n];
+    };
+}
+
+map(v, f; out) {
+    out = [];
+    for (local x in v) push(out, f(x));
+    return out;
+}
+
+filter(v, keep; out) {
+    out = [];
+    for (local x in v) if (keep(x)) push(out, x);
+    return out;
+}
+
+main() {
+    local total = 0, log = [];
+    on("buy", fn(item, price) { total += price; push(log, item); });
+    on("buy", fn(item, price) { if (price > 10) println("big purchase:", item); });
+    emit("buy", "pen", 2);
+    emit("buy", "book", 25);
+    emit("sell", "nothing");
+    println("total", total, "items", log);
+
+    local inc = fn(x) { return x + 1; }, double = fn(x) { return x * 2; };
+    println(compose(inc, double)(5), compose(double, inc)(5));
+
+    local calls = 0;
+    local slowSquare = fn(n) { calls++; return n * n; };
+    local fast = memoize(slowSquare);
+    println(fast(9), fast(9), fast(3), "computed", calls, "times");
+
+    local nums = [1, 2, 3, 4, 5, 6];
+    println(map(filter(nums, fn(n) { return n % 2 == 0; }), fn(n) { return n * n; }));
+
+    // one closure per iteration, each with its own i
+    local greeters = [];
+    for (local i = 1; i <= 3; i++) push(greeters, fn(name) { return "#" + str(i) + " " + name; });
+    for (local g in greeters) print(g("kukel"), "| ");
+    println();
+}
