@@ -1,0 +1,36 @@
+// Milestone 11: reading standard input line by line (wordfreq.in).
+// Counts words (letters only, case-insensitive) and prints the most common.
+
+const TOP = 5;
+
+isLetter(c) { return c >= 'a' && c <= 'z' || c == '\''; }
+
+words(line; out, word) {
+    out = [];
+    word = "";
+    for (local c in lower(line) + " ") {
+        if (isLetter(c)) {
+            word += char(c);
+        } elseif (word != "") {
+            push(out, word);
+            word = "";
+        }
+    }
+    return out;
+}
+
+main(; line, counts, total) {
+    counts = {};
+    total = 0;
+    while ((line = readline()) != nil) {
+        for (local w in words(line)) {
+            counts[w] = (haskey(counts, w) ? counts[w] : 0) + 1;
+            total++;
+        }
+    }
+    local list = keys(counts);
+    sort(list, fn(a, b) { return counts[a] > counts[b] || counts[a] == counts[b] && a < b; });
+    println(total, "words,", len(counts), "different");
+    for (local i, w in slice(list, 0, min(TOP, len(list))))
+        println(str(i + 1) + ".", w, counts[w], str(round(100.0 * counts[w] / total)) + "%");
+}

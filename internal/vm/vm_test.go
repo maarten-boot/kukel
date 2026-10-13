@@ -2,6 +2,8 @@ package vm_test
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -16,6 +18,14 @@ import (
 // runSource compiles and runs a one-file program.
 func runSource(t *testing.T, src string, args ...string) (string, int, error) {
 	t.Helper()
+	out, _, code, err := runSourceIO(t, src, "", args...)
+	return out, code, err
+}
+
+// runSourceIO runs a program with the given standard input and returns
+// what it wrote to standard output and standard error.
+func runSourceIO(t *testing.T, src, stdin string, args ...string) (string, string, int, error) {
+	t.Helper()
 	f, err := parser.ParseFile("t.kkl", []byte(src))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -27,13 +37,14 @@ func runSource(t *testing.T, src string, args ...string) (string, int, error) {
 	if err := bytecode.Verify(prog); err != nil {
 		t.Fatalf("the compiler produced code the verifier rejects: %v", err)
 	}
-	var out bytes.Buffer
-	machine, err := vm.New(prog, builtins.Lookup, &out, strings.NewReader(""))
+	var out, errOut bytes.Buffer
+	machine, err := vm.New(prog, builtins.Lookup, &out, strings.NewReader(stdin))
 	if err != nil {
 		t.Fatalf("vm.New: %v", err)
 	}
+	machine.SetStderr(&errOut)
 	code, err := machine.Run(args)
-	return out.String(), code, err
+	return out.String(), errOut.String(), code, err
 }
 
 func TestPrograms(t *testing.T) {
@@ -462,26 +473,26 @@ func TestPrograms(t *testing.T) {
 			println();
 		}`, "int true string true vector true map true nil true \n"},
 		{"finally runs on every way out", `
-			global log = [];
+			global trail = [];
 			f(n) {
 				try {
 					if (n == 0) return "returned";
 					if (n == 1) throw "thrown";
-					push(log, "body " + str(n));
+					push(trail, "body " + str(n));
 				} finally {
-					push(log, "finally " + str(n));
+					push(trail, "finally " + str(n));
 				}
 				return "end";
 			}
 			main() {
 				for (local n = 0; n < 3; n++) {
-					try { push(log, f(n)); } catch (e) { push(log, "caught " + e); }
+					try { push(trail, f(n)); } catch (e) { push(trail, "caught " + e); }
 				}
 				for (local i = 0; i < 3; i++) {
-					try { if (i == 0) continue; if (i == 2) break; push(log, "loop " + str(i)); }
-					finally { push(log, "loop finally " + str(i)); }
+					try { if (i == 0) continue; if (i == 2) break; push(trail, "loop " + str(i)); }
+					finally { push(trail, "loop finally " + str(i)); }
 				}
-				println(join(log, "; "));
+				println(join(trail, "; "));
 			}`, "finally 0; returned; finally 1; caught thrown; body 2; finally 2; end; " +
 			"loop finally 0; loop 1; loop finally 1; loop finally 2\n"},
 		{"the return value is computed before finally runs", `
@@ -632,6 +643,31 @@ func TestPrograms(t *testing.T) {
 				catch (e) { println(e->kind, e->message); }
 				println(new C(5), new D(), classof(new C(1)));
 			}`, "ValidationError age must not be negative\nC{x: 50} D{x: nil, y: \"own\"} <class C>\n"},
+		// milestone 11
+		{"conversions", `main() {
+			println(int("42"), int(" -0x10 "), int("1_000"), int("0b101"), int("0xFFFFFFFFFFFFFFFF"), int("-9223372036854775808"));
+			println(int(3.9), int(-3.9), int(true), int(false), int(7));
+			println(float("2.5"), float(" 1e3 "), float(3), float("inf"), float("-0"), float(1.5), isnil(nil), isnil(0));
+		}`, "42 -16 1000 5 -1 -9223372036854775808\n3 -3 1 0 7\n2.5 1000.0 3.0 inf -0.0 1.5 true false\n"},
+		{"math", `main() {
+			println(abs(-5), abs(-2.5), abs(-9223372036854775808), min(3, 1, 2), max([4, 9, 2]), min("b", "a"), max(1, 2.5));
+			println(pow(2, 10), pow(2, 64), pow(-2, 3), pow(2, -1), pow(2.0, 3), pow(4, 0.5));
+			println(floor(2.7), ceil(2.1), round(2.5), round(-2.5), floor(-0.5), round(7), typeof(floor(1.5)));
+			println(sqrt(16), atan2(1, 1) * 4, log(exp(1)), sin(0), cos(0), tan(0));
+		}`, "5 2.5 -9223372036854775808 1 9 a 2.5\n1024 0 -8 0.5 8.0 2.0\n2 3 3 -3 -1 7 int\n4.0 3.141592653589793 1.0 0.0 1.0 0.0\n"},
+		{"random numbers", `main() {
+			seed(42);
+			local a = [random(), randint(1, 6), randint(-5, 5)];
+			seed(42);
+			local b = [random(), randint(1, 6), randint(-5, 5)];
+			println(a == b, str(a) == str(b), a[0] >= 0 && a[0] < 1, a[1] >= 1 && a[1] <= 6);
+			local seen = {};
+			for (local i = 0; i < 200; i++) seen[randint(1, 3)] = true;
+			println(len(seen), randint(5, 5), typeof(randint(-9223372036854775808, 9223372036854775807)));
+		}`, "false true true true\n3 5 int\n"},
+		{"time, clock, getenv", `main() {
+			println(typeof(time()), time() > 1.7e9, clock() >= 0, clock() < 60, getenv("KUKEL_NO_SUCH_VARIABLE"));
+		}`, "float true true true nil\n"},
 		{"deep recursion within the limit", `
 			down(n) { if (n == 0) return 0; return 1 + down(n - 1); }
 			main() { println(down(9000)); }`, "9000\n"},
@@ -769,6 +805,26 @@ main() {
 			"ZeroDivisionError: integer division by zero\n  at main/fn@2 (t.kkl:3)\n  at main (t.kkl:5)"},
 		{"wrong argument count for a function literal", "main() {\n local f = fn(x) { };\n f();\n}",
 			"ArgumentError: main/fn@2 expects 1 argument(s), got 0\n  at main (t.kkl:3)"},
+		{"int of a bad string", `main() { int("12x"); }`,
+			"ValueError: int: \"12x\" is not an integer\n  at main (t.kkl:1)"},
+		{"int that does not fit", `main() { int("9223372036854775808"); }`,
+			"RangeError: int: \"9223372036854775808\" is too large\n  at main (t.kkl:1)"},
+		{"int of a float that does not fit", `main() { int(1e19); }`,
+			"RangeError: int: 1e+19 does not fit in an int\n  at main (t.kkl:1)"},
+		{"float of a bad string", `main() { float("one"); }`,
+			"ValueError: float: \"one\" is not a number\n  at main (t.kkl:1)"},
+		{"floor of nan", `main() { floor(0.0 / 0.0); }`,
+			"RangeError: floor: nan does not fit in an int\n  at main (t.kkl:1)"},
+		{"min of nothing", `main() { min([]); }`,
+			"ArgumentError: min of no values\n  at main (t.kkl:1)"},
+		{"max of mixed values", `main() { max(1, "a"); }`,
+			"TypeError: cannot compare string and int with >\n  at main (t.kkl:1)"},
+		{"sqrt of a string", `main() { sqrt("4"); }`,
+			"TypeError: sqrt: argument 1 must be a number, not string\n  at main (t.kkl:1)"},
+		{"randint with bounds reversed", `main() { randint(6, 1); }`,
+			"RangeError: randint: 6 is greater than 1\n  at main (t.kkl:1)"},
+		{"reading a missing file", `main() { readfile("/no/such/kukel/file"); }`,
+			"IOError: readfile: /no/such/kukel/file: no such file or directory\n  at main (t.kkl:1)"},
 		{"++ on a string", `main() { local s = "a"; s++; }`,
 			"TypeError: cannot apply ++ to string\n  at main (t.kkl:1)"},
 	}
@@ -841,4 +897,67 @@ func BenchmarkMethodCalls1M(b *testing.B) {
 
 func BenchmarkClosureCalls1M(b *testing.B) {
 	benchmarkSource(b, `main() { local n = 0; local inc = fn() { n++; }; for (local i = 0; i < 1000000; i++) inc(); }`)
+}
+
+func TestReadline(t *testing.T) {
+	out, _, _, err := runSourceIO(t, `main(; line, n) {
+		n = 0;
+		print("name? ");
+		while ((line = readline()) != nil) { n++; println("[" + line + "]"); }
+		println(n, readline());
+	}`, "ann\r\nbob\n\nlast without newline")
+	if err != nil || out != "name? [ann]\n[bob]\n[]\n[last without newline]\n4 nil\n" {
+		t.Errorf("got %q, %v", out, err)
+	}
+}
+
+func TestFiles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notes.txt")
+	out, _, err := runSource(t, `main(args; p) {
+		p = args[0];
+		writefile(p, "one\n");
+		appendfile(p, "two\n");
+		println(readfile(p) == "one\ntwo\n", len(split(readfile(p), "\n")));
+		writefile(p, "new");
+		println(readfile(p));
+	}`, path)
+	if err != nil || out != "true 3\nnew\n" {
+		t.Errorf("got %q, %v", out, err)
+	}
+	data, _ := os.ReadFile(path)
+	if string(data) != "new" {
+		t.Errorf("file holds %q", data)
+	}
+}
+
+func TestStderrAndExit(t *testing.T) {
+	out, errOut, code, err := runSourceIO(t, `
+		cmp(a, b) { exit(4); }
+		main() {
+			print("out ");
+			eprint("err", 1, "");
+			eprintln("line");
+			try { sort([2, 1], cmp); } catch (e) { println("never"); } finally { println("never either"); }
+		}`, "")
+	if err != nil || code != 4 || out != "out " || errOut != "err 1 line\n" {
+		t.Errorf("got out %q, err %q, code %d, %v", out, errOut, code, err)
+	}
+	_, _, code, err = runSourceIO(t, `main() { local f = fn() { exit(); }; f(); return 9; }`, "")
+	if err != nil || code != 0 {
+		t.Errorf("exit(): code %d, %v", code, err)
+	}
+}
+
+func BenchmarkStringBuilding(b *testing.B) {
+	benchmarkSource(b, `main(; parts) { parts = []; for (local i = 0; i < 100000; i++) push(parts, str(i)); join(parts, ","); }`)
+}
+
+func BenchmarkMapsAndVectors(b *testing.B) {
+	benchmarkSource(b, `main(; m, v) {
+		m = {}; v = [];
+		for (local i = 0; i < 100000; i++) { m[i % 1000] = i; push(v, i); }
+		local sum = 0;
+		for (local k, x in m) sum += x;
+		for (local x in v) sum += x;
+	}`)
 }

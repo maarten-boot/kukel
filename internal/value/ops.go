@@ -23,6 +23,7 @@ const (
 	StackOverflow = "StackOverflowError"
 	IOError       = "IOError"
 	MemberError   = "MemberError"
+	ValueError    = "ValueError"
 	InternalError = "InternalError"
 )
 

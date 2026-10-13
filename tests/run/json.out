@@ -1,0 +1,21 @@
+{
+  "name": "kukel",
+  "version": 2,
+  "tags": [
+    "small",
+    "fast"
+  ],
+  "ok": true,
+  "nested": {
+    "pi": 3.14,
+    "list": [],
+    "map": {},
+    "none": null
+  },
+  "quote": "say \"hi\""
+}
+6.28 2 say "hi"
+JSONError: expected ',' at offset 5
+JSONError: expected ':' at offset 5
+JSONError: unexpected text after the value at offset 4
+JSONError: expected null at offset 0

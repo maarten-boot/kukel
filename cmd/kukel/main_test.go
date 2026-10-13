@@ -56,9 +56,10 @@ func TestGolden(t *testing.T) {
 
 // TestRunGolden runs every tests/run/*.kkl with `kukel run` and compares
 // stdout with the .out file and stderr with the .err file (empty if there
-// is none). Comment lines at the top set the arguments and the expected
-// exit code: "// args: a b" and "// exit: 3" (default 0, or 1 with a .err
-// file). `make golden` rewrites .out and .err files.
+// is none). A .in file is the program's standard input. Comment lines at
+// the top set the arguments and the expected exit code: "// args: a b" and
+// "// exit: 3" (default 0, or 1 with a .err file). `make golden` rewrites
+// .out and .err files.
 func TestRunGolden(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join(testdir, "run", "*.kkl"))
 	if err != nil || len(files) == 0 {
@@ -89,8 +90,9 @@ func TestRunGolden(t *testing.T) {
 					wantCode, _ = strconv.Atoi(strings.TrimSpace(v))
 				}
 			}
+			stdin, _ := os.ReadFile(base + ".in")
 			var stdout, stderr bytes.Buffer
-			code := run(append([]string{"run", src, "--"}, args...), strings.NewReader(""), &stdout, &stderr)
+			code := run(append([]string{"run", src, "--"}, args...), bytes.NewReader(stdin), &stdout, &stderr)
 			// Paths in traces (also in Error objects a program prints) are
 			// relative to tests/run.
 			dirPrefix := filepath.Dir(src) + string(filepath.Separator)
@@ -102,7 +104,7 @@ func TestRunGolden(t *testing.T) {
 			var bOut, bErr bytes.Buffer
 			bCode := run([]string{"build", "-o", kkc, src}, nil, &bOut, &bErr)
 			if bCode == 0 {
-				bCode = run(append([]string{"exec", kkc}, args...), strings.NewReader(""), &bOut, &bErr)
+				bCode = run(append([]string{"exec", kkc}, args...), bytes.NewReader(stdin), &bOut, &bErr)
 			}
 			if b, e := strings.ReplaceAll(bOut.String(), dirPrefix, ""), strings.ReplaceAll(bErr.String(), dirPrefix, ""); b != gotOut || e != gotErr || bCode != code {
 				t.Errorf("build+exec differs from run:\n stdout %q\n stderr %q\n exit %d", b, e, bCode)
@@ -205,6 +207,33 @@ func TestBuildExecDisasm(t *testing.T) {
 	stderr.Reset()
 	if code := run([]string{"exec", src}, nil, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "not a kukel bytecode file") {
 		t.Errorf("source as bytecode: exit %d, stderr %q", code, stderr.String())
+	}
+}
+
+// TestReferenceExamples runs every example in docs/reference.md that has a
+// main function: the documentation must not show programs that fail.
+func TestReferenceExamples(t *testing.T) {
+	doc, err := os.ReadFile("../../docs/reference.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocks := strings.Split(string(doc), "```")
+	n := 0
+	for i := 1; i < len(blocks); i += 2 {
+		code := blocks[i]
+		if !strings.Contains(code, "main(") {
+			continue
+		}
+		n++
+		src := filepath.Join(t.TempDir(), "example.kkl")
+		os.WriteFile(src, []byte(code), 0o644)
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{"run", src}, strings.NewReader(""), &stdout, &stderr); code != 0 {
+			t.Errorf("example %d fails (exit %d): %s\n%s", n, code, stderr.String(), blocks[i])
+		}
+	}
+	if n < 4 {
+		t.Errorf("found only %d examples", n)
 	}
 }
 

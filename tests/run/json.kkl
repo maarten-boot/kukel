@@ -1,0 +1,150 @@
+// A JSON parser and pretty-printer written in Kukel: classes, recursion,
+// exceptions, strings, maps and vectors.
+
+class JSONError : Error { }
+
+class Parser {
+    text, pos;
+    Parser(text);
+    parse();
+    value();
+    object();
+    array();
+    string();
+    number();
+    literal(word, result);
+    skip();
+    peek();
+    expect(c);
+    fail(what);
+}
+
+Parser::Parser(text) { this->text = text; pos = 0; }
+
+Parser::parse(; v) {
+    v = value();
+    skip();
+    if (pos < len(text)) fail("unexpected text after the value");
+    return v;
+}
+
+Parser::value() {
+    skip();
+    switch (peek()) {
+        case '{': return object();
+        case '[': return array();
+        case '"': return string();
+        case 't': return literal("true", true);
+        case 'f': return literal("false", false);
+        case 'n': return literal("null", nil);
+    }
+    return number();
+}
+
+Parser::object(; m, key) {
+    m = {};
+    expect('{');
+    skip();
+    if (peek() == '}') { pos++; return m; }
+    while (true) {
+        skip();
+        key = string();
+        skip();
+        expect(':');
+        m[key] = value();
+        skip();
+        if (peek() == '}') { pos++; return m; }
+        expect(',');
+    }
+}
+
+Parser::array(; v) {
+    v = [];
+    expect('[');
+    skip();
+    if (peek() == ']') { pos++; return v; }
+    while (true) {
+        push(v, value());
+        skip();
+        if (peek() == ']') { pos++; return v; }
+        expect(',');
+    }
+}
+
+Parser::string(; out, c) {
+    out = "";
+    expect('"');
+    while (true) {
+        if (pos >= len(text)) fail("unterminated string");
+        c = text[pos++];
+        switch (c) {
+            case '"': return out;
+            case '\\':
+                c = text[pos++];
+                switch (c) {
+                    case 'n': out += "\n"; break;
+                    case 't': out += "\t"; break;
+                    default:  out += char(c);
+                }
+                break;
+            default:
+                out += char(c);
+        }
+    }
+}
+
+Parser::number(; start) {
+    start = pos;
+    if (peek() == '-') pos++;
+    while (pos < len(text) && (text[pos] >= '0' && text[pos] <= '9' || text[pos] == '.' || text[pos] == 'e')) pos++;
+    if (pos == start) fail("expected a value");
+    local s = substr(text, start, pos - start);
+    return find(s, ".") >= 0 || find(s, "e") >= 0 ? float(s) : int(s);
+}
+
+Parser::literal(word, result) {
+    if (substr(text, pos, min(len(word), len(text) - pos)) != word) fail("expected " + word);
+    pos += len(word);
+    return result;
+}
+
+Parser::skip() { while (pos < len(text) && find(" \t\n\r", char(text[pos])) >= 0) pos++; }
+Parser::peek() { return pos < len(text) ? text[pos] : -1; }
+Parser::expect(c) { if (peek() != c) fail("expected '" + char(c) + "'"); pos++; }
+Parser::fail(what) { throw new JSONError(what + " at offset " + str(pos)); }
+
+// pretty writes a value as indented JSON.
+pretty(v, indent = "") {
+    local inner = indent + "  ";
+    switch (typeof(v)) {
+        case "map": {
+            if (len(v) == 0) return "{}";
+            local parts = [];
+            for (local k, x in v) push(parts, inner + pretty(k) + ": " + pretty(x, inner));
+            return "{\n" + join(parts, ",\n") + "\n" + indent + "}";
+        }
+        case "vector": {
+            if (len(v) == 0) return "[]";
+            local items = [];
+            for (local x in v) push(items, inner + pretty(x, inner));
+            return "[\n" + join(items, ",\n") + "\n" + indent + "]";
+        }
+        case "string":
+            return "\"" + replace(replace(v, "\\", "\\\\"), "\"", "\\\"") + "\"";
+        case "nil":
+            return "null";
+    }
+    return str(v);
+}
+
+main() {
+    local doc = new Parser("{\"name\": \"kukel\", \"version\": 2, \"tags\": [\"small\", \"fast\"], \"ok\": true,
+        \"nested\": {\"pi\": 3.14, \"list\": [], \"map\": {}, \"none\": null}, \"quote\": \"say \\\"hi\\\"\"}")->parse();
+    println(pretty(doc));
+    println(doc["nested"]["pi"] * 2, len(doc["tags"]), doc["quote"]);
+
+    for (local bad in ["[1, 2", "{\"a\" 1}", "[1] x", "nope"]) {
+        try { new Parser(bad)->parse(); }
+        catch (e) { println(e->kind + ":", e->message); }
+    }
+}

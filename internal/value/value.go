@@ -4,10 +4,14 @@
 package value
 
 import (
+	"bufio"
+	"fmt"
 	"io"
 	"math"
+	"math/rand/v2"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Kind is the type of a value.
@@ -99,10 +103,21 @@ type Named interface {
 // Env is what built-in functions get from the VM.
 type Env interface {
 	Stdout() io.Writer
-	Stdin() io.Reader
+	Stderr() io.Writer
+	Stdin() *bufio.Reader
 	// Call calls a Kukel function (or built-in) and returns its result.
 	Call(fn Value, args []Value) (Value, error)
+	// Rand is the program's random number source (seed sets it).
+	Rand() *rand.Rand
+	// Started is when the program started (for clock).
+	Started() time.Time
 }
+
+// ExitError is returned by the exit built-in: the program stops at once
+// with this exit code (try cannot catch it; finally blocks do not run).
+type ExitError struct{ Code int }
+
+func (e *ExitError) Error() string { return fmt.Sprintf("exit %d", e.Code) }
 
 // BuiltinObj is a function implemented in Go. It returns an error message
 // (a runtime error) or a result.

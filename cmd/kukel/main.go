@@ -120,6 +120,7 @@ func runProgram(prog *bytecode.Program, progArgs []string, stdin io.Reader, stdo
 		fmt.Fprintln(stderr, "kukel:", err)
 		return 1
 	}
+	machine.SetStderr(stderr)
 	code, err := machine.Run(progArgs)
 	if err != nil {
 		out.Flush()

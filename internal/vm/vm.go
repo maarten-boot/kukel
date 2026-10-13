@@ -6,10 +6,14 @@
 package vm
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"math"
+	"math/rand/v2"
+	"os"
 	"strings"
+	"time"
 
 	"kukel/internal/bytecode"
 	"kukel/internal/value"
@@ -32,7 +36,8 @@ type RuntimeError struct {
 	Kind  string       // the kind of an Error object; "" for other values
 	Msg   string       // the message of an Error object, or the value as text
 	Trace []TraceEntry // innermost call first
-	Fatal bool         // try cannot catch it (the step limit)
+	Fatal bool         // try cannot catch it (exit, the step limit)
+	Exit  *int         // set by exit(code): not an error, the program ends
 }
 
 // Error returns the message and the stack trace. Long traces (deep
@@ -94,7 +99,11 @@ type VM struct {
 	sp        int // first free stack entry
 	frames    []frame
 	stdout    io.Writer
-	stdin     io.Reader
+	stdin     *bufio.Reader
+	rand      *rand.Rand
+	started   time.Time
+
+	stderr io.Writer // what eprint writes to (os.Stderr unless SetStderr)
 }
 
 // Builtins resolves built-in functions by name.
@@ -108,7 +117,10 @@ func New(prog *bytecode.Program, builtins Builtins, stdout io.Writer, stdin io.R
 		globals: make([]value.Value, len(prog.Globals)),
 		stack:   make([]value.Value, 1024),
 		stdout:  stdout,
-		stdin:   stdin,
+		stdin:   bufio.NewReader(stdin),
+		rand:    rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
+		started: time.Now(),
+		stderr:  os.Stderr,
 	}
 	for i, g := range prog.Globals {
 		switch g.Kind {
@@ -201,7 +213,13 @@ func (vm *VM) makeClasses() error {
 
 // Stdout, Stdin and Call implement value.Env for the built-ins.
 func (vm *VM) Stdout() io.Writer { return vm.stdout }
-func (vm *VM) Stdin() io.Reader  { return vm.stdin }
+func (vm *VM) Stderr() io.Writer { return vm.stderr }
+
+// SetStderr sets where eprint writes.
+func (vm *VM) SetStderr(w io.Writer) { vm.stderr = w }
+func (vm *VM) Stdin() *bufio.Reader  { return vm.stdin }
+func (vm *VM) Rand() *rand.Rand      { return vm.rand }
+func (vm *VM) Started() time.Time    { return vm.started }
 
 // Call calls fn from a built-in (sort's comparator, for example). The
 // built-in's own arguments stay on the stack below the new call.
@@ -212,6 +230,14 @@ func (vm *VM) Call(fn value.Value, args []value.Value) (value.Value, error) {
 // Run runs the global initializers, then main(args). It returns main's
 // result as the exit code (an int result; anything else is 0).
 func (vm *VM) Run(args []string) (int, error) {
+	code, err := vm.run0(args)
+	if re, ok := err.(*RuntimeError); ok && re.Exit != nil {
+		return *re.Exit, nil // exit(code)
+	}
+	return code, err
+}
+
+func (vm *VM) run0(args []string) (int, error) {
 	if _, err := vm.call(value.MakeFunction(vm.prog.Init), nil); err != nil {
 		return 1, err
 	}
@@ -487,6 +513,9 @@ func (vm *VM) trace() []TraceEntry {
 func (vm *VM) wrap(err error) error {
 	if re, ok := err.(*RuntimeError); ok {
 		return re
+	}
+	if ex, ok := err.(*value.ExitError); ok {
+		return &RuntimeError{Kind: "Exit", Fatal: true, Exit: &ex.Code}
 	}
 	kind, msg := value.InternalError, err.Error()
 	if ve, ok := err.(*value.Error); ok {
