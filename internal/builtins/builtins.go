@@ -46,6 +46,25 @@ func init() {
 		}
 		return value.MakeString(args[0].String()), nil
 	})
+	define("classof", func(env value.Env, args []value.Value) (value.Value, error) {
+		if err := wantArgs("classof", args, 1); err != nil {
+			return value.NilValue, err
+		}
+		if args[0].Kind() != value.Object {
+			return value.NilValue, value.Errorf(value.TypeError, "classof: argument 1 must be an object, not %s", args[0].Kind())
+		}
+		return value.MakeClass(args[0].AsObject().Class), nil
+	})
+	define("instanceof", func(env value.Env, args []value.Value) (value.Value, error) {
+		if err := wantArgs("instanceof", args, 2); err != nil {
+			return value.NilValue, err
+		}
+		if args[1].Kind() != value.Class {
+			return value.NilValue, value.Errorf(value.TypeError, "instanceof: argument 2 must be a class, not %s", args[1].Kind())
+		}
+		ok := args[0].Kind() == value.Object && args[0].AsObject().Class.IsSubclassOf(args[1].AsClass())
+		return value.MakeBool(ok), nil
+	})
 	define("typeof", func(env value.Env, args []value.Value) (value.Value, error) {
 		if err := wantArgs("typeof", args, 1); err != nil {
 			return value.NilValue, err

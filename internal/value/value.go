@@ -23,20 +23,26 @@ const (
 	Map
 	Function
 	Builtin
+	Class
+	Object
+	BoundMethod
 	Iterator // internal: the state of a for-each loop
 )
 
 var kindNames = [...]string{
-	Nil:      "nil",
-	Bool:     "bool",
-	Int:      "int",
-	Float:    "float",
-	String:   "string",
-	Vector:   "vector",
-	Map:      "map",
-	Function: "function",
-	Builtin:  "function",
-	Iterator: "iterator",
+	Nil:         "nil",
+	Bool:        "bool",
+	Int:         "int",
+	Float:       "float",
+	String:      "string",
+	Vector:      "vector",
+	Map:         "map",
+	Function:    "function",
+	Builtin:     "function",
+	Class:       "class",
+	Object:      "object",
+	BoundMethod: "function",
+	Iterator:    "iterator",
 }
 
 // String returns the name typeof() reports for k.
@@ -147,12 +153,15 @@ func (v Value) Repr() string {
 // write appends the text of v. open holds the containers being written, so
 // that a container inside itself prints as [...] or {...}.
 func (v Value) write(b *strings.Builder, quote bool, open map[any]bool) {
-	if v.kind == Vector || v.kind == Map {
+	if v.kind == Vector || v.kind == Map || v.kind == Object {
 		if open[v.obj] {
-			if v.kind == Vector {
+			switch v.kind {
+			case Vector:
 				b.WriteString("[...]")
-			} else {
+			case Map:
 				b.WriteString("{...}")
+			default:
+				b.WriteString(v.AsObject().Class.Name + "{...}")
 			}
 			return
 		}
@@ -199,6 +208,23 @@ func (v Value) write(b *strings.Builder, quote bool, open map[any]bool) {
 			e.write(b, true, open)
 		})
 		b.WriteByte('}')
+	case Class:
+		b.WriteString("<class " + v.AsClass().Name + ">")
+	case Object:
+		o := v.AsObject()
+		b.WriteString(o.Class.Name)
+		b.WriteByte('{')
+		for i, name := range o.Class.FieldNames {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(name)
+			b.WriteString(": ")
+			o.Fields[i].write(b, true, open)
+		}
+		b.WriteByte('}')
+	case BoundMethod:
+		b.WriteString("<method " + v.AsBoundMethod().Method.FullName() + ">")
 	case Iterator:
 		b.WriteString("<iterator>")
 	case Function:

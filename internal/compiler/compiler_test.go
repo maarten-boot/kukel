@@ -88,13 +88,43 @@ func TestCompileErrors(t *testing.T) {
 		{"main() { switch (1) { case 1: for (local i = 0; ; ) { default: } } }", "1:55", "default label skips the initialization of local i"},
 		{"main() { switch (1) { case 1: continue; } }", "1:31", "continue outside a loop"},
 		{"main() { switch (1) { case 1: } case 2: ; }", "1:33", "case and default labels are only allowed inside a switch body"},
+		// classes
+		{"main() { this; }", "1:10", "'this' is only available in member functions"},
+		{"class A : B {}", "1:11", "base class B is not defined (a base class must be defined before the classes derived from it)"},
+		{"class A : A {}", "1:11", "base class A is not defined"},
+		{"global B; class A : B {}", "1:21", "B is not a class"},
+		{"class A { x; x; }", "1:14", "member x is already declared in class A at t.kkl:1:11"},
+		{"class A { x; } class B : A { x; }", "1:30", "member x conflicts with x declared in base class A at t.kkl:1:11"},
+		{"class A { f(); } class B : A { static f(); }", "1:39", "member f conflicts with f declared in base class A"},
+		{"class A { f(); } class B : A { f; }", "1:32", "member f conflicts with f declared in base class A"},
+		{"class A { static A(); }", "1:11", "the constructor A::A cannot be static"},
+		{"A::f() {}", "1:1", "undefined class A"},
+		{"f() {} f::g() {}", "1:8", "f is not a class"},
+		{"class A {} A::f() {}", "1:15", "class A does not declare a member function f"},
+		{"class A { f(); } class B : A {} B::f() {}", "1:36", "(it is declared in base class A; declare it in B to override it)"},
+		{"class A { x; } A::x() {}", "1:19", "A::x is a data member, not a member function"},
+		{"class A { f(); } A::f() {} A::f() {}", "1:31", "A::f is already defined at t.kkl:1:21"},
+		{"class A { f(a, b); } A::f(a) {}", "1:25", "the definition of A::f has 1 parameter, but its declaration at t.kkl:1:11 has 2 parameters"},
+		{"class A { f(a..); } A::f(a) {}", "1:24", "has 1 parameter, but its declaration at t.kkl:1:11 has 0 parameters and a rest parameter"},
+		{"class A { x; static f(); } A::f() { x = 1; } main() {}", "1:37", "data member x is not available in static member function A::f (it has no 'this')"},
+		{"class A { static f(); } A::f() { this; } main() {}", "1:34", "'this' is not available in static member function A::f"},
+		{"class A { g(); static f(); } A::f() { g(); } main() {}", "1:39", "member function g is not available in static member function A::f"},
+		{"class A { x; } main() { A::x; }", "1:28", "A::x is an instance data member: use an object (p->x)"},
+		{"class A { f(); } A::f() {} main() { A::f(); }", "1:40", "A::f is not static: call it on an object"},
+		{"class A { f(); } class B { g(); } A::f() {} B::g() { A::f(); } main() {}", "1:57", "A::f is not static"},
+		{"class A {} main() { A::y; }", "1:24", "class A has no member y"},
+		{"class A { static f(); } main() { A::f(); }", "1:37", "A::f is declared but not defined"},
+		{"class A {} main() { A = 1; }", "1:21", "cannot assign to class A"},
+		{"class A { f(); } A::f() { f = 1; } main() {}", "1:27", "cannot assign to member function f"},
+		{"class A { x; } main() { A::x = 1; }", "1:28", "cannot assign to A::x: only static data members can be assigned this way"},
+		{"main() { new println(); }", "1:14", "println is not a class"},
+		{"main() { new Nope(); }", "1:14", "undefined class Nope"},
+		{"class A { f(); } A::f() {} class B : A { g(); } B::g() { A::f(main..); } main() {}", "1:62", "spread arguments are not supported in a A::f(...) call"},
 		// later milestones
-		{"class A {}", "1:1", "classes are not supported yet (milestone 6)"},
 		{"main() { for (local k, k in [1]) ; }", "1:24", "local k is already declared in this block"},
 		{"main() { for (local x in x) ; }", "1:26", "undefined name x"}, // the loop variable is not visible in the expression
 		{"main() { try { } finally { } }", "1:10", "try statements are not supported yet (milestone 7)"},
 		{"main() { local f = fn() { }; }", "1:20", "function literals are not supported yet (milestone 8)"},
-		{"main() { this; }", "1:10", "classes and objects are not supported yet (milestone 6)"},
 	}
 	for _, tt := range tests {
 		err := compileSrc(t, tt.src)
@@ -146,6 +176,8 @@ func FuzzCompile(f *testing.F) {
 		"main() { s: switch (1) { case -1: while (1) { switch (2) { case 'x': break s; } continue; } } }",
 		"main() { local v = [1, [2], {3: 4}], m = {\"a\": v..}; v[0] += v[1][0]++; m[v]--; for (local k, x in m) for (local y in x) ; }",
 		"main() { local v = [[1]]; println(v[0][0] = v[0][0]++ + --v[0][0], [v.., v..], {v: v}[v]); }",
+		"class A { x; static s; A(a = 1); f(b..); static g(); } A::A(a) { x = a; s = this; } A::f(b) { return x++ + this->x-- + A::g(); } A::g() { return s->x; } main() { new A()->f(1, 2); }",
+		"class B { y; m(); } class C : B { z; C(); m(); } C::C() { B::m(); z = y = this->m; } C::m() { return B::m() + z->y++; } B::m() { return y; } main() { local c = C; new c()->z = new C()->m; }",
 	} {
 		f.Add(s)
 	}

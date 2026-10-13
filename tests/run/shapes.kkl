@@ -1,0 +1,60 @@
+// Milestone 6: classes, inheritance, virtual and non-virtual calls, static
+// members, bound methods.
+
+class Shape {
+    name;
+    static created;
+    Shape(name);
+    area();                 // declared only: derived classes define it
+    describe();
+    static count();
+}
+
+Shape::Shape(name) {
+    this->name = name;
+    created = created == nil ? 1 : created + 1;
+}
+Shape::describe() { return name + " (area " + str(area()) + ")"; }
+Shape::count() { return created; }
+
+class Rect : Shape {
+    w, h;
+    Rect(w, h);
+    area();
+}
+Rect::Rect(w, h) { Shape::Shape("rect"); this->w = w; this->h = h; }
+Rect::area() { return w * h; }
+
+class Square : Rect {
+    Square(side);
+    describe();
+}
+Square::Square(side) { Rect::Rect(side, side); name = "square"; }
+Square::describe() { return "a " + Rect::describe(); }   // non-virtual call
+
+class Circle : Shape {
+    r;
+    Circle(r);
+    area();
+    static larger(a, b);
+}
+Circle::Circle(r) { Shape::Shape("circle"); this->r = r; }
+Circle::area() { return 3 * r * r; }
+Circle::larger(a, b) { return a->area() > b->area(); }
+
+main() {
+    local shapes = [new Rect(2, 5), new Square(3), new Circle(2), new Circle(1)];
+    for (local s in shapes) println(s->describe());
+    println(Shape::count(), "shapes made");
+
+    sort(shapes, Circle::larger);       // a static function as comparator
+    local names = [];
+    for (local s in shapes) push(names, s->name);
+    println("largest first:", join(names, ", "));
+
+    local rect = new Rect(1, 1);
+    local measure = rect->area;         // a bound method
+    rect->w = 100;
+    println("bound method sees changes:", measure());
+    println(shapes[1], instanceof(shapes[1], Rect), classof(shapes[2]));
+}

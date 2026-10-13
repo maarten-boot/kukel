@@ -3,6 +3,8 @@ package bytecode
 import (
 	"fmt"
 	"io"
+
+	"kukel/internal/value"
 )
 
 // Disassemble writes a readable listing of the program.
@@ -17,6 +19,22 @@ func Disassemble(w io.Writer, p *Program) error {
 			dw.printf("  %4d  function %s\n", i, g.Name)
 		case GlobalBuiltin:
 			dw.printf("  %4d  builtin  %s\n", i, g.Name)
+		case GlobalClass:
+			dw.printf("  %4d  class    %s\n", i, g.Name)
+		}
+	}
+	for i, c := range p.Classes {
+		base := ""
+		if c.Base >= 0 && c.Base < len(p.Classes) {
+			base = " : " + p.Classes[c.Base].Name
+		}
+		dw.printf("class %d: %s%s fields=%v statics=%v\n", i, c.Name, base, c.Fields, c.Statics)
+		for _, m := range c.Methods {
+			kind := "method"
+			if m.Static {
+				kind = "static"
+			}
+			dw.printf("  %s %s -> function %d\n", kind, m.Name, m.Func)
 		}
 	}
 	if p.Main >= 0 && p.Main < len(p.Globals) {
@@ -74,6 +92,20 @@ func (d *disasm) function(f *Function) {
 	}
 }
 
+func (d *disasm) constName(f *Function, k int) string {
+	if k < len(f.Consts) && f.Consts[k].Kind() == value.String {
+		return f.Consts[k].AsString()
+	}
+	return fmt.Sprintf("const %d", k)
+}
+
+func (d *disasm) funcName(i int) string {
+	if i < len(d.prog.Funcs) {
+		return fmt.Sprintf("%d  ; %s", i, d.prog.Funcs[i].FuncName)
+	}
+	return fmt.Sprint(i)
+}
+
 func (d *disasm) operand(f *Function, op Op, pc int) string {
 	switch op {
 	case OpConst:
@@ -101,7 +133,23 @@ func (d *disasm) operand(f *Function, op Op, pc int) string {
 			name = "  ; " + f.SlotNames[slot]
 		}
 		return fmt.Sprintf("%d, %d -> %d%s", slot, ReadU16(f.Code, pc+3), ReadU32(f.Code, pc+5), name)
-	case OpCall, OpMakeVector, OpMakeMap:
+	case OpGetMember, OpSetMember, OpCallMethodV:
+		return d.constName(f, ReadU16(f.Code, pc+1))
+	case OpCallMethod:
+		return fmt.Sprintf("%s, %d", d.constName(f, ReadU16(f.Code, pc+1)), ReadU16(f.Code, pc+3))
+	case OpCallDirect:
+		return fmt.Sprintf("%s, %d", d.funcName(ReadU16(f.Code, pc+1)), ReadU16(f.Code, pc+3))
+	case OpLoadFunc:
+		return d.funcName(ReadU16(f.Code, pc+1))
+	case OpLoadStatic, OpStoreStatic:
+		c, slot := ReadU16(f.Code, pc+1), ReadU16(f.Code, pc+3)
+		if c < len(d.prog.Classes) && slot < len(d.prog.Classes[c].Statics) {
+			return fmt.Sprintf("%d, %d  ; %s::%s", c, slot, d.prog.Classes[c].Name, d.prog.Classes[c].Statics[slot])
+		}
+		return fmt.Sprintf("%d, %d", c, slot)
+	case OpLoadMember, OpStoreMember:
+		return fmt.Sprint(ReadU16(f.Code, pc+1))
+	case OpCall, OpMakeVector, OpMakeMap, OpNew:
 		return fmt.Sprint(ReadU16(f.Code, pc+1))
 	case OpJumpIfArg:
 		return fmt.Sprintf("%d -> %d", ReadU16(f.Code, pc+1), ReadU32(f.Code, pc+3))

@@ -1,0 +1,8 @@
+rect (area 10)
+a square (area 9)
+circle (area 12)
+circle (area 3)
+4 shapes made
+largest first: circle, rect, square, circle
+bound method sees changes: 100
+Rect{name: "rect", w: 2, h: 5} true <class Square>

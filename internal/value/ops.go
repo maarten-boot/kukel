@@ -22,6 +22,7 @@ const (
 	ArgumentError = "ArgumentError"
 	StackOverflow = "StackOverflowError"
 	IOError       = "IOError"
+	MemberError   = "MemberError"
 	InternalError = "InternalError"
 )
 
@@ -229,6 +230,9 @@ func Equal(a, b Value) bool {
 		return a.num == b.num
 	case String:
 		return a.AsString() == b.AsString()
+	case BoundMethod: // p->m == p->m
+		x, y := a.AsBoundMethod(), b.AsBoundMethod()
+		return x.Method == y.Method && Equal(x.Recv, y.Recv)
 	}
 	return a.obj == b.obj
 }

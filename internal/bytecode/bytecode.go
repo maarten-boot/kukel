@@ -81,6 +81,21 @@ const (
 	OpIterInit // x -> an iterator over x
 	OpIterNext // slot u16, n u16, end u32: advance the iterator in slot; push n values, or jump to end
 
+	// Classes and objects. Member names are string constants (u16 index).
+	OpLoadThis    // push this
+	OpLoadMember  // field u16: push this.fields[field]
+	OpStoreMember // field u16: pop into this.fields[field]
+	OpGetMember   // name u16: obj -> obj->name (data member or bound method)
+	OpSetMember   // name u16: obj v -> v, after obj->name = v
+	OpCallMethod  // name u16, argc u16: obj args -> result of obj->name(args)
+	OpCallMethodV // name u16: obj argvector -> result
+	OpCallDirect  // func u16, argc u16: obj args -> result of Funcs[func] with this = obj (Base::m(...))
+	OpLoadFunc    // func u16: push Funcs[func] (a static member function)
+	OpLoadStatic  // class u16, slot u16: push a static data member
+	OpStoreStatic // class u16, slot u16: pop into a static data member
+	OpNew         // argc u16: class args -> new object (the constructor runs)
+	OpNewV        // class argvector -> new object
+
 	numOps
 )
 
@@ -143,6 +158,19 @@ var opInfo = [numOps]OpInfo{
 	OpIndexSet:    {"INDEX_SET", nil},
 	OpIterInit:    {"ITER_INIT", nil},
 	OpIterNext:    {"ITER_NEXT", []int{2, 2, 4}},
+	OpLoadThis:    {"LOAD_THIS", nil},
+	OpLoadMember:  {"LOAD_MEMBER", u16},
+	OpStoreMember: {"STORE_MEMBER", u16},
+	OpGetMember:   {"GET_MEMBER", u16},
+	OpSetMember:   {"SET_MEMBER", u16},
+	OpCallMethod:  {"CALL_METHOD", []int{2, 2}},
+	OpCallMethodV: {"CALL_METHOD_V", u16},
+	OpCallDirect:  {"CALL_DIRECT", []int{2, 2}},
+	OpLoadFunc:    {"LOAD_FUNC", u16},
+	OpLoadStatic:  {"LOAD_STATIC", []int{2, 2}},
+	OpStoreStatic: {"STORE_STATIC", []int{2, 2}},
+	OpNew:         {"NEW", u16},
+	OpNewV:        {"NEW_V", nil},
 }
 
 // Info returns the description of op; ok is false for an unknown opcode.
@@ -223,19 +251,39 @@ const (
 	GlobalVar     GlobalKind = iota // a global variable (nil until initialized)
 	GlobalFunc                      // a function: Funcs[Func]
 	GlobalBuiltin                   // a built-in, looked up by name
+	GlobalClass                     // a class: Classes[Class]
 )
 
 // Global describes one global slot.
 type Global struct {
-	Name string
-	Kind GlobalKind
-	Func int // for GlobalFunc
+	Name  string
+	Kind  GlobalKind
+	Func  int // for GlobalFunc
+	Class int // for GlobalClass
+}
+
+// Class describes a class. A base class always comes before the classes
+// derived from it in Program.Classes.
+type Class struct {
+	Name    string
+	Base    int      // index in Program.Classes, or -1
+	Fields  []string // own instance data members (the base's come first in an object)
+	Statics []string // own static data members
+	Methods []Method // own member functions
+}
+
+// Method is a member function of a class.
+type Method struct {
+	Name   string
+	Static bool
+	Func   int // index in Program.Funcs, or -1 when declared but not defined
 }
 
 // Program is a compiled program: global slots, functions, an init function
 // that runs the global initializers, and the entry point.
 type Program struct {
 	Globals []Global
+	Classes []*Class
 	Funcs   []*Function
 	Init    *Function
 	Main    int // global index of main

@@ -355,6 +355,99 @@ func TestPrograms(t *testing.T) {
 		}`, "[1, [...]] {\"self\": {...}, \"v\": [1, [...]]} [{\"self\": {...}, \"v\": [1, [...]]}, {\"self\": {...}, \"v\": [1, [...]]}]\n"},
 		{"typeof and str of containers", `main() { println(typeof([]), typeof({}), str([1, "a"]) + "!", str({"k": "v"})); }`,
 			"vector map [1, \"a\"]! {\"k\": \"v\"}\n"},
+		// milestone 6
+		{"classes, constructors and members", `
+			class Point {
+				x, y;
+				Point(x, y);
+				len2();
+				moved(dx, dy);
+			}
+			Point::Point(x, y = 0) { this->x = x; this->y = y; return 42; }
+			Point::len2() { return x * x + y * y; }
+			Point::moved(dx, dy) { return new Point(x + dx, y + dy); }
+			main() {
+				local p = new Point(3, 4), q = p->moved(1, 1), r = new Point(7);
+				println(p, q, r, p->len2(), p->x, q->y);
+				p->x = 0; p->y += 1; q->x++;
+				println(p, q, p == p, p == new Point(0, 5), typeof(p), typeof(Point), Point);
+			}`, "Point{x: 3, y: 4} Point{x: 4, y: 5} Point{x: 7, y: 0} 25 3 5\n" +
+			"Point{x: 0, y: 5} Point{x: 5, y: 5} true false object class <class Point>\n"},
+		{"inheritance and virtual dispatch", `
+			class Animal { name; Animal(name); speak(); sound(); }
+			Animal::Animal(n) { name = n; }
+			Animal::speak() { return name + " says " + sound(); }
+			Animal::sound() { return "..."; }
+			class Dog : Animal { Dog(); sound(); }
+			Dog::Dog() { Animal::Animal("dog"); }
+			Dog::sound() { return "woof"; }
+			class Puppy : Dog { Puppy(); sound(); }
+			Puppy::Puppy() { Dog::Dog(); name = "puppy"; }
+			Puppy::sound() { return Dog::sound() + "!"; }
+			main() {
+				for (local a in [new Animal("thing"), new Dog(), new Puppy()]) println(a->speak(), a);
+				println(instanceof(new Puppy(), Animal), instanceof(new Dog(), Puppy), instanceof(1, Dog), classof(new Puppy()));
+			}`, "thing says ... Animal{name: \"thing\"}\ndog says woof Dog{name: \"dog\"}\npuppy says woof! Puppy{name: \"puppy\"}\n" +
+			"true false false <class Puppy>\n"},
+		{"static members", `
+			class Counter { static count, label; n; Counter(); static report(); bump(); }
+			Counter::Counter() { if (count == nil) count = 0; count++; n = count; }
+			Counter::report() { return label + ": " + str(count); }
+			Counter::bump() { Counter::count += 10; return count; }
+			class Sub : Counter { Sub(); }
+			Sub::Sub() { Counter::Counter(); }
+			main() {
+				Counter::label = "made";
+				local a = new Counter(), b = new Sub();
+				println(Counter::report(), a->n, b->n, Sub::count, b->bump(), Counter::count);
+				local r = Counter::report;
+				println(r(), a->report(), typeof(r));
+			}`, "made: 2 1 2 2 12 12\nmade: 12 made: 12 function\n"},
+		{"bound methods", `
+			class Box { v; Box(v); get(); static less(a, b); }
+			Box::Box(v) { this->v = v; }
+			Box::get() { return v; }
+			Box::less(a, b) { return a->v < b->v; }
+			main() {
+				local b = new Box(5), g = b->get;
+				b->v = 6;
+				println(g(), g == b->get, g == new Box(6)->get, g);
+				local boxes = [new Box(3), new Box(1), new Box(2)];
+				sort(boxes, Box::less);
+				println(boxes);
+			}`, "6 true false <method Box::get>\n[Box{v: 1}, Box{v: 2}, Box{v: 3}]\n"},
+		{"unqualified member calls are virtual", `
+			class A { run(); step(); static helper(); }
+			A::run() { return step() + helper(); }
+			A::step() { return "A"; }
+			A::helper() { return "!"; }
+			class B : A { step(); }
+			B::step() { return "B"; }
+			main() { println(new A()->run(), new B()->run()); }`, "A! B!\n"},
+		{"new: classes in variables, no constructor, data members in subclasses", `
+			class Plain { a, b; }
+			class Base { info(); }
+			Base::info() { return this->extra; }
+			class Derived : Base { extra; Derived(); }
+			Derived::Derived() { extra = "from derived"; }
+			main() {
+				local kinds = [Plain, Derived];
+				for (local k in kinds) println(new k());
+				println(new Derived()->info());
+			}`, "Plain{a: nil, b: nil}\nDerived{extra: \"from derived\"}\nfrom derived\n"},
+		{"methods with default and rest parameters, spread", `
+			class Log { lines; Log(); add(level, parts..); }
+			Log::Log() { lines = []; }
+			Log::add(level = "info", parts..) { push(lines, level + ": " + join(parts, " ")); return this; }
+			main() {
+				local l = new Log(), words = ["a", "b"];
+				l->add()->add("warn", "x", "y")->add("debug", words..);
+				println(l->lines);
+			}`, "[\"info: \", \"warn: x y\", \"debug: a b\"]\n"},
+		{"objects inside themselves print safely", `
+			class Node { next; }
+			main() { local n = new Node(); n->next = n; println(n, [n]); }`,
+			"Node{next: Node{...}} [Node{next: Node{...}}]\n"},
 		{"deep recursion within the limit", `
 			down(n) { if (n == 0) return 0; return 1 + down(n - 1); }
 			main() { println(down(9000)); }`, "9000\n"},
@@ -448,6 +541,36 @@ main() {
 			"TypeError: cannot compare string and int with <\n  at main (t.kkl:1)"},
 		{"error inside a sort comparator", "bad(a, b) {\n return a < nil;\n}\nmain() { sort([2, 1], bad); }",
 			"TypeError: cannot compare int and nil with <\n  at bad (t.kkl:2)\n  at main (t.kkl:4)"},
+		{"unknown member", "class A { x; }\nmain() { local a = new A();\n println(a->y); }",
+			"MemberError: class A has no member y\n  at main (t.kkl:3)"},
+		{"unknown method", "class A { x; }\nmain() { new A()->go(); }",
+			"MemberError: class A has no member function go\n  at main (t.kkl:2)"},
+		{"calling a data member as a method", "class A { x; }\nmain() { new A()->x(); }",
+			"MemberError: x is a data member of class A, not a member function (call its value with (p->x)(...))\n  at main (t.kkl:2)"},
+		{"setting an unknown data member", "class A { }\nmain() { local a = new A(); a->x = 1; }",
+			"MemberError: class A has no data member x\n  at main (t.kkl:2)"},
+		{"assigning to a member function", "class A { f(); }\nA::f() {}\nmain() { local a = new A(); a->f = 1; }",
+			"MemberError: cannot assign to member function f of class A\n  at main (t.kkl:3)"},
+		{"member function declared but not defined", "class A { area(); }\nmain() { new A()->area(); }",
+			"MemberError: A::area is declared but not defined\n  at main (t.kkl:2)"},
+		{"constructor declared but not defined", "class A { A(); }\nmain() { new A(); }",
+			"MemberError: A::A is declared but not defined\n  at main (t.kkl:2)"},
+		{"new with arguments and no constructor", "class A { }\nmain() { new A(1); }",
+			"ArgumentError: class A has no constructor, so new A() takes no arguments (got 1)\n  at main (t.kkl:2)"},
+		{"constructor argument count", "class A { A(x); }\nA::A(x) {}\nmain() { new A(); }",
+			"ArgumentError: A::A expects 1 argument(s), got 0\n  at main (t.kkl:3)"},
+		{"new of a non-class", "global g = 1;\nmain() { new g(); }",
+			"TypeError: cannot create an object of int with new\n  at main (t.kkl:2)"},
+		{"calling a class", "class A { }\nmain() { local c = A; c(); }",
+			"TypeError: cannot call class A (use new A(...))\n  at main (t.kkl:2)"},
+		{"member of a non-object", "main() { local n = 1; println(n->x); }",
+			"TypeError: cannot get member x of int\n  at main (t.kkl:1)"},
+		{"method call on a non-object", "main() { local s = \"x\"; s->len(); }",
+			"TypeError: cannot call method len on string\n  at main (t.kkl:1)"},
+		{"error inside a method, with trace", "class A { f(); g(); }\nA::f() { return g(); }\nA::g() { return 1 / 0; }\nmain() { new A()->f(); }",
+			"ZeroDivisionError: integer division by zero\n  at A::g (t.kkl:3)\n  at A::f (t.kkl:2)\n  at main (t.kkl:4)"},
+		{"classof of a non-object", "main() { classof(1); }",
+			"TypeError: classof: argument 1 must be an object, not int\n  at main (t.kkl:1)"},
 		{"++ on a string", `main() { local s = "a"; s++; }`,
 			"TypeError: cannot apply ++ to string\n  at main (t.kkl:1)"},
 	}
@@ -508,4 +631,12 @@ func BenchmarkFib27(b *testing.B) {
 
 func BenchmarkLoop1M(b *testing.B) {
 	benchmarkSource(b, `main() { local sum = 0; for (local i = 0; i < 1000000; i++) sum += i; }`)
+}
+
+func BenchmarkMethodCalls1M(b *testing.B) {
+	benchmarkSource(b, `
+		class C { n; C(); inc(); }
+		C::C() { n = 0; }
+		C::inc() { n++; }
+		main() { local c = new C(); for (local i = 0; i < 1000000; i++) c->inc(); }`)
 }

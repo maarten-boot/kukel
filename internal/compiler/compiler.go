@@ -30,6 +30,7 @@ const (
 	symFunc
 	symBuiltin
 	symConst
+	symClass
 )
 
 // global is a top-level name.
@@ -37,6 +38,7 @@ type global struct {
 	kind  symKind
 	index int         // global slot; -1 for a built-in not yet used
 	value value.Value // symConst
+	class *classInfo  // symClass
 	pos   token.Pos   // definition (zero for built-ins)
 }
 
@@ -77,19 +79,23 @@ func Compile(files []*ast.File, builtins []string) (prog *bytecode.Program, err 
 		c.globals[name] = &global{kind: symBuiltin, index: -1}
 	}
 
-	// Pass 1: define all top-level names, evaluate constants in order.
-	var funcs []*ast.FuncDecl
+	// Pass 1: define all top-level names and classes, evaluate constants in
+	// order. Every function and member function definition becomes a job;
+	// its index is its index in Program.Funcs.
+	var jobs []funcJob
+	var methodDefs []*ast.FuncDecl
 	var globals []*ast.VarSpec
 	for _, f := range files {
 		for _, d := range f.Decls {
 			switch d := d.(type) {
 			case *ast.FuncDecl:
 				if d.Class != nil {
-					c.notYet(d.Pos(), "member functions are", 6)
+					methodDefs = append(methodDefs, d) // after all classes are known
+					continue
 				}
 				g := c.define(d.Name, symFunc)
-				c.prog.Globals[g.index].Func = len(funcs)
-				funcs = append(funcs, d)
+				c.prog.Globals[g.index].Func = len(jobs)
+				jobs = append(jobs, funcJob{decl: d})
 			case *ast.GlobalDecl:
 				for _, v := range d.Vars {
 					c.define(v.Name, symVar)
@@ -101,9 +107,15 @@ func Compile(files []*ast.File, builtins []string) (prog *bytecode.Program, err 
 					c.define(v.Name, symConst).value = val
 				}
 			case *ast.ClassDecl:
-				c.notYet(d.Pos(), "classes are", 6)
+				c.declareClass(d)
 			}
 		}
+	}
+	for _, d := range methodDefs {
+		k, m := c.methodDefinition(d)
+		m.fn = len(jobs)
+		k.bc.Methods[m.method].Func = m.fn
+		jobs = append(jobs, funcJob{decl: d, class: k, member: m})
 	}
 
 	// The entry point.
@@ -115,13 +127,13 @@ func Compile(files []*ast.File, builtins []string) (prog *bytecode.Program, err 
 	if !ok || m.kind != symFunc {
 		c.errorf(pos, "the program has no main function")
 	}
-	if fd := funcs[c.prog.Globals[m.index].Func]; len(fd.Params.Params) > 1 {
+	if fd := jobs[c.prog.Globals[m.index].Func].decl; len(fd.Params.Params) > 1 {
 		c.errorf(fd.Name.NamePos, "main takes at most one parameter (the command-line arguments)")
 	}
 	c.prog.Main = m.index
 
 	// Pass 2: the global initializers, then the functions.
-	c.prog.Init = c.function("<init>", pos, &ast.ParamList{}, func() {
+	c.prog.Init = c.function("<init>", pos, &ast.ParamList{}, nil, false, func() {
 		for _, v := range globals {
 			if v.Value != nil {
 				c.mark(v.Pos())
@@ -130,13 +142,24 @@ func Compile(files []*ast.File, builtins []string) (prog *bytecode.Program, err 
 			}
 		}
 	})
-	for _, fd := range funcs {
-		fd := fd
-		c.prog.Funcs = append(c.prog.Funcs, c.function(fd.Name.Name, fd.Name.NamePos, fd.Params, func() {
+	for _, job := range jobs {
+		fd := job.decl
+		name, static := fd.Name.Name, false
+		if job.class != nil {
+			name, static = job.class.name+"::"+name, job.member.static
+		}
+		c.prog.Funcs = append(c.prog.Funcs, c.function(name, fd.Pos(), fd.Params, job.class, static, func() {
 			c.block(fd.Body)
 		}))
 	}
 	return c.prog, nil
+}
+
+// funcJob is a function or member function definition to compile.
+type funcJob struct {
+	decl   *ast.FuncDecl
+	class  *classInfo  // for a member function
+	member *memberInfo // for a member function
 }
 
 // define adds a top-level name.
@@ -153,6 +176,8 @@ func (c *compiler) define(id *ast.Ident, kind symKind) *global {
 		g.index = c.addGlobal(id.Name, bytecode.GlobalVar, id.NamePos)
 	case symFunc:
 		g.index = c.addGlobal(id.Name, bytecode.GlobalFunc, id.NamePos)
+	case symClass:
+		g.index = c.addGlobal(id.Name, bytecode.GlobalClass, id.NamePos)
 	}
 	c.globals[id.Name] = g
 	return g
@@ -185,17 +210,21 @@ type funcState struct {
 	nslots   int              // slots in use
 	depth    int              // operand stack depth at the current instruction
 	maxDepth int
-	targets  []*target // enclosing loops, switches and labelled statements
-	line     int       // line of the code being emitted
+	targets  []*target  // enclosing loops, switches and labelled statements
+	line     int        // line of the code being emitted
+	class    *classInfo // the class of a member function, else nil
+	static   bool       // a static member function (no this)
 }
 
 // function compiles one function; body emits the code of its body.
-func (c *compiler) function(name string, pos token.Pos, params *ast.ParamList, body func()) *bytecode.Function {
+func (c *compiler) function(name string, pos token.Pos, params *ast.ParamList, class *classInfo, static bool, body func()) *bytecode.Function {
 	outer := c.fs
 	fs := &funcState{
 		fn:     &bytecode.Function{FuncName: name, File: pos.File, Line: pos.Line},
 		scopes: []map[string]int{{}},
 		line:   pos.Line,
+		class:  class,
+		static: static,
 	}
 	c.fs = fs
 	defer func() { c.fs = outer }()
@@ -314,6 +343,15 @@ func stackEffect(op bytecode.Op, operands []int) int {
 		return 2
 	case bytecode.OpIterNext: // when the loop goes on
 		return operands[1]
+	case bytecode.OpLoadThis, bytecode.OpLoadMember, bytecode.OpLoadFunc, bytecode.OpLoadStatic:
+		return 1
+	case bytecode.OpStoreMember, bytecode.OpSetMember, bytecode.OpStoreStatic,
+		bytecode.OpCallMethodV, bytecode.OpNewV:
+		return -1
+	case bytecode.OpCallMethod, bytecode.OpCallDirect:
+		return -operands[1]
+	case bytecode.OpNew:
+		return -operand
 	}
 	return 0
 }
@@ -357,6 +395,12 @@ func (c *compiler) patch(at []int, target int) {
 }
 
 func (c *compiler) constant(v value.Value, pos token.Pos) {
+	c.emit(bytecode.OpConst, c.constIndex(v, pos))
+}
+
+// constIndex returns the index of v in the function's constants, adding it
+// if needed.
+func (c *compiler) constIndex(v value.Value, pos token.Pos) int {
 	fn := c.fs.fn
 	for i, k := range fn.Consts {
 		same := k.Kind() == v.Kind() && value.Equal(k, v)
@@ -364,15 +408,19 @@ func (c *compiler) constant(v value.Value, pos token.Pos) {
 			same = k.Kind() == value.Float && math.Float64bits(k.AsFloat()) == math.Float64bits(v.AsFloat())
 		}
 		if same {
-			c.emit(bytecode.OpConst, i)
-			return
+			return i
 		}
 	}
 	if len(fn.Consts) > maxIndex {
 		c.errorf(pos, "too many constants in one function (more than %d)", maxIndex+1)
 	}
 	fn.Consts = append(fn.Consts, v)
-	c.emit(bytecode.OpConst, len(fn.Consts)-1)
+	return len(fn.Consts) - 1
+}
+
+// nameConst returns the constant index of a member name.
+func (c *compiler) nameConst(id *ast.Ident) int {
+	return c.constIndex(value.MakeString(id.Name), id.NamePos)
 }
 
 func (c *compiler) pushValue(v value.Value, pos token.Pos) {
@@ -881,10 +929,13 @@ func (c *compiler) expr(e ast.Expr) {
 	case *ast.IncDecExpr:
 		c.incDec(e, true)
 	case *ast.CallExpr:
-		c.expr(e.Fun)
 		if len(e.Args) > maxIndex {
 			c.errorf(e.Lparen, "too many arguments (more than %d)", maxIndex)
 		}
+		if c.memberCall(e) {
+			return
+		}
+		c.expr(e.Fun)
 		if hasSpread(e.Args) {
 			c.argVector(e.Args)
 			c.mark(e.Lparen)
@@ -924,8 +975,28 @@ func (c *compiler) expr(e ast.Expr) {
 		c.expr(e.Index)
 		c.mark(e.Lbrack)
 		c.emit(bytecode.OpIndexGet)
-	case *ast.NewExpr, *ast.ThisExpr, *ast.StaticRef, *ast.MethodCall, *ast.MemberExpr:
-		c.notYet(e.Pos(), "classes and objects are", 6)
+	case *ast.ThisExpr:
+		c.loadThis(e.Pos())
+	case *ast.MemberExpr:
+		if f := c.thisField(e); f != nil {
+			c.emit(bytecode.OpLoadMember, f.field)
+			return
+		}
+		c.expr(e.X)
+		c.mark(e.Name.NamePos)
+		c.emit(bytecode.OpGetMember, c.nameConst(e.Name))
+	case *ast.MethodCall:
+		c.expr(e.X)
+		c.callArgs(e.Args, e.Name.NamePos,
+			func(argc int) { c.emit(bytecode.OpCallMethod, c.nameConst(e.Name), argc) },
+			func() { c.emit(bytecode.OpCallMethodV, c.nameConst(e.Name)) })
+	case *ast.NewExpr:
+		c.newClassValue(e.Class)
+		c.callArgs(e.Args, e.New,
+			func(argc int) { c.emit(bytecode.OpNew, argc) },
+			func() { c.emit(bytecode.OpNewV) })
+	case *ast.StaticRef:
+		c.loadStaticRef(e)
 	case *ast.FuncLit:
 		c.notYet(e.Pos(), "function literals are", 8)
 	case *ast.Spread:
@@ -1012,14 +1083,21 @@ type lvKind uint8
 const (
 	lvLocal lvKind = iota
 	lvGlobal
-	lvIndex // x[i]: lvalue has pushed x and i
+	lvIndex     // x[i]: lvalue has pushed x and i
+	lvMember    // p->x: lvalue has pushed p; index is the name constant
+	lvThisField // a data member of this: index is its slot
+	lvStatic    // a static data member: class and index
 )
 
 // variable is a resolved assignment target.
 type variable struct {
 	kind  lvKind
-	index int // slot or global index
+	index int // slot, global index, field slot or name constant
+	class int // lvStatic
 }
+
+// pushed reports whether lvalue pushed operands that store consumes.
+func (v variable) pushed() bool { return v.kind == lvIndex || v.kind == lvMember }
 
 // load pushes the target's current value (for x[i] keeping x and i).
 func (v variable) load(c *compiler) {
@@ -1031,14 +1109,25 @@ func (v variable) load(c *compiler) {
 	case lvIndex:
 		c.emit(bytecode.OpDup2)
 		c.emit(bytecode.OpIndexGet)
+	case lvMember:
+		c.emit(bytecode.OpDup)
+		c.emit(bytecode.OpGetMember, v.index)
+	case lvThisField:
+		c.emit(bytecode.OpLoadMember, v.index)
+	case lvStatic:
+		c.emit(bytecode.OpLoadStatic, v.class, v.index)
 	}
 }
 
 // store stores the value on top of the stack into the target. With keep the
 // value stays on the stack as the value of the expression.
 func (v variable) store(c *compiler, keep bool) {
-	if v.kind == lvIndex {
-		c.emit(bytecode.OpIndexSet) // leaves the value
+	if v.pushed() {
+		if v.kind == lvIndex {
+			c.emit(bytecode.OpIndexSet) // leaves the value
+		} else {
+			c.emit(bytecode.OpSetMember, v.index) // leaves the value
+		}
 		if !keep {
 			c.emit(bytecode.OpPop)
 		}
@@ -1047,10 +1136,15 @@ func (v variable) store(c *compiler, keep bool) {
 	if keep {
 		c.emit(bytecode.OpDup)
 	}
-	if v.kind == lvLocal {
+	switch v.kind {
+	case lvLocal:
 		c.emit(bytecode.OpStoreLocal, v.index)
-	} else {
+	case lvGlobal:
 		c.emit(bytecode.OpStoreGlobal, v.index)
+	case lvThisField:
+		c.emit(bytecode.OpStoreMember, v.index)
+	case lvStatic:
+		c.emit(bytecode.OpStoreStatic, v.class, v.index)
 	}
 }
 
@@ -1067,6 +1161,10 @@ func (c *compiler) lookupLocal(name string) (int, bool) {
 func (c *compiler) load(id *ast.Ident) {
 	if slot, ok := c.lookupLocal(id.Name); ok {
 		c.emit(bytecode.OpLoadLocal, slot)
+		return
+	}
+	if m := c.memberOf(id.Name); m != nil {
+		c.loadMember(m, id.NamePos)
 		return
 	}
 	g, ok := c.globals[id.Name]
@@ -1088,6 +1186,9 @@ func (c *compiler) lvalue(e ast.Expr) variable {
 		if slot, ok := c.lookupLocal(e.Name); ok {
 			return variable{kind: lvLocal, index: slot}
 		}
+		if m := c.memberOf(e.Name); m != nil {
+			return c.memberVariable(m, e.NamePos)
+		}
 		g, ok := c.globals[e.Name]
 		if !ok {
 			c.errorf(e.NamePos, "undefined name %s (declare globals with 'global')", e.Name)
@@ -1099,6 +1200,8 @@ func (c *compiler) lvalue(e ast.Expr) variable {
 			c.errorf(e.NamePos, "cannot assign to function %s", e.Name)
 		case symBuiltin:
 			c.errorf(e.NamePos, "cannot assign to built-in function %s", e.Name)
+		case symClass:
+			c.errorf(e.NamePos, "cannot assign to class %s", e.Name)
 		}
 		return variable{kind: lvGlobal, index: g.index}
 	case *ast.IndexExpr:
@@ -1106,8 +1209,20 @@ func (c *compiler) lvalue(e ast.Expr) variable {
 		c.expr(e.Index)
 		c.mark(e.Lbrack)
 		return variable{kind: lvIndex}
-	case *ast.MemberExpr, *ast.StaticRef:
-		c.notYet(e.Pos(), "classes and objects are", 6)
+	case *ast.MemberExpr:
+		if f := c.thisField(e); f != nil {
+			return variable{kind: lvThisField, index: f.field}
+		}
+		c.expr(e.X)
+		c.mark(e.Name.NamePos)
+		return variable{kind: lvMember, index: c.nameConst(e.Name)}
+	case *ast.StaticRef:
+		k := c.classNamed(e.Class)
+		m := c.classMember(k, e.Name)
+		if m.kind != memberStatic {
+			c.errorf(e.Name.NamePos, "cannot assign to %s::%s: only static data members can be assigned this way", e.Class.Name, e.Name.Name)
+		}
+		return variable{kind: lvStatic, class: m.class.index, index: m.slot}
 	}
 	c.errorf(e.Pos(), "cannot assign to this expression")
 	return variable{}
@@ -1138,8 +1253,8 @@ func (c *compiler) incDec(e *ast.IncDecExpr, keep bool) {
 	case e.Prefix || !keep:
 		c.emit(op)
 		v.store(c, keep)
-	case v.kind == lvIndex:
-		// x[i]++ as a value: keep the old value in a hidden slot.
+	case v.pushed():
+		// x[i]++ or p->x++ as a value: keep the old value in a hidden slot.
 		tmp := c.tempSlot()
 		c.emit(bytecode.OpDup)
 		c.emit(bytecode.OpStoreLocal, tmp)

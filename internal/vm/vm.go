@@ -53,15 +53,18 @@ func (e *RuntimeError) Error() string {
 
 type frame struct {
 	fn   *bytecode.Function
-	ip   int // next instruction (saved while the frame calls another)
-	base int // first slot
-	argc int // arguments passed (for JUMP_IF_ARG)
+	ip   int         // next instruction (saved while the frame calls another)
+	base int         // first slot
+	argc int         // arguments passed (for JUMP_IF_ARG)
+	this value.Value // the object of a member function call
+	ctor bool        // a constructor called by new: it returns this
 }
 
 // VM runs one program.
 type VM struct {
 	prog    *bytecode.Program
 	globals []value.Value
+	classes []*value.ClassObj
 	stack   []value.Value
 	sp      int // first free stack entry
 	frames  []frame
@@ -97,7 +100,61 @@ func New(prog *bytecode.Program, builtins Builtins, stdout io.Writer, stdin io.R
 			vm.globals[i] = value.MakeBuiltin(b)
 		}
 	}
+	if err := vm.makeClasses(); err != nil {
+		return nil, err
+	}
+	for i, g := range prog.Globals {
+		if g.Kind == bytecode.GlobalClass {
+			if g.Class < 0 || g.Class >= len(vm.classes) {
+				return nil, fmt.Errorf("global %s: bad class index %d", g.Name, g.Class)
+			}
+			vm.globals[i] = value.MakeClass(vm.classes[g.Class])
+		}
+	}
 	return vm, nil
+}
+
+// makeClasses builds the run-time classes: an object's data members are the
+// base class's followed by the class's own; the method table holds the
+// inherited member functions with the class's own ones overriding them.
+func (vm *VM) makeClasses() error {
+	for i, c := range vm.prog.Classes {
+		k := &value.ClassObj{
+			Name:       c.Name,
+			FieldIndex: map[string]int{},
+			Methods:    map[string]*value.MethodObj{},
+			Statics:    make([]value.Value, len(c.Statics)),
+		}
+		if c.Base >= 0 {
+			if c.Base >= i {
+				return fmt.Errorf("class %s: base class %d is not defined before it", c.Name, c.Base)
+			}
+			k.Base = vm.classes[c.Base]
+			k.FieldNames = append(k.FieldNames, k.Base.FieldNames...)
+			for name, m := range k.Base.Methods {
+				k.Methods[name] = m
+			}
+		}
+		k.FieldNames = append(k.FieldNames, c.Fields...)
+		for j, name := range k.FieldNames {
+			k.FieldIndex[name] = j
+		}
+		for _, m := range c.Methods {
+			mo := &value.MethodObj{Name: m.Name, Class: k, Static: m.Static}
+			if m.Func >= 0 {
+				if m.Func >= len(vm.prog.Funcs) {
+					return fmt.Errorf("class %s: bad function index %d", c.Name, m.Func)
+				}
+				mo.Fn = vm.prog.Funcs[m.Func]
+			}
+			k.Methods[m.Name] = mo
+			if m.Name == c.Name && !m.Static {
+				k.Ctor = mo
+			}
+		}
+		vm.classes = append(vm.classes, k)
+	}
+	return nil
 }
 
 // Stdout, Stdin and Call implement value.Env for the built-ins.
@@ -176,7 +233,106 @@ func (vm *VM) callValue(argc int) error {
 	callee := vm.stack[vm.sp-argc-1]
 	switch callee.Kind() {
 	case value.Function:
-		fn := callee.Obj().(*bytecode.Function)
+		return vm.callFunction(callee.Obj().(*bytecode.Function), value.NilValue, argc, false)
+	case value.BoundMethod:
+		bm := callee.AsBoundMethod()
+		return vm.invoke(bm.Method, bm.Recv, argc)
+	case value.Builtin:
+		b := callee.AsBuiltin()
+		args := make([]value.Value, argc)
+		copy(args, vm.stack[vm.sp-argc:vm.sp])
+		result, err := b.Fn(vm, args)
+		if err != nil {
+			return err
+		}
+		vm.sp -= argc + 1
+		vm.stack[vm.sp] = result
+		vm.sp++
+		return nil
+	case value.Class:
+		name := callee.AsClass().Name
+		return value.Errorf(value.TypeError, "cannot call class %s (use new %s(...))", name, name)
+	}
+	return value.Errorf(value.TypeError, "cannot call %s", callee.Kind())
+}
+
+// invoke calls member function m on recv (a static one without this).
+func (vm *VM) invoke(m *value.MethodObj, recv value.Value, argc int) error {
+	if m.Fn == nil {
+		return value.Errorf(value.MemberError, "%s is declared but not defined", m.FullName())
+	}
+	if m.Static {
+		recv = value.NilValue
+	}
+	return vm.callFunction(m.Fn.(*bytecode.Function), recv, argc, false)
+}
+
+// newObject runs new: the class is below the argc arguments; it is replaced
+// by the new object, and the constructor (if any) is called on it.
+func (vm *VM) newObject(argc int) error {
+	cv := vm.stack[vm.sp-argc-1]
+	if cv.Kind() != value.Class {
+		return value.Errorf(value.TypeError, "cannot create an object of %s with new", cv.Kind())
+	}
+	c := cv.AsClass()
+	obj := value.NewObject(c)
+	vm.stack[vm.sp-argc-1] = obj
+	if c.Ctor == nil {
+		if argc > 0 {
+			return value.Errorf(value.ArgumentError, "class %s has no constructor, so new %s() takes no arguments (got %d)", c.Name, c.Name, argc)
+		}
+		return nil
+	}
+	if c.Ctor.Fn == nil {
+		return value.Errorf(value.MemberError, "%s is declared but not defined", c.Ctor.FullName())
+	}
+	return vm.callFunction(c.Ctor.Fn.(*bytecode.Function), obj, argc, true)
+}
+
+// callOp performs a call instruction; ip points just past its opcode. The
+// caller reloads its state from the (possibly new) top frame.
+func (vm *VM) callOp(op bytecode.Op, f *frame, ip, sp int) error {
+	code := f.fn.Code
+	var argc, operand int
+	switch op {
+	case bytecode.OpCall, bytecode.OpNew:
+		argc = bytecode.ReadU16(code, ip)
+		ip += 2
+	case bytecode.OpCallMethod, bytecode.OpCallDirect:
+		operand, argc = bytecode.ReadU16(code, ip), bytecode.ReadU16(code, ip+2)
+		ip += 4
+	case bytecode.OpCallMethodV:
+		operand = bytecode.ReadU16(code, ip)
+		ip += 2
+	}
+	f.ip = ip
+	vm.sp = sp
+	if op == bytecode.OpCallV || op == bytecode.OpCallMethodV || op == bytecode.OpNewV {
+		var err error
+		if argc, err = vm.spread(); err != nil {
+			return err
+		}
+	}
+	switch op {
+	case bytecode.OpCallMethod, bytecode.OpCallMethodV:
+		recv := vm.stack[vm.sp-argc-1]
+		m, err := value.Method(recv, f.fn.Consts[operand].AsString())
+		if err != nil {
+			return err
+		}
+		return vm.invoke(m, recv, argc)
+	case bytecode.OpCallDirect:
+		return vm.callFunction(vm.prog.Funcs[operand], vm.stack[vm.sp-argc-1], argc, false)
+	case bytecode.OpNew, bytecode.OpNewV:
+		return vm.newObject(argc)
+	}
+	return vm.callValue(argc)
+}
+
+// callFunction pushes a frame for fn; its arguments are the top argc stack
+// entries, below them is the callee's place.
+func (vm *VM) callFunction(fn *bytecode.Function, this value.Value, argc int, ctor bool) error {
+	{
 		maxArgs := fn.NumParams + fn.NumOptional
 		if argc < fn.NumParams || (argc > maxArgs && !fn.HasRest) {
 			return argCountError(fn, argc)
@@ -201,24 +357,14 @@ func (vm *VM) callValue(argc int) error {
 			vm.stack[base+maxArgs] = value.MakeVector(rest)
 		}
 		vm.sp = base + fn.NumSlots
-		vm.frames = append(vm.frames, frame{fn: fn, base: base, argc: argc})
-		return nil
-	case value.Builtin:
-		b := callee.AsBuiltin()
-		args := make([]value.Value, argc)
-		copy(args, vm.stack[vm.sp-argc:vm.sp])
-		result, err := b.Fn(vm, args)
-		if err != nil {
-			return err
-		}
-		vm.sp -= argc + 1
-		vm.stack[vm.sp] = result
-		vm.sp++
+		vm.frames = append(vm.frames, frame{fn: fn, base: base, argc: argc, this: this, ctor: ctor})
 		return nil
 	}
-	return value.Errorf(value.TypeError, "cannot call %s", callee.Kind())
 }
 
+func makeFunction(fn value.Named) value.Value { return value.MakeFunction(fn) }
+
+// argCountError describes a call with the wrong number of arguments.
 func argCountError(fn *bytecode.Function, argc int) error {
 	switch {
 	case fn.HasRest:
@@ -506,21 +652,53 @@ func (vm *VM) execute(stopDepth int) (result value.Value, err error) {
 				sp++
 			}
 
-		case bytecode.OpCall, bytecode.OpCallV:
-			var argc int
-			if op == bytecode.OpCall {
-				argc = bytecode.ReadU16(code, ip)
-				ip += 2
+		case bytecode.OpLoadThis:
+			stack[sp] = f.this
+			sp++
+		case bytecode.OpLoadMember, bytecode.OpStoreMember:
+			if f.this.Kind() != value.Object {
+				return fail(start, value.Errorf(value.InternalError, "%s has no object", f.fn.FuncName))
 			}
-			f.ip = ip
-			vm.sp = sp
-			if op == bytecode.OpCallV {
-				var e error
-				if argc, e = vm.spread(); e != nil {
-					return fail(start, e)
-				}
+			fields := f.this.AsObject().Fields
+			i := bytecode.ReadU16(code, ip)
+			ip += 2
+			if op == bytecode.OpLoadMember {
+				stack[sp] = fields[i]
+				sp++
+			} else {
+				sp--
+				fields[i] = stack[sp]
 			}
-			if e := vm.callValue(argc); e != nil {
+		case bytecode.OpGetMember:
+			r, e := value.Member(stack[sp-1], consts[bytecode.ReadU16(code, ip)].AsString(), makeFunction)
+			if e != nil {
+				return fail(start, e)
+			}
+			ip += 2
+			stack[sp-1] = r
+		case bytecode.OpSetMember:
+			if e := value.SetMember(stack[sp-2], consts[bytecode.ReadU16(code, ip)].AsString(), stack[sp-1]); e != nil {
+				return fail(start, e)
+			}
+			ip += 2
+			stack[sp-2] = stack[sp-1]
+			sp--
+		case bytecode.OpLoadFunc:
+			stack[sp] = value.MakeFunction(vm.prog.Funcs[bytecode.ReadU16(code, ip)])
+			ip += 2
+			sp++
+		case bytecode.OpLoadStatic:
+			stack[sp] = vm.classes[bytecode.ReadU16(code, ip)].Statics[bytecode.ReadU16(code, ip+2)]
+			ip += 4
+			sp++
+		case bytecode.OpStoreStatic:
+			sp--
+			vm.classes[bytecode.ReadU16(code, ip)].Statics[bytecode.ReadU16(code, ip+2)] = stack[sp]
+			ip += 4
+
+		case bytecode.OpCall, bytecode.OpCallV, bytecode.OpCallMethod, bytecode.OpCallMethodV,
+			bytecode.OpCallDirect, bytecode.OpNew, bytecode.OpNewV:
+			if e := vm.callOp(op, f, ip, sp); e != nil {
 				return fail(start, e)
 			}
 			// A built-in has finished; a function has a new frame.
@@ -530,7 +708,9 @@ func (vm *VM) execute(stopDepth int) (result value.Value, err error) {
 
 		case bytecode.OpReturn, bytecode.OpReturnNil:
 			r := value.NilValue
-			if op == bytecode.OpReturn {
+			if f.ctor {
+				r = f.this // new C(...) gives the object
+			} else if op == bytecode.OpReturn {
 				r = stack[sp-1]
 			}
 			sp = f.base - 1 // drop the slots, the operands and the callee
