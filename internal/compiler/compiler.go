@@ -14,11 +14,11 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/maarten-boot/min-kukel/internal/ast"
-	"github.com/maarten-boot/min-kukel/internal/bytecode"
-	"github.com/maarten-boot/min-kukel/internal/diag"
-	"github.com/maarten-boot/min-kukel/internal/token"
-	"github.com/maarten-boot/min-kukel/internal/value"
+	"github.com/maarten-boot/kukel/internal/ast"
+	"github.com/maarten-boot/kukel/internal/bytecode"
+	"github.com/maarten-boot/kukel/internal/diag"
+	"github.com/maarten-boot/kukel/internal/token"
+	"github.com/maarten-boot/kukel/internal/value"
 )
 
 const maxIndex = math.MaxUint16 // constants, slots, globals, arguments

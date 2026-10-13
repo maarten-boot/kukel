@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/maarten-boot/min-kukel/internal/diag"
+	"github.com/maarten-boot/kukel/internal/diag"
 )
 
 // ruleCases lists, for every grammar rule of syntax.ebnf that carries a

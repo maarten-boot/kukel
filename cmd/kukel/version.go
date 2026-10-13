@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"runtime/debug"
 
-	"github.com/maarten-boot/min-kukel/internal/bytecode"
+	"github.com/maarten-boot/kukel/internal/bytecode"
 )
 
 // version is set by the Makefile (-ldflags "-X main.version=..."); without

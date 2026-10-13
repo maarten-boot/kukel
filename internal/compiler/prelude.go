@@ -1,8 +1,8 @@
 package compiler
 
 import (
-	"github.com/maarten-boot/min-kukel/internal/ast"
-	"github.com/maarten-boot/min-kukel/internal/parser"
+	"github.com/maarten-boot/kukel/internal/ast"
+	"github.com/maarten-boot/kukel/internal/parser"
 )
 
 // PreludeName is the file name of the prelude in positions and traces.

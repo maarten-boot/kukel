@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/maarten-boot/min-kukel/internal/value"
+	"github.com/maarten-boot/kukel/internal/value"
 )
 
 // I/O, conversion, math and system built-ins (milestone 11).

@@ -1,3 +1,3 @@
-module github.com/maarten-boot/min-kukel
+module github.com/maarten-boot/kukel
 
 go 1.22

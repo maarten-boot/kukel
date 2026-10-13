@@ -1,9 +1,9 @@
 package compiler
 
 import (
-	"github.com/maarten-boot/min-kukel/internal/ast"
-	"github.com/maarten-boot/min-kukel/internal/bytecode"
-	"github.com/maarten-boot/min-kukel/internal/token"
+	"github.com/maarten-boot/kukel/internal/ast"
+	"github.com/maarten-boot/kukel/internal/bytecode"
+	"github.com/maarten-boot/kukel/internal/token"
 )
 
 // tryCtx is an enclosing try block, catch block or finally block. A break,

@@ -5,7 +5,7 @@ package diag
 import (
 	"fmt"
 
-	"github.com/maarten-boot/min-kukel/internal/token"
+	"github.com/maarten-boot/kukel/internal/token"
 )
 
 // Error is a compile-time error at a source position.

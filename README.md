@@ -1,4 +1,4 @@
-# min-kukel
+# kukel
 
 A simple programming language, just for fun: **Kukel**, with C-like syntax,
 classes, closures and exceptions, compiled to bytecode for a small stack
@@ -61,7 +61,7 @@ grammar is in [syntax.ebnf](syntax.ebnf) (and as a
 With Go 1.22 or newer:
 
 ```
-go install github.com/maarten-boot/min-kukel/cmd/kukel@latest
+go install github.com/maarten-boot/kukel/cmd/kukel@latest
 ```
 
 or from a clone:

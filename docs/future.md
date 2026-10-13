@@ -137,7 +137,7 @@ parallel and talk through messages).
 A public Go package (today everything is in `internal/`):
 
 ```go
-import "github.com/maarten-boot/min-kukel/kukel"
+import "github.com/maarten-boot/kukel/kukel"
 
 prog, err := kukel.Compile(files...)          // compile once
 interp := kukel.New(prog, kukel.Options{       // as many as needed

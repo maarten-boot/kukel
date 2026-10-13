@@ -3,7 +3,7 @@ package bytecode
 import (
 	"fmt"
 
-	"github.com/maarten-boot/min-kukel/internal/value"
+	"github.com/maarten-boot/kukel/internal/value"
 )
 
 // Verify checks that a program cannot make the VM crash: every index in an

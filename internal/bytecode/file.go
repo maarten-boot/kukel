@@ -7,7 +7,7 @@ import (
 	"hash/crc32"
 	"math"
 
-	"github.com/maarten-boot/min-kukel/internal/value"
+	"github.com/maarten-boot/kukel/internal/value"
 )
 
 // The .kkc file format (little-endian; "uv" is an unsigned varint, "str" a

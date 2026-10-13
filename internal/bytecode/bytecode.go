@@ -10,8 +10,8 @@ import (
 	"encoding/binary"
 	"sort"
 
-	"github.com/maarten-boot/min-kukel/internal/token"
-	"github.com/maarten-boot/min-kukel/internal/value"
+	"github.com/maarten-boot/kukel/internal/token"
+	"github.com/maarten-boot/kukel/internal/value"
 )
 
 // Op is an opcode.
