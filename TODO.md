@@ -20,7 +20,7 @@ source files ──lexer──▶ tokens ──parser──▶ AST
 | Syntax | `syntax.ebnf` **version 2** (see §1b for the changes from version 1). No compatibility with version 1 is needed |
 | Parser | Hand-written lexer and recursive-descent parser (`syntax.lark` is a tested reference only) |
 | "Stored tokenized code" | Compile to a stack-machine bytecode image, saved as a binary `.kkc` file that runs without the source |
-| File extensions | Source `.kkl`, compiled bytecode `.kkc`, binary `kukel` (`.kk` avoided: commonly associated with SyncCrypt ransomware) |
+| File extensions | Source `.kkl`, compiled bytecode `.kkc`, binary `kukel` |
 | Build/check | Makefile (targets for build, `go test ./...`, `go vet`) |
 | Source files | Several files on the command line are compiled into one image |
 | Entry point | After the global initializers run, call `main(args)`: `args` is a vector of strings (the parameter is optional). An integer return value becomes the exit code |
