@@ -78,6 +78,8 @@ func Compile(files []*ast.File, builtins []string) (prog *bytecode.Program, err 
 	for _, name := range builtins {
 		c.globals[name] = &global{kind: symBuiltin, index: -1}
 	}
+	user := files
+	files = append([]*ast.File{preludeFile()}, files...)
 
 	// Pass 1: define all top-level names and classes, evaluate constants in
 	// order. Every function and member function definition becomes a job;
@@ -120,8 +122,8 @@ func Compile(files []*ast.File, builtins []string) (prog *bytecode.Program, err 
 
 	// The entry point.
 	pos := token.Pos{Line: 1, Col: 1}
-	if len(files) > 0 {
-		pos.File = files[0].Name
+	if len(user) > 0 {
+		pos.File = user[0].Name
 	}
 	m, ok := c.globals["main"]
 	if !ok || m.kind != symFunc {
@@ -214,6 +216,7 @@ type funcState struct {
 	line     int        // line of the code being emitted
 	class    *classInfo // the class of a member function, else nil
 	static   bool       // a static member function (no this)
+	tries    []*tryCtx  // enclosing try, catch and finally blocks
 }
 
 // function compiles one function; body emits the code of its body.
@@ -350,6 +353,8 @@ func stackEffect(op bytecode.Op, operands []int) int {
 		return -1
 	case bytecode.OpCallMethod, bytecode.OpCallDirect:
 		return -operands[1]
+	case bytecode.OpThrow, bytecode.OpRethrow:
+		return -1
 	case bytecode.OpNew:
 		return -operand
 	}
@@ -521,20 +526,17 @@ func (c *compiler) simpleStmt(s ast.Stmt) {
 	case *ast.ContinueStmt:
 		c.breakContinue(s.Pos(), s.Label, false)
 	case *ast.ReturnStmt:
-		if s.Value != nil {
-			c.expr(s.Value)
-			c.emit(bytecode.OpReturn)
-		} else {
-			c.emit(bytecode.OpReturnNil)
-		}
+		c.returnStmt(s)
 	case *ast.CaseLabel:
 		c.caseLabel(s)
 	case *ast.DefaultLabel:
 		c.defaultLabel(s)
 	case *ast.TryStmt:
-		c.notYet(s.Pos(), "try statements are", 7)
+		c.tryStmt(s)
 	case *ast.ThrowStmt:
-		c.notYet(s.Pos(), "throw statements are", 7)
+		c.expr(s.Value)
+		c.mark(s.Throw)
+		c.emit(bytecode.OpThrow)
 	default:
 		c.errorf(s.Pos(), "internal error: unknown statement %T", s)
 	}
@@ -697,15 +699,16 @@ func (c *compiler) checkLabel(label *ast.Ident, chain []*ast.Ident) {
 
 func (c *compiler) breakContinue(pos token.Pos, label *ast.Ident, isBreak bool) {
 	var t *target
+	ti := -1
 	for i := len(c.fs.targets) - 1; i >= 0 && t == nil; i-- {
 		cand := c.fs.targets[i]
 		switch {
 		case label != nil:
 			if cand.hasLabel(label.Name) {
-				t = cand
+				t, ti = cand, i
 			}
 		case cand.kind == targetLoop, cand.kind == targetSwitch && isBreak:
-			t = cand
+			t, ti = cand, i
 		}
 	}
 	switch {
@@ -718,6 +721,11 @@ func (c *compiler) breakContinue(pos token.Pos, label *ast.Ident, isBreak bool) 
 	case !isBreak && t.kind != targetLoop:
 		c.errorf(label.NamePos, "continue %s: %s does not label a loop", label.Name, label.Name)
 	}
+	what := "continue"
+	if isBreak {
+		what = "break"
+	}
+	c.leaveTries(ti, pos, what)
 	at := c.jump(bytecode.OpJump)
 	if isBreak {
 		t.breaks = append(t.breaks, at)
@@ -735,6 +743,7 @@ type switchState struct {
 	dflt       int // address of the default label, or -1
 	dfltPos    token.Pos
 	firstScope int // index of the first scope opened inside the body
+	target     int // index of the switch's target in funcState.targets
 }
 
 type switchCase struct {
@@ -762,6 +771,7 @@ func (c *compiler) switchStmt(s *ast.SwitchStmt, labels []*ast.Ident) {
 	t := c.pushTarget(targetSwitch, labels)
 	sw := &switchState{dflt: -1}
 	t.sw = sw
+	sw.target = len(c.fs.targets) - 1
 	c.pushScope()
 	sw.firstScope = len(c.fs.scopes)
 	for _, st := range s.Body.Stmts {
@@ -825,6 +835,7 @@ func (c *compiler) caseLabel(s *ast.CaseLabel) {
 			c.errorf(s.Value.Pos(), "duplicate case value %s (also at %s)", v.Repr(), prev.pos)
 		}
 	}
+	c.checkLabelTry(sw, s.Pos(), "case")
 	c.checkLabelScope(sw, s.Pos(), "case")
 	sw.cases = append(sw.cases, switchCase{value: v, pos: s.Value.Pos(), addr: c.here()})
 }
@@ -834,6 +845,7 @@ func (c *compiler) defaultLabel(s *ast.DefaultLabel) {
 	if sw.dflt >= 0 {
 		c.errorf(s.Pos(), "a switch has only one default label (the first is at %s)", sw.dfltPos)
 	}
+	c.checkLabelTry(sw, s.Pos(), "default")
 	c.checkLabelScope(sw, s.Pos(), "default")
 	sw.dflt, sw.dfltPos = c.here(), s.Pos()
 }

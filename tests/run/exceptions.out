@@ -1,0 +1,10 @@
+start <function port>
+end <function port>
+result: 8080
+start <function retries>
+end <function retries>
+config problem with retries: not a number: x
+start <function crash>
+end <function crash>
+other problem: RangeError index 10 out of range for vector of length 3 at crash (exceptions.kkl:37)
+ConfigError timeout missing

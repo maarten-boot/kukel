@@ -27,6 +27,7 @@ const (
 	Object
 	BoundMethod
 	Iterator // internal: the state of a for-each loop
+	Internal // internal: a Go value the VM keeps in a slot (a pending exception)
 )
 
 var kindNames = [...]string{
@@ -43,6 +44,7 @@ var kindNames = [...]string{
 	Object:      "object",
 	BoundMethod: "function",
 	Iterator:    "iterator",
+	Internal:    "internal",
 }
 
 // String returns the name typeof() reports for k.
@@ -227,6 +229,8 @@ func (v Value) write(b *strings.Builder, quote bool, open map[any]bool) {
 		b.WriteString("<method " + v.AsBoundMethod().Method.FullName() + ">")
 	case Iterator:
 		b.WriteString("<iterator>")
+	case Internal:
+		b.WriteString("<internal>")
 	case Function:
 		b.WriteString("<function " + v.obj.(Named).Name() + ">")
 	case Builtin:
@@ -283,3 +287,6 @@ func Quote(s string) string {
 	b.WriteByte('"')
 	return b.String()
 }
+
+// MakeInternal wraps a Go value that only the VM uses.
+func MakeInternal(x any) Value { return Value{kind: Internal, obj: x} }

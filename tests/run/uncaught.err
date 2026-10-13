@@ -1,0 +1,3 @@
+ValidationError: age must not be negative
+  at check (uncaught.kkl:9)
+  at main (uncaught.kkl:16)

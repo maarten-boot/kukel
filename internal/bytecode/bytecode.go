@@ -96,6 +96,12 @@ const (
 	OpNew         // argc u16: class args -> new object (the constructor runs)
 	OpNewV        // class argvector -> new object
 
+	// Exceptions.
+	OpTryPush // kind u16, handler u32: register a handler (kind 0: catch, 1: finally)
+	OpTryPop  // remove the innermost handler
+	OpThrow   // pop a value and throw it
+	OpRethrow // pop a pending exception (from a finally handler) and throw it again
+
 	numOps
 )
 
@@ -171,6 +177,10 @@ var opInfo = [numOps]OpInfo{
 	OpStoreStatic: {"STORE_STATIC", []int{2, 2}},
 	OpNew:         {"NEW", u16},
 	OpNewV:        {"NEW_V", nil},
+	OpTryPush:     {"TRY_PUSH", []int{2, 4}},
+	OpTryPop:      {"TRY_POP", nil},
+	OpThrow:       {"THROW", nil},
+	OpRethrow:     {"RETHROW", nil},
 }
 
 // Info returns the description of op; ok is false for an unknown opcode.

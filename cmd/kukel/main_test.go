@@ -91,9 +91,13 @@ func TestRunGolden(t *testing.T) {
 			}
 			var stdout, stderr bytes.Buffer
 			code := run(append([]string{"run", src, "--"}, args...), strings.NewReader(""), &stdout, &stderr)
-			gotErr := strings.ReplaceAll(stderr.String(), filepath.Dir(src)+string(filepath.Separator), "")
+			// Paths in traces (also in Error objects a program prints) are
+			// relative to tests/run.
+			dirPrefix := filepath.Dir(src) + string(filepath.Separator)
+			gotOut := strings.ReplaceAll(stdout.String(), dirPrefix, "")
+			gotErr := strings.ReplaceAll(stderr.String(), dirPrefix, "")
 			if *update {
-				if err := os.WriteFile(base+".out", stdout.Bytes(), 0o644); err != nil {
+				if err := os.WriteFile(base+".out", []byte(gotOut), 0o644); err != nil {
 					t.Fatal(err)
 				}
 				if gotErr != "" {
@@ -108,8 +112,8 @@ func TestRunGolden(t *testing.T) {
 				t.Fatalf("%v (run with -update to create it)", err)
 			}
 			wantErr, _ := os.ReadFile(base + ".err")
-			if stdout.String() != string(wantOut) {
-				t.Errorf("stdout differs from %s.out\n%s", base, firstDiff(stdout.String(), string(wantOut)))
+			if gotOut != string(wantOut) {
+				t.Errorf("stdout differs from %s.out\n%s", base, firstDiff(gotOut, string(wantOut)))
 			}
 			if gotErr != string(wantErr) {
 				t.Errorf("stderr differs from %s.err\n got:  %q\n want: %q", base, gotErr, wantErr)

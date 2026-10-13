@@ -1,0 +1,20 @@
+// An Error nobody catches stops the program: message, kind and trace.
+
+class ValidationError : Error {
+    ValidationError(message);
+}
+ValidationError::ValidationError(message) { Error::Error(message); }
+
+check(age) {
+    if (age < 0) throw new ValidationError("age must not be negative");
+    return age;
+}
+
+main() {
+    println(check(30));
+    try {
+        check(-1);
+    } finally {
+        println("finally runs before the program stops");
+    }
+}

@@ -120,10 +120,19 @@ func TestCompileErrors(t *testing.T) {
 		{"main() { new println(); }", "1:14", "println is not a class"},
 		{"main() { new Nope(); }", "1:14", "undefined class Nope"},
 		{"class A { f(); } A::f() {} class B : A { g(); } B::g() { A::f(main..); } main() {}", "1:62", "spread arguments are not supported in a A::f(...) call"},
+		// exceptions
+		{"main() { while (1) { try { } finally { break; } } }", "1:40", "break out of a finally block is not allowed"},
+		{"main() { a: { try { } finally { while (1) { continue a; } } } }", "1:54", "continue a: a does not label a loop"},
+		{"main() { a: while (1) { try { } finally { if (1) continue a; } } }", "1:50", "continue out of a finally block is not allowed"},
+		{"f() { try { } finally { return 1; } } main() {}", "1:25", "return out of a finally block is not allowed"},
+		{"main() { switch (1) { case 1: try { case 2: ; } catch (e) { } } }", "1:37", "a case label may not be inside a try, catch or finally block of its switch"},
+		{"main() { switch (1) { case 1: try { } catch (e) { default: } } }", "1:51", "a default label may not be inside a try, catch or finally block"},
+		{"main() { switch (1) { case 1: try { } finally { case 2: } } }", "1:49", "a case label may not be inside a try, catch or finally block"},
+		{"main() { try { } catch (e) { local e; } }", "1:36", "local e is already declared in this block"},
+		{"class Error { }", "1:7", "Error is already defined at <prelude>:2:7"},
 		// later milestones
 		{"main() { for (local k, k in [1]) ; }", "1:24", "local k is already declared in this block"},
 		{"main() { for (local x in x) ; }", "1:26", "undefined name x"}, // the loop variable is not visible in the expression
-		{"main() { try { } finally { } }", "1:10", "try statements are not supported yet (milestone 7)"},
 		{"main() { local f = fn() { }; }", "1:20", "function literals are not supported yet (milestone 8)"},
 	}
 	for _, tt := range tests {
@@ -131,6 +140,21 @@ func TestCompileErrors(t *testing.T) {
 		e, ok := err.(*diag.Error)
 		if !ok || e.Pos.String() != "t.kkl:"+tt.pos || !strings.Contains(e.Msg, tt.msg) {
 			t.Errorf("%q:\n got  %v\n want t.kkl:%s: ...%s...", tt.src, err, tt.pos, tt.msg)
+		}
+	}
+}
+
+func TestJumpsInsideFinallyAreAllowed(t *testing.T) {
+	// break/continue that stay inside the finally block, and a try inside
+	// a switch without labels in it, are fine.
+	for _, src := range []string{
+		"main() { try { } finally { while (1) { break; } for (local x in []) continue; } }",
+		"main() { switch (1) { case 1: try { } catch (e) { } break; } }",
+		"main() { while (1) { switch (1) { case 1: try { break; } finally { } } } }",
+		"f() { try { return 1; } catch (e) { return 2; } finally { } } main() {}",
+	} {
+		if err := compileSrc(t, src); err != nil {
+			t.Errorf("%q: %v", src, err)
 		}
 	}
 }
@@ -178,6 +202,9 @@ func FuzzCompile(f *testing.F) {
 		"main() { local v = [[1]]; println(v[0][0] = v[0][0]++ + --v[0][0], [v.., v..], {v: v}[v]); }",
 		"class A { x; static s; A(a = 1); f(b..); static g(); } A::A(a) { x = a; s = this; } A::f(b) { return x++ + this->x-- + A::g(); } A::g() { return s->x; } main() { new A()->f(1, 2); }",
 		"class B { y; m(); } class C : B { z; C(); m(); } C::C() { B::m(); z = y = this->m; } C::m() { return B::m() + z->y++; } B::m() { return y; } main() { local c = C; new c()->z = new C()->m; }",
+		"f(x) { a: for (;;) { try { try { if (x) return x; break a; } catch (e) { continue; } finally { x++; } } finally { } } } main() { f(1); }",
+		"main() { switch (1) { case 1: try { throw 1; } catch (e) { try { } finally { while (1) break; } } default: } }",
+		"class E : Error { E(); } E::E() { Error::Error(\"m\"); } main() { try { throw new E(); } catch (e) { throw e; } finally { return; } }",
 	} {
 		f.Add(s)
 	}

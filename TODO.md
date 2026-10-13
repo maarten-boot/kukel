@@ -50,7 +50,7 @@ source files ──lexer──▶ tokens ──parser──▶ AST ──checker
 - Q10 Relational operators: **numbers with numbers, strings with strings (byte order)**; any other mix throws
 - Q11 Float formatting in `print`/`str`: **shortest round-trip (`strconv.FormatFloat(f,'g',-1,64)`), always showing a `.` or exponent**
 - Q12 Bytecode compatibility: **version number in the header; a mismatch is refused** (no migration)
-- Q13 How a thrown runtime error looks: **an `Error` object with `message`, `kind` and `trace`**
+- Q13 How a thrown runtime error looks: **an `Error` object with `message`, `kind` and `trace`** (milestone 7: `Error` is a real class from a small prelude compiled in front of every program, `class Error { message, kind, trace; Error(message = nil, kind = nil); }`; programs may throw it and derive from it)
 - Q14 Can `print(obj)` call a user method such as `toString`? **No in v1**
 - Q15 Closure capture: **by reference** (Lua/JS/Go style upvalues)
 - Q16 Loop variables and closures: **fresh binding per iteration** for both for-each and `for (local ...)` (Go 1.22 semantics)
@@ -66,6 +66,8 @@ source files ──lexer──▶ tokens ──parser──▶ AST ──checker
 - Q26 (decided in milestone 6) A derived class may redeclare a member function of a base class (overriding it) with the same static-ness; redeclaring a data member, or turning a member function into a data member, is a compile error
 - Q27 (decided in milestone 6) Objects print as `Point{x: 1, y: 2}` (also inside containers; an object inside itself prints `Point{...}`); bound methods print as `<method C::m>`; `p->m == p->m` is true (same object, same method)
 - Q28 (decided in milestone 6) A static member function can also be called through an object (`p->f()`, without `this`); `p->f` of a static one gives the plain function. Spread arguments are not supported in `Base::m(...)` calls
+- Q29 (decided in milestone 7) Any value can be thrown; `catch (e)` catches everything (there are no typed catch clauses; test with `instanceof(e, SomeError)` and rethrow with `throw e;`). The first time an `Error` object is thrown, the VM sets its `trace` (a vector of strings like `"f (file.kkl:3)"`, innermost call first) and, if `kind` is nil, sets `kind` to the name of its class; throwing it again keeps the original trace. An uncaught `Error` prints `kind: message` and the trace; any other uncaught value prints `uncaught exception: <value>`
+- Q30 (decided in milestone 7) An exception thrown in a `finally` block replaces the one that was pending; a `case`/`default` label inside a try, catch or finally block of its switch is a compile error (checked before the local-initialization rule)
 
 ## 1b. Syntax changes in version 2 (all adopted)
 
@@ -175,12 +177,12 @@ All the "Rule:" comments in syntax.ebnf:
 - [x] Parameters: once an optional parameter appears, all later ones need defaults (or are the rest parameter); the rest parameter is last; at most 255 optional parameters; a default may use earlier parameters (only those: a later name resolves as if the parameter did not exist) — milestone 4
 - [ ] Lvalues: the target of an assignment or `++`/`--` must be a variable (global, local, parameter, temporary, captured, member), `C::x`, `e[i]` or `e->x`; not a constant, function, class, built-in or `this` (done except captured variables)
 - [x] `local`: only directly inside a block or in a for initializer, not directly in a switch body, no duplicate in the same block; the name is visible *after* its initializer
-- [ ] `catch (e)`: `e` is a new local of the catch block
+- [x] `catch (e)`: `e` is a new local of the catch block
 - [x] `case`/`default`: only inside a switch body; case values are constant expressions; no two equal case values (1 and 1.0 are equal); at most one default
-- [ ] Q9: reject `case` labels that would jump into a try block
+- [x] Q9: reject `case` labels that would jump into a try block (also catch and finally blocks)
 - [x] Reject `case`/`default` labels that skip the initialization of a `local` still in scope at the label (Q20): "case label skips the initialization of local `y`"
 - [x] `break`/`continue`: a plain break needs a loop or switch, a plain continue a loop; a label must name an enclosing statement (a loop, for continue) in the same function (they never cross a `fn` literal); a label may not repeat the label of an enclosing statement
-- [ ] `finally`: no `return`, and no break/continue to a target outside it
+- [x] `finally`: no `return`, and no break/continue to a target outside it
 - [x] `new X(...)`: X is a class name or a variable (checked at run time if it's a variable)
 - [ ] Identifier resolution in order: block local → parameter → temporary → variable of an enclosing function (closure capture) → member of the method's class (incl. inherited) → top-level name. Unresolved = compile error. (Milestone 3: the compiler resolves locals, parameters, temporaries and top-level names itself while generating code; captures and members come with milestones 6 and 8.)
 - [ ] Closure analysis: mark every local/parameter/temporary that is captured by a `fn` literal (these live in heap cells; the others stay in plain slots)
@@ -209,7 +211,7 @@ All the "Rule:" comments in syntax.ebnf:
 - [ ] Spread: calls with a spread argument build an argument vector (`MAKE_VECTOR` + `APPEND`/`EXTEND`) and use `CALL_V` (done) / `CALL_METHOD_V` / `NEW_V`; vector literals with spread use `EXTEND` (done)
 - [x] Collections: `MAKE_VECTOR n`, `APPEND`, `EXTEND`, `MAKE_MAP n`, `INDEX_GET`, `INDEX_SET` (leaves the value, so `x = v[i] = y` works)
 - [x] For-each: `ITER_INIT` (vector: index; map: key snapshot; string: index; else throw), `ITER_NEXT slot, n, off` (the iterator lives in a hidden slot; pushes 1 or 2 values, or jumps to `off` at the end)
-- [ ] Exceptions: `TRY_PUSH handler_off`, `TRY_POP`, `THROW`, `RETHROW`
+- [x] Exceptions: `TRY_PUSH kind, handler` (kind catch: the handler gets the thrown value; kind finally: it gets the pending exception, which `RETHROW` throws again unchanged), `TRY_POP`, `THROW`, `RETHROW`
 - [x] Every instruction maps to a source line (a run-length line table per function) for stack traces
 
 ### Compiler
@@ -224,7 +226,7 @@ All the "Rule:" comments in syntax.ebnf:
 - [ ] Per-iteration loop variables (Q16): only when the variable is captured by a closure, give each iteration a new cell (copy the old value before the update for `for`); uncaptured variables keep a plain slot (no cost)
 - [x] `switch`: evaluate the value into a hidden slot, then a chain of `EQ` + jump to each case label's address (labels may sit inside nested statements, Duff's-device style); jump to `default` or past the end. The dispatch code is placed after the body, so no patching per case is needed. Later, maybe: a jump table for dense int cases
   - A case label that a jump would reach past a `local` declaration still in scope is rejected by the checker (§5), so no slot clearing is needed
-- [ ] `try/catch/finally`: `TRY_PUSH` handler; the catch body binds the exception to a slot. `finally` is compiled inline on every way out (normal end, catch end, and break/continue/return passing through), plus a catch-all handler that runs the finally code and then does `RETHROW`
+- [x] `try/catch/finally`: `TRY_PUSH` handler; the catch body binds the exception to a slot. `finally` is compiled inline on every way out (normal end, catch end, and break/continue/return passing through), plus a catch-all handler that runs the finally code and then does `RETHROW`
 - [x] Classes in the image: name, base, data member names (instance slot layout incl. inherited members), static member slots, method table (name → code index, static flag)
 - [x] Program init: functions, classes and built-ins bound to their global slots; then one generated init function runs the `global` initializers in program order; then `main` (built-ins get a global slot only when used)
 
@@ -243,9 +245,9 @@ All the "Rule:" comments in syntax.ebnf:
 - [ ] Calls: user functions, closures, bound methods, built-ins, classes via `new` (allocate the object, then call the constructor if one exists; the constructor's frame returns the object) (done except closures)
 - [ ] Upvalues: captured variables live in heap cells shared by the frame and the closures (simple and GC-friendly in Go; no open/closed upvalue juggling needed)
 - [x] Method dispatch by name up the class chain (Q7): each class gets a flattened method table at load time, so dispatch is one map lookup (milestone 6: ~40 ns per method call)
-- [ ] Exceptions: a handler stack per frame; unwind frames; runtime errors (type errors, bad index, division by zero, unknown method or member, wrong argument count, spread of a non-vector, for-each over a non-iterable, ...) become thrown values (Q13)
+- [x] Exceptions: a handler stack (handlers record their frame, target and stack depth; exceptions also cross built-ins such as `sort`'s comparator); unwind frames; runtime errors (type errors, bad index, division by zero, unknown method or member, wrong argument count, spread of a non-vector, for-each over a non-iterable, ...) become thrown values (Q13)
 - [x] Uncaught exception: print the message and trace (function, file:line for each frame) to stderr; exit code 1 (milestone 3: every runtime error is uncaught; a trace longer than 21 frames shows the first and last 10)
-- [ ] Deep recursion: frame depth limit (10000 frames) → a catchable "stack overflow" error (the limit is done; catching comes in milestone 7)
+- [x] Deep recursion: frame depth limit (10000 frames) → a catchable "stack overflow" error
 - [x] Integer semantics: wraparound; `MinInt64 / -1` and `% -1` don't panic in Go (handle them explicitly); a negative or ≥64 shift count throws
 
 ### Built-ins (v1). Final names to be agreed; proposal:
@@ -273,7 +275,7 @@ All the "Rule:" comments in syntax.ebnf:
 4. [x] Default/rest parameters, spread, labelled break/continue, switch (done 2026-10-13, branch `milestone-4-control`; basic locals, for-initializer locals and temporaries were done in milestone 3)
 5. [x] Vectors, maps, strings + their built-ins; for-each (done 2026-10-13, branch `milestone-5-collections`)
 6. [x] Classes, objects, methods, `this`, `p->x`, bound methods, static members, constructors, inheritance (done 2026-10-13, branch `milestone-6-classes`; frames got bigger: fib(27) 29 → 35 ms, to win back in milestone 12)
-7. [ ] Exceptions: try/catch/finally, runtime errors as exceptions, stack traces
+7. [x] Exceptions: try/catch/finally, runtime errors as exceptions, stack traces (done 2026-10-13, branch `milestone-7-exceptions`)
 8. [ ] Closures: fn literals, captured cells, per-iteration loop variables
 9. [ ] Semantic checker complete (all "Rule:" items)
 10. [ ] `.kkc` writer/reader/validator + `build`/`exec`/`disasm`

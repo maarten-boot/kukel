@@ -25,11 +25,12 @@ type TraceEntry struct {
 	Line int
 }
 
-// RuntimeError is an error raised while the program runs. (Milestone 7
-// turns these into catchable exceptions.)
+// RuntimeError is a thrown exception: the thrown value and the stack trace
+// at the throw. It is what Run returns for an exception nobody caught.
 type RuntimeError struct {
-	Kind  string
-	Msg   string
+	Value value.Value  // the thrown value (an Error object for runtime errors)
+	Kind  string       // the kind of an Error object; "" for other values
+	Msg   string       // the message of an Error object, or the value as text
 	Trace []TraceEntry // innermost call first
 }
 
@@ -38,7 +39,14 @@ type RuntimeError struct {
 func (e *RuntimeError) Error() string {
 	const traceEnds = 10
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s: %s", e.Kind, e.Msg)
+	switch {
+	case e.Kind == "":
+		fmt.Fprintf(&b, "uncaught exception: %s", e.Msg)
+	case e.Msg == "":
+		b.WriteString(e.Kind)
+	default:
+		fmt.Fprintf(&b, "%s: %s", e.Kind, e.Msg)
+	}
 	for i, t := range e.Trace {
 		if n := len(e.Trace); n > 2*traceEnds+1 && i >= traceEnds && i < n-traceEnds {
 			if i == traceEnds {
@@ -60,16 +68,26 @@ type frame struct {
 	ctor bool        // a constructor called by new: it returns this
 }
 
+// handler is a registered try handler.
+type handler struct {
+	frame   int  // index of the frame that registered it
+	pc      int  // where to continue
+	sp      int  // stack depth to restore
+	finally bool // a finally handler gets the pending exception, not the value
+}
+
 // VM runs one program.
 type VM struct {
-	prog    *bytecode.Program
-	globals []value.Value
-	classes []*value.ClassObj
-	stack   []value.Value
-	sp      int // first free stack entry
-	frames  []frame
-	stdout  io.Writer
-	stdin   io.Reader
+	prog       *bytecode.Program
+	globals    []value.Value
+	classes    []*value.ClassObj
+	handlers   []handler
+	errorClass *value.ClassObj // the prelude's Error class
+	stack      []value.Value
+	sp         int // first free stack entry
+	frames     []frame
+	stdout     io.Writer
+	stdin      io.Reader
 }
 
 // Builtins resolves built-in functions by name.
@@ -102,6 +120,20 @@ func New(prog *bytecode.Program, builtins Builtins, stdout io.Writer, stdin io.R
 	}
 	if err := vm.makeClasses(); err != nil {
 		return nil, err
+	}
+	for _, c := range vm.classes {
+		if c.Name == "Error" && c.Base == nil {
+			vm.errorClass = c
+			break
+		}
+	}
+	if vm.errorClass == nil {
+		return nil, fmt.Errorf("the program has no Error class")
+	}
+	for _, field := range []string{"message", "kind", "trace"} {
+		if _, ok := vm.errorClass.FieldIndex[field]; !ok {
+			return nil, fmt.Errorf("class Error has no data member %s", field)
+		}
 	}
 	for i, g := range prog.Globals {
 		if g.Kind == bytecode.GlobalClass {
@@ -192,8 +224,10 @@ func (vm *VM) Run(args []string) (int, error) {
 	return 0, nil
 }
 
-// call calls fn with args from Go and runs it to completion.
+// call calls fn with args from Go and runs it to completion. An exception
+// that is not caught inside the call is returned as a *RuntimeError.
 func (vm *VM) call(fn value.Value, args []value.Value) (value.Value, error) {
+	sp0 := vm.sp
 	vm.ensure(len(args) + 1)
 	vm.stack[vm.sp] = fn
 	vm.sp++
@@ -203,13 +237,18 @@ func (vm *VM) call(fn value.Value, args []value.Value) (value.Value, error) {
 	}
 	depth := len(vm.frames)
 	if err := vm.callValue(len(args)); err != nil {
+		vm.sp = sp0
 		return value.NilValue, vm.wrap(err)
 	}
 	if len(vm.frames) == depth { // a built-in: already done
 		vm.sp--
 		return vm.stack[vm.sp], nil
 	}
-	return vm.execute(depth)
+	r, err := vm.execute(depth)
+	if err != nil {
+		vm.sp = sp0
+	}
+	return r, err
 }
 
 // ensure makes room for n more values on the stack.
@@ -393,43 +432,138 @@ func (vm *VM) spread() (int, error) {
 	return len(elems), nil
 }
 
-// wrap turns an error into a RuntimeError with a stack trace of the current
-// frames. The innermost frame's ip must point at the failing instruction.
-func (vm *VM) wrap(err error) error {
-	if re, ok := err.(*RuntimeError); ok {
-		return re // from a call made by a built-in: it has its trace already
-	}
-	re := &RuntimeError{Kind: value.InternalError, Msg: err.Error()}
-	if ve, ok := err.(*value.Error); ok {
-		re.Kind, re.Msg = ve.Kind, ve.Msg
-	}
+// trace returns the stack trace of the current frames. The innermost
+// frame's ip must point at the current instruction.
+func (vm *VM) trace() []TraceEntry {
+	var t []TraceEntry
 	for i := len(vm.frames) - 1; i >= 0; i-- {
 		f := vm.frames[i]
 		pc := f.ip
 		if i < len(vm.frames)-1 {
 			pc-- // a caller's ip is just past its CALL instruction
 		}
-		re.Trace = append(re.Trace, TraceEntry{Func: f.fn.FuncName, File: f.fn.File, Line: f.fn.LineAt(pc)})
+		t = append(t, TraceEntry{Func: f.fn.FuncName, File: f.fn.File, Line: f.fn.LineAt(pc)})
+	}
+	return t
+}
+
+// wrap turns an error raised by an operation or built-in into a thrown
+// exception: a runtime error becomes an Error object with message, kind and
+// trace. An exception thrown inside a call made by a built-in passes through.
+func (vm *VM) wrap(err error) error {
+	if re, ok := err.(*RuntimeError); ok {
+		return re
+	}
+	kind, msg := value.InternalError, err.Error()
+	if ve, ok := err.(*value.Error); ok {
+		kind, msg = ve.Kind, ve.Msg
+	}
+	obj := value.NewObject(vm.errorClass)
+	vm.setField(obj, "message", value.MakeString(msg))
+	vm.setField(obj, "kind", value.MakeString(kind))
+	return vm.throwValue(obj)
+}
+
+func (vm *VM) setField(obj value.Value, name string, v value.Value) {
+	o := obj.AsObject()
+	o.Fields[o.Class.FieldIndex[name]] = v
+}
+
+func (vm *VM) field(obj value.Value, name string) value.Value {
+	o := obj.AsObject()
+	return o.Fields[o.Class.FieldIndex[name]]
+}
+
+// throwValue makes the exception for "throw v". An Error object (of class
+// Error or a class derived from it) gets its trace, and its kind if it has
+// none (the name of its class), the first time it is thrown; throwing it
+// again keeps the original trace.
+func (vm *VM) throwValue(v value.Value) *RuntimeError {
+	re := &RuntimeError{Value: v}
+	if v.Kind() != value.Object || !v.AsObject().Class.IsSubclassOf(vm.errorClass) {
+		re.Msg = v.Repr()
+		re.Trace = vm.trace()
+		return re
+	}
+	o := v.AsObject()
+	if t, ok := o.Native.([]TraceEntry); ok {
+		re.Trace = t
+	} else {
+		re.Trace = vm.trace()
+		o.Native = re.Trace
+		lines := make([]value.Value, len(re.Trace))
+		for i, t := range re.Trace {
+			lines[i] = value.MakeString(fmt.Sprintf("%s (%s:%d)", t.Func, t.File, t.Line))
+		}
+		vm.setField(v, "trace", value.MakeVector(lines))
+	}
+	if vm.field(v, "kind").IsNil() {
+		vm.setField(v, "kind", value.MakeString(o.Class.Name))
+	}
+	re.Kind = vm.field(v, "kind").String()
+	if m := vm.field(v, "message"); !m.IsNil() {
+		re.Msg = m.String()
 	}
 	return re
 }
 
 // execute runs frames until the frame count drops back to stopDepth, and
-// returns the value the last frame returned.
-func (vm *VM) execute(stopDepth int) (result value.Value, err error) {
+// returns the value the last frame returned. An exception goes to the
+// innermost handler registered by one of these frames; without one, the
+// frames are dropped and the exception is returned.
+func (vm *VM) execute(stopDepth int) (value.Value, error) {
+	for {
+		r, err := vm.run(stopDepth)
+		if err == nil {
+			return r, nil
+		}
+		re := err.(*RuntimeError)
+		if !vm.catch(re, stopDepth) {
+			return value.NilValue, re
+		}
+	}
+}
+
+// catch hands an exception to the innermost handler that belongs to a frame
+// at or above stopDepth. It reports whether there was one.
+func (vm *VM) catch(re *RuntimeError, stopDepth int) bool {
+	if n := len(vm.handlers); n > 0 {
+		h := vm.handlers[n-1]
+		if h.frame >= stopDepth {
+			vm.handlers = vm.handlers[:n-1]
+			vm.frames = vm.frames[:h.frame+1]
+			vm.frames[h.frame].ip = h.pc
+			vm.sp = h.sp
+			v := re.Value
+			if h.finally {
+				v = value.MakeInternal(re)
+			}
+			vm.ensure(1)
+			vm.stack[vm.sp] = v
+			vm.sp++
+			return true
+		}
+	}
+	vm.frames = vm.frames[:stopDepth]
+	return false
+}
+
+// run executes the top frame (and the frames it calls) until the frame
+// count drops back to stopDepth, or an exception is thrown. It returns the
+// exception without unwinding.
+func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 	f := &vm.frames[len(vm.frames)-1]
 	code, consts, base := f.fn.Code, f.fn.Consts, f.base
-	ip := 0
+	ip := f.ip
 	stack := vm.stack
 	sp := vm.sp
 
-	// fail records the position of the failing instruction and unwinds.
+	// fail records the position of the failing instruction and returns the
+	// exception.
 	fail := func(start int, e error) (value.Value, error) {
 		f.ip = start
 		vm.sp = sp
-		err := vm.wrap(e)
-		vm.frames = vm.frames[:stopDepth]
-		return value.NilValue, err
+		return value.NilValue, vm.wrap(e)
 	}
 
 	for {
@@ -717,12 +851,35 @@ func (vm *VM) execute(stopDepth int) (result value.Value, err error) {
 			stack[sp] = r
 			sp++
 			vm.frames = vm.frames[:len(vm.frames)-1]
+			for n := len(vm.handlers); n > 0 && vm.handlers[n-1].frame >= len(vm.frames); n-- {
+				vm.handlers = vm.handlers[:n-1] // (the compiler pops them; this is a safety net)
+			}
 			if len(vm.frames) == stopDepth {
 				vm.sp = sp - 1
 				return r, nil
 			}
 			f = &vm.frames[len(vm.frames)-1]
 			code, consts, base, ip = f.fn.Code, f.fn.Consts, f.base, f.ip
+
+		case bytecode.OpTryPush:
+			vm.handlers = append(vm.handlers, handler{
+				frame:   len(vm.frames) - 1,
+				pc:      bytecode.ReadU32(code, ip+2),
+				sp:      sp,
+				finally: bytecode.ReadU16(code, ip) == 1,
+			})
+			ip += 6
+		case bytecode.OpTryPop:
+			vm.handlers = vm.handlers[:len(vm.handlers)-1]
+		case bytecode.OpThrow:
+			sp--
+			f.ip = start
+			vm.sp = sp
+			return value.NilValue, vm.throwValue(stack[sp])
+		case bytecode.OpRethrow:
+			sp--
+			vm.sp = sp
+			return value.NilValue, stack[sp].Obj().(*RuntimeError)
 
 		default:
 			return fail(start, value.Errorf(value.InternalError, "bad opcode %d at %d in %s", op, start, f.fn.FuncName))

@@ -26,6 +26,7 @@ func (m *MethodObj) FullName() string { return m.Class.Name + "::" + m.Name }
 type ObjectObj struct {
 	Class  *ClassObj
 	Fields []Value
+	Native any // data the VM attaches (the stack trace of a thrown Error)
 }
 
 // BoundMethodObj is a method together with the object it was taken from

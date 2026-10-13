@@ -448,6 +448,107 @@ func TestPrograms(t *testing.T) {
 			class Node { next; }
 			main() { local n = new Node(); n->next = n; println(n, [n]); }`,
 			"Node{next: Node{...}} [Node{next: Node{...}}]\n"},
+		// milestone 7
+		{"catching runtime errors", "f(x) {\n return 10 / x;\n}\nmain() {\n try { f(0); } catch (e) {\n  println(e->kind, \"|\", e->message, \"|\", e->trace, instanceof(e, Error));\n }\n println(\"after\");\n}",
+			"ZeroDivisionError | integer division by zero | [\"f (t.kkl:2)\", \"main (t.kkl:5)\"] true\nafter\n"},
+		{"any value can be thrown", `main() {
+			for (local v in [1, "s", [2], {"k": 3}, nil]) {
+				try { throw v; } catch (e) { print(typeof(e), e == v, ""); }
+			}
+			println();
+		}`, "int true string true vector true map true nil true \n"},
+		{"finally runs on every way out", `
+			global log = [];
+			f(n) {
+				try {
+					if (n == 0) return "returned";
+					if (n == 1) throw "thrown";
+					push(log, "body " + str(n));
+				} finally {
+					push(log, "finally " + str(n));
+				}
+				return "end";
+			}
+			main() {
+				for (local n = 0; n < 3; n++) {
+					try { push(log, f(n)); } catch (e) { push(log, "caught " + e); }
+				}
+				for (local i = 0; i < 3; i++) {
+					try { if (i == 0) continue; if (i == 2) break; push(log, "loop " + str(i)); }
+					finally { push(log, "loop finally " + str(i)); }
+				}
+				println(join(log, "; "));
+			}`, "finally 0; returned; finally 1; caught thrown; body 2; finally 2; end; " +
+			"loop finally 0; loop 1; loop finally 1; loop finally 2\n"},
+		{"the return value is computed before finally runs", `
+			f(; x) { x = 1; try { return x; } finally { x = 2; println("x is", x); } }
+			main() { println(f()); }`, "x is 2\n1\n"},
+		{"nested finally blocks run innermost first", `main() {
+			outer: for (local i = 0; i < 2; i++) {
+				try {
+					try {
+						for (local j = 0; j < 2; j++) { try { break outer; } finally { print("a "); } }
+					} finally { print("b "); }
+				} finally { print("c "); }
+			}
+			try { try { throw "x"; } finally { print("d "); } } catch (e) { print("caught", e); }
+			println();
+		}`, "a b c d caught x\n"},
+		{"exceptions in catch and finally", `main() {
+			try {
+				try { throw "first"; } catch (e) { throw "from catch: " + e; } finally { print("cleanup "); }
+			} catch (e) { println(e); }
+			try {
+				try { throw "lost"; } finally { throw "from finally"; }
+			} catch (e) { println(e); }
+		}`, "cleanup from catch: first\nfrom finally\n"},
+		{"rethrowing keeps the original trace", "f() {\n [1][2];\n}\nmain() {\n try {\n  try { f(); } catch (e) { throw e; }\n } catch (e2) { println(e2->trace); }\n}",
+			"[\"f (t.kkl:2)\", \"main (t.kkl:6)\"]\n"},
+		{"Error classes", `
+			class ParseError : Error { line; ParseError(msg, line); }
+			ParseError::ParseError(msg, line) { Error::Error(msg); this->line = line; }
+			main() {
+				try { throw new ParseError("bad token", 7); }
+				catch (e) { println(e->kind, e->message, e->line, instanceof(e, Error), classof(e)); }
+				try { throw new Error("custom", "MyKind"); } catch (e) { println(e->kind, e->message); }
+				local e = new Error("not thrown");
+				println(e->kind, e->trace);
+			}`, "ParseError bad token 7 true <class ParseError>\nMyKind custom\nnil nil\n"},
+		{"stack overflow can be caught", `
+			down(n) { return down(n + 1); }
+			count(n) { if (n == 0) return 0; return 1 + count(n - 1); }
+			main() {
+				try { down(0); } catch (e) { println(e->kind, len(e->trace)); }
+				println(count(5000));
+			}`, "StackOverflowError 10000\n5000\n"},
+		{"exceptions cross built-ins", `
+			bad(a, b) { throw "from comparator"; }
+			main() {
+				try { sort([2, 1], bad); } catch (e) { println("caught:", e); }
+				try { sort([2, 1], fn2); } catch (e) { println(e->kind, e->trace); }
+			}
+			fn2(a, b) { return a < nil; }`,
+			"caught: from comparator\nTypeError [\"fn2 (t.kkl:7)\", \"main (t.kkl:5)\"]\n"},
+		{"the stack is restored after a catch", `
+			g() { try { return 1 / 0; } catch (e) { return 10; } }
+			h(n) { if (n == 0) throw "deep"; return h(n - 1) + 1; }
+			main() {
+				local a = 5;
+				println(1 + g() * 2, a);
+				local v = [];
+				for (local i = 0; i < 3; i++) {
+					try { push(v, i + h(i)); } catch (e) { push(v, e); }
+				}
+				println(v, a + 1);
+			}`, "21 5\n[\"deep\", \"deep\", \"deep\"] 6\n"},
+		{"a throwing constructor", `
+			class A { A(x); }
+			A::A(x) { if (x) throw "no"; }
+			main() {
+				local a;
+				try { a = new A(1); } catch (e) { println("caught", e, a); }
+				println(new A(0));
+			}`, "caught no nil\nA{}\n"},
 		{"deep recursion within the limit", `
 			down(n) { if (n == 0) return 0; return 1 + down(n - 1); }
 			main() { println(down(9000)); }`, "9000\n"},
@@ -571,6 +672,14 @@ main() {
 			"ZeroDivisionError: integer division by zero\n  at A::g (t.kkl:3)\n  at A::f (t.kkl:2)\n  at main (t.kkl:4)"},
 		{"classof of a non-object", "main() { classof(1); }",
 			"TypeError: classof: argument 1 must be an object, not int\n  at main (t.kkl:1)"},
+		{"uncaught thrown value", "main() {\n throw \"oops\";\n}",
+			"uncaught exception: \"oops\"\n  at main (t.kkl:2)"},
+		{"uncaught Error object", "main() {\n throw new Error(\"bad\");\n}",
+			"Error: bad\n  at main (t.kkl:2)"},
+		{"uncaught Error without a message", "class Oops : Error { }\nmain() {\n throw new Oops();\n}",
+			"Oops\n  at main (t.kkl:3)"},
+		{"exception escaping a finally", "main() {\n try { 1 / 0; } finally { println(\"cleanup\"); }\n}",
+			"ZeroDivisionError: integer division by zero\n  at main (t.kkl:2)"},
 		{"++ on a string", `main() { local s = "a"; s++; }`,
 			"TypeError: cannot apply ++ to string\n  at main (t.kkl:1)"},
 	}

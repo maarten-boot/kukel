@@ -151,6 +151,12 @@ func (d *disasm) operand(f *Function, op Op, pc int) string {
 		return fmt.Sprint(ReadU16(f.Code, pc+1))
 	case OpCall, OpMakeVector, OpMakeMap, OpNew:
 		return fmt.Sprint(ReadU16(f.Code, pc+1))
+	case OpTryPush:
+		kind := "catch"
+		if ReadU16(f.Code, pc+1) == 1 {
+			kind = "finally"
+		}
+		return fmt.Sprintf("%s -> %d", kind, ReadU32(f.Code, pc+3))
 	case OpJumpIfArg:
 		return fmt.Sprintf("%d -> %d", ReadU16(f.Code, pc+1), ReadU32(f.Code, pc+3))
 	case OpJump, OpJumpIfFalse, OpJumpIfTrue:
