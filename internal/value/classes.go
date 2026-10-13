@@ -8,7 +8,7 @@ type ClassObj struct {
 	FieldIndex map[string]int        // name -> slot in ObjectObj.Fields
 	Methods    map[string]*MethodObj // own and inherited member functions (overrides resolved)
 	Statics    []Value               // the class's own static data members
-	Ctor       *MethodObj            // the constructor C::C, or nil
+	Ctor       *MethodObj            // C::C, else the nearest base class's constructor, or nil
 }
 
 // MethodObj is a member function of a class.

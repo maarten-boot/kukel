@@ -77,8 +77,8 @@ func (c *compiler) staticCallee(fun ast.Expr) *paramShape {
 }
 
 // checkNew checks new C(...) when C names a class directly (not a variable
-// holding one): the constructor's parameters, or no arguments at all for a
-// class without a constructor. Constructors are not inherited.
+// holding one): the parameters of the constructor that runs (C's own, else
+// the nearest base class's, Q33), or no arguments at all when there is none.
 func (c *compiler) checkNew(e *ast.NewExpr) {
 	if _, ok := c.lookupLocal(e.Class.Name); ok {
 		return
@@ -91,9 +91,9 @@ func (c *compiler) checkNew(e *ast.NewExpr) {
 		return
 	}
 	k := g.class
-	ctor, ok := k.members[k.name]
+	ctor := k.constructor()
 	switch {
-	case !ok:
+	case ctor == nil:
 		if len(e.Args) > 0 && !hasSpread(e.Args) {
 			c.errorf(e.New, "class %s has no constructor, so new %s() takes no arguments (got %d)", k.name, k.name, len(e.Args))
 		}

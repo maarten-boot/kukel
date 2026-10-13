@@ -150,6 +150,8 @@ func TestCompileErrors(t *testing.T) {
 		{"class A { } main() { new A(1); }", "1:22", "class A has no constructor, so new A() takes no arguments (got 1)"},
 		{"class A { A(); } main() { new A(); }", "1:27", "A::A is declared but not defined"},
 		{"class A { } class B : A { B(x); } B::B(x) {} main() { new B(); }", "1:55", "B::B expects 1 argument(s), got 0"},
+		{"class A { A(x); } A::A(x) {} class B : A { } main() { new B(); }", "1:55", "A::A expects 1 argument(s), got 0"}, // inherited (Q33)
+		{"class A { A(); } class B : A { } class C : B { } main() { new C(); }", "1:59", "A::A is declared but not defined"},
 		// later milestones
 		{"main() { for (local k, k in [1]) ; }", "1:24", "local k is already declared in this block"},
 		{"main() { for (local x in x) ; }", "1:26", "undefined name x"}, // the loop variable is not visible in the expression

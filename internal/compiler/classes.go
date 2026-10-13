@@ -65,6 +65,17 @@ func (k *classInfo) isSubclassOf(b *classInfo) bool {
 	return false
 }
 
+// constructor returns the constructor new runs for k: k's own, else the
+// nearest base class's (Q33), or nil.
+func (k *classInfo) constructor() *memberInfo {
+	for ; k != nil; k = k.base {
+		if m, ok := k.members[k.name]; ok && m.kind == memberMethod {
+			return m
+		}
+	}
+	return nil
+}
+
 // isCtor reports whether m is the constructor of its class.
 func (m *memberInfo) isCtor() bool { return m.kind == memberMethod && m.name == m.class.name }
 

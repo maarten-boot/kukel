@@ -185,6 +185,9 @@ func (vm *VM) makeClasses() error {
 				k.Ctor = mo
 			}
 		}
+		if k.Ctor == nil && k.Base != nil {
+			k.Ctor = k.Base.Ctor // a class without a constructor uses its base's (Q33)
+		}
 		vm.classes = append(vm.classes, k)
 	}
 	return nil

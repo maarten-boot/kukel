@@ -312,7 +312,11 @@ primary             = "(" , expression , ")"
 
 new_expression      = "new" , Identifier , "(" , [ arguments ] , ")" ;
                       (* A class name, or a variable holding a class.
-                         new C()->m() is (new C())->m(). *)
+                         The new object's data members are nil; then the
+                         constructor runs with the arguments: C::C, or, if C
+                         declares none, the nearest base class's
+                         constructor. Without any constructor, new takes no
+                         arguments. new C()->m() is (new C())->m(). *)
 
 function_literal    = "fn" , "(" , parameter_part , ")" , block ;
                       (* A closure. It captures variables of the enclosing

@@ -615,6 +615,19 @@ func TestPrograms(t *testing.T) {
 				local f = fn() { };
 				println(f == f, f == fn() { }, f(), square);
 			}`, "[\"a\", \"bb\", \"ccc\"] 81 11\ntrue false nil <function <init>/fn@2>\n"},
+		{"constructors are inherited when a class declares none", `
+			class ValidationError : Error { }
+			class A { x; A(x); }
+			A::A(x) { this->x = x * 10; }
+			class B : A { }
+			class C : B { }
+			class D : C { y; D(); }
+			D::D() { y = "own"; }
+			main() {
+				try { throw new ValidationError("age must not be negative"); }
+				catch (e) { println(e->kind, e->message); }
+				println(new C(5), new D(), classof(new C(1)));
+			}`, "ValidationError age must not be negative\nC{x: 50} D{x: nil, y: \"own\"} <class C>\n"},
 		{"deep recursion within the limit", `
 			down(n) { if (n == 0) return 0; return 1 + down(n - 1); }
 			main() { println(down(9000)); }`, "9000\n"},
@@ -724,6 +737,8 @@ main() {
 			"MemberError: A::A is declared but not defined\n  at main (t.kkl:2)"},
 		{"new with arguments and no constructor", "class A { }\nmain() { local c = A; new c(1); }",
 			"ArgumentError: class A has no constructor, so new A() takes no arguments (got 1)\n  at main (t.kkl:2)"},
+		{"inherited constructor argument count", "class A { A(x); }\nA::A(x) {}\nclass B : A { }\nmain() { local c = B; new c(); }",
+			"ArgumentError: A::A expects 1 argument(s), got 0\n  at main (t.kkl:4)"},
 		{"constructor argument count", "class A { A(x); }\nA::A(x) {}\nmain() { local c = A; new c(); }",
 			"ArgumentError: A::A expects 1 argument(s), got 0\n  at main (t.kkl:3)"},
 		{"new of a non-class", "global g = 1;\nmain() { new g(); }",
