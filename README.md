@@ -92,6 +92,29 @@ make install    # install kukel into $(go env GOPATH)/bin
 `tests/run` has example programs: FizzBuzz, a JSON parser, word counting,
 closures, exceptions and more. Each comes with its expected output.
 
+## Embedding in Go
+
+Go programs can run Kukel code, call its functions and give it Go functions
+of their own:
+
+```go
+import "github.com/maarten-boot/kukel"
+
+app := kukel.NewModule("app").Func("notify",
+    func(in *kukel.Interp, args []kukel.Value) (kukel.Value, error) {
+        log.Println(args[0])
+        return kukel.Nil, nil
+    })
+prog, err := kukel.CompileFiles([]string{"rules.kkl"}, kukel.CompileOptions{
+    Modules:      []*kukel.Module{app},   // rules.kkl: use app; ... app::notify(x);
+    DenyBuiltins: kukel.SystemBuiltins,   // no files, no environment, no exit
+})
+in, err := kukel.New(prog, kukel.Options{StepLimit: 1_000_000})
+result, err := in.CallContext(ctx, "discount", kukel.Int(250))
+```
+
+See [docs/embedding.md](docs/embedding.md) and the package documentation.
+
 ## How it works
 
 ```
@@ -102,6 +125,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 
 | Package | Role |
 |---|---|
+| `kukel` (the repository root) | the Go API for embedding ([docs/embedding.md](docs/embedding.md)) |
 | `internal/token`, `internal/diag` | token kinds and source positions; the error type all stages share |
 | `internal/lexer`, `internal/parser`, `internal/ast` | source to syntax tree |
 | `internal/loader` | finds and reads the modules a program uses |

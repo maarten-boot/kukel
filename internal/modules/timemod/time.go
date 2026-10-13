@@ -182,8 +182,14 @@ func sleep(env value.Env, args []value.Value) (value.Value, error) {
 	if s < 0 {
 		return value.NilValue, a.Errorf(value.ValueError, "negative duration %s", value.FormatFloat(s))
 	}
-	stdtime.Sleep(stdtime.Duration(s * 1e9))
-	return value.NilValue, nil
+	t := stdtime.NewTimer(stdtime.Duration(s * 1e9))
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return value.NilValue, nil
+	case <-env.Done(): // the program was cancelled
+		return value.NilValue, env.Err()
+	}
 }
 
 // time::Time::fromunix(seconds): the time that many seconds after

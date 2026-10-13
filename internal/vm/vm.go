@@ -14,6 +14,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/maarten-boot/kukel/internal/bytecode"
@@ -111,6 +112,9 @@ type VM struct {
 	stderr   io.Writer   // what eprint writes to (os.Stderr unless SetStderr)
 	locals   map[any]any // per-program state of native modules (Local)
 	builtins Builtins    // how New found the built-ins (for workers)
+	config   *native.Config
+	inited   bool       // Init has run
+	cancel   *Canceller // set by Cancellable; nil: the program cannot be cancelled
 }
 
 // Builtins resolves built-in functions by name.
@@ -119,7 +123,14 @@ type Builtins func(name string) (*value.BuiltinObj, bool)
 // New prepares prog for running: it binds the functions and built-ins to
 // their global slots.
 func New(prog *bytecode.Program, builtins Builtins, stdout io.Writer, stdin io.Reader) (*VM, error) {
+	return NewWith(prog, builtins, nil, stdout, stdin)
+}
+
+// NewWith is New for a program limited by config (see native.Config): it
+// refuses a program that uses a built-in or module config does not allow.
+func NewWith(prog *bytecode.Program, builtins Builtins, config *native.Config, stdout io.Writer, stdin io.Reader) (*VM, error) {
 	vm := &VM{
+		config:   config,
 		builtins: builtins,
 		prog:     prog,
 		globals:  make([]value.Value, len(prog.Globals)),
@@ -138,13 +149,19 @@ func New(prog *bytecode.Program, builtins Builtins, stdout io.Writer, stdin io.R
 			}
 			vm.globals[i] = value.MakeFunction(prog.Funcs[g.Func])
 		case bytecode.GlobalBuiltin:
+			if config.BuiltinDenied(g.Name) {
+				return nil, fmt.Errorf("built-in function %s is not available in this program", g.Name)
+			}
 			b, ok := builtins(g.Name)
 			if !ok {
 				return nil, fmt.Errorf("unknown built-in function %s", g.Name)
 			}
 			vm.globals[i] = value.MakeBuiltin(b)
 		case bytecode.GlobalNative:
-			v, ok := native.Global(g.Name)
+			v, ok := config.Global(g.Name)
+			if mod, _, _ := strings.Cut(g.Name, "::"); !ok && config.Disallowed(mod) {
+				return nil, fmt.Errorf("module %s is not available in this program", mod)
+			}
 			if !ok {
 				return nil, fmt.Errorf("%s is not part of this kukel (the native module is missing)", g.Name)
 			}
@@ -296,7 +313,7 @@ func (vm *VM) Run(args []string) (int, error) {
 // result. With fn nil it calls main, with args[0] as its parameter if main
 // has one. exit(code) gives a *RuntimeError with Exit set.
 func (vm *VM) Start(fn value.Value, args []value.Value) (value.Value, error) {
-	if _, err := vm.call(value.MakeFunction(vm.prog.Init), nil); err != nil {
+	if err := vm.Init(); err != nil {
 		return value.NilValue, err
 	}
 	if fn.IsNil() {
@@ -308,6 +325,87 @@ func (vm *VM) Start(fn value.Value, args []value.Value) (value.Value, error) {
 		}
 	}
 	return vm.call(fn, args)
+}
+
+// Init runs the global initializers, the first time only.
+func (vm *VM) Init() error {
+	if vm.inited {
+		return nil
+	}
+	vm.inited = true
+	_, err := vm.call(value.MakeFunction(vm.prog.Init), nil)
+	return err
+}
+
+// Global returns the value of the global called name: a top-level name of
+// the program ("main"), or a module's ("util::f", "json::encode").
+func (vm *VM) Global(name string) (value.Value, bool) {
+	for i, g := range vm.prog.Globals {
+		if g.Name == name {
+			return vm.globals[i], true
+		}
+	}
+	return value.NilValue, false
+}
+
+// ResetSteps starts counting steps for StepLimit from zero again.
+func (vm *VM) ResetSteps() { vm.steps = 0 }
+
+// Config is what the program may use (nil: everything).
+func (vm *VM) Config() *native.Config { return vm.config }
+
+// Canceller stops a running program from another goroutine.
+type Canceller struct {
+	flag atomic.Bool
+	once sync.Once
+	done chan struct{}
+	err  error
+}
+
+// Cancel makes the program stop at its next step with a CancelledError
+// that try cannot catch; Go functions that wait (sleep, receive) return at
+// once. It may be called from any goroutine, and more than once.
+func (c *Canceller) Cancel(reason error) {
+	c.once.Do(func() {
+		c.err = reason
+		c.flag.Store(true)
+		close(c.done)
+	})
+}
+
+// Cancellable makes the program cancellable from now on with the
+// returned Canceller (replacing an earlier one). Workers started
+// afterwards share it: cancelling the program cancels them too.
+func (vm *VM) Cancellable() *Canceller {
+	vm.cancel = &Canceller{done: make(chan struct{})}
+	return vm.cancel
+}
+
+// CurrentCanceller is the VM's Canceller, or nil.
+func (vm *VM) CurrentCanceller() *Canceller { return vm.cancel }
+
+// ShareCanceller makes vm stop when c is cancelled (for a worker).
+func (vm *VM) ShareCanceller(c *Canceller) { vm.cancel = c }
+
+// Done implements value.Env: closed when the program is cancelled (nil if
+// it cannot be).
+func (vm *VM) Done() <-chan struct{} {
+	if vm.cancel == nil {
+		return nil
+	}
+	return vm.cancel.done
+}
+
+// Err implements value.Env: the error for a cancelled program, else nil.
+func (vm *VM) Err() error {
+	if vm.cancel == nil || !vm.cancel.flag.Load() {
+		return nil
+	}
+	msg := "the program was cancelled"
+	if vm.cancel.err != nil {
+		msg += ": " + vm.cancel.err.Error()
+	}
+	return &RuntimeError{Kind: "CancelledError", Msg: msg, Trace: vm.trace(), Fatal: true}
 }
 
 // Program is the program the VM runs.
@@ -646,6 +744,12 @@ func objectOf(v value.Value) *value.ObjectObj {
 
 // step counts a backward jump, a call or a throw against StepLimit.
 func (vm *VM) step() error {
+	if vm.StepLimit <= 0 && vm.cancel == nil {
+		return nil
+	}
+	if vm.cancel != nil && vm.cancel.flag.Load() {
+		return vm.Err()
+	}
 	if vm.StepLimit <= 0 {
 		return nil
 	}

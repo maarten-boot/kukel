@@ -22,6 +22,7 @@ import (
 	_ "github.com/maarten-boot/kukel/internal/modules/stringsmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/timemod"
 	_ "github.com/maarten-boot/kukel/internal/modules/workermod"
+	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/parser"
 	"github.com/maarten-boot/kukel/internal/token"
 	"github.com/maarten-boot/kukel/internal/vm"
@@ -80,11 +81,16 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return 2
 }
 
+// cliConfig is what programs run by kukel may use: everything; modules
+// written in Kukel are also searched for in the directories of KUKEL_PATH.
+func cliConfig() *native.Config {
+	return &native.Config{Path: filepath.SplitList(os.Getenv("KUKEL_PATH"))}
+}
+
 // compileFiles parses and compiles source files, with the modules they use,
-// into one program. Modules are also searched for in the directories of
-// KUKEL_PATH.
+// into one program.
 func compileFiles(files []string) (*bytecode.Program, error) {
-	parsed, err := loader.Load(files, filepath.SplitList(os.Getenv("KUKEL_PATH")))
+	parsed, err := loader.LoadWith(files, cliConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +123,7 @@ func cmdRun(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 func runProgram(prog *bytecode.Program, progArgs []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	out := bufio.NewWriter(stdout)
 	defer out.Flush()
-	machine, err := vm.New(prog, builtins.Lookup, out, stdin)
+	machine, err := vm.NewWith(prog, builtins.Lookup, cliConfig(), out, stdin)
 	if err != nil {
 		fmt.Fprintln(stderr, "kukel:", err)
 		return 1

@@ -263,6 +263,12 @@ result, err := interp.Call("main", kukel.String("hi"))
   registering Go functions), and limits for untrusted code: steps (exists
   for tests), memory, and which modules (files, network) are allowed.
 
+*Done (TODO.md Q39), with differences from the sketch above: the package is
+the repository root (`import "github.com/maarten-boot/kukel"`), Go functions
+come in host modules (`use app; app::notify(x)`), and the limits are a step
+budget per call, cancellation by a Go context, and allow-lists of modules
+and built-ins. Memory is not limited. See docs/embedding.md.*
+
 ### 2.2 Interpreters inside Kukel (workers)
 
 ```

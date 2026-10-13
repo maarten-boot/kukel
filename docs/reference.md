@@ -485,6 +485,8 @@ Kinds of runtime errors:
 | `StackOverflowError` | more than 10000 nested calls |
 | `CompileError` | `worker::startfile` of a program with a compile error |
 | `WorkerError` | `w->wait()` of a worker that failed (the message holds the worker's error) |
+| `HostError` | a function of a Go program that embeds Kukel failed ([embedding.md](embedding.md)) |
+| `CancelledError` | the Go program that runs Kukel stopped it (a time limit); cannot be caught |
 | `InternalError` | a damaged `.kkc` file that the loader's checks did not catch (should not happen) |
 
 ---

@@ -118,6 +118,11 @@ type Env interface {
 	// Thrown returns the value a Kukel exception carries, when err (from
 	// Call) is one that a try could catch; not for exit() or fatal errors.
 	Thrown(err error) (Value, bool)
+	// Done is closed when the program is cancelled (nil if it cannot be);
+	// a Go function that waits should also wait for it and then return
+	// Err().
+	Done() <-chan struct{}
+	Err() error
 }
 
 // ExitError is returned by the exit built-in: the program stops at once

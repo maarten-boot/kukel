@@ -24,7 +24,6 @@ package workermod
 import (
 	"errors"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -82,9 +81,9 @@ func (q *queue) close() {
 }
 
 // pop takes the next message, waiting for one at most timeout (forever if
-// timeout < 0). It gives false when the queue is closed and empty, or when
-// the time is up.
-func (q *queue) pop(timeout time.Duration) (value.Value, bool) {
+// timeout < 0). It gives false when the queue is closed and empty, when the
+// time is up, or when cancel is closed.
+func (q *queue) pop(timeout time.Duration, cancel <-chan struct{}) (value.Value, bool) {
 	var expired <-chan time.Time
 	if timeout >= 0 {
 		t := time.NewTimer(timeout)
@@ -112,6 +111,8 @@ func (q *queue) pop(timeout time.Duration) (value.Value, bool) {
 		select {
 		case <-q.ready:
 		case <-expired:
+			return value.NilValue, false
+		case <-cancel:
 			return value.NilValue, false
 		}
 	}
@@ -196,12 +197,15 @@ func launch(parent value.Env, name string, prog *bytecode.Program, fn value.Valu
 		return value.NilValue, errors.New("worker: not running in a kukel VM")
 	}
 	stdout, stderr := p.ShareOutput()
-	child, err := vm.New(prog, p.BuiltinLookup(), stdout, strings.NewReader(""))
+	child, err := vm.NewWith(prog, p.BuiltinLookup(), p.Config(), stdout, strings.NewReader(""))
 	if err != nil {
 		return value.NilValue, value.Errorf(value.ValueError, "worker: %v", err)
 	}
 	child.SetStderr(stderr)
 	child.StepLimit = p.StepLimit
+	if c := p.CurrentCanceller(); c != nil {
+		child.ShareCanceller(c) // cancelling the parent cancels its workers
+	}
 	w := &worker{name: name, inbox: newQueue(), outbox: newQueue(), done: make(chan struct{})}
 	child.Local(linkKey{}, func() any { return w })
 	go func() {
@@ -266,7 +270,7 @@ func send(a native.Args, q *queue, v value.Value, closedMsg string) error {
 	return nil
 }
 
-func receive(a native.Args, q *queue, timeoutArg int) (value.Value, error) {
+func receive(a native.Args, env value.Env, q *queue, timeoutArg int) (value.Value, error) {
 	timeout := time.Duration(-1)
 	if a.Has(timeoutArg) {
 		s, err := a.Number(timeoutArg)
@@ -284,7 +288,10 @@ func receive(a native.Args, q *queue, timeoutArg int) (value.Value, error) {
 	if callbacks {
 		return value.NilValue, a.Errorf(value.ValueError, "messages go to the onmessage handler, receive() cannot take them")
 	}
-	v, _ := q.pop(timeout)
+	v, _ := q.pop(timeout, env.Done())
+	if err := env.Err(); err != nil {
+		return value.NilValue, err // cancelled
+	}
 	return v, nil
 }
 
@@ -303,7 +310,7 @@ func onmessage(a native.Args, env value.Env, q *queue, f value.Value) error {
 	go func() {
 		defer release()
 		for {
-			v, ok := q.pop(-1)
+			v, ok := q.pop(-1, env.Done())
 			if !ok {
 				return
 			}
@@ -346,7 +353,7 @@ func init() {
 		// the worker has ended (and its messages are taken), or after
 		// timeout seconds.
 		"receive": method("receive", 0, 1, func(a native.Args, env value.Env, w *worker) (value.Value, error) {
-			return receive(a, w.outbox, 0)
+			return receive(a, env, w.outbox, 0)
 		}),
 		// onmessage(f): the event loop calls f(message) for each message.
 		"onmessage": method("onmessage", 1, 1, func(a native.Args, env value.Env, w *worker) (value.Value, error) {
@@ -361,7 +368,11 @@ func init() {
 		// wait(): waits until the worker ends and gives what its function
 		// returned; a worker that failed gives a WorkerError.
 		"wait": method("wait", 0, 0, func(a native.Args, env value.Env, w *worker) (value.Value, error) {
-			<-w.done
+			select {
+			case <-w.done:
+			case <-env.Done():
+				return value.NilValue, env.Err()
+			}
 			if w.err != nil {
 				return value.NilValue, w.failure()
 			}
@@ -422,7 +433,7 @@ func init() {
 				if err != nil {
 					return value.NilValue, err
 				}
-				prog, err := load(a, path)
+				prog, err := load(a, env.(*vm.VM).Config(), path)
 				if err != nil {
 					return value.NilValue, err
 				}
@@ -452,7 +463,7 @@ func init() {
 				if err != nil {
 					return value.NilValue, err
 				}
-				return receive(a, w.inbox, 0)
+				return receive(a, env, w.inbox, 0)
 			},
 			// onmessage(f): in a worker, the event loop calls f(message) for
 			// each message from the parent, until the parent's stop().
@@ -492,7 +503,7 @@ func copyArgs(a native.Args, args []value.Value) ([]value.Value, error) {
 
 // load compiles a .kkl file (with the modules it uses, found as kukel run
 // finds them) or reads a .kkc file.
-func load(a native.Args, path string) (*bytecode.Program, error) {
+func load(a native.Args, config *native.Config, path string) (*bytecode.Program, error) {
 	if strings.HasSuffix(path, ".kkc") {
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -507,10 +518,10 @@ func load(a native.Args, path string) (*bytecode.Program, error) {
 		}
 		return prog, nil
 	}
-	files, err := loader.Load([]string{path}, filepath.SplitList(os.Getenv("KUKEL_PATH")))
+	files, err := loader.LoadWith([]string{path}, config)
 	if err == nil {
 		var prog *bytecode.Program
-		if prog, err = compiler.Compile(files, builtins.Names()); err == nil {
+		if prog, err = compiler.CompileWith(files, builtins.Names(), config); err == nil {
 			return prog, nil
 		}
 	}

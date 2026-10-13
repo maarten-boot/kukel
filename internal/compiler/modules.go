@@ -33,9 +33,11 @@ func (c *compiler) use(d *ast.UseDecl) {
 	}
 	m, ok := c.modules[name]
 	if !ok {
-		if nm, isNative := native.Lookup(name); isNative {
+		if nm, isNative := c.config.Lookup(name); isNative {
 			m, ok = c.nativeModule(nm), true
 			c.modules[name] = m
+		} else if c.config.Disallowed(name) {
+			c.errorf(d.Name.NamePos, "module %s is not available in this program", name)
 		}
 	}
 	switch {

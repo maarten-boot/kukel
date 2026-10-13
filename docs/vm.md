@@ -35,6 +35,7 @@ source files ──loader (lexer, parser)──▶ syntax trees ──compiler�
 |---|---|
 | `internal/lexer`, `internal/parser`, `internal/ast` | source text to syntax trees |
 | `internal/loader` | reads the program's files and the modules they use (`use`), in compile order |
+| `kukel` (repository root) | the public Go API for embedding ([embedding.md](embedding.md)) |
 | `internal/token`, `internal/diag` | token kinds and source positions; the error type all stages share |
 | `internal/compiler` | name resolution, the language's rules, constant evaluation, code generation; the prelude |
 | `internal/bytecode` | instructions, the program image, `.kkc` encoding and decoding, the verifier, the disassembler |
@@ -324,7 +325,7 @@ catch returns to the built-in as an error, then continues from the
 built-in's call in the outer execution. So an exception thrown in a `sort`
 comparator can be caught by the caller of `sort`.
 
-`exit(code)` (and the test-only step limit) raise **fatal** exceptions,
+`exit(code)` (and the step limit and cancellation) raise **fatal** exceptions,
 which skip all handlers: `finally` blocks do not run.
 
 ### 4.10 Inline caches
@@ -346,7 +347,8 @@ is not cached.) The caches belong to the VM, not to the image.
 | arguments of one call | 65535 |
 | optional parameters of one function | 255 |
 | code per function, `MaxStack` | 16 MiB, 2<sup>20</sup> in `.kkc` files |
-| step limit | off; when set (tests), backward jumps, calls of Kukel functions and thrown exceptions are counted, and exceeding it is fatal |
+| step limit | off; when set (tests, or a Go program that embeds Kukel: per call from Go), backward jumps, calls of Kukel functions and thrown exceptions are counted, and exceeding it is fatal |
+| cancellation | off; `VM.Cancellable` gives a `Canceller` that any goroutine can use to stop the program at its next step (a fatal `CancelledError`); waiting Go functions watch `Env.Done()` |
 
 ---
 

@@ -14,6 +14,7 @@ import (
 	"github.com/maarten-boot/kukel/internal/ast"
 	"github.com/maarten-boot/kukel/internal/bytecode"
 	"github.com/maarten-boot/kukel/internal/diag"
+	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/token"
 	"github.com/maarten-boot/kukel/internal/value"
 )
@@ -67,6 +68,7 @@ type compiler struct {
 	modules   map[string]*module // by name; "" is the program itself
 	file      *fileScope         // the file whose code is being compiled
 	fs        *funcState         // the function being compiled
+	config    *native.Config     // modules and built-ins the program may use (nil: all)
 }
 
 // bailout carries a compile error up to Compile.
@@ -81,7 +83,14 @@ func (c *compiler) errorf(pos token.Pos, format string, args ...any) {
 // module; a module must come before the files that use it (the loader
 // orders them so).
 func Compile(files []*ast.File, builtins []string) (prog *bytecode.Program, err error) {
+	return CompileWith(files, builtins, nil)
+}
+
+// CompileWith is Compile for a program limited by config: its own native
+// modules, the registered modules it may use, the built-ins it may not.
+func CompileWith(files []*ast.File, builtins []string, config *native.Config) (prog *bytecode.Program, err error) {
 	c := &compiler{
+		config:    config,
 		prog:      &bytecode.Program{Main: -1},
 		universal: make(map[string]*global),
 		modules:   map[string]*module{"": {names: make(map[string]*global)}},
@@ -271,6 +280,9 @@ func (c *compiler) addGlobal(name string, kind bytecode.GlobalKind, pos token.Po
 // globalIndex returns the global slot of g, allocating one for a built-in
 // or a name of a native module on first use.
 func (c *compiler) globalIndex(g *global, pos token.Pos) int {
+	if g.lkind == bytecode.GlobalBuiltin && c.config.BuiltinDenied(g.link) {
+		c.errorf(pos, "built-in function %s is not available in this program", g.link)
+	}
 	if g.index < 0 {
 		g.index = c.addGlobal(g.link, g.lkind, pos)
 	}

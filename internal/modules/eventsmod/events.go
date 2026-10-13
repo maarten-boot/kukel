@@ -167,6 +167,11 @@ func (l *Loop) run(a native.Args) error {
 		select {
 		case <-l.wake:
 		case <-due:
+		case <-l.env.Done(): // the program was cancelled
+			if wait != nil {
+				wait.Stop()
+			}
+			return l.env.Err()
 		}
 		if wait != nil {
 			wait.Stop()

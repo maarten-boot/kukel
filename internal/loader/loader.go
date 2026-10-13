@@ -29,7 +29,12 @@ const Ext = ".kkl"
 // stands for one file in the whole program; modules may not use each other
 // in a cycle.
 func Load(files []string, path []string) ([]*ast.File, error) {
-	l := &loader{path: path, modules: map[string]*module{}, program: map[string]string{}}
+	return LoadWith(files, &native.Config{Path: path})
+}
+
+// LoadWith is Load for a program limited by config: the modules written in
+// Go it may use, and where (and whether) it finds modules written in Kukel.
+func LoadWith(files []string, config *native.Config) ([]*ast.File, error) {
 	var prog []*ast.File
 	for _, file := range files {
 		f, err := parse(file, "")
@@ -37,7 +42,24 @@ func Load(files []string, path []string) ([]*ast.File, error) {
 			return nil, err
 		}
 		prog = append(prog, f)
-		l.program[abs(file)] = file
+	}
+	return resolve(prog, config, true)
+}
+
+// Resolve loads the modules that already parsed program files use. With
+// nextToFiles false, a module is looked for only in config.Path, not next
+// to the file that uses it (for source that is not from a file).
+func Resolve(prog []*ast.File, config *native.Config, nextToFiles bool) ([]*ast.File, error) {
+	return resolve(prog, config, nextToFiles)
+}
+
+func resolve(prog []*ast.File, config *native.Config, nextToFiles bool) ([]*ast.File, error) {
+	l := &loader{config: config, nextToFiles: nextToFiles, modules: map[string]*module{}, program: map[string]string{}}
+	if config != nil {
+		l.path = config.Path
+	}
+	for _, f := range prog {
+		l.program[abs(f.Name)] = f.Name
 	}
 	for _, f := range prog {
 		if err := l.uses(f, nil); err != nil {
@@ -48,10 +70,12 @@ func Load(files []string, path []string) ([]*ast.File, error) {
 }
 
 type loader struct {
-	path    []string
-	modules map[string]*module
-	program map[string]string // the program's own files, by absolute path
-	out     []*ast.File       // the modules, in compile order
+	config      *native.Config
+	nextToFiles bool // look for modules next to the file that uses them
+	path        []string
+	modules     map[string]*module
+	program     map[string]string // the program's own files, by absolute path
+	out         []*ast.File       // the modules, in compile order
 }
 
 type module struct {
@@ -69,8 +93,11 @@ func (l *loader) uses(f *ast.File, chain []string) error {
 			continue
 		}
 		name := u.Name.Name
-		if _, ok := native.Lookup(name); ok {
+		if _, ok := l.config.Lookup(name); ok {
 			continue // written in Go: nothing to load
+		}
+		if l.config.Disallowed(name) {
+			continue // the compiler reports it
 		}
 		file, err := l.find(name, filepath.Dir(f.Name))
 		if err != nil {
@@ -106,7 +133,14 @@ func (l *loader) uses(f *ast.File, chain []string) error {
 // find returns the file of module name: name.kkl in dir, else in the
 // directories of the search path.
 func (l *loader) find(name, dir string) (string, error) {
-	dirs := append([]string{dir}, l.path...)
+	if l.config != nil && l.config.NoFileModules {
+		return "", errors.New("module " + name + " not found (this program can only use modules written in Go)")
+	}
+	var dirs []string
+	if l.nextToFiles {
+		dirs = append(dirs, dir)
+	}
+	dirs = append(dirs, l.path...)
 	for _, d := range dirs {
 		file := filepath.Join(d, name+Ext)
 		info, err := os.Stat(file)

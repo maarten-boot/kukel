@@ -55,6 +55,14 @@ func Register(m *Module) {
 	if _, ok := modules[m.Name]; ok {
 		panic("native: module " + m.Name + " registered twice")
 	}
+	Prepare(m)
+	modules[m.Name] = m
+}
+
+// Prepare readies m for use without registering it: for a module that
+// belongs to one program (Config.Modules). Register prepares a module
+// itself.
+func Prepare(m *Module) {
 	m.globals = map[string]value.Value{}
 	for name, fn := range m.Funcs {
 		m.globals[m.Name+"::"+name] = value.MakeBuiltin(&value.BuiltinObj{Name: m.Name + "::" + name, Fn: fn})
@@ -68,7 +76,6 @@ func Register(m *Module) {
 			}
 		}
 	}
-	modules[m.Name] = m
 }
 
 // Lookup returns the module called name.
@@ -123,17 +130,68 @@ func (c *Class) Object(state any) value.Value {
 	return value.ObjectValue(&value.ObjectObj{Class: c.obj, State: state})
 }
 
-// Global returns what a qualified name of a native module stands for at
-// run time: a function ("json::encode"), a static member function
+// Global returns what a qualified name of a registered module stands for
+// at run time: a function ("json::encode"), a static member function
 // ("time::Time::parse") or a class ("time::Time"). The VM links the global
 // slots of a program with it.
 func Global(qualified string) (value.Value, bool) {
+	return (*Config)(nil).Global(qualified)
+}
+
+// Config is what one program may use beyond its own code: modules written
+// for it (by a Go program that embeds Kukel), which of the registered
+// modules and built-ins are allowed, and where "use" finds modules written
+// in Kukel. The compiler, the loader and the VM (also of the program's
+// workers) follow it. A nil *Config allows everything and finds Kukel
+// modules only next to the files that use them.
+type Config struct {
+	Modules        []*Module       // this program's own modules (prepared), found before the registered ones
+	AllowedModules map[string]bool // registered modules the program may use; nil: all
+	DeniedBuiltins map[string]bool // built-ins the program may not use
+	Path           []string        // directories where "use" looks for name.kkl after the using file's directory
+	NoFileModules  bool            // "use" never reads .kkl files (modules written in Go only)
+}
+
+// Lookup finds module name: one of the program's own, else a registered
+// module if it is allowed.
+func (c *Config) Lookup(name string) (*Module, bool) {
+	if c != nil {
+		for _, m := range c.Modules {
+			if m.Name == name {
+				return m, true
+			}
+		}
+		if c.AllowedModules != nil && !c.AllowedModules[name] {
+			return nil, false
+		}
+	}
+	return Lookup(name)
+}
+
+// Global is the run-time value of a qualified name of a module the program
+// may use (see the function Global).
+func (c *Config) Global(qualified string) (value.Value, bool) {
 	name, _, _ := strings.Cut(qualified, "::")
-	if m, ok := modules[name]; ok {
+	if m, ok := c.Lookup(name); ok {
 		v, ok := m.globals[qualified]
 		return v, ok
 	}
 	return value.NilValue, false
+}
+
+// BuiltinDenied reports whether the program may not use built-in name.
+func (c *Config) BuiltinDenied(name string) bool {
+	return c != nil && c.DeniedBuiltins[name]
+}
+
+// Disallowed reports whether name is a registered module the program may
+// not use (for a clearer message than "not found").
+func (c *Config) Disallowed(name string) bool {
+	if c == nil || c.AllowedModules == nil || c.AllowedModules[name] {
+		return false
+	}
+	_, ok := Lookup(name)
+	return ok
 }
 
 // ----------------------------------------------------------------------

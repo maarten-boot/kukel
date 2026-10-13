@@ -1,0 +1,310 @@
+package kukel_test
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/maarten-boot/kukel"
+)
+
+func compile(t *testing.T, src string, opts kukel.CompileOptions) *kukel.Program {
+	t.Helper()
+	p, err := kukel.CompileSource("t.kkl", src, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func interp(t *testing.T, p *kukel.Program, opts kukel.Options) *kukel.Interp {
+	t.Helper()
+	in, err := kukel.New(p, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return in
+}
+
+func TestCallAndRun(t *testing.T) {
+	p := compile(t, `
+global calls = 0, greeting = "hi";
+add(a, b) { calls++; return a + b; }
+sum(v; s) { s = 0; for (local x in v) s += x; return s; }
+main(args) { println(greeting, args); return len(args); }`, kukel.CompileOptions{})
+	var out bytes.Buffer
+	in := interp(t, p, kukel.Options{Stdout: &out})
+
+	if r, err := in.Call("add", kukel.Int(2), kukel.Float(0.5)); err != nil || r.String() != "2.5" {
+		t.Errorf("add: %v, %v", r, err)
+	}
+	in.Call("add", kukel.String("a"), kukel.String("b"))
+	if c, _ := in.Global("calls"); c.String() != "2" {
+		t.Errorf("globals are kept between calls: calls = %v", c)
+	}
+	if r, err := in.Call("sum", kukel.Vector(kukel.Int(1), kukel.Int(2), kukel.Int(3))); err != nil || r.String() != "6" {
+		t.Errorf("sum: %v, %v", r, err)
+	}
+	if code, err := in.Run("x", "y"); err != nil || code != 2 || out.String() != "hi [\"x\", \"y\"]\n" {
+		t.Errorf("Run: %d, %v, %q", code, err, out.String())
+	}
+	if _, err := in.Call("nosuch"); err == nil || err.Error() != "kukel: the program has no function nosuch" {
+		t.Errorf("unknown function: %v", err)
+	}
+	if _, err := in.Call("calls"); err == nil || err.Error() != "kukel: calls is not a function" {
+		t.Errorf("not a function: %v", err)
+	}
+}
+
+func TestHostModule(t *testing.T) {
+	var logged []string
+	app := kukel.NewModule("app").
+		Const("version", kukel.String("1.4")).
+		Func("log", func(in *kukel.Interp, args []kukel.Value) (kukel.Value, error) {
+			logged = append(logged, args[0].String())
+			return kukel.Nil, nil
+		}).
+		Func("each", func(in *kukel.Interp, args []kukel.Value) (kukel.Value, error) {
+			for i := 0; i < args[0].Len(); i++ { // a callback into Kukel
+				if _, err := in.CallValue(args[1], args[0].Index(i)); err != nil {
+					return kukel.Nil, err
+				}
+			}
+			return kukel.Nil, nil
+		}).
+		Func("fail", func(in *kukel.Interp, args []kukel.Value) (kukel.Value, error) {
+			if args[0].Truthy() {
+				return kukel.Nil, kukel.Errorf("ValueError", "bad input %v", args[0])
+			}
+			return kukel.Nil, errors.New("disk full")
+		})
+	p := compile(t, `use app;
+const V = "v" + app::version;
+main() {
+    app::log(V);
+    app::each([1, 2], fn(x) { app::log(x * 10); });
+    try { app::fail(true); } catch (e) { app::log(e->kind + ": " + e->message); }
+    try { app::fail(false); } catch (e) { app::log(e->kind + ": " + e->message); }
+    try { app::each([1], fn(x) { throw new Error("inner", "KeyError"); }); } catch (e) { app::log(e->kind); }
+}`, kukel.CompileOptions{Modules: []*kukel.Module{app}})
+	if _, err := interp(t, p, kukel.Options{}).Run(); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"v1.4", "10", "20", "ValueError: bad input true", "HostError: disk full", "KeyError"}
+	if !reflect.DeepEqual(logged, want) {
+		t.Errorf("got %q, want %q", logged, want)
+	}
+}
+
+func TestErrors(t *testing.T) {
+	_, err := kukel.CompileSource("bad.kkl", "main() {\n  x = 1;\n}", kukel.CompileOptions{})
+	var ce *kukel.CompileError
+	if !errors.As(err, &ce) || ce.File != "bad.kkl" || ce.Line != 2 || ce.Col != 3 {
+		t.Errorf("compile error: %#v", err)
+	}
+
+	in := interp(t, compile(t, `
+f(v) { return v[5]; }
+g() { throw [1, 2]; }
+h() { exit(4); }
+main() {}`, kukel.CompileOptions{}), kukel.Options{})
+	_, err = in.Call("f", kukel.Vector())
+	var ke *kukel.Error
+	if !errors.As(err, &ke) || ke.Kind != "RangeError" || len(ke.Trace) != 1 || ke.Trace[0].Func != "f" || ke.Trace[0].Line != 2 {
+		t.Errorf("exception: %#v", err)
+	}
+	if _, err = in.Call("g"); !errors.As(err, &ke) || ke.Kind != "" || ke.Value.Len() != 2 {
+		t.Errorf("thrown value: %#v", err)
+	}
+	var xe *kukel.ExitError
+	if _, err = in.Call("h"); !errors.As(err, &xe) || xe.Code != 4 {
+		t.Errorf("exit: %#v", err)
+	}
+}
+
+func TestAllowLists(t *testing.T) {
+	deny := kukel.CompileOptions{DenyBuiltins: kukel.SystemBuiltins, StandardModules: []string{"json"}}
+	for _, tc := range []struct{ src, msg string }{
+		{`main() { readfile("/etc/passwd"); }`, "t.kkl:1:10: built-in function readfile is not available in this program"},
+		{`main() { local f = getenv; }`, "built-in function getenv is not available"},
+		{`use worker; main() {}`, "t.kkl:1:5: module worker is not available in this program"},
+		{`use util; main() {}`, "module util not found"},
+	} {
+		_, err := kukel.CompileSource("t.kkl", tc.src, deny)
+		if err == nil || !strings.Contains(err.Error(), tc.msg) {
+			t.Errorf("%s: got %v, want %q", tc.src, err, tc.msg)
+		}
+	}
+	if _, err := kukel.CompileSource("t.kkl", `use json; main() { println(json::encode([1])); }`, deny); err != nil {
+		t.Errorf("an allowed module: %v", err)
+	}
+	// Built-ins are still reserved names when denied.
+	if _, err := kukel.CompileSource("t.kkl", `readfile() {} main() {}`, deny); err == nil {
+		t.Error("a denied built-in's name could be redefined")
+	}
+
+	// A program compiled without limits is refused when loaded with them.
+	free := compile(t, `use worker; main() { readfile("x"); }`, kukel.CompileOptions{})
+	data, err := free.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := kukel.LoadProgram(data, deny)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := kukel.New(loaded, kukel.Options{}); err == nil || !strings.Contains(err.Error(), "not available in this program") {
+		t.Errorf("New: %v", err)
+	}
+
+	// NoFileModules: no file is read, even when it exists.
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "util.kkl"), []byte("f() {}"), 0o644)
+	main := filepath.Join(dir, "main.kkl")
+	os.WriteFile(main, []byte("use util; main() { util::f(); }"), 0o644)
+	if _, err := kukel.CompileFiles([]string{main}, kukel.CompileOptions{}); err != nil {
+		t.Errorf("with file modules: %v", err)
+	}
+	if _, err := kukel.CompileFiles([]string{main}, kukel.CompileOptions{NoFileModules: true}); err == nil || !strings.Contains(err.Error(), "only use modules written in Go") {
+		t.Errorf("NoFileModules: %v", err)
+	}
+	// CompileSource looks only in Path.
+	if _, err := kukel.CompileSource("s.kkl", "use util; main() {}", kukel.CompileOptions{Path: []string{dir}}); err != nil {
+		t.Errorf("Path: %v", err)
+	}
+}
+
+func TestStepLimitPerCall(t *testing.T) {
+	in := interp(t, compile(t, `
+spin(n) { for (local i = 0; i < n; i++) {} return n; }
+forever() { try { while (true) {} } catch (e) { return "caught"; } }
+main() {}`, kukel.CompileOptions{}), kukel.Options{StepLimit: 1000})
+	for i := 0; i < 3; i++ { // each call has its own budget
+		if r, err := in.Call("spin", kukel.Int(500)); err != nil || r.String() != "500" {
+			t.Fatalf("call %d: %v, %v", i, r, err)
+		}
+	}
+	var ke *kukel.Error
+	if _, err := in.Call("forever"); !errors.As(err, &ke) || ke.Kind != "StepLimitError" {
+		t.Errorf("forever: %v", err)
+	}
+	if _, err := in.Call("spin", kukel.Int(10)); err != nil {
+		t.Errorf("after the limit: %v", err)
+	}
+}
+
+func TestCancel(t *testing.T) {
+	in := interp(t, compile(t, `use time; use worker;
+loop() { while (true) {} }
+nap() { time::sleep(60); }
+waitFor() { worker::start(loop)->wait(); }
+quick() { return 1; }
+main() {}`, kukel.CompileOptions{}), kukel.Options{})
+	for _, name := range []string{"loop", "nap", "waitFor"} {
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		start := time.Now()
+		_, err := in.CallContext(ctx, name)
+		cancel()
+		var ke *kukel.Error
+		if !errors.As(err, &ke) || ke.Kind != "CancelledError" || !strings.Contains(ke.Message, "deadline exceeded") {
+			t.Errorf("%s: %v", name, err)
+		}
+		if d := time.Since(start); d > 2*time.Second {
+			t.Errorf("%s: took %v", name, d)
+		}
+	}
+	if r, err := in.Call("quick"); err != nil || r.String() != "1" {
+		t.Errorf("after cancelling: %v, %v", r, err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := in.CallContext(ctx, "quick"); err == nil {
+		t.Error("a call with an ended context ran")
+	}
+}
+
+// One Program, several interpreters at once, each with its own globals.
+func TestParallelInterps(t *testing.T) {
+	p := compile(t, `global n = 0; bump(k) { for (local i = 0; i < k; i++) n++; return n; } main() {}`, kukel.CompileOptions{})
+	var wg sync.WaitGroup
+	for g := 0; g < 8; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			in, err := kukel.New(p, kukel.Options{})
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			for i := 1; i <= 10; i++ {
+				if r, err := in.Call("bump", kukel.Int(100)); err != nil || r.String() != kukel.Int(int64(i*100)).String() {
+					t.Errorf("bump: %v, %v", r, err)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestValues(t *testing.T) {
+	v, err := kukel.FromGo(map[string]any{"b": []int{1, 2}, "a": 1.5, "c": nil, "d": true, "e": uint8(7)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.String() != `{"a": 1.5, "b": [1, 2], "c": nil, "d": true, "e": 7}` || v.Kind() != "map" || v.Len() != 5 {
+		t.Errorf("FromGo: %s", v)
+	}
+	g, err := v.ToGo()
+	want := map[string]any{"a": 1.5, "b": []any{int64(1), int64(2)}, "c": nil, "d": true, "e": int64(7)}
+	if err != nil || !reflect.DeepEqual(g, want) {
+		t.Errorf("ToGo: %#v, %v", g, err)
+	}
+	if x := v.Get(kukel.String("b")).Index(1); x.String() != "2" {
+		t.Errorf("Get/Index: %v", x)
+	}
+	if n, ok := kukel.Int(3).AsFloat(); !ok || n != 3 {
+		t.Error("AsFloat of an int")
+	}
+	if _, ok := kukel.String("3").AsInt(); ok {
+		t.Error("AsInt of a string")
+	}
+	vec := kukel.Vector()
+	vec.Push(vec)
+	if _, err := vec.ToGo(); err == nil {
+		t.Error("ToGo of a vector that contains itself")
+	}
+	if _, err := kukel.FromGo(struct{}{}); err == nil {
+		t.Error("FromGo of a struct")
+	}
+	m := kukel.NewMap()
+	if err := m.SetKey(kukel.Vector(), kukel.Nil); err == nil {
+		t.Error("a vector as a map key")
+	}
+}
+
+func TestModuleRules(t *testing.T) {
+	mustPanic := func(what string, f func()) {
+		defer func() {
+			if recover() == nil {
+				t.Errorf("%s: no panic", what)
+			}
+		}()
+		f()
+	}
+	fn := func(in *kukel.Interp, args []kukel.Value) (kukel.Value, error) { return kukel.Nil, nil }
+	mustPanic("a module name that is a keyword", func() { kukel.NewModule("while") })
+	mustPanic("a function name with a dash", func() { kukel.NewModule("m").Func("a-b", fn) })
+	mustPanic("a name defined twice", func() { kukel.NewModule("m").Func("f", fn).Const("f", kukel.Int(1)) })
+	mustPanic("a vector constant", func() { kukel.NewModule("m").Const("v", kukel.Vector()) })
+	m := kukel.NewModule("m").Func("f", fn)
+	kukel.CompileSource("t.kkl", "use m; main() { m::f(); }", kukel.CompileOptions{Modules: []*kukel.Module{m}})
+	mustPanic("adding after use", func() { m.Func("g", fn) })
+}
