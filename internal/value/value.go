@@ -20,8 +20,10 @@ const (
 	Float
 	String
 	Vector
+	Map
 	Function
 	Builtin
+	Iterator // internal: the state of a for-each loop
 )
 
 var kindNames = [...]string{
@@ -31,8 +33,10 @@ var kindNames = [...]string{
 	Float:    "float",
 	String:   "string",
 	Vector:   "vector",
+	Map:      "map",
 	Function: "function",
 	Builtin:  "function",
+	Iterator: "iterator",
 }
 
 // String returns the name typeof() reports for k.
@@ -84,6 +88,8 @@ type Named interface {
 type Env interface {
 	Stdout() io.Writer
 	Stdin() io.Reader
+	// Call calls a Kukel function (or built-in) and returns its result.
+	Call(fn Value, args []Value) (Value, error)
 }
 
 // BuiltinObj is a function implemented in Go. It returns an error message
@@ -102,6 +108,7 @@ func (v Value) AsInt() int64         { return int64(v.num) }
 func (v Value) AsFloat() float64     { return math.Float64frombits(v.num) }
 func (v Value) AsString() string     { return v.obj.(string) }
 func (v Value) AsVector() *VectorObj { return v.obj.(*VectorObj) }
+func (v Value) AsMap() *MapObj       { return v.obj.(*MapObj) }
 func (v Value) AsBuiltin() *BuiltinObj {
 	return v.obj.(*BuiltinObj)
 }
@@ -126,18 +133,35 @@ func (v Value) Truthy() bool {
 // String returns the text print() and str() produce for v.
 func (v Value) String() string {
 	var b strings.Builder
-	v.write(&b, false)
+	v.write(&b, false, nil)
 	return b.String()
 }
 
 // Repr returns v as it appears inside a container: strings are quoted.
 func (v Value) Repr() string {
 	var b strings.Builder
-	v.write(&b, true)
+	v.write(&b, true, nil)
 	return b.String()
 }
 
-func (v Value) write(b *strings.Builder, quote bool) {
+// write appends the text of v. open holds the containers being written, so
+// that a container inside itself prints as [...] or {...}.
+func (v Value) write(b *strings.Builder, quote bool, open map[any]bool) {
+	if v.kind == Vector || v.kind == Map {
+		if open[v.obj] {
+			if v.kind == Vector {
+				b.WriteString("[...]")
+			} else {
+				b.WriteString("{...}")
+			}
+			return
+		}
+		if open == nil {
+			open = map[any]bool{}
+		}
+		open[v.obj] = true
+		defer delete(open, v.obj)
+	}
 	switch v.kind {
 	case Nil:
 		b.WriteString("nil")
@@ -159,9 +183,24 @@ func (v Value) write(b *strings.Builder, quote bool) {
 			if i > 0 {
 				b.WriteString(", ")
 			}
-			e.write(b, true)
+			e.write(b, true, open)
 		}
 		b.WriteByte(']')
+	case Map:
+		b.WriteByte('{')
+		first := true
+		v.AsMap().Each(func(k, e Value) {
+			if !first {
+				b.WriteString(", ")
+			}
+			first = false
+			k.write(b, true, open)
+			b.WriteString(": ")
+			e.write(b, true, open)
+		})
+		b.WriteByte('}')
+	case Iterator:
+		b.WriteString("<iterator>")
 	case Function:
 		b.WriteString("<function " + v.obj.(Named).Name() + ">")
 	case Builtin:

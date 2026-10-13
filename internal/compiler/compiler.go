@@ -285,7 +285,11 @@ func (c *compiler) mark(pos token.Pos) {
 }
 
 // stackEffect is the change in operand stack depth caused by op.
-func stackEffect(op bytecode.Op, operand int) int {
+func stackEffect(op bytecode.Op, operands []int) int {
+	operand := 0
+	if len(operands) > 0 {
+		operand = operands[0]
+	}
 	switch op {
 	case bytecode.OpConst, bytecode.OpNil, bytecode.OpTrue, bytecode.OpFalse, bytecode.OpDup,
 		bytecode.OpLoadLocal, bytecode.OpLoadGlobal:
@@ -300,8 +304,16 @@ func stackEffect(op bytecode.Op, operand int) int {
 		return -operand
 	case bytecode.OpMakeVector:
 		return 1 - operand
-	case bytecode.OpAppend, bytecode.OpExtend, bytecode.OpCallV:
+	case bytecode.OpMakeMap:
+		return 1 - 2*operand
+	case bytecode.OpAppend, bytecode.OpExtend, bytecode.OpCallV, bytecode.OpIndexGet:
 		return -1
+	case bytecode.OpIndexSet:
+		return -2
+	case bytecode.OpDup2:
+		return 2
+	case bytecode.OpIterNext: // when the loop goes on
+		return operands[1]
 	}
 	return 0
 }
@@ -324,11 +336,7 @@ func (c *compiler) emit(op bytecode.Op, operands ...int) int {
 			fn.Code = binary.LittleEndian.AppendUint32(fn.Code, uint32(operands[i]))
 		}
 	}
-	operand := 0
-	if len(operands) > 0 {
-		operand = operands[0]
-	}
-	fs.depth += stackEffect(op, operand)
+	fs.depth += stackEffect(op, operands)
 	if fs.depth > fs.maxDepth {
 		fs.maxDepth = fs.depth
 	}
@@ -430,6 +438,8 @@ func (c *compiler) labeledStmt(s ast.Stmt, labels []*ast.Ident) {
 		c.forStmt(s, labels)
 	case *ast.SwitchStmt:
 		c.switchStmt(s, labels)
+	case *ast.ForEachStmt:
+		c.forEachStmt(s, labels)
 	default:
 		if labels == nil {
 			c.simpleStmt(s)
@@ -473,8 +483,6 @@ func (c *compiler) simpleStmt(s ast.Stmt) {
 		c.caseLabel(s)
 	case *ast.DefaultLabel:
 		c.defaultLabel(s)
-	case *ast.ForEachStmt:
-		c.notYet(s.Pos(), "for-each loops are", 5)
 	case *ast.TryStmt:
 		c.notYet(s.Pos(), "try statements are", 7)
 	case *ast.ThrowStmt:
@@ -542,6 +550,45 @@ func (c *compiler) forStmt(s *ast.ForStmt, labels []*ast.Ident) {
 	}
 	c.emit(bytecode.OpJump, top)
 	c.patch(append(exit, t.breaks...), c.here())
+	c.popScope()
+}
+
+// forEachStmt compiles "for (local k[, v] in x) body":
+//
+//	x; ITER_INIT; STORE hidden
+//	top: ITER_NEXT hidden, n -> end; STORE v; STORE k
+//	body; JUMP top
+//	end:
+func (c *compiler) forEachStmt(s *ast.ForEachStmt, labels []*ast.Ident) {
+	c.pushScope()
+	it := c.declare(&ast.Ident{NamePos: s.For, Name: "(iterator)"}, "hidden")
+	c.mark(s.X.Pos())
+	c.expr(s.X)
+	c.emit(bytecode.OpIterInit)
+	c.emit(bytecode.OpStoreLocal, it)
+
+	// The loop variables are visible in the body only (not in x).
+	n := 1
+	key := c.declare(s.Key, "local")
+	val := -1
+	if s.Value != nil {
+		n = 2
+		val = c.declare(s.Value, "local")
+	}
+	top := c.here()
+	c.mark(s.For)
+	next := c.emit(bytecode.OpIterNext, it, n, 0)
+	if val >= 0 {
+		c.emit(bytecode.OpStoreLocal, val)
+	}
+	c.emit(bytecode.OpStoreLocal, key)
+
+	t := c.pushTarget(targetLoop, labels)
+	c.stmt(s.Body)
+	c.popTarget()
+	c.patch(t.continues, top)
+	c.emit(bytecode.OpJump, top)
+	c.patch(append(t.breaks, next+4), c.here())
 	c.popScope()
 }
 
@@ -850,11 +897,33 @@ func (c *compiler) expr(e ast.Expr) {
 		c.mark(e.Lparen)
 		c.emit(bytecode.OpCall, len(e.Args))
 	case *ast.VectorLit:
-		c.notYet(e.Pos(), "vector literals are", 5)
+		if len(e.Elems) > maxIndex {
+			c.errorf(e.Lbrack, "too many elements in a vector literal (more than %d)", maxIndex)
+		}
+		if hasSpread(e.Elems) {
+			c.argVector(e.Elems)
+			return
+		}
+		for _, x := range e.Elems {
+			c.expr(x)
+		}
+		c.mark(e.Lbrack)
+		c.emit(bytecode.OpMakeVector, len(e.Elems))
 	case *ast.MapLit:
-		c.notYet(e.Pos(), "map literals are", 5)
+		if len(e.Entries) > maxIndex {
+			c.errorf(e.Lbrace, "too many entries in a map literal (more than %d)", maxIndex)
+		}
+		for _, en := range e.Entries {
+			c.expr(en.Key)
+			c.expr(en.Value)
+		}
+		c.mark(e.Lbrace)
+		c.emit(bytecode.OpMakeMap, len(e.Entries))
 	case *ast.IndexExpr:
-		c.notYet(e.Lbrack, "indexing is", 5)
+		c.expr(e.X)
+		c.expr(e.Index)
+		c.mark(e.Lbrack)
+		c.emit(bytecode.OpIndexGet)
 	case *ast.NewExpr, *ast.ThisExpr, *ast.StaticRef, *ast.MethodCall, *ast.MemberExpr:
 		c.notYet(e.Pos(), "classes and objects are", 6)
 	case *ast.FuncLit:
@@ -937,22 +1006,48 @@ func (c *compiler) branch(e ast.Expr, jumpIf bool) []int {
 	return []int{c.jump(bytecode.OpJumpIfFalse)}
 }
 
-// variable is a resolved assignable name.
+// lvKind is the kind of an assignment target.
+type lvKind uint8
+
+const (
+	lvLocal lvKind = iota
+	lvGlobal
+	lvIndex // x[i]: lvalue has pushed x and i
+)
+
+// variable is a resolved assignment target.
 type variable struct {
-	local bool
-	index int
+	kind  lvKind
+	index int // slot or global index
 }
 
+// load pushes the target's current value (for x[i] keeping x and i).
 func (v variable) load(c *compiler) {
-	if v.local {
+	switch v.kind {
+	case lvLocal:
 		c.emit(bytecode.OpLoadLocal, v.index)
-	} else {
+	case lvGlobal:
 		c.emit(bytecode.OpLoadGlobal, v.index)
+	case lvIndex:
+		c.emit(bytecode.OpDup2)
+		c.emit(bytecode.OpIndexGet)
 	}
 }
 
-func (v variable) store(c *compiler) {
-	if v.local {
+// store stores the value on top of the stack into the target. With keep the
+// value stays on the stack as the value of the expression.
+func (v variable) store(c *compiler, keep bool) {
+	if v.kind == lvIndex {
+		c.emit(bytecode.OpIndexSet) // leaves the value
+		if !keep {
+			c.emit(bytecode.OpPop)
+		}
+		return
+	}
+	if keep {
+		c.emit(bytecode.OpDup)
+	}
+	if v.kind == lvLocal {
 		c.emit(bytecode.OpStoreLocal, v.index)
 	} else {
 		c.emit(bytecode.OpStoreGlobal, v.index)
@@ -985,12 +1080,13 @@ func (c *compiler) load(id *ast.Ident) {
 	c.emit(bytecode.OpLoadGlobal, c.globalIndex(id.Name, g, id.NamePos))
 }
 
-// lvalue resolves the target of an assignment or ++/--.
+// lvalue resolves the target of an assignment or ++/--. For x[i] it emits
+// the code for x and i, which are evaluated once.
 func (c *compiler) lvalue(e ast.Expr) variable {
 	switch e := e.(type) {
 	case *ast.Ident:
 		if slot, ok := c.lookupLocal(e.Name); ok {
-			return variable{local: true, index: slot}
+			return variable{kind: lvLocal, index: slot}
 		}
 		g, ok := c.globals[e.Name]
 		if !ok {
@@ -1004,9 +1100,12 @@ func (c *compiler) lvalue(e ast.Expr) variable {
 		case symBuiltin:
 			c.errorf(e.NamePos, "cannot assign to built-in function %s", e.Name)
 		}
-		return variable{index: g.index}
+		return variable{kind: lvGlobal, index: g.index}
 	case *ast.IndexExpr:
-		c.notYet(e.Lbrack, "indexing is", 5)
+		c.expr(e.X)
+		c.expr(e.Index)
+		c.mark(e.Lbrack)
+		return variable{kind: lvIndex}
 	case *ast.MemberExpr, *ast.StaticRef:
 		c.notYet(e.Pos(), "classes and objects are", 6)
 	}
@@ -1024,10 +1123,7 @@ func (c *compiler) assign(e *ast.AssignExpr, keep bool) {
 		c.mark(e.LHS.Pos())
 		c.emit(assignOps[e.Op])
 	}
-	if keep {
-		c.emit(bytecode.OpDup)
-	}
-	v.store(c)
+	v.store(c, keep)
 }
 
 func (c *compiler) incDec(e *ast.IncDecExpr, keep bool) {
@@ -1038,19 +1134,42 @@ func (c *compiler) incDec(e *ast.IncDecExpr, keep bool) {
 	}
 	v.load(c)
 	c.mark(e.OpPos)
-	if e.Prefix {
+	switch {
+	case e.Prefix || !keep:
 		c.emit(op)
-		if keep {
-			c.emit(bytecode.OpDup)
-		}
-	} else {
-		if keep {
-			c.emit(bytecode.OpDup)
-		}
+		v.store(c, keep)
+	case v.kind == lvIndex:
+		// x[i]++ as a value: keep the old value in a hidden slot.
+		tmp := c.tempSlot()
+		c.emit(bytecode.OpDup)
+		c.emit(bytecode.OpStoreLocal, tmp)
 		c.emit(op)
+		v.store(c, false)
+		c.emit(bytecode.OpLoadLocal, tmp)
+		c.freeTempSlot()
+	default:
+		c.emit(bytecode.OpDup)
+		c.emit(op)
+		v.store(c, false)
 	}
-	v.store(c)
 }
+
+// tempSlot reserves a nameless slot for use within one expression;
+// freeTempSlot releases the most recent one.
+func (c *compiler) tempSlot() int {
+	fs := c.fs
+	slot := fs.nslots
+	fs.nslots++
+	if slot == len(fs.fn.SlotNames) {
+		fs.fn.SlotNames = append(fs.fn.SlotNames, "(temp)")
+	}
+	if fs.nslots > fs.fn.NumSlots {
+		fs.fn.NumSlots = fs.nslots
+	}
+	return slot
+}
+
+func (c *compiler) freeTempSlot() { c.fs.nslots-- }
 
 // ----------------------------------------------------------------------
 // Constants

@@ -1,0 +1,38 @@
+// Milestone 5: vectors, maps, strings, for-each and the collection built-ins.
+
+const TEXT = "the quick brown fox jumps over the lazy dog the fox barks";
+
+global counts = {};
+
+byCount(a, b) {
+    // more frequent first; equal counts keep their order (sort is stable)
+    return counts[a] > counts[b];
+}
+
+main() {
+    for (local word in split(TEXT, " ")) {
+        if (!haskey(counts, word)) counts[word] = 0;
+        counts[word]++;
+    }
+    local words = keys(counts);
+    sort(words, byCount);
+    for (local i, w in slice(words, 0, 3))
+        println(i + 1, w, counts[w]);
+
+    // letters per word length
+    local byLen = {};
+    for (local w in words) {
+        local n = len(w);
+        if (byLen[n] == nil) byLen[n] = [];
+        push(byLen[n], upper(w));
+    }
+    for (local n, ws in byLen) println(n, join(ws, ","));
+
+    // a matrix and its transpose
+    local m = [[1, 2, 3], [4, 5, 6]], t = [];
+    for (local c = 0; c < len(m[0]); c++) {
+        push(t, []);
+        for (local row in m) push(t[c], row[c]);
+    }
+    println(m, "->", t);
+}

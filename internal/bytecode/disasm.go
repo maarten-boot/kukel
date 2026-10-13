@@ -94,7 +94,14 @@ func (d *disasm) operand(f *Function, op Op, pc int) string {
 			return fmt.Sprintf("%d  ; %s", g, d.prog.Globals[g].Name)
 		}
 		return fmt.Sprint(g)
-	case OpCall, OpMakeVector:
+	case OpIterNext:
+		slot := ReadU16(f.Code, pc+1)
+		name := ""
+		if slot < len(f.SlotNames) {
+			name = "  ; " + f.SlotNames[slot]
+		}
+		return fmt.Sprintf("%d, %d -> %d%s", slot, ReadU16(f.Code, pc+3), ReadU32(f.Code, pc+5), name)
+	case OpCall, OpMakeVector, OpMakeMap:
 		return fmt.Sprint(ReadU16(f.Code, pc+1))
 	case OpJumpIfArg:
 		return fmt.Sprintf("%d -> %d", ReadU16(f.Code, pc+1), ReadU32(f.Code, pc+3))

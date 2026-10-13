@@ -26,6 +26,7 @@ const (
 	OpFalse
 	OpPop
 	OpDup
+	OpDup2 // a b -> a b a b
 
 	// Variables. Stores pop the value.
 	OpLoadLocal   // slot u16
@@ -73,6 +74,13 @@ const (
 	OpAppend     // pop x, append it to the vector below
 	OpExtend     // pop vector x, append its elements to the vector below
 
+	// Collections.
+	OpMakeMap  // n u16: pop n key/value pairs, push a map of them
+	OpIndexGet // x i -> x[i]
+	OpIndexSet // x i v -> v, after x[i] = v
+	OpIterInit // x -> an iterator over x
+	OpIterNext // slot u16, n u16, end u32: advance the iterator in slot; push n values, or jump to end
+
 	numOps
 )
 
@@ -93,6 +101,7 @@ var opInfo = [numOps]OpInfo{
 	OpFalse:       {"FALSE", nil},
 	OpPop:         {"POP", nil},
 	OpDup:         {"DUP", nil},
+	OpDup2:        {"DUP2", nil},
 	OpLoadLocal:   {"LOAD_LOCAL", u16},
 	OpStoreLocal:  {"STORE_LOCAL", u16},
 	OpLoadGlobal:  {"LOAD_GLOBAL", u16},
@@ -129,6 +138,11 @@ var opInfo = [numOps]OpInfo{
 	OpMakeVector:  {"MAKE_VECTOR", u16},
 	OpAppend:      {"APPEND", nil},
 	OpExtend:      {"EXTEND", nil},
+	OpMakeMap:     {"MAKE_MAP", u16},
+	OpIndexGet:    {"INDEX_GET", nil},
+	OpIndexSet:    {"INDEX_SET", nil},
+	OpIterInit:    {"ITER_INIT", nil},
+	OpIterNext:    {"ITER_NEXT", []int{2, 2, 4}},
 }
 
 // Info returns the description of op; ok is false for an unknown opcode.

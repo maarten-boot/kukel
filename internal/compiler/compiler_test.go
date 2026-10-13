@@ -90,8 +90,8 @@ func TestCompileErrors(t *testing.T) {
 		{"main() { switch (1) { case 1: } case 2: ; }", "1:33", "case and default labels are only allowed inside a switch body"},
 		// later milestones
 		{"class A {}", "1:1", "classes are not supported yet (milestone 6)"},
-		{"main() { local v = [1]; }", "1:20", "vector literals are not supported yet (milestone 5)"},
-		{"main() { for (local x in y) ; }", "1:10", "for-each loops are not supported yet (milestone 5)"},
+		{"main() { for (local k, k in [1]) ; }", "1:24", "local k is already declared in this block"},
+		{"main() { for (local x in x) ; }", "1:26", "undefined name x"}, // the loop variable is not visible in the expression
 		{"main() { try { } finally { } }", "1:10", "try statements are not supported yet (milestone 7)"},
 		{"main() { local f = fn() { }; }", "1:20", "function literals are not supported yet (milestone 8)"},
 		{"main() { this; }", "1:10", "classes and objects are not supported yet (milestone 6)"},
@@ -144,6 +144,8 @@ func FuzzCompile(f *testing.F) {
 		"f(a, b = a, c..) { return f(c.., a, b..); } main() { a: b: for (;;) { c: { break a; } continue b; } }",
 		"main() { switch (1) { case 1: do { { case 2: ; } case 3: break; } while (0); default: } }",
 		"main() { s: switch (1) { case -1: while (1) { switch (2) { case 'x': break s; } continue; } } }",
+		"main() { local v = [1, [2], {3: 4}], m = {\"a\": v..}; v[0] += v[1][0]++; m[v]--; for (local k, x in m) for (local y in x) ; }",
+		"main() { local v = [[1]]; println(v[0][0] = v[0][0]++ + --v[0][0], [v.., v..], {v: v}[v]); }",
 	} {
 		f.Add(s)
 	}

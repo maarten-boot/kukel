@@ -247,6 +247,114 @@ func TestPrograms(t *testing.T) {
 				switch (3) { case 3: switch (4) { case 4: print("inner"); break; } print("outer"); }
 				println();
 			}`, "023\nafter 2\ninnerouter\n"},
+		// milestone 5
+		{"vectors", `main() {
+			local v = [1, [2, 3], "x"], w = v, e = [];
+			v[0] = 10; v[1][0] *= 5; w[2] += "y";
+			println(v, len(v), len(e), v[1][1], v == w, [1] == [1], v != e);
+			local p = [0, v.., 99];
+			println(p, len(p));
+		}`, "[10, [10, 3], \"xy\"] 3 0 3 true false true\n[0, 10, [10, 3], \"xy\", 99] 5\n"},
+		{"index assignment values and ++/--", `main() {
+			local v = [1, 2, 3], m = {"n": 5};
+			println(v[0] = 7, v[1] += 10, v[2]++, v[2], ++v[2], v[0]--, --m["n"], m["n"]++, m);
+			v[0]++; m["n"] += 1;
+			println(v, m);
+		}`, "7 12 3 4 5 7 4 4 {\"n\": 5}\n[7, 12, 5] {\"n\": 6}\n"},
+		{"index operands are evaluated once", `
+			global calls = 0;
+			at(i) { calls++; return i; }
+			main() { local v = [1, 2]; v[at(1)] += 5; v[at(0)]++; println(v, calls); }`, "[2, 7] 2\n"},
+		{"maps", `main() {
+			local m = {"b": 2, "a": 1, 1: "one", 2.5: "x"};
+			m[1.0] = "uno"; m["c"] = 3;
+			println(m, m["a"], m["zz"], m[1], m[2.5], len(m));
+			delete(m, "b"); m["b"] = 20;
+			println(keys(m), values(m), haskey(m, "a"), haskey(m, "zz"), delete(m, "zz"));
+			local name = "k";
+			println({name: 1}, {"name": 1}, {}, {1: {2: [3]}});
+			local n = {-0.0: "zero", 1e300: "big"};
+			println(n[0], n[1e300]);
+		}`, "{\"b\": 2, \"a\": 1, 1: \"uno\", 2.5: \"x\", \"c\": 3} 1 nil uno x 5\n" +
+			"[\"a\", 1, 2.5, \"c\", \"b\"] [1, \"uno\", \"x\", 3, 20] true false false\n" +
+			"{\"k\": 1} {\"name\": 1} {} {1: {2: [3]}}\nzero big\n"},
+		{"map compaction keeps order", `main() {
+			local m = {};
+			for (local i = 0; i < 100; i++) m[i] = i;
+			for (local i = 0; i < 95; i++) delete(m, i);
+			m["new"] = 1;
+			println(keys(m), len(m), m[97]);
+		}`, "[95, 96, 97, 98, 99, \"new\"] 6 97\n"},
+		{"strings", `main() {
+			local s = "héllo";
+			println(len(s), s[0], s[1], substr(s, 3), substr(s, 0, 1), find(s, "l"), find(s, "l", 5), find(s, "z"));
+			println(split("a,b,,c", ","), split("abc", ""), join(["x", 1, 2.5, nil], "-"), join([]), join(["a", "b"]));
+			println(upper("Hi there!"), lower("ABC é"), trim("  \t x y \n"), replace("a-b-c", "-", "+"));
+			println(char(65) + char(0x42), ord("A"), ord("AB", 1), slice("hello", 1, 3), slice("hello", 2));
+		}`, "6 104 195 llo h 3 -1 -1\n[\"a\", \"b\", \"\", \"c\"] [\"a\", \"b\", \"c\"] x-1-2.5-nil  ab\n" +
+			"HI THERE! abc é x y a+b+c\nAB 65 66 el llo\n"},
+		{"vector built-ins", `
+			desc(a, b) { return a > b; }
+			byLen(a, b) { return len(a) < len(b); }
+			main() {
+				local v = [5, 3, 8, 1];
+				println(push(v, 9, 2), v, pop(v), v);
+				insert(v, 0, 0); insert(v, len(v), 100); insert(v, 2, 7);
+				println(v, remove(v, 2), v, slice(v, 1, 3), slice(v, 6), slice(v, 0, 0));
+				sort(v); println(v);
+				sort(v, desc); println(v);
+				local words = ["ccc", "a", "bb", "dd", "e"];
+				sort(words, byLen); println(words);
+				sort(words); println(words);
+				local copy = slice(v, 0); copy[0] = -1; println(v[0], copy[0]);
+			}`, "6 [5, 3, 8, 1, 9] 2 [5, 3, 8, 1, 9]\n" +
+			"[0, 5, 3, 8, 1, 9, 100] 7 [0, 5, 3, 8, 1, 9, 100] [5, 3] [100] []\n" +
+			"[0, 1, 3, 5, 8, 9, 100]\n[100, 9, 8, 5, 3, 1, 0]\n" +
+			"[\"a\", \"e\", \"bb\", \"dd\", \"ccc\"]\n[\"a\", \"bb\", \"ccc\", \"dd\", \"e\"]\n100 -1\n"},
+		{"for-each", `main() {
+			for (local x in [1, 2, 3]) print(x, "");
+			for (local i, x in ["a", "b"]) print(i, x, "");
+			println();
+			local m = {"x": 1, "y": 2};
+			for (local k in m) print(k, "");
+			for (local k, v in m) print(k, v, "");
+			for (local c in "AB") print(c, "");
+			for (local i, c in "AB") print(i, c, "");
+			for (local x in []) print("never");
+			for (local k in {}) print("never");
+			println();
+		}`, "1 2 3 0 a 1 b \nx y x 1 y 2 65 66 0 65 1 66 \n"},
+		{"for-each with break, continue and labels", `main() {
+			outer: for (local row in [[1, 2], [3, 4], [5, 6]]) {
+				for (local x in row) {
+					if (x == 2) continue outer;
+					if (x == 5) break outer;
+					print(x, "");
+				}
+			}
+			println();
+			for (local x in [1, 2, 3, 4]) { if (x % 2) continue; print(x, ""); }
+			println();
+		}`, "1 3 4 \n2 4 \n"},
+		{"for-each sees changes made during the loop", `main() {
+			local v = [1, 2];
+			for (local x in v) { print(x, ""); if (x < 4) push(v, x + 2); }
+			println(v);
+			local m = {"a": 1, "b": 2, "c": 3};
+			for (local k, x in m) { print(k, ""); delete(m, "b"); m["d"] = 4; m["c"] = 30; if (k == "c") println(x); }
+			println(m);
+		}`, "1 2 3 4 5 [1, 2, 3, 4, 5]\na c 30\n{\"a\": 1, \"c\": 30, \"d\": 4}\n"},
+		{"for-each variables are scoped to the loop", `
+			global x = "global";
+			main() { for (local x in [1]) print(x, ""); println(x); local v = [7]; for (local v in v) println(v); }`,
+			"1 global\n7\n"},
+		{"printing nested and cyclic containers", `main() {
+			local v = [1], m = {"self": nil};
+			push(v, v); m["self"] = m; m["v"] = v;
+			println(v, m, [m, m]);
+		}`, "[1, [...]] {\"self\": {...}, \"v\": [1, [...]]} [{\"self\": {...}, \"v\": [1, [...]]}, {\"self\": {...}, \"v\": [1, [...]]}]\n"},
+		{"typeof and str of containers", `main() { println(typeof([]), typeof({}), str([1, "a"]) + "!", str({"k": "v"})); }`,
+			"vector map [1, \"a\"]! {\"k\": \"v\"}\n"},
 		{"deep recursion within the limit", `
 			down(n) { if (n == 0) return 0; return 1 + down(n - 1); }
 			main() { println(down(9000)); }`, "9000\n"},
@@ -312,6 +420,34 @@ main() {
 			"TypeError: cannot spread nil (a vector is needed)\n  at main (t.kkl:3)"},
 		{"error in a default value", "f(a = 1 / 0) {}\nmain() { f(); }",
 			"ZeroDivisionError: integer division by zero\n  at f (t.kkl:1)\n  at main (t.kkl:2)"},
+		{"vector index out of range", "main() {\n local v = [1, 2, 3];\n v[3] = 0;\n}",
+			"RangeError: index 3 out of range for vector of length 3\n  at main (t.kkl:3)"},
+		{"negative index", "main() { local v = [1]; println(v[-1]); }",
+			"RangeError: index -1 out of range for vector of length 1\n  at main (t.kkl:1)"},
+		{"index with a non-int", `main() { local v = [1]; println(v["0"]); }`,
+			"TypeError: vector index must be an int, not string\n  at main (t.kkl:1)"},
+		{"indexing an int", "main() { local n = 1; println(n[0]); }",
+			"TypeError: cannot index int\n  at main (t.kkl:1)"},
+		{"strings cannot be changed", `main() { local s = "abc"; s[0] = 65; }`,
+			"TypeError: strings cannot be changed (s[i] = x)\n  at main (t.kkl:1)"},
+		{"bad map key in a literal", "main() { local m = {[1]: 2}; }",
+			"TypeError: map keys must be strings or numbers, not vector\n  at main (t.kkl:1)"},
+		{"nan as a map key", "main() { local m = {}; m[0.0 / 0.0] = 1; }",
+			"TypeError: nan cannot be a map key\n  at main (t.kkl:1)"},
+		{"for-each over an int", "main() {\n for (local x in 42) ;\n}",
+			"TypeError: cannot iterate over int\n  at main (t.kkl:2)"},
+		{"len of an int", "main() { len(1); }",
+			"TypeError: int has no length\n  at main (t.kkl:1)"},
+		{"built-in argument type", "main() { substr(1, 0); }",
+			"TypeError: substr: argument 1 must be a string, not int\n  at main (t.kkl:1)"},
+		{"built-in argument range", `main() { substr("abc", 4); }`,
+			"RangeError: substr: start 4 out of range 0..3\n  at main (t.kkl:1)"},
+		{"pop from an empty vector", "main() { pop([]); }",
+			"RangeError: pop from an empty vector\n  at main (t.kkl:1)"},
+		{"sort of mixed values", `main() { sort([1, "a"]); }`,
+			"TypeError: cannot compare string and int with <\n  at main (t.kkl:1)"},
+		{"error inside a sort comparator", "bad(a, b) {\n return a < nil;\n}\nmain() { sort([2, 1], bad); }",
+			"TypeError: cannot compare int and nil with <\n  at bad (t.kkl:2)\n  at main (t.kkl:4)"},
 		{"++ on a string", `main() { local s = "a"; s++; }`,
 			"TypeError: cannot apply ++ to string\n  at main (t.kkl:1)"},
 	}

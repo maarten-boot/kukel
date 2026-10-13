@@ -100,9 +100,15 @@ func New(prog *bytecode.Program, builtins Builtins, stdout io.Writer, stdin io.R
 	return vm, nil
 }
 
-// Stdout and Stdin implement value.Env for the built-ins.
+// Stdout, Stdin and Call implement value.Env for the built-ins.
 func (vm *VM) Stdout() io.Writer { return vm.stdout }
 func (vm *VM) Stdin() io.Reader  { return vm.stdin }
+
+// Call calls fn from a built-in (sort's comparator, for example). The
+// built-in's own arguments stay on the stack below the new call.
+func (vm *VM) Call(fn value.Value, args []value.Value) (value.Value, error) {
+	return vm.call(fn, args)
+}
 
 // Run runs the global initializers, then main(args). It returns main's
 // result as the exit code (an int result; anything else is 0).
@@ -244,6 +250,9 @@ func (vm *VM) spread() (int, error) {
 // wrap turns an error into a RuntimeError with a stack trace of the current
 // frames. The innermost frame's ip must point at the failing instruction.
 func (vm *VM) wrap(err error) error {
+	if re, ok := err.(*RuntimeError); ok {
+		return re // from a call made by a built-in: it has its trace already
+	}
 	re := &RuntimeError{Kind: value.InternalError, Msg: err.Error()}
 	if ve, ok := err.(*value.Error); ok {
 		re.Kind, re.Msg = ve.Kind, ve.Msg
@@ -302,6 +311,10 @@ func (vm *VM) execute(stopDepth int) (result value.Value, err error) {
 		case bytecode.OpDup:
 			stack[sp] = stack[sp-1]
 			sp++
+		case bytecode.OpDup2:
+			stack[sp] = stack[sp-2]
+			stack[sp+1] = stack[sp-1]
+			sp += 2
 
 		case bytecode.OpLoadLocal:
 			stack[sp] = stack[base+bytecode.ReadU16(code, ip)]
@@ -440,6 +453,58 @@ func (vm *VM) execute(stopDepth int) (result value.Value, err error) {
 			vec := stack[sp-2].AsVector()
 			vec.Elems = append(vec.Elems, x.AsVector().Elems...)
 			sp--
+
+		case bytecode.OpMakeMap:
+			n := bytecode.ReadU16(code, ip)
+			ip += 2
+			m := value.NewMap()
+			for i := sp - 2*n; i < sp; i += 2 {
+				if e := m.Set(stack[i], stack[i+1]); e != nil {
+					return fail(start, e)
+				}
+			}
+			sp -= 2 * n
+			stack[sp] = value.MakeMap(m)
+			sp++
+		case bytecode.OpIndexGet:
+			r, e := value.Index(stack[sp-2], stack[sp-1])
+			if e != nil {
+				return fail(start, e)
+			}
+			sp--
+			stack[sp-1] = r
+		case bytecode.OpIndexSet:
+			if e := value.SetIndex(stack[sp-3], stack[sp-2], stack[sp-1]); e != nil {
+				return fail(start, e)
+			}
+			stack[sp-3] = stack[sp-1]
+			sp -= 2
+		case bytecode.OpIterInit:
+			it, e := value.NewIterator(stack[sp-1])
+			if e != nil {
+				return fail(start, e)
+			}
+			stack[sp-1] = it
+		case bytecode.OpIterNext:
+			it := stack[base+bytecode.ReadU16(code, ip)]
+			n := bytecode.ReadU16(code, ip+2)
+			first, second, ok := it.Next()
+			if !ok {
+				ip = bytecode.ReadU32(code, ip+4)
+				break
+			}
+			ip += 8
+			switch {
+			case n == 2:
+				stack[sp], stack[sp+1] = first, second
+				sp += 2
+			case it.OneNameGetsKey():
+				stack[sp] = first
+				sp++
+			default:
+				stack[sp] = second
+				sp++
+			}
 
 		case bytecode.OpCall, bytecode.OpCallV:
 			var argc int

@@ -218,3 +218,87 @@ func TestUnary(t *testing.T) {
 		t.Errorf("-- nil: %v", err)
 	}
 }
+
+func TestMapKeys(t *testing.T) {
+	m := NewMap()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(m.Set(i(1), s("int")))
+	must(m.Set(f(1), s("float"))) // same key: keeps the key 1, updates the value
+	must(m.Set(f(math.Copysign(0, -1)), s("zero")))
+	must(m.Set(i(0), s("zero again")))
+	must(m.Set(f(1.5), s("x")))
+	must(m.Set(s("1"), s("string")))
+	if m.Len() != 4 {
+		t.Fatalf("Len = %d, want 4", m.Len())
+	}
+	if got := MakeMap(m).Repr(); got != `{1: "float", -0.0: "zero again", 1.5: "x", "1": "string"}` {
+		t.Errorf("map = %s", got)
+	}
+	for _, k := range []Value{i(1), f(1), f(1.5), s("1"), i(0)} {
+		if _, ok, err := m.Get(k); !ok || err != nil {
+			t.Errorf("Get(%s): ok=%v err=%v", k.Repr(), ok, err)
+		}
+	}
+	if _, ok, _ := m.Get(f(1.25)); ok {
+		t.Errorf("1.25 should not be a key")
+	}
+	for _, k := range []Value{NilValue, True, MakeVector(nil), f(math.NaN())} {
+		if err := m.Set(k, i(1)); err == nil {
+			t.Errorf("Set(%s) should fail", k.Repr())
+		}
+	}
+	// 2^63 as a float is not an int64; it stays a float key.
+	must(m.Set(f(9223372036854775808.0), s("big")))
+	if _, ok, _ := m.Get(i(math.MinInt64)); ok {
+		t.Errorf("2^63 and -2^63 must be different keys")
+	}
+}
+
+func TestMapDeleteAndCompact(t *testing.T) {
+	m := NewMap()
+	for n := 0; n < 100; n++ {
+		m.Set(i(int64(n)), i(int64(n*n)))
+	}
+	for n := 0; n < 90; n++ {
+		if ok, _ := m.Delete(i(int64(n))); !ok {
+			t.Fatalf("Delete(%d) = false", n)
+		}
+	}
+	if ok, _ := m.Delete(i(5)); ok {
+		t.Errorf("deleting twice should report false")
+	}
+	if len(m.entries) >= 100 {
+		t.Errorf("entries not compacted: %d", len(m.entries))
+	}
+	keys := m.Keys()
+	if len(keys) != 10 || keys[0].AsInt() != 90 || keys[9].AsInt() != 99 {
+		t.Errorf("keys after delete: %v", MakeVector(keys).Repr())
+	}
+	if v, ok, _ := m.Get(i(95)); !ok || v.AsInt() != 9025 {
+		t.Errorf("Get(95) after compaction = %v, %v", v.Repr(), ok)
+	}
+}
+
+func TestIterator(t *testing.T) {
+	m := NewMap()
+	m.Set(s("a"), i(1))
+	m.Set(s("b"), i(2))
+	it, _ := NewIterator(MakeMap(m))
+	k, v, ok := it.Next()
+	if !ok || k.AsString() != "a" || v.AsInt() != 1 {
+		t.Fatalf("first: %v %v %v", k.Repr(), v.Repr(), ok)
+	}
+	m.Delete(s("b"))
+	m.Set(s("c"), i(3)) // added after the snapshot: not visited
+	if _, _, ok := it.Next(); ok {
+		t.Errorf("deleted and new keys should not be visited")
+	}
+	if _, err := NewIterator(i(1)); err == nil {
+		t.Errorf("iterating an int should fail")
+	}
+}

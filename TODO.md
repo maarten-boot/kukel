@@ -58,6 +58,9 @@ source files ──lexer──▶ tokens ──parser──▶ AST ──checker
 - Q18 Built-in names: **assigning to one, or defining a global/function/class/const with its name, is a compile error**
 - Q19 Member function definitions: **shape must match the declaration** (parameter count incl. optional, rest or not); names may differ
 - Q20 Case labels that skip a `local` initializer: **compile error** (C++ rule)
+- Q21 (decided in milestone 5) Reading a missing map key: **gives nil** (use `haskey` to tell a missing key from a nil value)
+- Q22 (decided in milestone 5) Vector and string indexes: **ints from 0 to len-1 only** (no negative indexes; `v[len(v)] = x` is an error, use `push`)
+- Q23 (decided in milestone 5) Built-in details: `push(v, x..)` returns the new length; `sort(v [, less])` sorts in place (stable) and returns nil, `less(a, b)` is true when a goes first; `join` turns non-strings into text like `str`; `split(s, "")` gives single bytes; `upper`/`lower`/`trim` work on ASCII only; `remove(v, i)` returns the removed element; `delete(m, k)` returns whether the key existed
 
 ## 1b. Syntax changes in version 2 (all adopted)
 
@@ -180,9 +183,10 @@ All the "Rule:" comments in syntax.ebnf:
 ## 6. Runtime values (`internal/value`)
 
 - [x] `Value` representation: a tagged struct `{kind, num uint64, obj any}` (32 bytes), so numbers never allocate
-- [ ] Kinds (milestone 3: Nil, Bool, Int, Float, String, Vector (for `main(args)`), Function, Builtin): Nil, Bool, Int, Float, String (immutable `string`), Vector (`*[]Value`), Map, Class, Object, Function (code + captured upvalue cells), BoundMethod (object + method), Builtin, Error (Q13: `message`, `kind`, `trace`)
+- [ ] Kinds (done: Nil, Bool, Int, Float, String, Vector, Map, Function, Builtin, plus an internal Iterator): Nil, Bool, Int, Float, String (immutable `string`), Vector (`*[]Value`), Map, Class, Object, Function (code + captured upvalue cells), BoundMethod (object + method), Builtin, Error (Q13: `message`, `kind`, `trace`)
 - [ ] `typeof`: Function, BoundMethod and Builtin all report `"function"`
-- [ ] Map: keys are strings and numbers only; a float key with an integral value is normalized to an int key (so 1 and 1.0 are the same key); insertion order kept (Q6)
+- [x] Map: keys are strings and numbers only; a float key with an integral value is normalized to an int key (so 1 and 1.0 are the same key; an existing key keeps its original form); insertion order kept (Q6); deleted entries are compacted when more than half are gone; NaN is not a key
+- [x] Printing: containers inside themselves print as `[...]` / `{...}`
 - [x] Equality, truthiness, ordering, `typeof` names, string conversion (Q2, Q10, Q11); int/float comparisons are exact (no rounding through float64); floats print as `1.0`, `1e+21`, `inf`, `-inf`, `nan`; inside containers strings are quoted with Kukel escapes
 - [x] All operator semantics live in `internal/value` and are shared by the VM and the compiler's constant folding
 - [x] Memory: rely on Go's GC
@@ -190,16 +194,16 @@ All the "Rule:" comments in syntax.ebnf:
 ## 7. Bytecode + compiler (`internal/bytecode`, `internal/compiler`)
 
 ### Instruction set (1-byte opcode + fixed little-endian operands: u16 for indices and counts, u32 for absolute jump targets)
-- [ ] Stack: `CONST k`, `NIL`, `TRUE`, `FALSE`, `POP`, `DUP` (done), `DUP2`, `SWAP`/`ROT` (for compound assignment to `e[i]` and `e->x`)
+- [ ] Stack: `CONST k`, `NIL`, `TRUE`, `FALSE`, `POP`, `DUP`, `DUP2` (done; `e[i] op= x` uses `DUP2`, and `e[i]++` as a value keeps the old value in a hidden slot), `SWAP`/`ROT` if `e->x` needs them
 - [ ] Variables (local and global done): `LOAD_LOCAL i`/`STORE_LOCAL i` (params, temporaries, locals and catch variables share frame slots), `LOAD_GLOBAL g`/`STORE_GLOBAL g`, `LOAD_MEMBER i`/`STORE_MEMBER i` (on `this`, slot known at compile time), `LOAD_STATIC c,i`/`STORE_STATIC c,i`, `LOAD_THIS`
 - [ ] Fields on any object: `GET_FIELD name` (data member, else bound method, else error), `SET_FIELD name` (data member only); slot lookup by name per class, cached later
 - [ ] Closures: `CLOSURE fn, n` + capture list (local slot or enclosing upvalue), `LOAD_UPVALUE i`/`STORE_UPVALUE i`, `LOAD_CELL i`/`STORE_CELL i` / `NEW_CELL i` for captured locals in the defining frame
 - [x] Arithmetic/logic: `ADD SUB MUL DIV MOD NEG NOT BITNOT BITAND BITOR BITXOR SHL SHR EQ NE LT LE GT GE INC DEC` (int fast paths in the VM)
 - [x] Control: `JUMP off`, `JUMP_IF_FALSE off`, `JUMP_IF_TRUE off` (for `&&`, `||`, `?:`) (`&&`/`||` produce `true`/`false`, Q4)
 - [ ] Calls (`CALL`, `CALL_V`, `RETURN`, `RETURN_NIL` done): `CALL argc`, `CALL_METHOD name argc`, `CALL_SUPER class,name argc` (Q3), `CALL_STATIC class,fn argc`, `NEW class argc`, `NEW_DYN argc` (class in a variable), `RETURN`, `RETURN_NIL`
-- [ ] Spread: calls with a spread argument build an argument vector (`MAKE_VECTOR` + `APPEND`/`EXTEND`) and use `CALL_V` (done) / `CALL_METHOD_V` / `NEW_V`; vector literals with spread use `EXTEND`
-- [ ] Collections: `MAKE_VECTOR n`, `APPEND`, `EXTEND` (done), `MAKE_MAP n`, `INDEX_GET`, `INDEX_SET`
-- [ ] For-each: `ITER_INIT` (vector: index; map: key snapshot; string: index; else throw), `ITER_NEXT off` (pushes 1 or 2 values, or jumps to `off` at the end)
+- [ ] Spread: calls with a spread argument build an argument vector (`MAKE_VECTOR` + `APPEND`/`EXTEND`) and use `CALL_V` (done) / `CALL_METHOD_V` / `NEW_V`; vector literals with spread use `EXTEND` (done)
+- [x] Collections: `MAKE_VECTOR n`, `APPEND`, `EXTEND`, `MAKE_MAP n`, `INDEX_GET`, `INDEX_SET` (leaves the value, so `x = v[i] = y` works)
+- [x] For-each: `ITER_INIT` (vector: index; map: key snapshot; string: index; else throw), `ITER_NEXT slot, n, off` (the iterator lives in a hidden slot; pushes 1 or 2 values, or jumps to `off` at the end)
 - [ ] Exceptions: `TRY_PUSH handler_off`, `TRY_POP`, `THROW`, `RETHROW`
 - [x] Every instruction maps to a source line (a run-length line table per function) for stack traces
 
@@ -210,8 +214,8 @@ All the "Rule:" comments in syntax.ebnf:
 - [x] Short-circuit `&&`, `||`, `?:`; conditions compile to jumps (no boolean is built for `if (a && !b)`)
 - [x] Comma operator: evaluate and `POP` all but the last
 - [x] Constants are inlined as `CONST` (evaluated by the compiler); `-literal` folded
-- [ ] Compound assignment and `++`/`--` (pre and post) for each lvalue kind (local and global done) (local, cell, upvalue, global, member, static, index, field); the index and field forms evaluate `e` (and `i`) only once
-- [ ] Loops: `while`, `do-while`, `for` (an empty test = loop forever), for-each; break/continue targets, with labels, patched via jump lists (done except for-each); a label on any other statement lets `break label` leave it
+- [ ] Compound assignment and `++`/`--` (pre and post) for each lvalue kind (local, global and index done) (local, cell, upvalue, global, member, static, index, field); the index and field forms evaluate `e` (and `i`) only once
+- [x] Loops: `while`, `do-while`, `for` (an empty test = loop forever), for-each; break/continue targets, with labels, patched via jump lists; a label on any other statement lets `break label` leave it
 - [ ] Per-iteration loop variables (Q16): only when the variable is captured by a closure, give each iteration a new cell (copy the old value before the update for `for`); uncaptured variables keep a plain slot (no cost)
 - [x] `switch`: evaluate the value into a hidden slot, then a chain of `EQ` + jump to each case label's address (labels may sit inside nested statements, Duff's-device style); jump to `default` or past the end. The dispatch code is placed after the body, so no patching per case is needed. Later, maybe: a jump table for dense int cases
   - A case label that a jump would reach past a `local` declaration still in scope is rejected by the checker (§5), so no slot clearing is needed
@@ -241,7 +245,7 @@ All the "Rule:" comments in syntax.ebnf:
 
 ### Built-ins (v1). Final names to be agreed; proposal:
 - [ ] I/O (`print`, `println` done; arguments are separated by one space, strings unquoted): `print(...)` (no newline), `println(...)`, `readline()` (nil at EOF), `readfile(path)`, `writefile(path, s)`, `appendfile(path, s)`, `eprint(...)`
-- [ ] Strings and collections: `len(x)`, `substr(s, start [, len])`, `find(s, sub [, from])`, `split(s, sep)`, `join(vec, sep)`, `upper`/`lower`, `trim`, `replace(s, old, new)`, `char(code)`, `ord(s [, i])`, `push(v, x)`, `pop(v)`, `insert(v, i, x)`, `remove(v, i)`, `slice(v, a, b)`, `sort(v [, cmpfn])` (cmpfn may be a closure or bound method), `keys(m)`, `values(m)`, `haskey(m, k)`, `delete(m, k)`
+- [x] Strings and collections (all done in milestone 5; built-ins can call back into Kukel through `Env.Call`, used by `sort`): `len(x)`, `substr(s, start [, len])`, `find(s, sub [, from])`, `split(s, sep)`, `join(vec, sep)`, `upper`/`lower`, `trim`, `replace(s, old, new)`, `char(code)`, `ord(s [, i])`, `push(v, x)`, `pop(v)`, `insert(v, i, x)`, `remove(v, i)`, `slice(v, a, b)`, `sort(v [, cmpfn])` (cmpfn may be a closure or bound method), `keys(m)`, `values(m)`, `haskey(m, k)`, `delete(m, k)`
 - [ ] Type and conversion (`typeof`, `str` done): `typeof(x)` (returns "nil", "bool", "int", "float", "string", "vector", "map", "class", "object", "function"), `int(x)`, `float(x)`, `str(x)`, `isnil(x)`, `classof(obj)`, `instanceof(obj, C)`
 - [ ] Math and system: `abs`, `min`, `max`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `sin`/`cos`/`tan`/`atan2`, `log`/`exp`, `random()` / `randint(a, b)` / `seed(n)`, `time()`, `clock()`, `exit(code)`, `getenv(name)`; command-line arguments come through `main(args)`
 - [x] Built-in names live in the top-level name space; redefining or assigning one is a compile error (Q18)
@@ -262,7 +266,7 @@ All the "Rule:" comments in syntax.ebnf:
 2. [x] Parser + AST + `kukel ast` (done 2026-10-12, branch `milestone-2-parser`)
 3. [x] Values + compiler + VM for expressions, globals, constants, functions, `if`/`while`/`for`, `print`: run fizzbuzz (done 2026-10-13, branch `milestone-3-vm`; also basic locals, parameters and temporaries, `do`, `break`/`continue`, `kukel disasm` of sources)
 4. [x] Default/rest parameters, spread, labelled break/continue, switch (done 2026-10-13, branch `milestone-4-control`; basic locals, for-initializer locals and temporaries were done in milestone 3)
-5. [ ] Vectors, maps, strings + their built-ins; for-each
+5. [x] Vectors, maps, strings + their built-ins; for-each (done 2026-10-13, branch `milestone-5-collections`)
 6. [ ] Classes, objects, methods, `this`, `p->x`, bound methods, static members, constructors, inheritance
 7. [ ] Exceptions: try/catch/finally, runtime errors as exceptions, stack traces
 8. [ ] Closures: fn literals, captured cells, per-iteration loop variables
