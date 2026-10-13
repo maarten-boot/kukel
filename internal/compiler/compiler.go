@@ -56,10 +56,6 @@ func (c *compiler) errorf(pos token.Pos, format string, args ...any) {
 	panic(bailout{diag.Errorf(pos, format, args...)})
 }
 
-func (c *compiler) notYet(pos token.Pos, what string, milestone int) {
-	c.errorf(pos, "%s not supported yet (milestone %d)", what, milestone)
-}
-
 // Compile compiles the files of one program, in order. builtins lists the
 // names of the built-in functions.
 func Compile(files []*ast.File, builtins []string) (prog *bytecode.Program, err error) {
@@ -107,7 +103,7 @@ func Compile(files []*ast.File, builtins []string) (prog *bytecode.Program, err 
 				}
 			case *ast.ConstDecl:
 				for _, v := range d.Vars {
-					val := c.evalConst(v.Value)
+					val := c.constValue(v.Value)
 					c.define(v.Name, symConst).value = val
 				}
 			case *ast.ClassDecl:
@@ -863,7 +859,7 @@ func (c *compiler) checkLabelScope(sw *switchState, pos token.Pos, what string) 
 
 func (c *compiler) caseLabel(s *ast.CaseLabel) {
 	sw := c.innermostSwitch(s.Pos())
-	v := c.evalConst(s.Value)
+	v := c.constValue(s.Value)
 	for _, prev := range sw.cases {
 		if value.Equal(prev.value, v) {
 			c.errorf(s.Value.Pos(), "duplicate case value %s (also at %s)", v.Repr(), prev.pos)
@@ -1392,7 +1388,41 @@ func (c *compiler) freeTempSlot() { c.fs.nslots-- }
 // ----------------------------------------------------------------------
 // Constants
 
-// evalConst evaluates a constant expression at compile time.
+// constValue checks that e is a constant expression and evaluates it.
+// The whole expression is checked first: evaluation skips the operand
+// that && and || do not need and the branch of ?: not taken, and those
+// must be constant expressions too.
+func (c *compiler) constValue(e ast.Expr) value.Value {
+	c.checkConst(e)
+	return c.evalConst(e)
+}
+
+// checkConst reports anything in e that a constant expression may not
+// contain: only literals, constants defined earlier, and the unary, binary
+// and ?: operators.
+func (c *compiler) checkConst(e ast.Expr) {
+	switch e := e.(type) {
+	case *ast.IntLit, *ast.CharLit, *ast.FloatLit, *ast.StringLit, *ast.BoolLit, *ast.NilLit:
+	case *ast.Ident:
+		if g, ok := c.globals[e.Name]; !ok || g.kind != symConst {
+			c.errorf(e.NamePos, "%s is not a constant defined earlier", e.Name)
+		}
+	case *ast.UnaryExpr:
+		c.checkConst(e.X)
+	case *ast.BinaryExpr:
+		c.checkConst(e.X)
+		c.checkConst(e.Y)
+	case *ast.CondExpr:
+		c.checkConst(e.Cond)
+		c.checkConst(e.Then)
+		c.checkConst(e.Else)
+	default:
+		c.errorf(e.Pos(), "not a constant expression")
+	}
+}
+
+// evalConst evaluates a constant expression (checked by checkConst) at
+// compile time.
 func (c *compiler) evalConst(e ast.Expr) value.Value {
 	switch e := e.(type) {
 	case *ast.IntLit:

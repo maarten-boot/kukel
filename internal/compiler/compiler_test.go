@@ -56,6 +56,12 @@ func TestCompileErrors(t *testing.T) {
 		{"const D = 1 / 0;", "1:13", "in constant expression: integer division by zero"},
 		{`const E = "a" - 1;`, "1:15", "in constant expression: cannot apply - to string and int"},
 		{"const F = -nil;", "1:11", "in constant expression: cannot apply - to nil"},
+		// the operands that && || ?: skip must be constant too
+		{"const A = 1 || nosuchname; main() {}", "1:16", "nosuchname is not a constant defined earlier"},
+		{"const A = 1 || f(5); main() {}", "1:16", "not a constant expression"},
+		{"const A = 1 ? 2 : len(1); main() {}", "1:19", "not a constant expression"},
+		{"const A = 0 && this; main() {}", "1:16", "not a constant expression"},
+		{"main() { switch (false) { case 0 && nosuch: ; } }", "1:37", "nosuch is not a constant defined earlier"},
 		// locals and parameters
 		{"main() { local x; local x; }", "1:25", "local x is already declared in this block"},
 		{"main() { local x, x; }", "1:19", "local x is already declared in this block"},

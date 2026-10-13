@@ -248,3 +248,44 @@ func FuzzVerifyCode(f *testing.F) {
 		m.Run(nil)
 	})
 }
+
+// TestSharedCacheSlot: a file may give a CALL_METHOD and a GET_MEMBER the
+// same cache slot (the compiler never does); the VM must not trust a data
+// member slot that a method call left in the cache.
+func TestSharedCacheSlot(t *testing.T) {
+	src := "class K { m(); }\nK::m() {}\nmain() { local k = new K(); k->m(); local f = k->m; f(); }"
+	f, err := parser.ParseFile("t.kkl", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := compiler.Compile([]*ast.File{f}, builtins.Names())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var main *bytecode.Function
+	for _, fn := range p.Funcs {
+		if fn.FuncName == "main" {
+			main = fn
+		}
+	}
+	patched := false
+	for pc := 0; pc < len(main.Code); pc += bytecode.Op(main.Code[pc]).Size() {
+		if bytecode.Op(main.Code[pc]) == bytecode.OpGetMember {
+			binary.LittleEndian.PutUint16(main.Code[pc+3:], 0) // the CALL_METHOD's slot
+			patched = true
+		}
+	}
+	if !patched {
+		t.Fatal("no GET_MEMBER in main")
+	}
+	if err := bytecode.Verify(p); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	m, err := vm.New(p, builtins.Lookup, &bytes.Buffer{}, strings.NewReader(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Run(nil); err != nil {
+		t.Errorf("run: %v", err)
+	}
+}

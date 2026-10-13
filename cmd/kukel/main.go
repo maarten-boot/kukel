@@ -70,11 +70,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return 2
 }
 
-func notYet(cmd string, milestone int, stderr io.Writer) int {
-	fmt.Fprintf(stderr, "kukel: %s is not implemented yet (milestone %d)\n", cmd, milestone)
-	return 2
-}
-
 // compileFiles parses and compiles source files into one program.
 func compileFiles(files []string) (*bytecode.Program, error) {
 	var parsed []*ast.File

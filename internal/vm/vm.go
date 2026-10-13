@@ -415,7 +415,7 @@ func (vm *VM) callOp(op bytecode.Op, f *frame, ip, sp int) error {
 		if err != nil {
 			return err
 		}
-		c.class, c.method = recv.AsObject().Class, m
+		c.class, c.method, c.field = recv.AsObject().Class, m, -1 // a method entry has no data member slot
 		return vm.invoke(m, recv, argc)
 	case bytecode.OpCallDirect:
 		return vm.callFunction(vm.prog.Funcs[operand], objectOf(vm.stack[vm.sp-argc-1]), nil, argc, false)
@@ -478,9 +478,9 @@ func cacheField(c *icEntry, obj value.Value, name string) {
 	}
 	k := obj.AsObject().Class
 	if i, ok := k.FieldIndex[name]; ok {
-		c.class, c.field = k, i
+		c.class, c.method, c.field = k, nil, i
 	} else {
-		c.class, c.field = nil, -1
+		c.class, c.method, c.field = nil, nil, -1
 	}
 }
 
