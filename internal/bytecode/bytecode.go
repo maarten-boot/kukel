@@ -327,6 +327,7 @@ const (
 	GlobalFunc                      // a function: Funcs[Func]
 	GlobalBuiltin                   // a built-in, looked up by name
 	GlobalClass                     // a class: Classes[Class]
+	GlobalNative                    // a function or class of a native module, looked up by its qualified name
 )
 
 // Global describes one global slot.

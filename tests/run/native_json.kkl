@@ -1,0 +1,28 @@
+// Native module json: encode and decode JSON (keys keep their order).
+use json;
+
+main() {
+    local doc = {"name": "Kukel", "version": [0, 2], "pi": 3.14159, "ratio": 2.0,
+                 "tags": ["fun", "tiny"], "parent": nil, "done": false};
+    local text = json::encode(doc);
+    println(text);
+    println(json::encode({"list": [1, {"a": []}], "empty": {}}, "  "));
+
+    local back = json::decode(text);
+    println(back["version"][1], typeof(back["ratio"]), back["tags"]);
+
+    // Numbers: ints when they have no fraction or exponent and fit in 64 bits.
+    println(json::decode("[1, -2, 3.0, 1e3, 9223372036854775808]"));
+    println(json::decode("\"tab\\tquote\\\" \\u00e9\""));
+
+    local wrong = ["[1, 2", "{\"a\": }", "[] []", "{1: 2}"];
+    for (local w in wrong)
+        try { json::decode(w); } catch (e) { println(e->kind + ":", e->message); }
+    local v = [1]; push(v, v);
+    foreach_bad([v, float("inf"), new Error("x")]);
+}
+
+foreach_bad(values) {
+    for (local v in values)
+        try { json::encode(v); } catch (e) { println(e->kind + ":", e->message); }
+}

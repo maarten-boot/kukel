@@ -38,6 +38,11 @@ type global struct {
 	class  *classInfo  // symClass
 	params *paramShape // symFunc
 	pos    token.Pos   // definition (zero for built-ins)
+
+	// A built-in or a name of a native module gets its global slot when it
+	// is first used; the VM links the slot by this name.
+	link  string
+	lkind bytecode.GlobalKind
 }
 
 // module is a name space of top-level names: the program's own files
@@ -91,7 +96,7 @@ func Compile(files []*ast.File, builtins []string) (prog *bytecode.Program, err 
 		}
 	}()
 	for _, name := range builtins {
-		c.universal[name] = &global{kind: symBuiltin, index: -1}
+		c.universal[name] = &global{kind: symBuiltin, index: -1, link: name, lkind: bytecode.GlobalBuiltin}
 	}
 	user := files
 	files = append([]*ast.File{preludeFile()}, files...)
@@ -264,10 +269,10 @@ func (c *compiler) addGlobal(name string, kind bytecode.GlobalKind, pos token.Po
 }
 
 // globalIndex returns the global slot of g, allocating one for a built-in
-// on first use.
-func (c *compiler) globalIndex(name string, g *global, pos token.Pos) int {
+// or a name of a native module on first use.
+func (c *compiler) globalIndex(g *global, pos token.Pos) int {
 	if g.index < 0 {
-		g.index = c.addGlobal(name, bytecode.GlobalBuiltin, pos)
+		g.index = c.addGlobal(g.link, g.lkind, pos)
 	}
 	return g.index
 }
@@ -1309,7 +1314,7 @@ func (c *compiler) loadGlobal(g *global, id *ast.Ident) {
 		c.pushValue(g.value, id.NamePos)
 		return
 	}
-	c.emit(bytecode.OpLoadGlobal, c.globalIndex(id.Name, g, id.NamePos))
+	c.emit(bytecode.OpLoadGlobal, c.globalIndex(g, id.NamePos))
 }
 
 // lvalue resolves the target of an assignment or ++/--. For x[i] it emits

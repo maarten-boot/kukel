@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/maarten-boot/kukel/internal/native"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files")
@@ -287,7 +289,8 @@ func TestASTError(t *testing.T) {
 func TestVersion(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"version"}, nil, &stdout, &stderr); code != 0 ||
-		!strings.HasPrefix(stdout.String(), "kukel ") || !strings.Contains(stdout.String(), "bytecode format") {
+		!strings.HasPrefix(stdout.String(), "kukel ") || !strings.Contains(stdout.String(), "bytecode format") ||
+		!strings.Contains(stdout.String(), "modules written in Go: json, strings, time\n") {
 		t.Errorf("version: exit %d, stdout %q", code, stdout.String())
 	}
 }
@@ -308,5 +311,46 @@ func TestUsage(t *testing.T) {
 	stderr.Reset()
 	if code := run([]string{"exec"}, nil, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "usage: kukel exec") {
 		t.Errorf("exec without a file: exit %d, stderr %q", code, stderr.String())
+	}
+}
+
+// TestReferenceDocumentsNativeModules keeps section 11 of docs/reference.md
+// complete: every function, class, constructor and member function of the
+// modules written in Go is described there.
+func TestReferenceDocumentsNativeModules(t *testing.T) {
+	text, err := os.ReadFile("../../docs/reference.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := string(text)
+	want := func(what string, forms ...string) {
+		for _, f := range forms {
+			if strings.Contains(doc, f) {
+				return
+			}
+		}
+		t.Errorf("%s is not described in docs/reference.md (looked for %q)", what, forms)
+	}
+	for _, name := range native.Names() {
+		m, _ := native.Lookup(name)
+		want("module "+name, "### "+name)
+		for f := range m.Funcs {
+			want(name+"::"+f, "`"+name+"::"+f+"(")
+		}
+		for k := range m.Consts {
+			want(name+"::"+k, "`"+name+"::"+k+"`")
+		}
+		for _, c := range m.Classes {
+			q := c.QualifiedName()
+			if c.New != nil {
+				want("new "+q, "`new "+q+"(")
+			}
+			for s := range c.Statics {
+				want(q+"::"+s, "`"+q+"::"+s+"(")
+			}
+			for meth := range c.Methods {
+				want(q+"::"+meth, "->"+meth+"(")
+			}
+		}
 	}
 }

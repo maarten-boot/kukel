@@ -9,7 +9,15 @@ type ClassObj struct {
 	Methods    map[string]*MethodObj // own and inherited member functions (overrides resolved)
 	Statics    []Value               // the class's own static data members
 	Ctor       *MethodObj            // C::C, else the nearest base class's constructor, or nil
+
+	// Native classes (written in Go) only: how str() shows an object, if
+	// not as a list of data members (a native class has none).
+	Show func(o *ObjectObj) string
 }
+
+// NativeMethod is a member function written in Go; this is nil for a
+// static one.
+type NativeMethod func(env Env, this *ObjectObj, args []Value) (Value, error)
 
 // MethodObj is a member function of a class.
 type MethodObj struct {
@@ -17,7 +25,15 @@ type MethodObj struct {
 	Class  *ClassObj // the class that declares it
 	Static bool
 	Fn     Named // the compiled function; nil if declared but not defined
+
+	// A member function of a native class: Native for an instance member
+	// function or constructor, Builtin for a static one (a plain function).
+	Native  NativeMethod
+	Builtin *BuiltinObj
 }
+
+// Defined reports whether m has code (a declared member function may not).
+func (m *MethodObj) Defined() bool { return m.Fn != nil || m.Native != nil || m.Builtin != nil }
 
 // FullName is "Class::name".
 func (m *MethodObj) FullName() string { return m.Class.Name + "::" + m.Name }
@@ -27,6 +43,7 @@ type ObjectObj struct {
 	Class  *ClassObj
 	Fields []Value
 	Native any // data the VM attaches (the stack trace of a thrown Error)
+	State  any // the Go value inside an object of a native class
 }
 
 // BoundMethodObj is a method together with the object it was taken from
@@ -75,8 +92,11 @@ func Member(p Value, name string, function func(Named) Value) (Value, error) {
 		return o.Fields[i], nil
 	}
 	if m, ok := o.Class.Methods[name]; ok {
-		if m.Fn == nil {
+		if !m.Defined() {
 			return NilValue, Errorf(MemberError, "%s is declared but not defined", m.FullName())
+		}
+		if m.Builtin != nil {
+			return MakeBuiltin(m.Builtin), nil
 		}
 		if m.Static {
 			return function(m.Fn), nil

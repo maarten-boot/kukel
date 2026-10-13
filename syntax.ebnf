@@ -73,9 +73,10 @@ use_declaration     = "use" , Identifier , ";" ;
                          initialized before those of the files that use it.
                          Modules may not use each other in a cycle; a file of
                          the program may not also be a module. A file uses a
-                         module once; the module name may not be a built-in,
-                         Error, or a top-level name of the using file's
-                         program or module. Names starting with "_" are
+                         module once; the module name may not be Error, or a
+                         top-level name of the using file's program or
+                         module (it may be a built-in's name: time::now()
+                         and time() do not mix up). Names starting with "_" are
                          private: name::_x is an error outside the module. *)
 
 definition          = class_definition
@@ -107,8 +108,9 @@ const_definition    = Identifier , "=" , conditional ;
 
 class_definition    = "class" , Identifier , [ ":" , [ Identifier , "::" ] , Identifier ] ,
                       "{" , { member_declaration } , "}" ;
-                      (* Rule: the base class must already be defined.
-                         No ";" after the closing brace. *)
+                      (* Rules: the base class must already be defined, and
+                         must not be a native class (a class of a module
+                         written in Go). No ";" after the closing brace. *)
 
 member_declaration  = [ "static" ] , Identifier ,
                       "(" , [ declared_parameters ] , ")" , ";"

@@ -246,6 +246,10 @@ func (v Value) write(b *strings.Builder, quote bool, open map[any]bool) {
 		b.WriteString("<class " + v.AsClass().Name + ">")
 	case Object:
 		o := v.AsObject()
+		if o.Class.Show != nil {
+			b.WriteString(o.Class.Show(o))
+			return
+		}
 		b.WriteString(o.Class.Name)
 		b.WriteByte('{')
 		for i, name := range o.Class.FieldNames {

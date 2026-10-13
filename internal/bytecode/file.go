@@ -32,7 +32,7 @@ import (
 // uv n + line entries (uv pc, uv line).
 
 // FormatVersion is the version of the .kkc format written by Encode.
-const FormatVersion = 2 // 2: milestone 12 superinstructions
+const FormatVersion = 3 // 2: milestone 12 superinstructions; 3: native modules (GlobalNative)
 
 const magic = "KUKL"
 

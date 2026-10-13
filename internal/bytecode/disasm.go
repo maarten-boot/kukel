@@ -21,6 +21,8 @@ func Disassemble(w io.Writer, p *Program) error {
 			dw.printf("  %4d  builtin  %s\n", i, g.Name)
 		case GlobalClass:
 			dw.printf("  %4d  class    %s\n", i, g.Name)
+		case GlobalNative:
+			dw.printf("  %4d  native   %s\n", i, g.Name)
 		}
 	}
 	for i, c := range p.Classes {

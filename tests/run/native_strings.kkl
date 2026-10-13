@@ -1,0 +1,23 @@
+// Native module strings: strings::Builder, a class written in Go.
+use strings;
+
+main() {
+    local b = new strings::Builder("squares:");
+    for (local i = 1; i <= 5; i++) b->add(" ", i * i);
+    println(b->str());
+    println(b->len(), b, typeof(b));
+
+    // add gives the builder back, so calls chain; a bound method works too.
+    local add = b->add;
+    add(" and", " more")->add("!");
+    println(b->str());
+
+    b->reset();
+    println(b->len(), "[" + b->str() + "]");
+
+    try {
+        b->size();
+    } catch (e) {
+        println(e->kind + ":", e->message);
+    }
+}

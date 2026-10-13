@@ -1,0 +1,30 @@
+// Native module time: time::Time with formats and time zones.
+use time;
+
+main() {
+    local launch = new time::Time(2026, 10, 14, 9, 30, 0);     // UTC
+    println(launch);
+    println(launch->format("%A %e %B %Y, %I:%M %p"), "| day", launch->yearday());
+
+    local ams = launch->inzone("Europe/Amsterdam");
+    println(ams->format("%H:%M %Z (%z)"), ams->zone(), ams->equal(launch));
+
+    local xmas = time::Time::parse("25 Dec 2026", "%d %b %Y");
+    local days = xmas->sub(launch) / 86400;
+    println("days to Christmas:", floor(days), xmas->after(launch));
+
+    local t = time::Time::parse("2026-03-29T01:59:59+00:00")->add(1);
+    println(t->inzone("Europe/Amsterdam"));                   // summer time starts
+
+    println(time::Time::fromunix(1e9), time::Time::fromunix(0)->unix());
+
+    local sorted = [xmas, launch, t];
+    sort(sorted, fn(a, b) { return a->before(b); });
+    for (local s in sorted) println(s->format("%Y-%m-%d"));
+
+    try {
+        time::Time::parse("2026-02-29", "%Y-%m-%d");
+    } catch (e) {
+        println(e->kind + ":", e->message);
+    }
+}

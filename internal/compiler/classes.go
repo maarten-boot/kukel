@@ -12,6 +12,7 @@ import (
 
 // classInfo is what the compiler knows about a class.
 type classInfo struct {
+	native  bool   // a class of a native module: no bytecode class, index -1
 	name    string // module::Class for a class of a module
 	local   string // the name in the class's module (and its constructor's name)
 	pos     token.Pos
@@ -45,6 +46,7 @@ type memberInfo struct {
 	fn     int         // memberMethod: index in Program.Funcs, -1 until defined
 	defPos token.Pos   // memberMethod: position of the definition
 	def    *paramShape // memberMethod: the definition's parameters
+	native *global     // a static member function of a native class
 }
 
 // lookup finds a member in k or its base classes.
@@ -108,6 +110,9 @@ func (c *compiler) declareClass(d *ast.ClassDecl) {
 			c.errorf(d.Base.NamePos, "base class %s is not defined (a base class must be defined before the classes derived from it)", d.Base.Name)
 		case g.kind != symClass:
 			c.errorf(d.Base.NamePos, "%s is not a class", d.Base.Name)
+		}
+		if g.class.native {
+			c.errorf(d.Base.NamePos, "class %s cannot derive from native class %s (native classes cannot be derived from yet)", d.Name.Name, g.class.name)
 		}
 		k.base = g.class
 		k.bc.Base = g.class.index
@@ -261,6 +266,8 @@ func (c *compiler) loadMember(m *memberInfo, pos token.Pos) {
 		c.emit(bytecode.OpLoadMember, m.field)
 	case m.kind == memberStatic:
 		c.emit(bytecode.OpLoadStatic, m.class.index, m.slot)
+	case m.native != nil:
+		c.emit(bytecode.OpLoadGlobal, c.globalIndex(m.native, pos))
 	case m.static:
 		c.emit(bytecode.OpLoadFunc, c.funcIndex(m, pos))
 	default: // a bound method this->m
@@ -358,6 +365,8 @@ func (c *compiler) loadStaticRef(e *ast.StaticRef) {
 		c.emit(bytecode.OpLoadStatic, m.class.index, m.slot)
 	case m.kind == memberField:
 		c.errorf(pos, "%s::%s is an instance data member: use an object (p->%s)", k.name, m.name, m.name)
+	case m.native != nil:
+		c.emit(bytecode.OpLoadGlobal, c.globalIndex(m.native, pos))
 	case m.static:
 		c.emit(bytecode.OpLoadFunc, c.funcIndex(m, pos))
 	default:
@@ -375,7 +384,7 @@ func (c *compiler) newClassValue(mod, id *ast.Ident) {
 		if g.kind != symClass && g.kind != symVar {
 			c.errorf(id.NamePos, "%s::%s is not a class", mod.Name, id.Name)
 		}
-		c.emit(bytecode.OpLoadGlobal, g.index)
+		c.emit(bytecode.OpLoadGlobal, c.globalIndex(g, id.NamePos))
 		return
 	}
 	if _, ok := c.lookupLocal(id.Name); ok {
@@ -393,7 +402,7 @@ func (c *compiler) newClassValue(mod, id *ast.Ident) {
 	if g.kind != symClass && g.kind != symVar {
 		c.errorf(id.NamePos, "%s is not a class", id.Name)
 	}
-	c.emit(bytecode.OpLoadGlobal, g.index)
+	c.emit(bytecode.OpLoadGlobal, c.globalIndex(g, id.NamePos))
 }
 
 // callArgs compiles the arguments of a call and the call instruction:

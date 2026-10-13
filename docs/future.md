@@ -79,8 +79,12 @@ sock->close();
   future `with` statement makes that safe. Garbage collection could close
   forgotten ones as a safety net (Go finalizers), but not as the plan.
 
+*Done (TODO.md Q36): `internal/native`; the modules `json`, `strings` and
+`time` use it. Native classes cannot be derived from yet.*
+
 **F-3** Is deriving from native classes needed from the start (GUI style
 "override `onClick`"), or are callbacks (`button->onClick(fn() {...})`) enough?
+*Answered: not from the start; callbacks first, deriving when the GUI needs it.*
 **F-4** A `with (local f = open(...)) { ... }` statement that closes
 automatically, or keep `try`/`finally`?
 
@@ -123,13 +127,19 @@ Kukel values turned into bytes and back:
 - Objects, functions and classes cannot travel; encoding them is an error
   (or objects become maps of their data members, **F-7**).
 
+*`json::encode`/`json::decode` are done (TODO.md Q36); a binary form is not.*
+
 **F-7** Can objects be encoded (as maps of their data members)?
+*Answered for now: no, encoding an object is a `TypeError`.*
 
 ### 1.5 A date and time type
 
 Databases and GUIs need dates. Today only `time()` (a float) exists. A
 `time::Time` native class (parse, format, arithmetic, time zones) would
 cover SQL `TIMESTAMP` columns and timers.
+
+*Done (TODO.md Q36): `time::Time`, with strftime-style formats and IANA time
+zones.*
 
 ### 1.6 Where modules come from
 
@@ -167,6 +177,9 @@ each, so no C compiler is needed:
 `kukel` stays one static binary that cross-compiles to Linux, macOS and
 Windows. Build tags can leave out the large modules (`go build -tags
 nogui`), and `kukel version` lists the modules a binary contains.
+
+*Done for `json`, `strings` and `time` (TODO.md Q36), and `kukel version`
+lists them; build tags come with the first large module.*
 
 **Foreign libraries (`.so` on Linux, `.dll` on Windows, `.dylib` on
 macOS).** For a C library that has no Go binding. Go offers four ways:

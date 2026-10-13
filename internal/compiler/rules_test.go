@@ -43,8 +43,11 @@ var ruleCases = map[string]struct {
 		},
 	},
 	"class_definition": {
-		ok:  []string{"class A {} class B : A {} class C : B {} main() {}"},
-		bad: [][2]string{{"class B : A {} class A {} main() {}", "base class A is not defined"}},
+		ok: []string{"class A {} class B : A {} class C : B {} main() {}"},
+		bad: [][2]string{
+			{"class B : A {} class A {} main() {}", "base class A is not defined"},
+			{"use nat; class B : nat::Box {} main() {}", "cannot derive from native class nat::Box"}, // nat: native_test.go
+		},
 	},
 	"declared_parameters": {elsewhere: "internal/parser TestErrors: \"a default value belongs in the definition\""},
 	"member_declaration": {

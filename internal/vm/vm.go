@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/maarten-boot/kukel/internal/bytecode"
+	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/value"
 )
 
@@ -138,6 +139,12 @@ func New(prog *bytecode.Program, builtins Builtins, stdout io.Writer, stdin io.R
 				return nil, fmt.Errorf("unknown built-in function %s", g.Name)
 			}
 			vm.globals[i] = value.MakeBuiltin(b)
+		case bytecode.GlobalNative:
+			v, ok := native.Global(g.Name)
+			if !ok {
+				return nil, fmt.Errorf("%s is not part of this kukel (the native module is missing)", g.Name)
+			}
+			vm.globals[i] = v
 		}
 	}
 	if err := vm.makeClasses(); err != nil {
@@ -324,19 +331,7 @@ func (vm *VM) callValue(argc int) error {
 		cl := callee.AsClosure()
 		return vm.callFunction(cl.Fn.(*bytecode.Function), cl.This, cl, argc, false)
 	case value.Builtin:
-		// The arguments are passed as a view of the stack, not a copy: a
-		// built-in must not keep the slice after it returns. The capacity
-		// is capped, so appending to it cannot overwrite the stack.
-		b := callee.AsBuiltin()
-		args := vm.stack[vm.sp-argc : vm.sp : vm.sp]
-		result, err := b.Fn(vm, args)
-		if err != nil {
-			return err
-		}
-		vm.sp -= argc + 1
-		vm.stack[vm.sp] = result
-		vm.sp++
-		return nil
+		return vm.callBuiltin(callee.AsBuiltin(), argc)
 	case value.Class:
 		name := callee.AsClass().Name
 		return value.Errorf(value.TypeError, "cannot call class %s (use new %s(...))", name, name)
@@ -344,16 +339,52 @@ func (vm *VM) callValue(argc int) error {
 	return value.Errorf(value.TypeError, "cannot call %s", callee.Kind())
 }
 
+// callGo runs a function written in Go (a built-in, or a member function
+// of a native class) on the top argc stack entries; its result replaces
+// them and the callee's place below them.
+//
+// The arguments are passed as a view of the stack, not a copy: the function
+// must not keep the slice after it returns. The capacity is capped, so
+// appending to it cannot overwrite the stack.
+func (vm *VM) callGo(argc int, fn func(args []value.Value) (value.Value, error)) error {
+	result, err := fn(vm.stack[vm.sp-argc : vm.sp : vm.sp])
+	if err != nil {
+		return err
+	}
+	vm.sp -= argc + 1
+	vm.stack[vm.sp] = result
+	vm.sp++
+	return nil
+}
+
+// callBuiltin calls built-in b (also a function of a native module).
+func (vm *VM) callBuiltin(b *value.BuiltinObj, argc int) error {
+	return vm.callGo(argc, func(args []value.Value) (value.Value, error) { return b.Fn(vm, args) })
+}
+
 // invoke calls member function m on recv (a static one without this).
 func (vm *VM) invoke(m *value.MethodObj, recv value.Value, argc int) error {
-	if m.Fn == nil {
-		return value.Errorf(value.MemberError, "%s is declared but not defined", m.FullName())
+	if m.Fn != nil {
+		var this *value.ObjectObj
+		if !m.Static {
+			this = objectOf(recv)
+		}
+		return vm.callFunction(m.Fn.(*bytecode.Function), this, nil, argc, false)
 	}
-	var this *value.ObjectObj
-	if !m.Static {
-		this = objectOf(recv)
+	return vm.invokeGo(m, recv, argc)
+}
+
+// invokeGo calls a member function of a native class (kept out of invoke,
+// whose path for Kukel code is the common one).
+func (vm *VM) invokeGo(m *value.MethodObj, recv value.Value, argc int) error {
+	switch {
+	case m.Native != nil:
+		this := objectOf(recv)
+		return vm.callGo(argc, func(args []value.Value) (value.Value, error) { return m.Native(vm, this, args) })
+	case m.Builtin != nil:
+		return vm.callGo(argc, func(args []value.Value) (value.Value, error) { return m.Builtin.Fn(vm, args) })
 	}
-	return vm.callFunction(m.Fn.(*bytecode.Function), this, nil, argc, false)
+	return value.Errorf(value.MemberError, "%s is declared but not defined", m.FullName())
 }
 
 // newObject runs new: the class is below the argc arguments; it is replaced
@@ -370,6 +401,15 @@ func (vm *VM) newObject(argc int) error {
 		if argc > 0 {
 			return value.Errorf(value.ArgumentError, "class %s has no constructor, so new %s() takes no arguments (got %d)", c.Name, c.Name, argc)
 		}
+		return nil
+	}
+	if c.Ctor.Native != nil {
+		// A native constructor fills in the object's Go value; new gives
+		// the object, whatever the constructor returns.
+		if _, err := c.Ctor.Native(vm, obj.AsObject(), vm.stack[vm.sp-argc:vm.sp:vm.sp]); err != nil {
+			return err
+		}
+		vm.sp -= argc
 		return nil
 	}
 	if c.Ctor.Fn == nil {

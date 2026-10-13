@@ -33,6 +33,7 @@ hello, Kukel
 8. [Classes and objects](#8-classes-and-objects)
 9. [Exceptions](#9-exceptions)
 10. [Built-in functions](#10-built-in-functions)
+11. [Modules written in Go: json, strings, time](#11-modules-written-in-go-json-strings-time)
 
 ---
 
@@ -215,8 +216,9 @@ geometry::Circle{r: 1}
   initializers run before those of the files that use it. A module name
   stands for one file in the whole program. Modules may not use each other
   in a cycle, and a file given on the command line cannot also be a module.
-- A module's name cannot be the name of a built-in or `Error`, nor a
-  top-level name of the program or module whose file uses it.
+- A module's name cannot be `Error`, nor a top-level name of the program or
+  module whose file uses it. It may be a built-in's name: `time::now()` and
+  `time()` do not mix up.
 - A class of a module is printed and named in messages with its module:
   `geometry::Circle`. Its constructor is still `Circle`.
 - `kukel build` stores the program and all its modules in one `.kkc` file;
@@ -567,3 +569,122 @@ with, an `ArgumentError`.
 | `clock()` | Seconds since the program started, as a float |
 | `getenv(name)` | The environment variable, or `nil` |
 | `exit([code])` | Ends the program at once with `code` (default 0) |
+
+---
+
+## 11. Modules written in Go: json, strings, time
+
+These modules are part of `kukel` (`kukel version` lists them). A program
+uses them like modules written in Kukel (see [Modules](#modules)): `use
+json;`, then `json::encode(v)`. No file is involved, and a file `json.kkl`
+does not replace them.
+
+Their classes are *native classes*: written in Go, their objects hold Go
+data and have member functions but no data members. `typeof` gives
+`"object"`, `classof` and `instanceof` work as for other classes, and `==`
+compares whether two values are the same object. A native class cannot
+(yet) be used as a base class, and a native class without a constructor
+has no `new`: its objects come from the module's functions.
+
+### json
+
+```
+use json;
+
+main() {
+    local text = json::encode({"name": "Kukel", "tags": ["fun"], "ratio": 2.0});
+    println(text);                          // {"name":"Kukel","tags":["fun"],"ratio":2.0}
+    println(json::decode(text)["tags"][0]); // fun
+}
+```
+
+| Function | Description |
+|---|---|
+| `json::encode(v [, indent])` | `v` as JSON text: `nil` is `null`, vectors are arrays, maps are objects in their order (number keys become their text). Floats keep a `.0` so they decode as floats again. With `indent` (a string such as `"  "`) the text spreads over lines. A function, class or object is a `TypeError`; `inf`, `nan`, a string that is not UTF-8, or a value that contains itself is a `ValueError` |
+| `json::decode(s)` | The value JSON text `s` stands for: objects become maps (in the order of the text; a repeated key keeps its first place and its last value), arrays vectors, a number without fraction or exponent that fits in 64 bits an int, any other number a float. Invalid JSON is a `ValueError` |
+
+### strings
+
+```
+use strings;
+
+main() {
+    local b = new strings::Builder();
+    for (local i = 0; i < 3; i++) b->add(i, ";");
+    println(b->str(), b->len());            // 0;1;2; 6
+}
+```
+
+`s += x` copies `s` every time; a builder does not.
+
+| Member function | Description |
+|---|---|
+| `new strings::Builder([s])` | An empty builder, or one starting with string `s` |
+| `b->add(x, ...)` | Appends the values as `print` writes them; gives `b`, so calls can be chained |
+| `b->str()` | The string built so far |
+| `b->len()` | Its length in bytes |
+| `b->reset()` | Empties the builder |
+
+A builder prints as `strings::Builder(6 bytes)`.
+
+### time
+
+```
+use time;
+
+main() {
+    local t = new time::Time(2026, 10, 14, 9, 30, 0);       // UTC
+    println(t->format("%d.%m.%Y %H:%M"), t->weekday());    // 14.10.2026 09:30 3
+    local xmas = time::Time::parse("2026-12-25", "%Y-%m-%d");
+    println(floor(xmas->sub(t) / 86400), "days");          // 71 days
+    println(t->inzone("Asia/Tokyo"));                       // time::Time(2026-10-14T18:30:00+09:00)
+}
+```
+
+A `time::Time` is an instant together with a time zone. Time zones are
+names from the IANA database (`"Europe/Amsterdam"`, `"UTC"`, `"Local"`
+for the system's zone); `kukel` carries the database, so they work on
+every system. Durations are seconds (ints or floats). A time prints as
+`time::Time(2026-10-14T09:30:00Z)` (RFC 3339).
+
+| Function | Description |
+|---|---|
+| `time::now()` | The current time, in the local time zone |
+| `time::sleep(seconds)` | Waits that long (`ValueError` if negative) |
+| `new time::Time(year, month, day [, hour, minute, second [, zone]])` | That time in `zone` (default `"UTC"`); `second` may have a fraction. Values out of range carry over (month 13 is January of the next year) |
+| `time::Time::parse(text [, format [, zone]])` | The time `text` stands for: without `format` in RFC 3339 (`"2026-10-14T09:30:00+02:00"`), else by `format` (below). A text without an offset is in `zone` (default `"UTC"`). A text that does not match, or a date that does not exist (`"2026-02-30"`), is a `ValueError` |
+| `time::Time::fromunix(seconds)` | The time that many seconds after 1970-01-01 00:00 UTC, in UTC |
+
+| Member function | Description |
+|---|---|
+| `t->year()`, `t->month()`, `t->day()` | The date: 2026, 1 to 12, 1 to 31 |
+| `t->hour()`, `t->minute()`, `t->second()`, `t->nanosecond()` | The time of day |
+| `t->weekday()` | 0 (Sunday) to 6 (Saturday) |
+| `t->yearday()` | 1 to 366 |
+| `t->zone()` | The zone's name (`"Europe/Amsterdam"`, or an offset such as `"+02:00"` for a time parsed with one) |
+| `t->offset()` | Seconds east of UTC (7200 for CEST) |
+| `t->unix()` | Seconds since 1970-01-01 00:00 UTC, as a float |
+| `t->format([format])` | The time as text: without `format` in RFC 3339, else by `format` (below) |
+| `t->add(seconds)` | The time that many seconds later (earlier if negative) |
+| `t->sub(u)` | The seconds from `u` to `t`, as a float |
+| `t->before(u)`, `t->after(u)`, `t->equal(u)` | Compare instants (`equal` ignores the zone; `==` compares objects) |
+| `t->compare(u)` | -1, 0 or 1 |
+| `t->utc()`, `t->local()`, `t->inzone(zone)` | The same instant in UTC, the local zone, or `zone` |
+
+**Formats** use `%` directives; any other character stands for itself:
+
+| | | |
+|---|---|---|
+| `%Y` year (2026) | `%m` month (01-12) | `%d` day (01-31) |
+| `%e` day, padded with a space | `%H` hour (00-23) | `%I` hour (01-12) |
+| `%M` minute (00-59) | `%S` second (00-60) | `%f` microseconds (000000-999999) |
+| `%p` AM or PM | `%y` year (00-99) | `%j` day of the year (001-366) |
+| `%b` month (Jan) | `%B` month (January) | `%a` weekday (Mon) |
+| `%A` weekday (Monday) | `%z` offset (+0200) | `%Z` zone abbreviation (CEST) |
+| `%%` a `%` | | |
+
+`parse` takes the same directives, except `%Z` (abbreviations are
+ambiguous; use `%z`). Numbers may have fewer digits than shown, `%f` reads
+1 to 9 digits as a fraction of a second, `%z` also reads `Z`, `+02` and
+`+02:00`, `%y` reads 69-99 as 1969-1999 and 00-68 as 2000-2068, and names
+are read in any case. An unknown directive is a `ValueError`.

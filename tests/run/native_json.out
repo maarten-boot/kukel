@@ -1,0 +1,20 @@
+{"name":"Kukel","version":[0,2],"pi":3.14159,"ratio":2.0,"tags":["fun","tiny"],"parent":null,"done":false}
+{
+  "list": [
+    1,
+    {
+      "a": []
+    }
+  ],
+  "empty": {}
+}
+2 float ["fun", "tiny"]
+[1, -2, 3.0, 1000.0, 9.223372036854776e+18]
+tab	quote" é
+ValueError: json::decode: invalid JSON: unexpected end of text
+ValueError: json::decode: invalid JSON at byte 6: invalid character '}' looking for beginning of value
+ValueError: json::decode: invalid JSON at byte 4: text after the value
+ValueError: json::decode: invalid JSON at byte 1: invalid character '1'
+ValueError: json::encode: the value contains itself
+ValueError: json::encode: inf has no JSON form
+TypeError: json::encode: cannot encode object as JSON

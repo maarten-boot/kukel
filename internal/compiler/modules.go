@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	"github.com/maarten-boot/kukel/internal/ast"
+	"github.com/maarten-boot/kukel/internal/bytecode"
+	"github.com/maarten-boot/kukel/internal/native"
 )
 
 // fileScope sets up the scope of file f: the prelude (first) defines the
@@ -23,13 +25,19 @@ func (c *compiler) fileScope(f *ast.File, prelude bool) *fileScope {
 // use makes module d.Name visible in the current file as name::x.
 func (c *compiler) use(d *ast.UseDecl) {
 	name := d.Name.Name
-	if g, ok := c.universal[name]; ok {
-		if g.kind == symBuiltin {
-			c.errorf(d.Name.NamePos, "a module cannot have the name of built-in function %s", name)
-		}
+	// A module may share a built-in's name (time::now() and time() do not
+	// mix up), but not the prelude's class Error, so that Error::x stays
+	// unambiguous.
+	if g, ok := c.universal[name]; ok && g.kind != symBuiltin {
 		c.errorf(d.Name.NamePos, "a module cannot have the name %s, defined at %s", name, g.pos)
 	}
 	m, ok := c.modules[name]
+	if !ok {
+		if nm, isNative := native.Lookup(name); isNative {
+			m, ok = c.nativeModule(nm), true
+			c.modules[name] = m
+		}
+	}
 	switch {
 	case name == c.file.mod.name:
 		c.errorf(d.Name.NamePos, "module %s cannot use itself", name)
@@ -104,4 +112,41 @@ func (c *compiler) moduleMember(mod, name *ast.Ident) *global {
 // isModuleRef reports whether e is module::name rather than Class::name.
 func (c *compiler) isModuleRef(e *ast.StaticRef) bool {
 	return e.Module == nil && c.usedModule(e.Class) != nil
+}
+
+// nativeModule makes the name space of a module written in Go. Its
+// functions, classes and static member functions get global slots when
+// they are used; constants are compiled in.
+func (c *compiler) nativeModule(nm *native.Module) *module {
+	m := &module{name: nm.Name, names: map[string]*global{}}
+	link := func(name string) *global {
+		return &global{kind: symBuiltin, index: -1, link: name, lkind: bytecode.GlobalNative}
+	}
+	for name := range nm.Funcs {
+		m.names[name] = link(nm.Name + "::" + name)
+	}
+	for name, v := range nm.Consts {
+		m.names[name] = &global{kind: symConst, value: v}
+	}
+	for _, nc := range nm.Classes {
+		k := &classInfo{native: true, name: nc.QualifiedName(), local: nc.Name, index: -1, members: map[string]*memberInfo{}}
+		member := func(name string, static bool) *memberInfo {
+			mi := &memberInfo{name: name, kind: memberMethod, class: k, static: static, fn: -1}
+			k.members[name] = mi
+			return mi
+		}
+		for name := range nc.Methods {
+			member(name, false)
+		}
+		for name := range nc.Statics {
+			member(name, true).native = link(k.name + "::" + name)
+		}
+		if nc.New != nil {
+			member(nc.Name, false)
+		}
+		g := link(k.name)
+		g.kind, g.class = symClass, k
+		m.names[nc.Name] = g
+	}
+	return m
 }

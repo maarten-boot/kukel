@@ -11,6 +11,7 @@ import (
 
 	"github.com/maarten-boot/kukel/internal/ast"
 	"github.com/maarten-boot/kukel/internal/diag"
+	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/parser"
 )
 
@@ -21,8 +22,10 @@ const Ext = ".kkl"
 // them in compile order: each module before the files that use it, then
 // the program's files in the order given.
 //
-// Module name is the file name.kkl, looked up first in the directory of the
-// file that uses it, then in the directories of path (KUKEL_PATH). A name
+// Module name is a module written in Go (package native) if one is
+// registered under that name; else the file name.kkl, looked up first in
+// the directory of the file that uses it, then in the directories of path
+// (KUKEL_PATH). A name
 // stands for one file in the whole program; modules may not use each other
 // in a cycle.
 func Load(files []string, path []string) ([]*ast.File, error) {
@@ -66,6 +69,9 @@ func (l *loader) uses(f *ast.File, chain []string) error {
 			continue
 		}
 		name := u.Name.Name
+		if _, ok := native.Lookup(name); ok {
+			continue // written in Go: nothing to load
+		}
 		file, err := l.find(name, filepath.Dir(f.Name))
 		if err != nil {
 			return diag.Errorf(u.Name.NamePos, "%v", err)

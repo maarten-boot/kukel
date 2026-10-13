@@ -5,8 +5,10 @@ import (
 	"io"
 	"runtime"
 	"runtime/debug"
+	"strings"
 
 	"github.com/maarten-boot/kukel/internal/bytecode"
+	"github.com/maarten-boot/kukel/internal/native"
 )
 
 // version is set by the Makefile (-ldflags "-X main.version=..."); without
@@ -48,5 +50,6 @@ func versionText() string {
 
 func cmdVersion(stdout io.Writer) int {
 	fmt.Fprintln(stdout, versionText())
+	fmt.Fprintln(stdout, "modules written in Go:", strings.Join(native.Names(), ", "))
 	return 0
 }

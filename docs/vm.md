@@ -5,7 +5,7 @@ values, the program image, the execution model of the stack machine, every
 instruction, how the compiler translates the language's constructs, the
 `.kkc` file format and what the loader guarantees.
 
-It describes bytecode format version **2** (kukel v0.1.1). The language
+It describes bytecode format version **3** (kukel v0.2). The language
 itself is described in [reference.md](reference.md), its grammar in
 [syntax.ebnf](../syntax.ebnf).
 
@@ -41,6 +41,7 @@ source files ──loader (lexer, parser)──▶ syntax trees ──compiler�
 | `internal/vm` | the stack machine |
 | `internal/value` | run-time values and the semantics of the operators |
 | `internal/builtins` | built-in functions |
+| `internal/native`, `internal/modules/...` | modules written in Go (`json`, `strings`, `time`) and their native classes |
 
 The compiler checks everything the language requires at compile time; the
 VM checks the rest at run time and turns every failure into a Kukel
@@ -66,9 +67,9 @@ Go interface value, two words). Numbers and booleans never allocate.
 | map | `*MapObj` | insertion-ordered; keys normalized so 1 and 1.0 are one key |
 | function | `*bytecode.Function` | a top-level or static member function |
 | closure | `*ClosureObj` | function + captured cells + `this` |
-| builtin | `*BuiltinObj` | a Go function |
+| builtin | `*BuiltinObj` | a Go function (a built-in, or a function of a native module) |
 | class | `*ClassObj` | run-time class (section 4.7) |
-| object | `*ObjectObj` | class + data member slots |
+| object | `*ObjectObj` | class + data member slots; an object of a native class holds a Go value instead (`State`) |
 | bound method | object + method | the value of `p->m` |
 | *iterator* | internal | state of a for-each loop, only in hidden slots |
 | *cell* | internal | a captured variable, only in slots (section 4.8) |
@@ -88,7 +89,7 @@ and what the VM runs:
 
 | Part | Contents |
 |---|---|
-| `Globals` | the global slots: name and kind (variable, function, built-in, class) and, for functions and classes, an index into `Funcs` or `Classes`. Names of a module's top-level names are qualified (`geometry::hypot`) |
+| `Globals` | the global slots: name and kind (variable, function, built-in, class, native) and, for functions and classes, an index into `Funcs` or `Classes`. A *native* global is a function, static member function or class of a module written in Go, named by its qualified name (`json::encode`, `time::Time::parse`, `time::Time`). Names of a module's top-level names are qualified (`geometry::hypot`) |
 | `Classes` | name (`module::Class` for a class of a module), base class index (a base always comes before its derived classes), own data members, own static data members, own member functions (name, static flag, function index or −1 if declared but not defined) |
 | `Funcs` | all functions: top-level functions, member functions, function literals |
 | `Init` | the function that runs the global initializers |
@@ -192,18 +193,20 @@ What a call instruction calls:
 | closure | a frame with the closure's cells and its `this` |
 | bound method | the method on the bound object (a static method without `this`) |
 | built-in | the Go function runs at once; its result replaces callee and arguments |
+| bound method of a native class | the same, with the Go value of the object |
 | class | `TypeError` (use `new`) |
 | anything else | `TypeError: cannot call ...` |
 
-**Built-ins** receive their arguments as a view of the stack (no copy).
+**Built-ins** (and member functions of native classes) receive their
+arguments as a view of the stack (no copy).
 They must not keep that slice after returning. A built-in can call back
 into Kukel (`sort` calls its comparator): that runs a nested execution on
 top of the same stack (section 4.9 explains how exceptions cross it).
 
 ### 4.4 Program start
 
-1. Functions, built-ins and classes are bound to their global slots; global
-   variables are nil.
+1. Functions, built-ins, classes and native names are bound to their global
+   slots (built-ins and native names by name); global variables are nil.
 2. `Init` runs: the global initializers, in program order.
 3. `main` is called, with one argument (a vector of the command-line
    arguments as strings) if it has any parameter.
@@ -243,6 +246,18 @@ created). `new C(args)` (`NEW`) creates the object, puts it in the callee's
 place and calls the constructor with `this` = the object; without a
 constructor it takes no arguments. The constructor's frame returns the
 object.
+
+**Native classes** (written in Go, package `internal/native`) are not in the
+image: a native global names them, and the VM uses the run-time class the
+Go module built once, shared by all programs. Such a class has no data
+members and no statics. Its member functions are Go functions:
+`CALL_METHOD`, `GET_MEMBER` and bound methods run them like built-ins, with
+the object; a static one is a built-in (`p->parse` gives it). Its
+constructor is a Go function that `NEW` runs at once to fill in the
+object's Go value, after which `NEW` leaves the object (there is no
+constructor frame). A native class without a constructor cannot be used
+with `new`; its objects come from its module's functions. The compiler
+refuses a native class as a base class.
 
 ### 4.8 Closures and cells
 
@@ -659,10 +674,10 @@ noted; `str` is a `uv` length followed by that many bytes.
 
 ```
 "KUKL"                       4 bytes: magic
-uv   format version          2
+uv   format version          3
 uv   flags                   0
 uv   main                    global index of main
-uv   n, then n globals       str name, byte kind (0 variable, 1 function, 2 built-in, 3 class),
+uv   n, then n globals       str name, byte kind (0 variable, 1 function, 2 built-in, 3 class, 4 native),
                              uv function or class index (0 for the others)
 uv   n, then n classes       str name, uv base+1 (0: none),
                              uv n + str (own data members), uv n + str (own static data members),
@@ -688,11 +703,13 @@ uv   n + line entries        uv pc, uv line
 
 **Versions**: the format version changes whenever the instruction set or the
 layout changes (version 2: milestone 12's superinstructions and inline
-cache slots). A reader refuses any version other than its own, telling the
-user to compile the program again. Built-ins are referred to by name, so a
-program that uses a built-in the running `kukel` does not have is refused
-when the VM is set up to run it (`kukel exec`), as is a program without the
-prelude's `Error` class; `Decode` and `kukel disasm` accept such files.
+cache slots; version 3: native globals). A reader refuses any version other
+than its own, telling the user to compile the program again. Built-ins and
+the names of native modules are referred to by name, so a program that uses
+one the running `kukel` does not have is refused when the VM is set up to
+run it (`kukel exec`), as is a program without the prelude's `Error` class;
+`Decode` and `kukel disasm` accept such files. A program's modules written
+in Kukel are inside the file (section 6.1).
 
 ---
 

@@ -98,6 +98,12 @@ func (c *compiler) checkNew(e *ast.NewExpr) {
 	if k == nil {
 		return
 	}
+	if k.native {
+		if k.constructor() == nil {
+			c.errorf(e.New, "native class %s has no constructor: its objects come from the functions of its module", k.name)
+		}
+		return // the constructor checks its arguments when it runs
+	}
 	ctor := k.constructor()
 	switch {
 	case ctor == nil:

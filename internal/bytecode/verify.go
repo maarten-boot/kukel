@@ -24,7 +24,7 @@ func Verify(p *Program) error {
 	}
 	for i, g := range p.Globals {
 		switch g.Kind {
-		case GlobalVar, GlobalBuiltin:
+		case GlobalVar, GlobalBuiltin, GlobalNative:
 		case GlobalFunc:
 			if g.Func < 0 || g.Func >= len(p.Funcs) {
 				return fmt.Errorf("invalid bytecode: global %s: bad function %d", g.Name, g.Func)
