@@ -1,4 +1,4 @@
-// Lark grammar for Kukel syntax version 2 (syntax.ebnf).
+// Lark grammar for Kukel (syntax.ebnf, syntax version 2; kukel v0.1).
 //
 // Intended for:  Lark(grammar, parser="lalr", lexer="contextual")
 // (the default lexer for LALR; the start rule is "start"). The contextual
@@ -19,6 +19,13 @@
 //  * Expected shift/reduce conflicts, all resolved by shift as the language
 //    wants: the dangling else; a ? b : c = d  (is  a ? b : (c = d));
 //    p->m(...)  (a method call, not a call of the data member p->m).
+//
+// Smaller differences in what is accepted:
+//  * A label's ":" may only follow the name after spaces or tabs here; Kukel
+//    also allows a comment in between (a /*c*/ : while ...).
+//  * Lark reads text as Unicode, Kukel as bytes: a character literal such as
+//    'é' (two UTF-8 bytes) is accepted here and rejected by Kukel. A raw NUL
+//    byte, which ends its line in Kukel, is not handled.
 //
 // The "Rule:" checks of syntax.ebnf (lvalues, label scope, constant
 // expressions, default parameter order, ...) are semantic and are not
@@ -306,11 +313,11 @@ FLOAT.2: /[0-9](?:_?[0-9])*\.(?:[0-9](?:_?[0-9])*)?(?:[eE][+-]?[0-9](?:_?[0-9])*
        | /[0-9](?:_?[0-9])*[eE][+-]?[0-9](?:_?[0-9])*/
 
 // Exactly one (possibly escaped) character; the quote is written '\''.
-CHARACTER: /'(?:\\x[0-9A-Fa-f]{1,2}|\\[ntr0\\"']|[^\\'])'/
+CHARACTER: /'(?:\\x[0-9A-Fa-f]{1,2}|\\[ntr0\\\\"']|[^\\'])'/
 
 // Any length, may span lines. Escapes: \n \t \r \0 \\ \" \' \xH[H]; any
 // other escape is an error.
-STRING: /"(?:[^"\\]|\\x[0-9A-Fa-f]{1,2}|\\[ntr0\\"'])*"/
+STRING: /"(?:[^"\\]|\\x[0-9A-Fa-f]{1,2}|\\[ntr0\\\\"'])*"/
 
 // ---- Skip -----------------------------------------------------------
 

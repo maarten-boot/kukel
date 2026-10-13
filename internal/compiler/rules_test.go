@@ -20,8 +20,11 @@ var ruleCases = map[string]struct {
 	elsewhere string
 }{
 	"program": {
-		ok: []string{"global a; f() {} class C {} const K = 1; main() {}"},
+		ok: []string{"global a; f() {} class C {} const K = 1; main() {}", "main(args) { local len = 1; }"},
 		bad: [][2]string{
+			{"f() {}", "the program has no main function"},
+			{"main(a, b) {}", "main takes at most one parameter"},
+			{"class Error {} main() {}", "Error is already defined"},
 			{"f() {} f() {} main() {}", "f is already defined"},
 			{"class f {} f() {} main() {}", "f is already defined"},
 			{"global print; main() {}", "print is a built-in function and cannot be redefined"},
@@ -43,6 +46,15 @@ var ruleCases = map[string]struct {
 		bad: [][2]string{{"class B : A {} class A {} main() {}", "base class A is not defined"}},
 	},
 	"declared_parameters": {elsewhere: "internal/parser TestErrors: \"a default value belongs in the definition\""},
+	"member_declaration": {
+		ok: []string{"class A { f(); static g(); } class B : A { f(); static g(); } main() {}"},
+		bad: [][2]string{
+			{"class A { x; x(); } main() {}", "member x is already declared in class A"},
+			{"class A { f(); } class B : A { static f(); } main() {}", "conflicts with f declared in base class A"},
+			{"class A { x; } class B : A { x; } main() {}", "conflicts with x declared in base class A"},
+			{"class A { static A(); } main() {}", "the constructor A::A cannot be static"},
+		},
+	},
 	"function_definition": {
 		ok: []string{"class A { m(a, b..); static s(); } A::m(x, y..) {} A::s() {} main() {}"},
 		bad: [][2]string{
@@ -124,8 +136,12 @@ var ruleCases = map[string]struct {
 		bad: [][2]string{{"main() { ++1; }", "cannot assign to this expression"}, {"class A { m(); } A::m() { --this; } main() {}", "cannot assign to this expression"}},
 	},
 	"postfix_operator": {
-		ok:  []string{"main(; x) { x = [1]; x[0]++; x--; }"},
-		bad: [][2]string{{"f() {} main() { f()++; }", "cannot assign to this expression"}},
+		ok: []string{"main(; x) { x = [1]; x[0]++; x--; }", "f(a) {} main(; g) { g = f; g(); }"},
+		bad: [][2]string{
+			{"f() {} main() { f()++; }", "cannot assign to this expression"},
+			{"f(a) {} main() { f(); }", "f expects 1 argument(s), got 0"},
+			{"class A { A(x); } A::A(x) {} class B : A { } main() { new B(); }", "A::A expects 1 argument(s), got 0"},
+		},
 	},
 	"argument": {elsewhere: "internal/vm TestRuntimeErrors: \"spread of a non-vector\""},
 	"primary": {
@@ -134,6 +150,8 @@ var ruleCases = map[string]struct {
 			{"main() { return y; }", "undefined name y"},
 			{"main() { this; }", "'this' is only available in member functions"},
 			{"class A { static s(); } A::s() { local f = fn() { this; }; } main() {}", "is not available in static member function"},
+			{"class A { m(); } A::m() {} main() { A::m(); }", "A::m is not static"},
+			{"class A { m(x..); } A::m(x..) {} class B : A { g(); } B::g() { A::m([1]..); } main() {}", "spread arguments are not supported"},
 		},
 	},
 	"map_entry": {elsewhere: "internal/vm TestRuntimeErrors: \"bad map key in a literal\"; internal/value TestMapKeys"},

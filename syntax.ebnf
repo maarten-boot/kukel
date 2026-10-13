@@ -1,5 +1,5 @@
 (*
-   Kukel syntax, version 2.
+   Kukel syntax, as implemented by kukel v0.1 (syntax version 2).
 
    Notation: ISO/IEC 14977 EBNF.
        =  definition        ;  end of rule        |  alternative
@@ -9,8 +9,12 @@
    Rules whose names start with an upper-case letter are lexical (tokens).
    Between tokens, white space and comments may appear (see Skip).
    Comments marked "Rule:" state checks the compiler makes beyond the grammar.
+   What programs mean is described in docs/reference.md; how they are
+   compiled and run in docs/vm.md.
 
-   Changes from version 1:
+   History: syntax version 2 changed version 1 as follows (later changes,
+   such as inherited constructors and compile-time argument checks, are
+   rules, not syntax, and appear in the rules below):
      - "this" is a keyword (an expression); "const", "fn", "global" and
        "in" are new keywords.
      - Globals are declared with "global"; using an undeclared name is a
@@ -37,9 +41,13 @@ start               = program ;
                       (* The start symbol: a source file. *)
 
 program             = { definition } ;
-                      (* Rule: all top-level names (globals, constants,
-                         functions, classes) and the built-ins share one
-                         name space; each name is defined once. *)
+                      (* Rules: all top-level names (globals, constants,
+                         functions, classes), the built-ins and the
+                         prelude's class Error share one name space; each
+                         name is defined once. (Locals, parameters and
+                         members may reuse a built-in's name: they hide it
+                         where they are visible.) The program defines a
+                         function main with at most one parameter. *)
 
 definition          = class_definition
                     | function_definition
@@ -78,6 +86,12 @@ member_declaration  = [ "static" ] , Identifier ,
                                               (* a (static) member function *)
                     | [ "static" ] , Identifier , { "," , Identifier } , ";" ;
                                               (* (static) data members *)
+                      (* Rules: a member name is declared once in a class.
+                         A class may redeclare a member function of a base
+                         class (overriding it) if both are static or both
+                         are not; any other reuse of a base class member's
+                         name is an error. The constructor (the member
+                         function named like the class) cannot be static. *)
 
 declared_parameters = Identifier , { "," , Identifier } , [ ".." ] ;
                       (* Names are documentation only. Rule: a default value
@@ -264,10 +278,12 @@ multiplicative      = unary , { ( "*" | "/" | "%" ) , unary } ;
 unary               = ( "-" | "!" | "~" ) , unary
                     | ( "++" | "--" ) , unary       (* Rule: an lvalue *)
                     | postfix ;
-                    (* "-" directly followed by an Integer, Float or
-                       Character literal is folded into one negative literal;
-                       this allows -9223372036854775808. "--x" is a
-                       decrement; write "- -x" for a double negation. *)
+                    (* "-" followed by an Integer, Float or Character
+                       literal (white space and comments may come between)
+                       is folded into one negative literal, unless a postfix
+                       operator follows the literal (-5[0] is -(5[0])); this
+                       allows -9223372036854775808. "--x" is a decrement;
+                       write "- -x" for a double negation. *)
 
 postfix             = primary , { postfix_operator } ;
 
@@ -281,7 +297,13 @@ postfix_operator    = "(" , [ arguments ] , ")"                      (* call *)
                        e->x names a data member of the object; if the class
                        has no such data member but a method x, the value is
                        a bound method (e->x() calls it later) that cannot be
-                       assigned to. Static members are reached as C::x only. *)
+                       assigned to. Static data members are reached as C::x
+                       only; a static member function can also be called as
+                       e->f(...). Rule: a call whose callee is known when
+                       compiling (a top-level function, C::f(...) of a static
+                       member function, Base::m(...), new C(...)) with the
+                       wrong number of arguments is a compile error; other
+                       calls are checked when they run. *)
 
 arguments           = argument , { "," , argument } ;
 
@@ -298,8 +320,9 @@ primary             = "(" , expression , ")"
                     | map_literal
                     | new_expression
                     | function_literal
-                    | Identifier , "::" , Identifier      (* static member or
-                                                             static function *)
+                    | Identifier , "::" , Identifier      (* static member,
+                                                             static function, or
+                                                             Base::m(...) *)
                     | Identifier ;
                     (* An identifier is, in order: a block local, a
                        parameter, a temporary, a variable of an enclosing
@@ -308,7 +331,11 @@ primary             = "(" , expression , ")"
                        function, class, built-in). Rules: an identifier that
                        is none of these is a compile error; 'this' only in
                        a non-static member function (or a function literal
-                       inside one). *)
+                       inside one). C::m(...) with a non-static member
+                       function m calls C's m on the current this, not
+                       virtually; it is allowed only in member functions of C
+                       or of a class derived from it, and without spread
+                       arguments. *)
 
 new_expression      = "new" , Identifier , "(" , [ arguments ] , ")" ;
                       (* A class name, or a variable holding a class.
@@ -344,7 +371,7 @@ map_entry           = conditional , ":" , assignment ;
    4. Lexical grammar (tokens)
    ====================================================================== *)
 
-Identifier          = ( Letter | "_" ) , { Letter | Digit | "_" } - Keyword ;
+Identifier          = ( ( Letter | "_" ) , { Letter | Digit | "_" } ) - Keyword ;
                       (* at most 255 characters; case sensitive *)
 
 Keyword             = "break" | "case" | "catch" | "class" | "const" | "continue"
