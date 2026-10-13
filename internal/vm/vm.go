@@ -8,6 +8,7 @@ package vm
 import (
 	"fmt"
 	"io"
+	"math"
 	"strings"
 
 	"kukel/internal/bytecode"
@@ -54,6 +55,7 @@ type frame struct {
 	fn   *bytecode.Function
 	ip   int // next instruction (saved while the frame calls another)
 	base int // first slot
+	argc int // arguments passed (for JUMP_IF_ARG)
 }
 
 // VM runs one program.
@@ -110,7 +112,7 @@ func (vm *VM) Run(args []string) (int, error) {
 	}
 	main := vm.globals[vm.prog.Main]
 	var mainArgs []value.Value
-	if f, ok := main.Obj().(*bytecode.Function); ok && f.NumParams == 1 {
+	if f, ok := main.Obj().(*bytecode.Function); ok && f.ParamSlots() > 0 {
 		elems := make([]value.Value, len(args))
 		for i, a := range args {
 			elems[i] = value.MakeString(a)
@@ -169,19 +171,31 @@ func (vm *VM) callValue(argc int) error {
 	switch callee.Kind() {
 	case value.Function:
 		fn := callee.Obj().(*bytecode.Function)
-		if argc != fn.NumParams {
-			return value.Errorf(value.ArgumentError, "%s expects %d argument(s), got %d", fn.FuncName, fn.NumParams, argc)
+		maxArgs := fn.NumParams + fn.NumOptional
+		if argc < fn.NumParams || (argc > maxArgs && !fn.HasRest) {
+			return argCountError(fn, argc)
 		}
 		if len(vm.frames) >= MaxFrames {
 			return value.Errorf(value.StackOverflow, "stack overflow (more than %d nested calls)", MaxFrames)
 		}
 		base := vm.sp - argc
-		vm.ensure(fn.NumSlots - argc + fn.MaxStack)
+		var rest []value.Value
+		if fn.HasRest {
+			rest = []value.Value{}
+			if argc > maxArgs {
+				rest = append(rest, vm.stack[base+maxArgs:vm.sp]...)
+				vm.sp = base + maxArgs
+			}
+		}
+		vm.ensure(fn.NumSlots + fn.MaxStack)
 		for i := vm.sp; i < base+fn.NumSlots; i++ {
 			vm.stack[i] = value.NilValue
 		}
+		if fn.HasRest {
+			vm.stack[base+maxArgs] = value.MakeVector(rest)
+		}
 		vm.sp = base + fn.NumSlots
-		vm.frames = append(vm.frames, frame{fn: fn, base: base})
+		vm.frames = append(vm.frames, frame{fn: fn, base: base, argc: argc})
 		return nil
 	case value.Builtin:
 		b := callee.AsBuiltin()
@@ -197,6 +211,34 @@ func (vm *VM) callValue(argc int) error {
 		return nil
 	}
 	return value.Errorf(value.TypeError, "cannot call %s", callee.Kind())
+}
+
+func argCountError(fn *bytecode.Function, argc int) error {
+	switch {
+	case fn.HasRest:
+		return value.Errorf(value.ArgumentError, "%s expects at least %d argument(s), got %d", fn.FuncName, fn.NumParams, argc)
+	case fn.NumOptional > 0:
+		return value.Errorf(value.ArgumentError, "%s expects %d to %d arguments, got %d",
+			fn.FuncName, fn.NumParams, fn.NumParams+fn.NumOptional, argc)
+	}
+	return value.Errorf(value.ArgumentError, "%s expects %d argument(s), got %d", fn.FuncName, fn.NumParams, argc)
+}
+
+// spread replaces the vector on top of the stack by its elements and
+// returns how many there are.
+func (vm *VM) spread() (int, error) {
+	v := vm.stack[vm.sp-1]
+	if v.Kind() != value.Vector {
+		return 0, value.Errorf(value.TypeError, "cannot spread %s (a vector is needed)", v.Kind())
+	}
+	elems := v.AsVector().Elems
+	if len(elems) > math.MaxUint16 {
+		return 0, value.Errorf(value.ArgumentError, "too many arguments (%d) in a spread call", len(elems))
+	}
+	vm.sp--
+	vm.ensure(len(elems))
+	vm.sp += copy(vm.stack[vm.sp:], elems)
+	return len(elems), nil
 }
 
 // wrap turns an error into a RuntimeError with a stack trace of the current
@@ -371,12 +413,48 @@ func (vm *VM) execute(stopDepth int) (result value.Value, err error) {
 			} else {
 				ip += 4
 			}
+		case bytecode.OpJumpIfArg:
+			if bytecode.ReadU16(code, ip) < f.argc {
+				ip = bytecode.ReadU32(code, ip+2)
+			} else {
+				ip += 6
+			}
 
-		case bytecode.OpCall:
-			argc := bytecode.ReadU16(code, ip)
+		case bytecode.OpMakeVector:
+			n := bytecode.ReadU16(code, ip)
 			ip += 2
+			elems := make([]value.Value, n)
+			copy(elems, stack[sp-n:sp])
+			sp -= n
+			stack[sp] = value.MakeVector(elems)
+			sp++
+		case bytecode.OpAppend:
+			vec := stack[sp-2].AsVector() // always a fresh vector made by the compiler's code
+			vec.Elems = append(vec.Elems, stack[sp-1])
+			sp--
+		case bytecode.OpExtend:
+			x := stack[sp-1]
+			if x.Kind() != value.Vector {
+				return fail(start, value.Errorf(value.TypeError, "cannot spread %s (a vector is needed)", x.Kind()))
+			}
+			vec := stack[sp-2].AsVector()
+			vec.Elems = append(vec.Elems, x.AsVector().Elems...)
+			sp--
+
+		case bytecode.OpCall, bytecode.OpCallV:
+			var argc int
+			if op == bytecode.OpCall {
+				argc = bytecode.ReadU16(code, ip)
+				ip += 2
+			}
 			f.ip = ip
 			vm.sp = sp
+			if op == bytecode.OpCallV {
+				var e error
+				if argc, e = vm.spread(); e != nil {
+					return fail(start, e)
+				}
+			}
 			if e := vm.callValue(argc); e != nil {
 				return fail(start, e)
 			}

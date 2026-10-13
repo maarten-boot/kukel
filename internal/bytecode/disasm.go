@@ -44,8 +44,15 @@ func (d *disasm) printf(format string, args ...any) {
 }
 
 func (d *disasm) function(f *Function) {
-	d.printf("\nfunction %s (%s:%d) params=%d slots=%d stack=%d\n",
-		f.FuncName, f.File, f.Line, f.NumParams, f.NumSlots, f.MaxStack)
+	params := fmt.Sprint(f.NumParams)
+	if f.NumOptional > 0 {
+		params += fmt.Sprintf("+%d optional", f.NumOptional)
+	}
+	if f.HasRest {
+		params += "+rest"
+	}
+	d.printf("\nfunction %s (%s:%d) params=%s slots=%d stack=%d\n",
+		f.FuncName, f.File, f.Line, params, f.NumSlots, f.MaxStack)
 	for i, name := range f.SlotNames {
 		d.printf("  slot %d: %s\n", i, name)
 	}
@@ -87,8 +94,10 @@ func (d *disasm) operand(f *Function, op Op, pc int) string {
 			return fmt.Sprintf("%d  ; %s", g, d.prog.Globals[g].Name)
 		}
 		return fmt.Sprint(g)
-	case OpCall:
+	case OpCall, OpMakeVector:
 		return fmt.Sprint(ReadU16(f.Code, pc+1))
+	case OpJumpIfArg:
+		return fmt.Sprintf("%d -> %d", ReadU16(f.Code, pc+1), ReadU32(f.Code, pc+3))
 	case OpJump, OpJumpIfFalse, OpJumpIfTrue:
 		return fmt.Sprintf("-> %d", ReadU32(f.Code, pc+1))
 	}

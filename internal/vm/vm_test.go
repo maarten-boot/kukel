@@ -144,6 +144,109 @@ func TestPrograms(t *testing.T) {
 			f() { }
 			g(x) { if (x) return; return 1; }
 			main() { println(f(), g(1), g(0)); }`, "nil nil 1\n"},
+		// milestone 4
+		{"default parameter values", `
+			global n = 0;
+			next() { n++; return n; }
+			f(a = 1) { return a; }
+			g(a, b = a * 2, c = b + 1) { return str(a) + str(b) + str(c); }
+			h(x = next()) { return x; }
+			main() {
+				println(f(), f(nil), f(2));
+				println(g(1), g(1, 5), g(1, 5, 0));
+				println(h(), h(), h(10), h());
+			}`, "1 nil 2\n123 156 150\n1 2 10 3\n"},
+		{"rest parameters", `
+			f(a, rest..) { println(a, rest); }
+			g(a, b = 0, rest..) { println(a, b, rest); }
+			all(xs..) { return xs; }
+			main() { f(1); f(1, 2, 3); g(1); g(1, 2); g(1, 2, 3, 4); println(all(), typeof(all(1))); }`,
+			"1 []\n1 [2, 3]\n1 0 []\n1 2 []\n1 2 [3, 4]\n[] vector\n"},
+		{"spread arguments", `
+			pack(xs..) { return xs; }
+			f(a, b, c) { println(a, b, c); }
+			wrapper(args..) { return f(args..); }
+			main() {
+				local v = pack(1, 2);
+				f(v.., 3);
+				f(0, v..);
+				f(pack(7, 8, 9)..);
+				f(pack().., 4, 5, 6);
+				println(v.., "x", v..);
+				wrapper("a", "b", "c");
+				println(v);
+			}`, "1 2 3\n0 1 2\n7 8 9\n4 5 6\n1 2 x 1 2\na b c\n[1, 2]\n"},
+		{"labelled break and continue", `main() {
+			outer: for (local i = 0; i < 4; i++) {
+				for (local j = 0; j < 4; j++) {
+					if (j > i) continue outer;
+					if (i == 3) break outer;
+					print(i, j, "");
+				}
+			}
+			println();
+			blk: { print("a"); break blk; print("b"); }
+			skip: if (1) { break skip; println("no"); }
+			println("c");
+			a: b: while (1) { while (1) { break b; } }
+			local k = 0;
+			again: do { k++; if (k < 3) continue again; } while (k < 5);
+			println(k);
+		}`, "0 0 1 0 1 1 2 0 2 1 2 2 \nac\n5\n"},
+		{"switch", `
+			name(n) {
+				local r;
+				switch (n) {
+					case 1: r = "one"; break;
+					case 2:
+					case 3: r = "two or three"; break;
+					case "x": r = "ex"; break;
+					case nil: r = "nil"; break;
+					default: r = "other";
+				}
+				return r;
+			}
+			main() { println(name(1), name(3), name(1.0), name("x"), name(nil), name(9)); }`,
+			"one two or three one ex nil other\n"},
+		{"switch fall-through and default anywhere", `main() {
+			switch (2) { case 1: print("1"); case 2: print("2"); case 3: print("3"); }
+			switch (5) { case 1: print("no"); }
+			switch (9) { case 1: print(1); default: print("d"); case 2: print(2); }
+			switch (1) { }
+			println();
+		}`, "23d2\n"},
+		{"Duff's device", `
+			count(n; out, rounds) {
+				out = 0;
+				rounds = (n + 3) / 4;
+				switch (n % 4) {
+					case 0: do { out++;
+					case 3: out++;
+					case 2: out++;
+					case 1: out++;
+					} while (--rounds > 0);
+				}
+				return out;
+			}
+			main() { println(count(1), count(5), count(8), count(9), count(11)); }`, "1 5 8 9 11\n"},
+		{"switch with loops: break and continue", `
+			global evals = 0;
+			tag(x) { evals++; return x; }
+			main() {
+				for (local i = 0; i < 4; i++) {
+					switch (i) { case 1: continue; case 2: break; }
+					print(i);
+				}
+				println();
+				sw: switch (tag(1)) {
+					case 1:
+						while (1) { switch (2) { case 2: break sw; } }
+				}
+				switch (tag(1)) { case 1: for (;;) break; print("after"); }
+				println("", evals);
+				switch (3) { case 3: switch (4) { case 4: print("inner"); break; } print("outer"); }
+				println();
+			}`, "023\nafter 2\ninnerouter\n"},
 		{"deep recursion within the limit", `
 			down(n) { if (n == 0) return 0; return 1 + down(n - 1); }
 			main() { println(down(9000)); }`, "9000\n"},
@@ -197,6 +300,18 @@ main() {
 			"ArgumentError: str expects 1 argument(s), got 0\n  at main (t.kkl:1)"},
 		{"error in a global initializer", "global g = 1 % 0;\nmain() { }",
 			"ZeroDivisionError: integer modulo by zero\n  at <init> (t.kkl:1)"},
+		{"too few arguments with optional parameters", "f(a, b = 1, c = 2) {}\nmain() { f(); }",
+			"ArgumentError: f expects 1 to 3 arguments, got 0\n  at main (t.kkl:2)"},
+		{"too many arguments with optional parameters", "f(a = 1) {}\nmain() { f(1, 2); }",
+			"ArgumentError: f expects 0 to 1 arguments, got 2\n  at main (t.kkl:2)"},
+		{"too few arguments with a rest parameter", "f(a, b, c..) {}\nmain() { f(1); }",
+			"ArgumentError: f expects at least 2 argument(s), got 1\n  at main (t.kkl:2)"},
+		{"spread of a non-vector", "f(x..) {}\nmain() { local n = 1; f(n..); }",
+			"TypeError: cannot spread int (a vector is needed)\n  at main (t.kkl:2)"},
+		{"spread of a non-vector after a spread", "f(x..) { return x; }\nmain() { f(f()..,\n 1, nil..); }",
+			"TypeError: cannot spread nil (a vector is needed)\n  at main (t.kkl:3)"},
+		{"error in a default value", "f(a = 1 / 0) {}\nmain() { f(); }",
+			"ZeroDivisionError: integer division by zero\n  at f (t.kkl:1)\n  at main (t.kkl:2)"},
 		{"++ on a string", `main() { local s = "a"; s++; }`,
 			"TypeError: cannot apply ++ to string\n  at main (t.kkl:1)"},
 	}

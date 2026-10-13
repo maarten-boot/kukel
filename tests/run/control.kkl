@@ -1,0 +1,37 @@
+// Milestone 4: default and rest parameters, spread, labels, switch.
+
+const HELLO = "hello";
+
+greet(name, greeting = HELLO, rest..) {
+    println(greeting + ", " + name, rest..);
+}
+
+classify(n) {
+    switch (n % 3) {
+        case 0:  return "fizz-ish";
+        case 1:
+        case -1: return "one off";
+        default: return "two off";
+    }
+}
+
+pack(xs..) { return xs; }
+
+main() {
+    greet("world");
+    greet("you", "hi", "and", "more");
+    local args = pack("ann", "hey");
+    greet(args..);
+
+    for (local i = -1; i < 4; i++) print(classify(i), "| ");
+    println();
+
+    search: for (local i = 1; i < 10; i++) {
+        for (local j = 1; j < 10; j++) {
+            if (i * j == 42) {
+                println("found", i, j);
+                break search;
+            }
+        }
+    }
+}

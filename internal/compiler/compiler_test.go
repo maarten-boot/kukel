@@ -67,15 +67,33 @@ func TestCompileErrors(t *testing.T) {
 		{"main() { continue; }", "1:10", "continue outside a loop"},
 		{"main() { if (1) { continue; } }", "1:19", "continue outside a loop"},
 		{"main() { case 1: ; }", "1:10", "case and default labels are only allowed inside a switch body"},
+		// parameters
+		{"f(a = 1, b) {} main() {}", "1:10", "parameter b needs a default value, because a parameter before it has one"},
+		{"f(a.., b) {} main() {}", "1:3", "the rest parameter a must be the last parameter"},
+		{"f(a = b, b = 1) {} main() {}", "1:7", "undefined name b"}, // a default sees only earlier parameters
+		// labels
+		{"main() { x: while (1) { x: ; } }", "1:25", "label x is already used by an enclosing statement at t.kkl:1:10"},
+		{"main() { x: x: ; }", "1:13", "label x is already used at t.kkl:1:10"},
+		{"main() { while (1) break y; }", "1:26", "no enclosing statement is labelled y"},
+		{"main() { x: { while (1) continue x; } }", "1:34", "continue x: x does not label a loop"},
+		{"main() { x: ; while (1) break x; }", "1:31", "no enclosing statement is labelled x"},
+		{"main() { x: local y; }", "1:13", "a local declaration must be a statement directly inside a block"},
+		// switch
+		{"main() { switch (1) { local x; } }", "1:23", "a local declaration may not be directly in a switch body"},
+		{"main() { switch (1) { case 1: case 1.0: } }", "1:36", "duplicate case value 1.0 (also at t.kkl:1:28)"},
+		{"const A = 2; main() { switch (1) { case A: case 1 + 1: } }", "1:49", "duplicate case value 2 (also at t.kkl:1:41)"},
+		{"main() { switch (1) { default: default: } }", "1:32", "a switch has only one default label (the first is at t.kkl:1:23)"},
+		{"main() { local y; switch (1) { case y: } }", "1:37", "y is not a constant defined earlier"},
+		{"main() { switch (1) { case 1: { local y = 2; case 2: ; } } }", "1:46", "case label skips the initialization of local y"},
+		{"main() { switch (1) { case 1: for (local i = 0; ; ) { default: } } }", "1:55", "default label skips the initialization of local i"},
+		{"main() { switch (1) { case 1: continue; } }", "1:31", "continue outside a loop"},
+		{"main() { switch (1) { case 1: } case 2: ; }", "1:33", "case and default labels are only allowed inside a switch body"},
 		// later milestones
 		{"class A {}", "1:1", "classes are not supported yet (milestone 6)"},
 		{"main() { local v = [1]; }", "1:20", "vector literals are not supported yet (milestone 5)"},
 		{"main() { for (local x in y) ; }", "1:10", "for-each loops are not supported yet (milestone 5)"},
-		{"f(a = 1) {} main() {}", "1:3", "default parameter values are not supported yet (milestone 4)"},
-		{"main() { x: ; }", "1:10", "labelled statements are not supported yet (milestone 4)"},
 		{"main() { try { } finally { } }", "1:10", "try statements are not supported yet (milestone 7)"},
 		{"main() { local f = fn() { }; }", "1:20", "function literals are not supported yet (milestone 8)"},
-		{"main() { print(main..); }", "1:16", "spread arguments are not supported yet (milestone 4)"},
 		{"main() { this; }", "1:10", "classes and objects are not supported yet (milestone 6)"},
 	}
 	for _, tt := range tests {
@@ -123,6 +141,9 @@ func FuzzCompile(f *testing.F) {
 		"main() { for (local i = 0; i < 3; i++) { if (i && g || !i) continue; else break; } }",
 		"main() { local a, b = 1; a = b = (1, 2) ? a += 1 : b--; do { while (a) a--; } while (b); }",
 		"main(args) { println(args, 1 < 2 == 3 > 4, 1 << 2 >> 3 & 4 | 5 ^ ~6 % 7); }",
+		"f(a, b = a, c..) { return f(c.., a, b..); } main() { a: b: for (;;) { c: { break a; } continue b; } }",
+		"main() { switch (1) { case 1: do { { case 2: ; } case 3: break; } while (0); default: } }",
+		"main() { s: switch (1) { case -1: while (1) { switch (2) { case 'x': break s; } continue; } } }",
 	} {
 		f.Add(s)
 	}

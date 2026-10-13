@@ -60,11 +60,18 @@ const (
 	OpJump        // target u32
 	OpJumpIfFalse // target u32: pop, jump if not truthy
 	OpJumpIfTrue  // target u32: pop, jump if truthy
+	OpJumpIfArg   // n u16, target u32: jump if argument n was passed (n < argc)
 
 	// Calls. The callee is below its arguments on the stack.
 	OpCall      // argc u16
+	OpCallV     // call with the arguments in a vector on top of the callee
 	OpReturn    // return the top of the stack
 	OpReturnNil // return nil
+
+	// Vectors (milestone 4 uses them to build spread argument lists).
+	OpMakeVector // n u16: pop n values, push a vector of them
+	OpAppend     // pop x, append it to the vector below
+	OpExtend     // pop vector x, append its elements to the vector below
 
 	numOps
 )
@@ -114,9 +121,14 @@ var opInfo = [numOps]OpInfo{
 	OpJump:        {"JUMP", u32},
 	OpJumpIfFalse: {"JUMP_IF_FALSE", u32},
 	OpJumpIfTrue:  {"JUMP_IF_TRUE", u32},
+	OpJumpIfArg:   {"JUMP_IF_ARG", []int{2, 4}},
 	OpCall:        {"CALL", u16},
+	OpCallV:       {"CALL_V", nil},
 	OpReturn:      {"RETURN", nil},
 	OpReturnNil:   {"RETURN_NIL", nil},
+	OpMakeVector:  {"MAKE_VECTOR", u16},
+	OpAppend:      {"APPEND", nil},
+	OpExtend:      {"EXTEND", nil},
 }
 
 // Info returns the description of op; ok is false for an unknown opcode.
@@ -155,16 +167,27 @@ type LineInfo struct {
 
 // Function is a compiled function: its code and constants.
 type Function struct {
-	FuncName  string
-	File      string // source file
-	Line      int    // line of the definition
-	NumParams int    // required parameters
-	NumSlots  int    // parameters + temporaries + locals
-	MaxStack  int    // operand stack depth needed above the slots
-	Code      []byte
-	Consts    []value.Value
-	Lines     []LineInfo // sorted by PC
-	SlotNames []string   // for the disassembler
+	FuncName    string
+	File        string // source file
+	Line        int    // line of the definition
+	NumParams   int    // required parameters
+	NumOptional int    // optional parameters (with a default), after the required ones
+	HasRest     bool   // a rest parameter follows the optional ones
+	NumSlots    int    // parameters + temporaries + locals
+	MaxStack    int    // operand stack depth needed above the slots
+	Code        []byte
+	Consts      []value.Value
+	Lines       []LineInfo // sorted by PC
+	SlotNames   []string   // for the disassembler
+}
+
+// ParamSlots is the number of slots that hold parameters.
+func (f *Function) ParamSlots() int {
+	n := f.NumParams + f.NumOptional
+	if f.HasRest {
+		n++
+	}
+	return n
 }
 
 // Name implements value.Named.

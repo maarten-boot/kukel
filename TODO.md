@@ -164,14 +164,14 @@ All the "Rule:" comments in syntax.ebnf:
 - [ ] The base class must already be defined (in file order, across files in command-line order)
 - [ ] `C::m` definition: class C must exist and declare `m`; shape matches the declaration: same number of parameters (required + optional; temporaries not counted) and a rest `..` in both or neither; names may differ (Q19)
 - [ ] `this` only in non-static member functions and in function literals nested in them
-- [ ] Parameters: once an optional parameter appears, all later ones need defaults (or are the rest parameter); the rest parameter is last; at most 255 optional parameters; a default may use earlier parameters
+- [x] Parameters: once an optional parameter appears, all later ones need defaults (or are the rest parameter); the rest parameter is last; at most 255 optional parameters; a default may use earlier parameters (only those: a later name resolves as if the parameter did not exist) — milestone 4
 - [ ] Lvalues: the target of an assignment or `++`/`--` must be a variable (global, local, parameter, temporary, captured, member), `C::x`, `e[i]` or `e->x`; not a constant, function, class, built-in or `this`
-- [ ] `local`: only directly inside a block or in a for initializer, not directly in a switch body, no duplicate in the same block; the name is visible *after* its initializer (all but the switch rule done in milestone 3)
+- [x] `local`: only directly inside a block or in a for initializer, not directly in a switch body, no duplicate in the same block; the name is visible *after* its initializer
 - [ ] `catch (e)`: `e` is a new local of the catch block
-- [ ] `case`/`default`: only inside a switch body; case values are constant expressions; no two equal case values (1 and 1.0 are equal); at most one default
+- [x] `case`/`default`: only inside a switch body; case values are constant expressions; no two equal case values (1 and 1.0 are equal); at most one default
 - [ ] Q9: reject `case` labels that would jump into a try block
-- [ ] Reject `case`/`default` labels that skip the initialization of a `local` still in scope at the label (Q20): "case label skips the initialization of local `y`"
-- [ ] `break`/`continue`: a plain break needs a loop or switch, a plain continue a loop; a label must name an enclosing statement (a loop, for continue) in the same function (they never cross a `fn` literal); a label may not repeat the label of an enclosing statement
+- [x] Reject `case`/`default` labels that skip the initialization of a `local` still in scope at the label (Q20): "case label skips the initialization of local `y`"
+- [x] `break`/`continue`: a plain break needs a loop or switch, a plain continue a loop; a label must name an enclosing statement (a loop, for continue) in the same function (they never cross a `fn` literal); a label may not repeat the label of an enclosing statement
 - [ ] `finally`: no `return`, and no break/continue to a target outside it
 - [ ] `new X(...)`: X is a class name or a variable (checked at run time if it's a variable)
 - [ ] Identifier resolution in order: block local → parameter → temporary → variable of an enclosing function (closure capture) → member of the method's class (incl. inherited) → top-level name. Unresolved = compile error. (Milestone 3: the compiler resolves locals, parameters, temporaries and top-level names itself while generating code; captures and members come with milestones 6 and 8.)
@@ -196,24 +196,24 @@ All the "Rule:" comments in syntax.ebnf:
 - [ ] Closures: `CLOSURE fn, n` + capture list (local slot or enclosing upvalue), `LOAD_UPVALUE i`/`STORE_UPVALUE i`, `LOAD_CELL i`/`STORE_CELL i` / `NEW_CELL i` for captured locals in the defining frame
 - [x] Arithmetic/logic: `ADD SUB MUL DIV MOD NEG NOT BITNOT BITAND BITOR BITXOR SHL SHR EQ NE LT LE GT GE INC DEC` (int fast paths in the VM)
 - [x] Control: `JUMP off`, `JUMP_IF_FALSE off`, `JUMP_IF_TRUE off` (for `&&`, `||`, `?:`) (`&&`/`||` produce `true`/`false`, Q4)
-- [ ] Calls (`CALL`, `RETURN`, `RETURN_NIL` done): `CALL argc`, `CALL_METHOD name argc`, `CALL_SUPER class,name argc` (Q3), `CALL_STATIC class,fn argc`, `NEW class argc`, `NEW_DYN argc` (class in a variable), `RETURN`, `RETURN_NIL`
-- [ ] Spread: calls with a spread argument build an argument vector (`MAKE_VECTOR` + `EXTEND`) and use `CALL_V` / `CALL_METHOD_V` / `NEW_V`; vector literals with spread use `EXTEND`
-- [ ] Collections: `MAKE_VECTOR n`, `MAKE_MAP n`, `EXTEND`, `INDEX_GET`, `INDEX_SET`
+- [ ] Calls (`CALL`, `CALL_V`, `RETURN`, `RETURN_NIL` done): `CALL argc`, `CALL_METHOD name argc`, `CALL_SUPER class,name argc` (Q3), `CALL_STATIC class,fn argc`, `NEW class argc`, `NEW_DYN argc` (class in a variable), `RETURN`, `RETURN_NIL`
+- [ ] Spread: calls with a spread argument build an argument vector (`MAKE_VECTOR` + `APPEND`/`EXTEND`) and use `CALL_V` (done) / `CALL_METHOD_V` / `NEW_V`; vector literals with spread use `EXTEND`
+- [ ] Collections: `MAKE_VECTOR n`, `APPEND`, `EXTEND` (done), `MAKE_MAP n`, `INDEX_GET`, `INDEX_SET`
 - [ ] For-each: `ITER_INIT` (vector: index; map: key snapshot; string: index; else throw), `ITER_NEXT off` (pushes 1 or 2 values, or jumps to `off` at the end)
 - [ ] Exceptions: `TRY_PUSH handler_off`, `TRY_POP`, `THROW`, `RETHROW`
 - [x] Every instruction maps to a source line (a run-length line table per function) for stack traces
 
 ### Compiler
 - [ ] One code object per function/method/fn literal: name, class, params (required count, optional count, has-rest), number of slots, upvalue descriptors, max stack depth (computed), code, constants, line table (done except class, optional/rest and upvalues)
-- [ ] Function prologue: check argc (too few required args, or too many without a rest parameter → error); evaluate defaults for missing optional args in order; pack extra args into a vector for the rest parameter
+- [x] Function prologue: check argc (too few required args, or too many without a rest parameter → error); evaluate defaults for missing optional args in order (`JUMP_IF_ARG n` skips a default whose argument was passed, so an explicit `nil` stays `nil`); pack extra args into a vector for the rest parameter (done by the VM's call)
 - [x] Statements leave the stack empty (checked after every statement); expression statement = expression + `POP`, except assignments and `++`/`--`, which skip the value
 - [x] Short-circuit `&&`, `||`, `?:`; conditions compile to jumps (no boolean is built for `if (a && !b)`)
 - [x] Comma operator: evaluate and `POP` all but the last
 - [x] Constants are inlined as `CONST` (evaluated by the compiler); `-literal` folded
 - [ ] Compound assignment and `++`/`--` (pre and post) for each lvalue kind (local and global done) (local, cell, upvalue, global, member, static, index, field); the index and field forms evaluate `e` (and `i`) only once
-- [ ] Loops: `while`, `do-while`, `for` (an empty test = loop forever), for-each; break/continue targets, with labels, patched via jump lists (done except for-each and labels)
+- [ ] Loops: `while`, `do-while`, `for` (an empty test = loop forever), for-each; break/continue targets, with labels, patched via jump lists (done except for-each); a label on any other statement lets `break label` leave it
 - [ ] Per-iteration loop variables (Q16): only when the variable is captured by a closure, give each iteration a new cell (copy the old value before the update for `for`); uncaptured variables keep a plain slot (no cost)
-- [ ] `switch`: evaluate the value into a hidden slot, then a chain of `EQ` + jump to each case label's address (labels may sit inside nested statements, Duff's-device style); jump to `default` or past the end. Later, maybe: a jump table for dense int cases
+- [x] `switch`: evaluate the value into a hidden slot, then a chain of `EQ` + jump to each case label's address (labels may sit inside nested statements, Duff's-device style); jump to `default` or past the end. The dispatch code is placed after the body, so no patching per case is needed. Later, maybe: a jump table for dense int cases
   - A case label that a jump would reach past a `local` declaration still in scope is rejected by the checker (§5), so no slot clearing is needed
 - [ ] `try/catch/finally`: `TRY_PUSH` handler; the catch body binds the exception to a slot. `finally` is compiled inline on every way out (normal end, catch end, and break/continue/return passing through), plus a catch-all handler that runs the finally code and then does `RETHROW`
 - [ ] Classes in the image: name, base, data member names (instance slot layout incl. inherited members), static member slots, method table (name → code index, static flag)
@@ -261,7 +261,7 @@ All the "Rule:" comments in syntax.ebnf:
 1. [x] Setup + lexer + `kukel tokens` (done 2026-10-12)
 2. [x] Parser + AST + `kukel ast` (done 2026-10-12, branch `milestone-2-parser`)
 3. [x] Values + compiler + VM for expressions, globals, constants, functions, `if`/`while`/`for`, `print`: run fizzbuzz (done 2026-10-13, branch `milestone-3-vm`; also basic locals, parameters and temporaries, `do`, `break`/`continue`, `kukel disasm` of sources)
-4. [ ] Default/rest parameters, spread, labelled break/continue, switch (basic locals, for-initializer locals and temporaries were done in milestone 3)
+4. [x] Default/rest parameters, spread, labelled break/continue, switch (done 2026-10-13, branch `milestone-4-control`; basic locals, for-initializer locals and temporaries were done in milestone 3)
 5. [ ] Vectors, maps, strings + their built-ins; for-each
 6. [ ] Classes, objects, methods, `this`, `p->x`, bound methods, static members, constructors, inheritance
 7. [ ] Exceptions: try/catch/finally, runtime errors as exceptions, stack traces

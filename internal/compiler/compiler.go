@@ -185,14 +185,8 @@ type funcState struct {
 	nslots   int              // slots in use
 	depth    int              // operand stack depth at the current instruction
 	maxDepth int
-	loops    []*loop
-	line     int // line of the code being emitted
-}
-
-// loop collects the jumps of break and continue statements to patch.
-type loop struct {
-	breaks    []int
-	continues []int
+	targets  []*target // enclosing loops, switches and labelled statements
+	line     int       // line of the code being emitted
 }
 
 // function compiles one function; body emits the code of its body.
@@ -206,19 +200,36 @@ func (c *compiler) function(name string, pos token.Pos, params *ast.ParamList, b
 	c.fs = fs
 	defer func() { c.fs = outer }()
 
-	for _, p := range params.Params {
-		if p.Default != nil {
-			c.notYet(p.Pos(), "default parameter values are", 4)
-		}
-		if p.Rest {
-			c.notYet(p.Pos(), "rest parameters are", 4)
+	// Parameters take slots 0, 1, ... in order. The code of a default value
+	// runs at the start of the function when the argument is missing; it
+	// sees only the parameters before it.
+	for i, p := range params.Params {
+		switch {
+		case p.Rest:
+			if i != len(params.Params)-1 {
+				c.errorf(p.Pos(), "the rest parameter %s must be the last parameter", p.Name.Name)
+			}
+			fs.fn.HasRest = true
+		case p.Default != nil:
+			if fs.fn.NumOptional++; fs.fn.NumOptional > 255 {
+				c.errorf(p.Pos(), "too many optional parameters (more than 255)")
+			}
+			skip := c.emit(bytecode.OpJumpIfArg, i, 0)
+			c.mark(p.Pos())
+			c.expr(p.Default)
+			c.emit(bytecode.OpStoreLocal, i)
+			c.patch([]int{skip + 2}, c.here())
+		default:
+			if fs.fn.NumOptional > 0 {
+				c.errorf(p.Pos(), "parameter %s needs a default value, because a parameter before it has one", p.Name.Name)
+			}
+			fs.fn.NumParams++
 		}
 		c.declare(p.Name, "parameter")
 	}
 	for _, t := range params.Temps {
 		c.declare(t, "temporary")
 	}
-	fs.fn.NumParams = len(params.Params)
 
 	body()
 	c.emit(bytecode.OpReturnNil)
@@ -287,6 +298,10 @@ func stackEffect(op bytecode.Op, operand int) int {
 		return -1
 	case bytecode.OpCall:
 		return -operand
+	case bytecode.OpMakeVector:
+		return 1 - operand
+	case bytecode.OpAppend, bytecode.OpExtend, bytecode.OpCallV:
+		return -1
 	}
 	return 0
 }
@@ -397,8 +412,42 @@ func (c *compiler) local(d *ast.LocalDecl) {
 	}
 }
 
-func (c *compiler) stmt(s ast.Stmt) {
+func (c *compiler) stmt(s ast.Stmt) { c.labeledStmt(s, nil) }
+
+// labeledStmt compiles s, which carries the given labels ("a: b: s").
+func (c *compiler) labeledStmt(s ast.Stmt, labels []*ast.Ident) {
 	c.mark(s.Pos())
+	switch s := s.(type) {
+	case *ast.LabeledStmt:
+		c.checkLabel(s.Label, labels)
+		c.labeledStmt(s.Stmt, append(labels[:len(labels):len(labels)], s.Label))
+		return
+	case *ast.WhileStmt:
+		c.whileStmt(s, labels)
+	case *ast.DoStmt:
+		c.doStmt(s, labels)
+	case *ast.ForStmt:
+		c.forStmt(s, labels)
+	case *ast.SwitchStmt:
+		c.switchStmt(s, labels)
+	default:
+		if labels == nil {
+			c.simpleStmt(s)
+			break
+		}
+		// "label: stmt" for any other statement: break label leaves it.
+		t := c.pushTarget(targetPlain, labels)
+		c.simpleStmt(s)
+		c.popTarget()
+		c.patch(t.breaks, c.here())
+	}
+	if c.fs.depth != 0 {
+		c.errorf(s.Pos(), "internal error: operand stack depth %d after statement", c.fs.depth)
+	}
+}
+
+// simpleStmt compiles a statement that is not a loop or switch.
+func (c *compiler) simpleStmt(s ast.Stmt) {
 	switch s := s.(type) {
 	case *ast.ExprStmt:
 		c.exprDiscard(s.X)
@@ -409,26 +458,6 @@ func (c *compiler) stmt(s ast.Stmt) {
 		c.errorf(s.Pos(), "a local declaration must be a statement directly inside a block")
 	case *ast.IfStmt:
 		c.ifStmt(s)
-	case *ast.WhileStmt:
-		top := c.here()
-		exit := c.branch(s.Cond, false)
-		l := c.pushLoop()
-		c.stmt(s.Body)
-		c.patch(l.continues, top)
-		c.emit(bytecode.OpJump, top)
-		c.popLoop()
-		c.patch(append(exit, l.breaks...), c.here())
-	case *ast.DoStmt:
-		top := c.here()
-		l := c.pushLoop()
-		c.stmt(s.Body)
-		c.popLoop()
-		c.patch(l.continues, c.here())
-		c.mark(s.Cond.Pos())
-		c.patch(c.branch(s.Cond, true), top)
-		c.patch(l.breaks, c.here())
-	case *ast.ForStmt:
-		c.forStmt(s)
 	case *ast.BreakStmt:
 		c.breakContinue(s.Pos(), s.Label, true)
 	case *ast.ContinueStmt:
@@ -440,23 +469,18 @@ func (c *compiler) stmt(s ast.Stmt) {
 		} else {
 			c.emit(bytecode.OpReturnNil)
 		}
+	case *ast.CaseLabel:
+		c.caseLabel(s)
+	case *ast.DefaultLabel:
+		c.defaultLabel(s)
 	case *ast.ForEachStmt:
 		c.notYet(s.Pos(), "for-each loops are", 5)
-	case *ast.SwitchStmt:
-		c.notYet(s.Pos(), "switch statements are", 4)
-	case *ast.CaseLabel, *ast.DefaultLabel:
-		c.errorf(s.Pos(), "case and default labels are only allowed inside a switch body")
-	case *ast.LabeledStmt:
-		c.notYet(s.Pos(), "labelled statements are", 4)
 	case *ast.TryStmt:
 		c.notYet(s.Pos(), "try statements are", 7)
 	case *ast.ThrowStmt:
 		c.notYet(s.Pos(), "throw statements are", 7)
 	default:
 		c.errorf(s.Pos(), "internal error: unknown statement %T", s)
-	}
-	if c.fs.depth != 0 {
-		c.errorf(s.Pos(), "internal error: operand stack depth %d after statement", c.fs.depth)
 	}
 }
 
@@ -473,7 +497,29 @@ func (c *compiler) ifStmt(s *ast.IfStmt) {
 	c.patch([]int{end}, c.here())
 }
 
-func (c *compiler) forStmt(s *ast.ForStmt) {
+func (c *compiler) whileStmt(s *ast.WhileStmt, labels []*ast.Ident) {
+	top := c.here()
+	exit := c.branch(s.Cond, false)
+	t := c.pushTarget(targetLoop, labels)
+	c.stmt(s.Body)
+	c.popTarget()
+	c.patch(t.continues, top)
+	c.emit(bytecode.OpJump, top)
+	c.patch(append(exit, t.breaks...), c.here())
+}
+
+func (c *compiler) doStmt(s *ast.DoStmt, labels []*ast.Ident) {
+	top := c.here()
+	t := c.pushTarget(targetLoop, labels)
+	c.stmt(s.Body)
+	c.popTarget()
+	c.patch(t.continues, c.here())
+	c.mark(s.Cond.Pos())
+	c.patch(c.branch(s.Cond, true), top)
+	c.patch(t.breaks, c.here())
+}
+
+func (c *compiler) forStmt(s *ast.ForStmt, labels []*ast.Ident) {
 	c.pushScope()
 	if s.InitVars != nil {
 		c.local(&ast.LocalDecl{Local: s.For, Vars: s.InitVars})
@@ -486,44 +532,215 @@ func (c *compiler) forStmt(s *ast.ForStmt) {
 		c.mark(s.Cond.Pos())
 		exit = c.branch(s.Cond, false)
 	}
-	l := c.pushLoop()
+	t := c.pushTarget(targetLoop, labels)
 	c.stmt(s.Body)
-	c.popLoop()
-	c.patch(l.continues, c.here())
+	c.popTarget()
+	c.patch(t.continues, c.here())
 	if s.Post != nil {
 		c.mark(s.Post.Pos())
 		c.exprDiscard(s.Post)
 	}
 	c.emit(bytecode.OpJump, top)
-	c.patch(append(exit, l.breaks...), c.here())
+	c.patch(append(exit, t.breaks...), c.here())
 	c.popScope()
 }
 
-func (c *compiler) pushLoop() *loop {
-	l := &loop{}
-	c.fs.loops = append(c.fs.loops, l)
-	return l
+// ----------------------------------------------------------------------
+// break and continue targets, labels
+
+type targetKind uint8
+
+const (
+	targetPlain  targetKind = iota // a labelled statement other than a loop or switch
+	targetLoop                     // while, do, for
+	targetSwitch                   // switch
+)
+
+// target is a statement that break (and, for loops, continue) can leave. It
+// collects the jumps to patch.
+type target struct {
+	kind      targetKind
+	labels    []*ast.Ident
+	breaks    []int
+	continues []int
+	sw        *switchState // targetSwitch
 }
 
-func (c *compiler) popLoop() { c.fs.loops = c.fs.loops[:len(c.fs.loops)-1] }
+func (t *target) hasLabel(name string) bool {
+	for _, l := range t.labels {
+		if l.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *compiler) pushTarget(kind targetKind, labels []*ast.Ident) *target {
+	t := &target{kind: kind, labels: labels}
+	c.fs.targets = append(c.fs.targets, t)
+	return t
+}
+
+func (c *compiler) popTarget() { c.fs.targets = c.fs.targets[:len(c.fs.targets)-1] }
+
+// checkLabel rejects a label that an enclosing statement (or the same
+// statement) already uses.
+func (c *compiler) checkLabel(label *ast.Ident, chain []*ast.Ident) {
+	for _, l := range chain {
+		if l.Name == label.Name {
+			c.errorf(label.NamePos, "label %s is already used at %s", label.Name, l.NamePos)
+		}
+	}
+	for _, t := range c.fs.targets {
+		for _, l := range t.labels {
+			if l.Name == label.Name {
+				c.errorf(label.NamePos, "label %s is already used by an enclosing statement at %s", label.Name, l.NamePos)
+			}
+		}
+	}
+}
 
 func (c *compiler) breakContinue(pos token.Pos, label *ast.Ident, isBreak bool) {
-	if label != nil {
-		c.notYet(label.NamePos, "labelled break and continue are", 4)
-	}
-	if len(c.fs.loops) == 0 {
-		if isBreak {
-			c.errorf(pos, "break outside a loop or switch")
+	var t *target
+	for i := len(c.fs.targets) - 1; i >= 0 && t == nil; i-- {
+		cand := c.fs.targets[i]
+		switch {
+		case label != nil:
+			if cand.hasLabel(label.Name) {
+				t = cand
+			}
+		case cand.kind == targetLoop, cand.kind == targetSwitch && isBreak:
+			t = cand
 		}
-		c.errorf(pos, "continue outside a loop")
 	}
-	l := c.fs.loops[len(c.fs.loops)-1]
+	switch {
+	case t == nil && label != nil:
+		c.errorf(label.NamePos, "no enclosing statement is labelled %s", label.Name)
+	case t == nil && isBreak:
+		c.errorf(pos, "break outside a loop or switch")
+	case t == nil:
+		c.errorf(pos, "continue outside a loop")
+	case !isBreak && t.kind != targetLoop:
+		c.errorf(label.NamePos, "continue %s: %s does not label a loop", label.Name, label.Name)
+	}
 	at := c.jump(bytecode.OpJump)
 	if isBreak {
-		l.breaks = append(l.breaks, at)
+		t.breaks = append(t.breaks, at)
 	} else {
-		l.continues = append(l.continues, at)
+		t.continues = append(t.continues, at)
 	}
+}
+
+// ----------------------------------------------------------------------
+// switch
+
+// switchState collects the case and default labels of a switch body.
+type switchState struct {
+	cases      []switchCase
+	dflt       int // address of the default label, or -1
+	dfltPos    token.Pos
+	firstScope int // index of the first scope opened inside the body
+}
+
+type switchCase struct {
+	value value.Value
+	pos   token.Pos
+	addr  int
+}
+
+// switchStmt compiles the body first and the dispatch after it, because
+// case labels may sit anywhere inside the body (also in nested statements):
+//
+//	tag; STORE hidden; JUMP dispatch
+//	body (case and default labels record their addresses); JUMP end
+//	dispatch: for each case: LOAD hidden; CONST v; EQ; JUMP_IF_TRUE case
+//	          JUMP default (if any)
+//	end:
+func (c *compiler) switchStmt(s *ast.SwitchStmt, labels []*ast.Ident) {
+	c.pushScope()
+	tag := c.declare(&ast.Ident{NamePos: s.Switch, Name: "(switch)"}, "hidden")
+	c.mark(s.Tag.Pos())
+	c.expr(s.Tag)
+	c.emit(bytecode.OpStoreLocal, tag)
+	toDispatch := c.jump(bytecode.OpJump)
+
+	t := c.pushTarget(targetSwitch, labels)
+	sw := &switchState{dflt: -1}
+	t.sw = sw
+	c.pushScope()
+	sw.firstScope = len(c.fs.scopes)
+	for _, st := range s.Body.Stmts {
+		if d, ok := st.(*ast.LocalDecl); ok {
+			c.errorf(d.Pos(), "a local declaration may not be directly in a switch body (put it in a block)")
+		}
+		c.stmt(st)
+	}
+	c.popScope()
+	c.popTarget()
+	end := c.jump(bytecode.OpJump)
+
+	c.patch([]int{toDispatch}, c.here())
+	c.mark(s.Switch)
+	for _, cs := range sw.cases {
+		c.emit(bytecode.OpLoadLocal, tag)
+		c.pushValue(cs.value, cs.pos)
+		c.emit(bytecode.OpEq)
+		c.emit(bytecode.OpJumpIfTrue, cs.addr)
+	}
+	if sw.dflt >= 0 {
+		c.emit(bytecode.OpJump, sw.dflt)
+	}
+	c.patch(append(t.breaks, end), c.here())
+	c.popScope()
+}
+
+// innermostSwitch returns the switch whose body holds a case or default
+// label at pos.
+func (c *compiler) innermostSwitch(pos token.Pos) *switchState {
+	for i := len(c.fs.targets) - 1; i >= 0; i-- {
+		if t := c.fs.targets[i]; t.kind == targetSwitch {
+			return t.sw
+		}
+	}
+	c.errorf(pos, "case and default labels are only allowed inside a switch body")
+	return nil
+}
+
+// checkLabelScope rejects a label that a jump would reach past the
+// initialization of a local that is still in scope (C++ rule).
+func (c *compiler) checkLabelScope(sw *switchState, pos token.Pos, what string) {
+	name, slot := "", -1
+	for _, scope := range c.fs.scopes[sw.firstScope:] {
+		for n, s := range scope {
+			if slot < 0 || s < slot { // report the first declared
+				name, slot = n, s
+			}
+		}
+	}
+	if slot >= 0 {
+		c.errorf(pos, "%s label skips the initialization of local %s", what, name)
+	}
+}
+
+func (c *compiler) caseLabel(s *ast.CaseLabel) {
+	sw := c.innermostSwitch(s.Pos())
+	v := c.evalConst(s.Value)
+	for _, prev := range sw.cases {
+		if value.Equal(prev.value, v) {
+			c.errorf(s.Value.Pos(), "duplicate case value %s (also at %s)", v.Repr(), prev.pos)
+		}
+	}
+	c.checkLabelScope(sw, s.Pos(), "case")
+	sw.cases = append(sw.cases, switchCase{value: v, pos: s.Value.Pos(), addr: c.here()})
+}
+
+func (c *compiler) defaultLabel(s *ast.DefaultLabel) {
+	sw := c.innermostSwitch(s.Pos())
+	if sw.dflt >= 0 {
+		c.errorf(s.Pos(), "a switch has only one default label (the first is at %s)", sw.dfltPos)
+	}
+	c.checkLabelScope(sw, s.Pos(), "default")
+	sw.dflt, sw.dfltPos = c.here(), s.Pos()
 }
 
 // ----------------------------------------------------------------------
@@ -621,10 +838,13 @@ func (c *compiler) expr(e ast.Expr) {
 		if len(e.Args) > maxIndex {
 			c.errorf(e.Lparen, "too many arguments (more than %d)", maxIndex)
 		}
+		if hasSpread(e.Args) {
+			c.argVector(e.Args)
+			c.mark(e.Lparen)
+			c.emit(bytecode.OpCallV)
+			return
+		}
 		for _, a := range e.Args {
-			if sp, ok := a.(*ast.Spread); ok {
-				c.notYet(sp.Pos(), "spread arguments are", 4)
-			}
 			c.expr(a)
 		}
 		c.mark(e.Lparen)
@@ -643,6 +863,36 @@ func (c *compiler) expr(e ast.Expr) {
 		c.errorf(e.Pos(), "a spread (x..) is only allowed in an argument list or vector literal")
 	default:
 		c.errorf(e.Pos(), "internal error: unknown expression %T", e)
+	}
+}
+
+func hasSpread(args []ast.Expr) bool {
+	for _, a := range args {
+		if _, ok := a.(*ast.Spread); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// argVector builds a vector of the arguments, expanding spread ones:
+// f(a, b, v.., c) is  a; b; MAKE_VECTOR 2; v; EXTEND; c; APPEND.
+func (c *compiler) argVector(args []ast.Expr) {
+	n := 0
+	for n < len(args) && !hasSpread(args[n:n+1]) {
+		c.expr(args[n])
+		n++
+	}
+	c.emit(bytecode.OpMakeVector, n)
+	for _, a := range args[n:] {
+		if sp, ok := a.(*ast.Spread); ok {
+			c.expr(sp.X)
+			c.mark(sp.Pos())
+			c.emit(bytecode.OpExtend)
+		} else {
+			c.expr(a)
+			c.emit(bytecode.OpAppend)
+		}
 	}
 }
 
