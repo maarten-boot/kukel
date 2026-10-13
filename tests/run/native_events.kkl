@@ -49,4 +49,9 @@ main() {
     } catch (e) {
         println(e->kind + ":", e->message);
     }
+    try {
+        events::after(1, "not a function");      // checked when the timer is made
+    } catch (e) {
+        println(e->kind + ":", e->message);
+    }
 }

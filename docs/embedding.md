@@ -44,14 +44,25 @@ state, which last between calls.
 |---|---|
 | `New(p, opts)` | A new interpreter. `Options`: `Stdout`, `Stderr` (nil: discarded), `Stdin` (nil: empty), `StepLimit` |
 | `in.Run(args...)` | Runs `main` (with `args` as its vector of strings if it has a parameter) and gives the exit code |
-| `in.Call(name, args...)` | Calls a top-level function (`"discount"`) or a module's (`"util::f"`) and gives its result |
+| `in.Call(name, args...)` | Calls a top-level function (`"discount"`) or a module's (`"util::f"`, also `"json::encode"` of a module the program uses) and gives its result |
 | `in.CallValue(fn, args...)` | Calls a function value, such as a callback a Go function received |
 | `in.Global(name)` | The value of a global variable, function or class |
 | `in.RunContext(ctx, ...)`, `in.CallContext(ctx, ...)` | The same, stopped when `ctx` ends (section 5) |
+| `in.Close()` | Ends the interpreter: cancels the workers it started that still run and drops their later output; calls afterwards give an error |
 
 The global initializers run once, before the first `Run`, `Call` or
-`Global`. A program needs a `main` (it may be empty) even when the Go
-program only calls other functions.
+`Global` (and count against that call's step budget). If they fail, every
+call gives that error: the globals are not usable. A program needs a
+`main` (it may be empty) even when the Go program only calls other
+functions.
+
+`Run` does not wait for workers the program started: they may still run,
+and write output, after it returns. Call `Close` when the interpreter is no
+longer needed.
+
+`Builtins()` and `StandardModules()` list the names of the built-in
+functions and of the standard modules (`events`, `json`, `strings`, `time`,
+`worker`).
 
 ## 2. Values
 
@@ -63,7 +74,7 @@ program only calls other functions.
 | `Bool(b)`, `Int(i)`, `Float(f)`, `String(s)` | `v.AsBool()`, `v.AsInt()`, `v.AsFloat()` (also of an int), `v.AsString()`, each with an `ok` |
 | `Vector(elems...)`, `NewMap()`, `MapOf(map[string]Value)` | `v.Len()`, `v.Index(i)`, `v.Get(key)`, `v.Keys()` |
 | `v.Push(e)`, `v.SetKey(k, val)` | `v.Kind()` (as `typeof`), `v.IsNil()`, `v.Truthy()`, `v.String()` (as `print`) |
-| `FromGo(x)`: nil, bools, integers, floats, strings, slices, maps with string keys, nested | `v.ToGo()`: nil, `bool`, `int64`, `float64`, `string`, `[]any`, `map[string]any`; functions, classes and objects stay a `Value` |
+| `FromGo(x)`: nil, bools, integers, floats, strings and `[]byte` (a string), slices, maps with string keys, nested | `v.ToGo()`: nil, `bool`, `int64`, `float64`, `string`, `[]any`, `map[string]any`; functions, classes and objects stay a `Value` |
 
 Vectors, maps and objects are shared, not copied: a `Value` from an
 interpreter refers to its data, and changing it (`Push`, `SetKey`) changes
@@ -95,7 +106,8 @@ main() { app::notify("started " + app::version); }
 - A function gets the calling interpreter and the arguments; it checks the
   arguments itself (count and types). It may call back into Kukel with
   `in.CallValue(fn, ...)`, for example to call a function the program passed
-  in.
+  in. A panic in the function becomes a `"HostError"` exception; the
+  interpreter stays usable.
 - A constant (nil, a boolean, a number or a string) can be used in Kukel
   constant expressions.
 - Add everything before compiling: a module cannot change once a program
@@ -113,17 +125,23 @@ main() { app::notify("started " + app::version); }
 |---|---|
 | `*CompileError` | An error in the source: `File`, `Line`, `Col`, `Message` (a missing file is the `os` error) |
 | `*Error` | An exception nothing in the program caught: `Kind` (`"RangeError"`, ..., `""` for a thrown value that is not an `Error` object), `Message`, `Value` (the thrown value), `Trace` (innermost call first). Also the step limit (`"StepLimitError"`) and cancellation (`"CancelledError"`), which the program cannot catch |
-| `*ExitError` | The program called `exit(code)` during a `Call` (`Run` gives the code as its result) |
+| `*ExitError` | The program called `exit(code)` during a `Call`, `CallValue` or `Global` (in an initializer); `Run` gives the code as its result |
+
+`(*Error).Error()` gives `Kind: Message`, followed for an exception of the
+program by its trace, one `  at f (file:line)` line per call; use `Kind`
+and `Message` for a single line.
 
 A Go function reports a failure by returning an error; the Kukel program
 sees an exception it can catch:
 
 - `kukel.Errorf("KeyError", "no item %q", item)` gives an exception of that
-  kind;
+  kind (`"HostError"` if the kind is `""`);
 - any other error gives an exception of kind `"HostError"` with the error's
   text;
 - an `*Error` from a call back into Kukel (`in.CallValue`) goes on
-  unchanged, so the program can catch its own exception;
+  unchanged, so the program can catch its own exception. Return it as it
+  is: dropping it would also drop a step limit or a cancellation that ended
+  the call back;
 - `&kukel.ExitError{Code: 3}` ends the program as `exit(3)` does.
 
 ## 5. Code that is not trusted
@@ -141,7 +159,7 @@ more does not compile, so it never runs half-way):
 opts := kukel.CompileOptions{
     DenyBuiltins:    kukel.SystemBuiltins,          // readfile, writefile, appendfile, readline, getenv, exit
     StandardModules: []string{"json", "strings"},   // no time, events, worker
-    NoFileModules:   true,                          // "use" reads no files
+    NoFileModules:   true,                          // no program files: "use" finds only Go modules, no worker::startfile
 }
 ```
 
@@ -151,7 +169,10 @@ opts := kukel.CompileOptions{
 - `StandardModules` lists the standard modules allowed (nil: all;
   `[]string{}`: none). `worker` in particular starts interpreters and reads
   program files (`startfile`); its workers follow the same limits.
-- `NoFileModules` keeps `use` from reading `.kkl` files.
+- An unknown name in either list is an error, so that a misspelt name does
+  not leave something allowed.
+- `NoFileModules` keeps the program from reading program files: `use`
+  finds only modules written in Go, and `worker::startfile` is refused.
 - `LoadProgram` takes the same options; `New` refuses a `.kkc` program that
   uses more than they allow.
 
@@ -159,14 +180,17 @@ opts := kukel.CompileOptions{
 
 - `Options.StepLimit` bounds every call from Go: after that many steps
   (backward jumps, calls, throws, so every loop counts) the call ends with a
-  `"StepLimitError"`. Each `Run`/`Call` gets the full budget again; the
-  interpreter stays usable. The same program always stops at the same
-  point.
+  `"StepLimitError"`. Each `Run`/`Call` from Go gets the full budget again;
+  calls a Go function makes back into Kukel (`in.CallValue`) share the
+  budget of the call that runs it. The interpreter stays usable. The same
+  program always stops at the same point. A worker gets the same limit for
+  its whole run.
 - `in.CallContext(ctx, ...)` stops the call when `ctx` ends (a timeout, a
-  cancelled request) with a `"CancelledError"`. The program stops at its next
-  step; Go functions that wait (`time::sleep`, `worker` `receive` and
-  `wait`, `events::run`) return at once. Workers started during the call are
-  cancelled with it.
+  cancelled request) with a `"CancelledError"`, also for a call a Go function
+  makes back into Kukel. The program stops at its next step; Go functions
+  that wait (`time::sleep`, `worker` `receive` and `wait`, `events::run`)
+  return at once. Workers started during the call are cancelled if `ctx`
+  ends while the call runs; `in.Close()` cancels the ones that outlive it.
 - Neither interrupts a single long operation of a built-in function (sorting
   a huge vector, `split` of a huge string); it is noticed when the operation
   returns.

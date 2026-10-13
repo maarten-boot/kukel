@@ -57,8 +57,9 @@ program             = { use_declaration } , { definition } ;
                          visible.) A program and each module have their own
                          name space, so a module may reuse the program's
                          names and the other way round. The program defines
-                         a function main with at most one parameter (a
-                         module's main is an ordinary function). *)
+                         a function main with at most one parameter, without
+                         a default and not a rest parameter (a module's
+                         main is an ordinary function). *)
 
 use_declaration     = "use" , Identifier , ";" ;
                       (* Loads module name: the file name.kkl in the
@@ -120,9 +121,14 @@ member_declaration  = [ "static" ] , Identifier ,
                       (* Rules: a member name is declared once in a class.
                          A class may redeclare a member function of a base
                          class (overriding it) if both are static or both
-                         are not; any other reuse of a base class member's
-                         name is an error. The constructor (the member
-                         function named like the class) cannot be static. *)
+                         are not (the parameters may differ); any other
+                         reuse of a base class member's name is an error.
+                         The constructor (the member function named like the
+                         class) cannot be static. A member function may be
+                         declared without a definition: calling it is a
+                         compile error where the callee is known when
+                         compiling (new C(...), C::f(...), Base::m(...)),
+                         else a runtime error. *)
 
 declared_parameters = Identifier , { "," , Identifier } , [ ".." ] ;
                       (* Names are documentation only. Rule: a default value
@@ -466,7 +472,9 @@ Operator            = "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "~" | "!"
                     | "<<=" | ">>=" ;
                       (* The longest match wins: "<<=" before "<<" before
                          "<", "::" before ":", ".." before ".". A lone "."
-                         is not a valid token in any rule. *)
+                         is not a valid token in any rule. So "1.." reads as
+                         the float "1." followed by "." (an error); spreading
+                         a number is an error anyway. *)
 
 Skip                = White_Space | Comment ;
 

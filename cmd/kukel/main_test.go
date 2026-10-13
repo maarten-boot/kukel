@@ -354,3 +354,10 @@ func TestReferenceDocumentsNativeModules(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildMissingOutputName(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"build", "a.kkl", "-o"}, nil, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "-o needs a file name") {
+		t.Errorf("exit %d, stderr %q", code, stderr.String())
+	}
+}

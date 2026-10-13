@@ -129,6 +129,7 @@ func CompileWith(files []*ast.File, builtins []string, config *native.Config) (p
 					methodDefs = append(methodDefs, funcJob{decl: d, file: c.file}) // after all classes are known
 					continue
 				}
+				c.checkFuncCount(len(jobs), d.Name.NamePos)
 				g := c.define(d.Name, symFunc)
 				c.prog.Globals[g.index].Func = len(jobs)
 				g.params = shapeOf(c.qualify(d.Name.Name), d.Params)
@@ -151,6 +152,7 @@ func CompileWith(files []*ast.File, builtins []string, config *native.Config) (p
 	for _, job := range methodDefs {
 		c.file = job.file
 		job.class, job.member = c.methodDefinition(job.decl)
+		c.checkFuncCount(len(jobs), job.decl.Name.NamePos)
 		job.member.fn = len(jobs)
 		job.class.bc.Methods[job.member.method].Func = job.member.fn
 		jobs = append(jobs, job)
@@ -173,6 +175,8 @@ func CompileWith(files []*ast.File, builtins []string, config *native.Config) (p
 	}
 	if fd := jobs[c.prog.Globals[m.index].Func].decl; len(fd.Params.Params) > 1 {
 		c.errorf(fd.Name.NamePos, "main takes at most one parameter (the command-line arguments)")
+	} else if len(fd.Params.Params) == 1 && (fd.Params.Params[0].Rest || fd.Params.Params[0].Default != nil) {
+		c.errorf(fd.Name.NamePos, "main's parameter (the command-line arguments) cannot have a default or be a rest parameter")
 	}
 	c.prog.Main = m.index
 
@@ -204,6 +208,14 @@ func CompileWith(files []*ast.File, builtins []string, config *native.Config) (p
 		f.Index = i
 	}
 	return c.prog, nil
+}
+
+// checkFuncCount refuses a program with more functions than instructions
+// can address (function indexes are 16-bit operands).
+func (c *compiler) checkFuncCount(n int, pos token.Pos) {
+	if n > maxIndex {
+		c.errorf(pos, "too many functions in the program (more than %d)", maxIndex+1)
+	}
 }
 
 // cache reserves an inline cache slot for a member instruction.

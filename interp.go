@@ -2,6 +2,7 @@ package kukel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -20,8 +21,9 @@ type Options struct {
 	// StepLimit bounds each call from Go (Run, Call, CallValue): after that
 	// many steps (backward jumps, calls and throws, so every loop counts)
 	// the call ends with an *Error of kind "StepLimitError" that the
-	// program cannot catch. 0: no limit. Workers the program starts get
-	// the same limit.
+	// program cannot catch. Calls a Func makes back into Kukel share the
+	// budget of the call that runs the Func. 0: no limit. Workers the
+	// program starts get the same limit for their whole run.
 	StepLimit int
 }
 
@@ -30,9 +32,10 @@ type Options struct {
 // goroutines at once; use one Interp per goroutine (they can share a
 // Program). A Func may call back into the Interp that called it.
 type Interp struct {
-	vm    *vm.VM
-	limit int
-	depth int // calls from Go in progress (a Func may call back)
+	vm     *vm.VM
+	life   *vm.Canceller // cancelled by Close; the calls' cancellers are its children
+	depth  int           // calls from Go in progress (a Func may call back)
+	closed bool
 }
 
 type interpKey struct{}
@@ -56,22 +59,41 @@ func New(p *Program, opts Options) (*Interp, error) {
 	}
 	m.SetStderr(stderr)
 	m.StepLimit = opts.StepLimit
-	in := &Interp{vm: m, limit: opts.StepLimit}
+	in := &Interp{vm: m, life: m.Cancellable()}
 	m.Local(interpKey{}, func() any { return in })
 	return in, nil
 }
+
+// Close stops the interpreter for good: workers it started that are still
+// running are cancelled, and what they write later is dropped. Calls after
+// Close give an error. Close may be called more than once.
+func (in *Interp) Close() {
+	in.life.Cancel(errClosed)
+	in.vm.CloseOutput()
+	in.closed = true
+}
+
+var errClosed = errors.New("the interpreter was closed")
 
 // interpOf is the Interp of a VM that calls a Func; a worker's VM gets one
 // when it first needs it.
 func interpOf(env value.Env) *Interp {
 	m := env.(*vm.VM)
-	return m.Local(interpKey{}, func() any { return &Interp{vm: m, limit: m.StepLimit, depth: 1} }).(*Interp)
+	return m.Local(interpKey{}, func() any {
+		life := m.CurrentCanceller()
+		if life == nil {
+			life = m.Cancellable()
+		}
+		return &Interp{vm: m, life: life, depth: 1}
+	}).(*Interp)
 }
 
 // Run runs the program's main, with args as its parameter (a vector of
 // strings) if it has one, and gives the exit code: main's result if that
 // is an int, else 0; or the code of exit(code). The global initializers
-// run first, the first time anything is called.
+// run first, the first time anything is called; if they fail, every call
+// gives their error. Run does not wait for workers the program started
+// (see Close).
 func (in *Interp) Run(args ...string) (int, error) {
 	return in.RunContext(context.Background(), args...)
 }
@@ -107,13 +129,15 @@ func (in *Interp) Call(name string, args ...Value) (Value, error) {
 // CallContext is Call, stopped when ctx ends: the program stops at its
 // next step (a function written in Go that waits, such as time::sleep,
 // returns at once) with an *Error of kind "CancelledError" that it cannot
-// catch. Workers started during the call are cancelled with it.
+// catch. This also holds for a call a Func makes back into Kukel. Workers
+// started during the call are cancelled if ctx ends while it runs; Close
+// cancels those that outlive it.
 func (in *Interp) CallContext(ctx context.Context, name string, args ...Value) (Value, error) {
 	return in.enter(ctx, func() (value.Value, error) {
 		if err := in.vm.Init(); err != nil {
 			return value.NilValue, err
 		}
-		fn, ok := in.vm.Global(name)
+		fn, ok := in.global(name)
 		if !ok {
 			return value.NilValue, fmt.Errorf("kukel: the program has no function %s", name)
 		}
@@ -141,7 +165,7 @@ func (in *Interp) Global(name string) (Value, error) {
 		if err := in.vm.Init(); err != nil {
 			return value.NilValue, err
 		}
-		v, ok := in.vm.Global(name)
+		v, ok := in.global(name)
 		if !ok {
 			return value.NilValue, fmt.Errorf("kukel: the program has no global %s", name)
 		}
@@ -150,26 +174,48 @@ func (in *Interp) Global(name string) (Value, error) {
 	return r, err
 }
 
-// enter runs f as a call from Go: the outermost one resets the step count
-// and, for a context that can end, makes the program cancellable.
+// global finds name among the program's globals, else among the names of
+// the modules written in Go that it may use (a function the program itself
+// does not call has no global slot).
+func (in *Interp) global(name string) (value.Value, bool) {
+	if v, ok := in.vm.Global(name); ok {
+		return v, true
+	}
+	if strings.Contains(name, "::") {
+		return in.vm.Config().Global(name)
+	}
+	return value.NilValue, false
+}
+
+// enter runs f as a call from Go. The outermost call resets the step
+// count (calls from a Func share the budget of the call that runs it). A
+// context that can end gets a canceller of its own for the call, a child
+// of the current one, so a nested call can be cancelled too; workers
+// started during the call keep it.
 func (in *Interp) enter(ctx context.Context, f func() (value.Value, error)) (Value, error) {
+	if in.closed {
+		return Nil, fmt.Errorf("kukel: %w", errClosed)
+	}
+	if err := ctx.Err(); err != nil {
+		return Nil, &Error{Kind: "CancelledError", Message: "the program was cancelled: " + context.Cause(ctx).Error()}
+	}
 	if in.depth == 0 {
 		in.vm.ResetSteps()
-		if ctx.Done() != nil {
-			if err := ctx.Err(); err != nil {
-				return Nil, &Error{Kind: "CancelledError", Message: "the program was cancelled: " + err.Error()}
-			}
-			c := in.vm.Cancellable()
-			stop := context.AfterFunc(ctx, func() { c.Cancel(context.Cause(ctx)) })
-			defer func() {
-				stop()
-				in.vm.ShareCanceller(nil)
-			}()
-		}
+	}
+	if ctx.Done() != nil {
+		outer := in.vm.CurrentCanceller()
+		c := outer.Child()
+		in.vm.ShareCanceller(c)
+		stop := context.AfterFunc(ctx, func() { c.Cancel(context.Cause(ctx)) })
+		defer func() {
+			stop()
+			in.vm.ShareCanceller(outer)
+			outer.Release(c)
+		}()
 	}
 	in.depth++
+	defer func() { in.depth-- }()
 	r, err := f()
-	in.depth--
 	if err != nil {
 		return Nil, fromVM(err)
 	}

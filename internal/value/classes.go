@@ -10,13 +10,14 @@ type ClassObj struct {
 	Statics    []Value               // the class's own static data members
 	Ctor       *MethodObj            // C::C, else the nearest base class's constructor, or nil
 
-	// Native classes (written in Go) only: how str() shows an object, if
-	// not as a list of data members (a native class has none).
-	Show func(o *ObjectObj) string
+	// Native classes (written in Go) only: Native is set, and Show is how
+	// str() shows an object (a native class has no data members).
+	Native bool
+	Show   func(o *ObjectObj) string
 }
 
-// NativeMethod is a member function written in Go; this is nil for a
-// static one.
+// NativeMethod is an instance member function (or constructor) written in
+// Go; a static one is a plain built-in (MethodObj.Builtin).
 type NativeMethod func(env Env, this *ObjectObj, args []Value) (Value, error)
 
 // MethodObj is a member function of a class.

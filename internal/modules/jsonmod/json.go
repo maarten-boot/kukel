@@ -98,8 +98,8 @@ func (e *encoder) value(v value.Value, depth int) error {
 	return nil
 }
 
-// maxDepth is how deeply vectors and maps may nest, as for decode (Go's
-// JSON decoder stops at the same depth).
+// maxDepth is how deeply vectors and maps (arrays and objects) may nest,
+// for encode and decode alike: deeper input could exhaust the stack.
 const maxDepth = 10000
 
 func (e *encoder) container(v value.Value, open, close byte, n, depth int, item func(int) error) error {
@@ -177,7 +177,7 @@ func decode(env value.Env, args []value.Value) (value.Value, error) {
 	}
 	d := json.NewDecoder(strings.NewReader(s))
 	d.UseNumber()
-	v, err := decodeValue(d)
+	v, err := decodeValue(d, 0)
 	if err == nil {
 		if _, extra := d.Token(); extra != io.EOF {
 			err = errors.New("text after the value")
@@ -188,6 +188,9 @@ func decode(env value.Env, args []value.Value) (value.Value, error) {
 		if errors.As(err, &syn) {
 			return value.NilValue, a.Errorf(value.ValueError, "invalid JSON at byte %d: %v", syn.Offset, err)
 		}
+		if errors.Is(err, errTooDeep) {
+			return value.NilValue, a.Errorf(value.ValueError, "%v", err)
+		}
 		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 			return value.NilValue, a.Errorf(value.ValueError, "invalid JSON: unexpected end of text")
 		}
@@ -196,7 +199,10 @@ func decode(env value.Env, args []value.Value) (value.Value, error) {
 	return v, nil
 }
 
-func decodeValue(d *json.Decoder) (value.Value, error) {
+// errTooDeep is the error for nesting deeper than maxDepth.
+var errTooDeep = fmt.Errorf("arrays and objects nested more than %d deep", maxDepth)
+
+func decodeValue(d *json.Decoder, depth int) (value.Value, error) {
 	t, err := d.Token()
 	if err != nil {
 		return value.NilValue, err
@@ -211,11 +217,14 @@ func decodeValue(d *json.Decoder) (value.Value, error) {
 	case json.Number:
 		return number(string(t))
 	case json.Delim:
+		if depth >= maxDepth {
+			return value.NilValue, errTooDeep
+		}
 		switch t {
 		case '[':
 			elems := []value.Value{}
 			for d.More() {
-				v, err := decodeValue(d)
+				v, err := decodeValue(d, depth+1)
 				if err != nil {
 					return value.NilValue, err
 				}
@@ -230,7 +239,7 @@ func decodeValue(d *json.Decoder) (value.Value, error) {
 				if err != nil {
 					return value.NilValue, err
 				}
-				v, err := decodeValue(d)
+				v, err := decodeValue(d, depth+1)
 				if err != nil {
 					return value.NilValue, err
 				}

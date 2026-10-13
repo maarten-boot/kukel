@@ -194,7 +194,7 @@ What a call instruction calls:
 | closure | a frame with the closure's cells and its `this` |
 | bound method | the method on the bound object (a static method without `this`) |
 | built-in | the Go function runs at once; its result replaces callee and arguments |
-| bound method of a native class | the same, with the Go value of the object |
+| bound method of a native class | the same, with the object as `this` (the Go function reads its Go value, `State`) |
 | class | `TypeError` (use `new`) |
 | anything else | `TypeError: cannot call ...` |
 
@@ -274,8 +274,10 @@ program on its own goroutine (`VM.Start` runs the global initializers, then
 any function), and `startfile` one for another program. VMs share only
 immutable values (strings, the native classes); messages between them are
 copies. Workers write to the parent's output through `VM.ShareOutput`,
-which puts a lock around it; when the main program's `main` returns, that
-output is flushed and closed, so workers still running write nothing more.
+which puts a lock around it. `VM.Run` (what `kukel run` and `exec` use)
+flushes and closes that output when `main` returns, so workers still
+running write nothing more; a Go program that embeds Kukel does the same
+with `Interp.Close`, which also cancels the workers.
 
 ### 4.8 Closures and cells
 
@@ -344,6 +346,8 @@ is not cached.) The caches belong to the VM, not to the image.
 |---|---|
 | nested calls | 10000 (`StackOverflowError`) |
 | constants, slots, globals, cache slots per function | 65536 (u16 operands) |
+| functions of a program, member functions of a class | 65536 (compile error beyond) |
+| nesting of expressions and statements in the source | 1000 levels (compile error beyond) |
 | arguments of one call | 65535 |
 | optional parameters of one function | 255 |
 | code per function, `MaxStack` | 16 MiB, 2<sup>20</sup> in `.kkc` files |
@@ -748,6 +752,8 @@ make the VM crash or read outside its data.
   constants, slots, globals, functions, classes and their statics, upvalues,
   cache slots; member names are string constants; `CMP_JUMP` comparisons,
   `TRY_PUSH` kinds and `ITER_NEXT` counts are valid;
+- each inline cache slot is used by one instruction only (as the compiler
+  does), so one member name can never get the method found for another;
 - jump targets land on the start of an instruction;
 - following every path from the start and from every handler:
   - the stack depth is the same at an instruction on all paths, never too
@@ -766,8 +772,12 @@ an iterator, a vector being built or a pending exception; `LOAD_MEMBER` or
 `LOAD_UPVALUE`/`STORE_UPVALUE` outside a closure or beyond its cells;
 `CLOSURE` capturing a slot that holds no cell, or an upvalue that is not
 there; `TRY_POP` whose innermost handler belongs to another frame; an
-unknown opcode. Inline caches cannot mislead the VM: an entry is only
-trusted for the class and the kind of member it was filled for.
+unknown opcode. Inline caches cannot make the VM crash: an entry is only
+trusted for the class and the kind of member it was filled for. A fatal
+exception (the step limit, cancellation, `exit`) drops the try handlers of
+the frames it leaves, so a VM can be used again afterwards (an embedded
+interpreter is). `new` of a native class without a constructor is a
+`TypeError`, also through a variable.
 
 The fuzz tests (`make fuzz`) feed mutated files and arbitrary code to the
 loader and run whatever it accepts under a step limit, looking for crashes.

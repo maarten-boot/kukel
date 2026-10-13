@@ -70,7 +70,7 @@ func TestModules(t *testing.T) {
 		{"use util; use util; main() {}", "t.kkl:1:15: module util is already used in this file"},
 		{"use other; main() {}", "t.kkl:1:5: module other is not loaded"},
 		{"use println; main() {}", "t.kkl:1:5: module println is not loaded"},
-		{"use Error; main() {}", "t.kkl:1:5: a module cannot have the name Error"},
+		{"use Error; main() {}", "t.kkl:1:5: a module cannot be called Error"},
 		{"use util; util::Base::m() {} main() {}", "t.kkl:1:21: expected '(' after function name"},
 	}
 	for _, tc := range bad {

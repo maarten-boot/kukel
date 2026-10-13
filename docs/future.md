@@ -1,7 +1,8 @@
 # Kukel: ideas for the future
 
-Plans for after v0.1.0. Nothing here is built yet; the Kukel code below shows
-how things *could* look and is not meant to run. Each idea lists open
+Ideas for after v0.1.0. Parts marked *Done* are built (v0.2, see the
+language reference and docs/embedding.md); for the rest, the Kukel code below
+shows how things *could* look and is not meant to run. Each idea lists open
 questions (**F-n**) to settle before it is built, in the same way the Q-list
 in [TODO.md](../TODO.md) settled the first version.
 
@@ -46,13 +47,15 @@ main() {
   a module.
 - The same mechanism could load other Kukel source files
   (`use "lib/util.kkl";`), replacing "list every file on the command line".
+  *(Built as `use util;`, which finds `util.kkl`.)*
 - Libraries written in Go register themselves under a name; a program that
   does not `use` them pays nothing.
 - Where modules come from (Kukel files, Go, C libraries) is in 1.6.
 
 *Done for Kukel source files (TODO.md Q35): `use name;` loads `name.kkl`
 from the using file's directory or `KUKEL_PATH`; see the language
-reference. Still to come: modules written in Go, and `.kkc` modules (1.6).*
+reference. Modules written in Go are done too (1.2, 1.6); still to come:
+`.kkc` modules.*
 
 **F-1** Syntax: `use gui;` or `import gui;`? Also for `.kkl` files?
 *Answered: `use name;`, also for `.kkl` files.*
@@ -157,6 +160,8 @@ Kukel's own compiler and VM; Go plays no part.
 
 - `use util;` looks for `util.kkl` or `util.kkc` on a search path (the
   program's directory, then `KUKEL_PATH`), and loads each module once.
+  *(Built for `util.kkl`, looked for next to the file that uses it; `.kkc`
+  modules are still to come.)*
 - The compiler gives the module's top-level names the prefix `util::`.
   Names starting with `_` could stay private to the module (**F-19**).
 - A `.kkc` module carries a table of the names it exports (functions,
@@ -507,7 +512,8 @@ members, a `db::model(...)` call, or a new syntax?
 
 ## 6. Smaller items
 
-Carried over from TODO.md item 14, plus things the ideas above make useful:
+Carried over from the last item of TODO.md's milestone list, plus things the
+ideas above make useful:
 
 - jump tables for `switch` over dense int cases;
 - a peephole pass over the generated code;
@@ -526,15 +532,15 @@ Carried over from TODO.md item 14, plus things the ideas above make useful:
 
 Each step is usable on its own and prepares the next:
 
-| Step | What | Needs |
-|---|---|---|
-| 1 | Modules (`use`) from Kukel files and Go, native classes, `json` | — |
-| 2 | Public embedding API; several interpreters in one process | 1 |
-| 3 | Event loop, timers; workers with messages | 1, 2 |
-| 4 | ZeroMQ (blocking first, then events) | 1, 3 |
-| 5 | SQL: plain queries, transactions (SQLite first) | 1 |
-| 6 | Time type; then the ORM on top of SQL | 5 |
-| 7 | Tk GUI (after a proof of concept for the threading) | 1, 3 |
+| Step | What | Needs | Status |
+|---|---|---|---|
+| 1 | Modules (`use`) from Kukel files and Go, native classes, `json` | — | done (Q35, Q36) |
+| 2 | Public embedding API; several interpreters in one process | 1 | done (Q39) |
+| 3 | Event loop, timers; workers with messages | 1, 2 | done (Q37, Q38) |
+| 4 | ZeroMQ (blocking first, then events) | 1, 3 | |
+| 5 | SQL: plain queries, transactions (SQLite first) | 1 | |
+| 6 | Time type; then the ORM on top of SQL | 5 | time type done (Q36) |
+| 7 | Tk GUI (after a proof of concept for the threading) | 1, 3 | |
 
 Steps 4, 5 and 7 are independent of each other once 1 and 3 exist. A
 `ffi` module (1.6) can come at any point after step 1.

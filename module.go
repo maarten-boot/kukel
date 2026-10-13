@@ -37,18 +37,27 @@ func NewModule(name string) *Module {
 
 // Func adds a function; it gives m, so that calls can be chained.
 func (m *Module) Func(name string, fn Func) *Module {
+	if fn == nil {
+		panic("kukel: function " + m.m.Name + "::" + name + " is nil")
+	}
 	m.add(name)
-	m.m.Funcs[name] = func(env value.Env, args []value.Value) (value.Value, error) {
+	full := m.m.Name + "::" + name
+	m.m.Funcs[name] = func(env value.Env, args []value.Value) (r value.Value, err error) {
 		in := interpOf(env)
 		vs := make([]Value, len(args))
 		for i, a := range args {
 			vs[i] = Value{a}
 		}
-		r, err := fn(in, vs)
+		defer func() {
+			if p := recover(); p != nil { // a panic is the Func's failure, not the interpreter's
+				r, err = value.NilValue, value.Errorf("HostError", "%s panicked: %v", full, p)
+			}
+		}()
+		v, err := fn(in, vs)
 		if err != nil {
 			return value.NilValue, toKukelError(err)
 		}
-		return r.v, nil
+		return v.v, nil
 	}
 	return m
 }
@@ -121,6 +130,8 @@ type Frame struct {
 	Line int
 }
 
+// Error gives the kind and message; for an exception of the program also
+// the trace, one "  at f (file:line)" line per call.
 func (e *Error) Error() string {
 	if e.err != nil {
 		return e.err.Error()
@@ -132,7 +143,8 @@ func (e *Error) Error() string {
 }
 
 // Errorf makes an error for a Func to return: Kukel code sees an exception
-// (an Error object) with that kind and message.
+// (an Error object) with that kind (or "HostError" if kind is "") and
+// message.
 func Errorf(kind, format string, args ...any) *Error {
 	return &Error{Kind: kind, Message: fmt.Sprintf(format, args...)}
 }

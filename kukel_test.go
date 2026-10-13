@@ -308,3 +308,81 @@ func TestModuleRules(t *testing.T) {
 	kukel.CompileSource("t.kkl", "use m; main() { m::f(); }", kukel.CompileOptions{Modules: []*kukel.Module{m}})
 	mustPanic("adding after use", func() { m.Func("g", fn) })
 }
+
+// Fixes from the cross-check: each of these left the interpreter broken or
+// let something through before.
+func TestCrossCheckFixes(t *testing.T) {
+	boom := kukel.NewModule("boom").
+		Func("panic", func(in *kukel.Interp, args []kukel.Value) (kukel.Value, error) { panic("oops") }).
+		Func("nested", func(in *kukel.Interp, args []kukel.Value) (kukel.Value, error) {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			_, err := in.CallContext(ctx, "quick") // an ended context counts also inside a Func
+			return kukel.Nil, err
+		})
+	p := compile(t, `use boom; use time; use worker;
+spin(n) { for (local i = 0; i < n; i++) {} return n; }
+quick() { return 1; }
+crash() { boom::panic(); }
+nested() { boom::nested(); }
+sleeper() { time::sleep(10); }
+startSleeper() { worker::start(sleeper); return "started"; }
+main() {}`, kukel.CompileOptions{Modules: []*kukel.Module{boom}})
+
+	in := interp(t, p, kukel.Options{StepLimit: 100})
+	var ke *kukel.Error
+	// A panicking Func is a HostError; the interpreter stays usable.
+	if _, err := in.Call("crash"); !errors.As(err, &ke) || ke.Kind != "HostError" || !strings.Contains(ke.Message, "boom::panic panicked: oops") {
+		t.Errorf("crash: %v", err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := in.Call("spin", kukel.Int(60)); err != nil {
+			t.Errorf("spin after a panic: %v", err)
+		}
+	}
+	if _, err := in.Call("nested"); !errors.As(err, &ke) || ke.Kind != "CancelledError" {
+		t.Errorf("nested CallContext: %v", err)
+	}
+
+	// Close cancels workers that are still running.
+	in2 := interp(t, p, kukel.Options{})
+	if r, err := in2.Call("startSleeper"); err != nil || r.String() != "started" {
+		t.Fatalf("startSleeper: %v %v", r, err)
+	}
+	in2.Close()
+	if _, err := in2.Call("quick"); err == nil || !strings.Contains(err.Error(), "closed") {
+		t.Errorf("a call after Close: %v", err)
+	}
+
+	// A failed initializer fails every call, not only the first.
+	bad := interp(t, compile(t, `global g = h(); h() { throw "bad init"; } f() { return g; } main() {}`, kukel.CompileOptions{}), kukel.Options{})
+	for i := 0; i < 2; i++ {
+		if _, err := bad.Call("f"); err == nil || !strings.Contains(err.Error(), "bad init") {
+			t.Errorf("call %d after a failed init: %v", i, err)
+		}
+	}
+
+	// A Go module's function the program does not call itself.
+	js := interp(t, compile(t, `use json; main() {}`, kukel.CompileOptions{}), kukel.Options{})
+	if r, err := js.Call("json::encode", kukel.Vector(kukel.Int(1))); err != nil || r.String() != "[1]" {
+		t.Errorf("json::encode: %v, %v", r, err)
+	}
+
+	// Misspelt allow-list names are errors.
+	if _, err := kukel.CompileSource("t.kkl", "main() {}", kukel.CompileOptions{DenyBuiltins: []string{"readfiel"}}); err == nil || !strings.Contains(err.Error(), "no built-in function readfiel") {
+		t.Errorf("DenyBuiltins typo: %v", err)
+	}
+	if _, err := kukel.CompileSource("t.kkl", "main() {}", kukel.CompileOptions{StandardModules: []string{"jsn"}}); err == nil || !strings.Contains(err.Error(), "no standard module jsn") {
+		t.Errorf("StandardModules typo: %v", err)
+	}
+
+	// NoFileModules also refuses worker::startfile.
+	w := interp(t, compile(t, `use worker; f(p) { worker::startfile(p); } main() {}`, kukel.CompileOptions{NoFileModules: true}), kukel.Options{})
+	if _, err := w.Call("f", kukel.String("x.kkl")); !errors.As(err, &ke) || !strings.Contains(ke.Message, "may not read program files") {
+		t.Errorf("startfile with NoFileModules: %v", err)
+	}
+
+	if v, _ := kukel.FromGo([]byte("ab")); v.Kind() != "string" || v.String() != "ab" {
+		t.Errorf("FromGo([]byte): %v %s", v, v.Kind())
+	}
+}

@@ -15,3 +15,4 @@ caught: boom
 onerror: RangeError index 1 out of range for vector of length 0
 kept for the next run
 ValueError: events::every: an interval must be at least 0.001 seconds, got 0.0
+TypeError: events::after: argument 2 must be a function, not string

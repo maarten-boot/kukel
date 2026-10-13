@@ -249,9 +249,10 @@ func FuzzVerifyCode(f *testing.F) {
 	})
 }
 
-// TestSharedCacheSlot: a file may give a CALL_METHOD and a GET_MEMBER the
-// same cache slot (the compiler never does); the VM must not trust a data
-// member slot that a method call left in the cache.
+// TestSharedCacheSlot: a file that gives a CALL_METHOD and a GET_MEMBER the
+// same cache slot (the compiler never does) is refused by the verifier, and
+// the VM must not crash on it even so: it must not trust a data member slot
+// that a method call left in the cache.
 func TestSharedCacheSlot(t *testing.T) {
 	src := "class K { m(); }\nK::m() {}\nmain() { local k = new K(); k->m(); local f = k->m; f(); }"
 	f, err := parser.ParseFile("t.kkl", []byte(src))
@@ -278,8 +279,10 @@ func TestSharedCacheSlot(t *testing.T) {
 	if !patched {
 		t.Fatal("no GET_MEMBER in main")
 	}
-	if err := bytecode.Verify(p); err != nil {
-		t.Fatalf("verify: %v", err)
+	// The verifier refuses it (a shared entry could make one name use
+	// another's method); the VM must not crash on it either.
+	if err := bytecode.Verify(p); err == nil || !strings.Contains(err.Error(), "uses cache 0, as the instruction at") {
+		t.Errorf("verify: %v", err)
 	}
 	m, err := vm.New(p, builtins.Lookup, &bytes.Buffer{}, strings.NewReader(""))
 	if err != nil {

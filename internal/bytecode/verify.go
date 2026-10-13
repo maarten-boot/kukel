@@ -98,6 +98,7 @@ func (v *verifier) function(f *Function) error {
 		operands []int
 	}
 	instrs := map[int]instr{}
+	cacheUser := map[int]int{} // inline cache slot -> the pc of the one instruction using it
 	for pc := 0; pc < len(f.Code); {
 		op := Op(f.Code[pc])
 		info, ok := Info(op)
@@ -119,6 +120,16 @@ func (v *verifier) function(f *Function) error {
 		}
 		if err := v.operands(f, pc, op, operands); err != nil {
 			return err
+		}
+		switch op {
+		case OpGetMember, OpSetMember, OpCallMethod, OpCallMethodV:
+			// A cache entry belongs to one instruction: shared, it could
+			// give one member name the method found for another.
+			c := operands[len(operands)-1]
+			if other, ok := cacheUser[c]; ok {
+				return fail(pc, "%s uses cache %d, as the instruction at %d does", info.Name, c, other)
+			}
+			cacheUser[c] = pc
 		}
 		start[pc] = true
 		instrs[pc] = instr{op, operands}

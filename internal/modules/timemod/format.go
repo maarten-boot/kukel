@@ -19,9 +19,11 @@ import (
 //	%% a "%"
 //
 // Parsing takes the same directives except %Z (zone abbreviations are
-// ambiguous; use %z). Numbers may have fewer digits than shown; %f reads
-// 1 to 9 digits as a fraction of a second; %z also reads "Z", "+02" and
-// "+02:00"; %y reads 69-99 as 1969-1999 and 00-68 as 2000-2068.
+// ambiguous; use %z). Numbers may have fewer digits than shown (%Y at most
+// 4); %f reads 1 to 9 digits as a fraction of a second; %z also reads "Z",
+// "+02" and "+02:00"; %y reads 69-99 as 1969-1999 and 00-68 as 2000-2068; a
+// weekday (%a, %A) must match the date. Parts the format leaves out are
+// those of 1970-01-01 00:00:00.
 
 func format(t stdtime.Time, f string) (string, error) {
 	var b strings.Builder
@@ -149,7 +151,8 @@ func init() {
 func parseFormat(text, f string, loc *stdtime.Location) (stdtime.Time, error) {
 	p := &parser{text: text}
 	year, month, day, hour, minute, second, nsec, yday := 1970, 1, 1, 0, 0, 0, 0, 0
-	pm, hasPM, hasDate := false, false, false
+	pm, hasPM, hasDate, hasYday := false, false, false, false
+	weekday := -1 // from %a or %A, checked against the date
 	var err error
 	for i := 0; i < len(f) && err == nil; i++ {
 		if f[i] != '%' {
@@ -201,12 +204,15 @@ func parseFormat(text, f string, loc *stdtime.Location) (stdtime.Time, error) {
 			pm, hasPM = k == 1, true
 		case 'j':
 			yday, err = p.number(3, false, "a day of the year")
+			hasYday = true
 		case 'b', 'B':
 			var k int
 			k, err = p.name(monthNames, "a month name")
 			month, hasDate = k%12+1, true
 		case 'a', 'A':
-			_, err = p.name(weekdayNames, "a weekday name") // checked only for its form
+			var k int
+			k, err = p.name(weekdayNames, "a weekday name")
+			weekday = k % 7
 		case 'z':
 			loc, err = p.offset()
 		case 'Z':
@@ -241,18 +247,28 @@ func parseFormat(text, f string, loc *stdtime.Location) (stdtime.Time, error) {
 	case hour > 23 || minute > 59 || second > 60:
 		return stdtime.Time{}, fmt.Errorf("%q: time of day out of range", text)
 	}
-	if yday > 0 && !hasDate {
-		t := stdtime.Date(year, 1, yday, hour, minute, second, nsec, loc)
-		if t.Year() != year {
+	// A leap second (60) is checked as 59 and added afterwards, so that it
+	// does not move the date before the date is checked.
+	leap := 0
+	if second == 60 {
+		second, leap = 59, 1
+	}
+	var t stdtime.Time
+	if hasYday && !hasDate {
+		t = stdtime.Date(year, 1, yday, hour, minute, second, nsec, loc)
+		if yday < 1 || t.Year() != year {
 			return stdtime.Time{}, fmt.Errorf("%q: day of the year %d out of range", text, yday)
 		}
-		return t, nil
+	} else {
+		t = stdtime.Date(year, stdtime.Month(month), day, hour, minute, second, nsec, loc)
+		if t.Day() != day {
+			return stdtime.Time{}, fmt.Errorf("%q: day %d out of range for that month", text, day)
+		}
 	}
-	t := stdtime.Date(year, stdtime.Month(month), day, hour, minute, second, nsec, loc)
-	if t.Day() != day {
-		return stdtime.Time{}, fmt.Errorf("%q: day %d out of range for that month", text, day)
+	if weekday >= 0 && int(t.Weekday()) != weekday {
+		return stdtime.Time{}, fmt.Errorf("%q: the weekday does not match the date (it is a %s)", text, t.Weekday())
 	}
-	return t, nil
+	return t.Add(stdtime.Duration(leap) * stdtime.Second), nil
 }
 
 // offset reads a zone offset: Z, +hh, +hhmm or +hh:mm.
@@ -281,6 +297,9 @@ func (p *parser) offset() (*stdtime.Location, error) {
 		if m, err = p.number(2, false, "the minutes of a zone offset"); err != nil {
 			return nil, err
 		}
+	}
+	if h > 23 || m > 59 {
+		return nil, fmt.Errorf("%q: zone offset %02d:%02d out of range", p.text, h, m)
 	}
 	off := sign * (h*3600 + m*60)
 	if off == 0 {

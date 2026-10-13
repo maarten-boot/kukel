@@ -73,12 +73,15 @@ type CompileOptions struct {
 	// Path lists directories where "use name;" looks for name.kkl, after
 	// the directory of the file that uses it (CompileFiles only).
 	Path []string
-	// NoFileModules forbids modules written in Kukel: "use" finds only
-	// modules written in Go, and no other file is read.
+	// NoFileModules forbids reading program files: "use" finds only
+	// modules written in Go, and worker::startfile is refused.
 	NoFileModules bool
 }
 
-func (o CompileOptions) config() *native.Config {
+// config turns the options into the internal form. An unknown name in
+// StandardModules or DenyBuiltins is an error: a misspelt name must not
+// leave something allowed by accident.
+func (o CompileOptions) config() (*native.Config, error) {
 	c := &native.Config{Path: o.Path, NoFileModules: o.NoFileModules}
 	for _, m := range o.Modules {
 		c.Modules = append(c.Modules, m.prepare())
@@ -86,16 +89,22 @@ func (o CompileOptions) config() *native.Config {
 	if o.StandardModules != nil {
 		c.AllowedModules = map[string]bool{}
 		for _, name := range o.StandardModules {
+			if _, ok := native.Lookup(name); !ok {
+				return nil, fmt.Errorf("kukel: StandardModules: there is no standard module %s", name)
+			}
 			c.AllowedModules[name] = true
 		}
 	}
 	if len(o.DenyBuiltins) > 0 {
 		c.DeniedBuiltins = map[string]bool{}
 		for _, name := range o.DenyBuiltins {
+			if _, ok := builtins.Lookup(name); !ok {
+				return nil, fmt.Errorf("kukel: DenyBuiltins: there is no built-in function %s", name)
+			}
 			c.DeniedBuiltins[name] = true
 		}
 	}
-	return c
+	return c, nil
 }
 
 // Program is a compiled program. It does not change when it runs, so any
@@ -108,7 +117,10 @@ type Program struct {
 // CompileFiles compiles source files as one program, with the modules they
 // use. An error in the source is a *CompileError.
 func CompileFiles(files []string, opts CompileOptions) (*Program, error) {
-	config := opts.config()
+	config, err := opts.config()
+	if err != nil {
+		return nil, err
+	}
 	parsed, err := loader.LoadWith(files, config)
 	if err != nil {
 		return nil, compileError(err)
@@ -119,7 +131,10 @@ func CompileFiles(files []string, opts CompileOptions) (*Program, error) {
 // CompileSource compiles a program given as text; name is used in
 // messages. Modules written in Kukel are looked for in opts.Path only.
 func CompileSource(name, src string, opts CompileOptions) (*Program, error) {
-	config := opts.config()
+	config, err := opts.config()
+	if err != nil {
+		return nil, err
+	}
 	f, err := parser.ParseFile(name, []byte(src))
 	if err != nil {
 		return nil, compileError(err)
@@ -150,7 +165,11 @@ func LoadProgram(data []byte, opts CompileOptions) (*Program, error) {
 	if err != nil {
 		return nil, fmt.Errorf("kukel: %w", err)
 	}
-	return &Program{prog: prog, config: opts.config()}, nil
+	config, err := opts.config()
+	if err != nil {
+		return nil, err
+	}
+	return &Program{prog: prog, config: config}, nil
 }
 
 // Encode gives the program as the bytes of a .kkc file.

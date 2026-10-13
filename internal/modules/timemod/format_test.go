@@ -39,7 +39,7 @@ func TestParseFormat(t *testing.T) {
 		{"2026-10-14", "%Y-%m-%d", "2026-10-14T00:00:00Z"},
 		{"2026-1-5 7:08:09.5", "%Y-%m-%d %H:%M:%S.%f", "2026-01-05T07:08:09.5Z"},
 		{"14 october 26, 12:15 am", "%d %B %y, %I:%M %p", "2026-10-14T00:15:00Z"},
-		{"Sat 1 Jan 70 12:00 PM", "%a %e %b %y %I:%M %p", "1970-01-01T12:00:00Z"},
+		{"Thu 1 Jan 70 12:00 PM", "%a %e %b %y %I:%M %p", "1970-01-01T12:00:00Z"},
 		{"2026-10-14T09:30:00+02:00", "%Y-%m-%dT%H:%M:%S%z", "2026-10-14T09:30:00+02:00"},
 		{"2026-10-14 09:30 -0530", "%Y-%m-%d %H:%M %z", "2026-10-14T09:30:00-05:30"},
 		{"2026-10-14 09:30 Z", "%Y-%m-%d %H:%M %z", "2026-10-14T09:30:00Z"},
@@ -97,4 +97,30 @@ func FuzzParseFormat(f *testing.F) {
 			t.Fatalf("%q %q: %v -> %s -> %v (%v)", text, layout, tm, s, back, err)
 		}
 	})
+}
+
+// Fixes from the cross-check.
+func TestParseChecks(t *testing.T) {
+	good := []struct{ text, format, want string }{
+		{"2026-01-31 23:59:60", "%Y-%m-%d %H:%M:%S", "2026-02-01T00:00:00Z"}, // a leap second at the end of a month
+		{"Wed 2026-10-14", "%a %Y-%m-%d", "2026-10-14T00:00:00Z"},
+	}
+	for _, tc := range good {
+		got, err := parseFormat(tc.text, tc.format, time.UTC)
+		if err != nil || got.Format(time.RFC3339Nano) != tc.want {
+			t.Errorf("parse(%q, %q) = %v, %v; want %s", tc.text, tc.format, got, err, tc.want)
+		}
+	}
+	bad := []struct{ text, format, msg string }{
+		{"Mon 2026-10-14", "%a %Y-%m-%d", "the weekday does not match the date (it is a Wednesday)"},
+		{"000", "%j", "day of the year 0 out of range"},
+		{"+2500", "%z", "zone offset 25:00 out of range"},
+		{"+0175", "%z", "zone offset 01:75 out of range"},
+	}
+	for _, tc := range bad {
+		_, err := parseFormat(tc.text, tc.format, time.UTC)
+		if err == nil || !strings.Contains(err.Error(), tc.msg) {
+			t.Errorf("parse(%q, %q): got %v, want %q", tc.text, tc.format, err, tc.msg)
+		}
+	}
 }

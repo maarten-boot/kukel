@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -295,4 +296,33 @@ func FuzzCompile(f *testing.F) {
 			t.Fatalf("%q: %v", src, err)
 		}
 	})
+}
+
+// Function indexes are 16-bit operands: more functions than that are a
+// compile error, not a call of the wrong function.
+func TestTooManyFunctions(t *testing.T) {
+	var b strings.Builder
+	for _, class := range []string{"A", "B"} { // member functions: they use no global names
+		fmt.Fprintf(&b, "class %s {", class)
+		for i := 0; i < 33000; i++ {
+			fmt.Fprintf(&b, " static m%d();", i)
+		}
+		b.WriteString(" }\n")
+		for i := 0; i < 33000; i++ {
+			fmt.Fprintf(&b, "%s::m%d() {}\n", class, i)
+		}
+	}
+	b.WriteString("main() {}\n")
+	err := compileSrc(t, b.String())
+	if err == nil || !strings.Contains(err.Error(), "too many functions in the program (more than 65536)") {
+		t.Errorf("got %v", err)
+	}
+}
+
+func TestMainParameter(t *testing.T) {
+	for _, src := range []string{"main(a..) {}", "main(a = 1) {}"} {
+		if err := compileSrc(t, src); err == nil || !strings.Contains(err.Error(), "cannot have a default or be a rest parameter") {
+			t.Errorf("%s: %v", src, err)
+		}
+	}
 }

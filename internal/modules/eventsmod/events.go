@@ -272,6 +272,15 @@ var Timer = &native.Class{
 	},
 }
 
+// callable reports a TypeError unless argument i can be called.
+func callable(a native.Args, i int) error {
+	switch a.V[i].Kind() {
+	case value.Function, value.Closure, value.Builtin, value.BoundMethod:
+		return nil
+	}
+	return a.TypeError(i, "a function")
+}
+
 // newTimer implements after() and every().
 func newTimer(name string, repeat bool) native.Func {
 	return func(env value.Env, args []value.Value) (value.Value, error) {
@@ -281,6 +290,9 @@ func newTimer(name string, repeat bool) native.Func {
 		}
 		secs, err := a.Number(0)
 		if err != nil {
+			return value.NilValue, err
+		}
+		if err := callable(a, 1); err != nil {
 			return value.NilValue, err
 		}
 		switch {
@@ -315,7 +327,11 @@ func init() {
 			// post(f, args..): call f(args..) soon, after the events already
 			// queued.
 			"post": func(env value.Env, args []value.Value) (value.Value, error) {
-				if _, err := native.Check("events::post", args, 1, -1); err != nil {
+				a, err := native.Check("events::post", args, 1, -1)
+				if err != nil {
+					return value.NilValue, err
+				}
+				if err := callable(a, 0); err != nil {
 					return value.NilValue, err
 				}
 				fn, rest := args[0], append([]value.Value(nil), args[1:]...)
@@ -345,8 +361,14 @@ func init() {
 			// catch, and the loop goes on; onerror(nil) lets them leave
 			// run() again.
 			"onerror": func(env value.Env, args []value.Value) (value.Value, error) {
-				if _, err := native.Check("events::onerror", args, 1, 1); err != nil {
+				a, err := native.Check("events::onerror", args, 1, 1)
+				if err != nil {
 					return value.NilValue, err
+				}
+				if !args[0].IsNil() {
+					if err := callable(a, 0); err != nil {
+						return value.NilValue, err
+					}
 				}
 				For(env).onerror = args[0]
 				return value.NilValue, nil

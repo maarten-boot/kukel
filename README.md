@@ -85,9 +85,10 @@ make install    # install kukel into $(go env GOPATH)/bin
 | `kukel check a.kkl ...` | compile only and report errors |
 | `kukel build [-o prog.kkc] a.kkl ...` | compile to a bytecode file |
 | `kukel exec prog.kkc [args]` | run a bytecode file |
-| `kukel disasm prog.kkc` (or `a.kkl`) | show the bytecode |
-| `kukel tokens a.kkl`, `kukel ast a.kkl` | show the tokens or the syntax tree |
-| `kukel version` | show the version |
+| `kukel disasm prog.kkc` (or `a.kkl ...`) | show the bytecode |
+| `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | show the tokens or the syntax tree |
+| `kukel version` | show the version and the modules written in Go |
+| `kukel help` | show the commands |
 
 `tests/run` has example programs: FizzBuzz, a JSON parser, word counting,
 closures, exceptions and more. Each comes with its expected output.
@@ -136,14 +137,15 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/value`, `internal/builtins` | values with their operators, built-in functions |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q34). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q39). Ideas for later are in [docs/future.md](docs/future.md).
 
 ## Development
 
 | Make target | |
 |---|---|
 | `make` | gofmt check, `go vet`, tests, build |
-| `make fuzz FUZZTIME=1m` | fuzz the lexer, parser, compiler, bytecode loader and VM |
+| `make install` | install `kukel` into `$(go env GOPATH)/bin` |
+| `make fuzz FUZZTIME=1m` | fuzz the lexer, parser, compiler, bytecode loader and VM, `json::decode` and time parsing |
 | `make bench` | benchmarks |
 | `make golden` | rewrite the expected outputs in `tests/` after an intended change |
 

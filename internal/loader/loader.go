@@ -93,6 +93,12 @@ func (l *loader) uses(f *ast.File, chain []string) error {
 			continue
 		}
 		name := u.Name.Name
+		switch {
+		case name == f.Module:
+			return diag.Errorf(u.Name.NamePos, "module %s cannot use itself", name)
+		case name == "Error":
+			return diag.Errorf(u.Name.NamePos, "a module cannot be called Error (the name of the class of runtime errors)")
+		}
 		if _, ok := l.config.Lookup(name); ok {
 			continue // written in Go: nothing to load
 		}
@@ -140,7 +146,11 @@ func (l *loader) find(name, dir string) (string, error) {
 	if l.nextToFiles {
 		dirs = append(dirs, dir)
 	}
-	dirs = append(dirs, l.path...)
+	for _, d := range l.path {
+		if d != "" { // an empty entry (KUKEL_PATH="a::b") is not the current directory
+			dirs = append(dirs, d)
+		}
+	}
 	for _, d := range dirs {
 		file := filepath.Join(d, name+Ext)
 		info, err := os.Stat(file)

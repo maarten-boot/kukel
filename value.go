@@ -173,8 +173,8 @@ func (v Value) SetKey(key, val Value) error {
 func (v Value) String() string { return v.v.String() }
 
 // FromGo makes a Value of a Go value: nil, a bool, any integer or float
-// type, a string, a Value, a slice (a vector) or a map with string keys (a
-// map, keys in sorted order), also nested.
+// type, a string or []byte (a string), a Value, a slice (a vector) or a
+// map with string keys (a map, keys in sorted order), also nested.
 func FromGo(x any) (Value, error) {
 	switch x := x.(type) {
 	case nil:
@@ -193,6 +193,8 @@ func FromGo(x any) (Value, error) {
 		return Float(x), nil
 	case []Value:
 		return Vector(x...), nil
+	case []byte:
+		return String(string(x)), nil // Kukel strings are bytes
 	}
 	r := reflect.ValueOf(x)
 	switch r.Kind() {

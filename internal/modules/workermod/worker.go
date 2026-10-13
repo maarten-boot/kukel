@@ -17,8 +17,9 @@
 //	    w->wait();
 //	}
 //
-// Interpreters share nothing: a message is a copy, made by the sender, of
-// nil, a boolean, a number, a string, or vectors and maps of those.
+// Interpreters share nothing: a message is a copy, made by the sender, of a
+// boolean, a number, a string, or vectors and maps of those (and nil inside
+// them; nil itself cannot be sent, receive gives it at the end).
 package workermod
 
 import (
@@ -204,6 +205,7 @@ func launch(parent value.Env, name string, prog *bytecode.Program, fn value.Valu
 	child.SetStderr(stderr)
 	child.StepLimit = p.StepLimit
 	if c := p.CurrentCanceller(); c != nil {
+		c.Keep()
 		child.ShareCanceller(c) // cancelling the parent cancels its workers
 	}
 	w := &worker{name: name, inbox: newQueue(), outbox: newQueue(), done: make(chan struct{})}
@@ -220,8 +222,7 @@ func launch(parent value.Env, name string, prog *bytecode.Program, fn value.Valu
 			w.err = err
 			return
 		}
-		a := native.Args{Name: "worker " + name}
-		if w.result, err = copyMessage(a, r); err != nil {
+		if w.result, err = copyMessage(native.Args{Name: "its result"}, r); err != nil {
 			w.err = err
 		}
 	}()
@@ -232,11 +233,15 @@ func launch(parent value.Env, name string, prog *bytecode.Program, fn value.Valu
 func (w *worker) failure() error {
 	msg := w.err.Error()
 	var re *vm.RuntimeError
-	if errors.As(w.err, &re) {
+	var ve *value.Error
+	switch {
+	case errors.As(w.err, &re):
 		msg = re.Msg
 		if re.Kind != "" {
 			msg = re.Kind + ": " + msg
 		}
+	case errors.As(w.err, &ve): // the result could not be copied
+		msg = ve.Kind + ": " + ve.Msg
 	}
 	return value.Errorf("WorkerError", "worker %s failed: %s", w.name, msg)
 }
@@ -409,7 +414,7 @@ func init() {
 				}
 				fn, ok := args[0].Obj().(*bytecode.Function)
 				if args[0].Kind() != value.Function || !ok {
-					return value.NilValue, a.Errorf(value.TypeError, "argument 1 must be a top-level or static member function, not a %s (a closure, bound method or built-in cannot run in another interpreter)", kindName(args[0]))
+					return value.NilValue, a.Errorf(value.TypeError, "argument 1 must be a top-level or static member function, not %s (a closure, bound method or built-in cannot run in another interpreter)", kindName(args[0]))
 				}
 				copied, err := copyArgs(a, args[1:])
 				if err != nil {
@@ -433,7 +438,11 @@ func init() {
 				if err != nil {
 					return value.NilValue, err
 				}
-				prog, err := load(a, env.(*vm.VM).Config(), path)
+				config := env.(*vm.VM).Config()
+				if config != nil && config.NoFileModules {
+					return value.NilValue, a.Errorf(value.ValueError, "this program may not read program files (startfile is not available)")
+				}
+				prog, err := load(a, config, path)
 				if err != nil {
 					return value.NilValue, err
 				}
@@ -537,11 +546,15 @@ func load(a native.Args, config *native.Config, path string) (*bytecode.Program,
 func kindName(v value.Value) string {
 	switch v.Kind() {
 	case value.Closure:
-		return "function literal"
+		return "a function literal"
 	case value.BoundMethod:
-		return "bound method"
+		return "a bound method"
 	case value.Builtin:
-		return "built-in function"
+		return "a built-in function"
+	case value.Nil:
+		return "nil"
+	case value.Int, value.Object:
+		return "an " + v.Kind().String()
 	}
-	return v.Kind().String()
+	return "a " + v.Kind().String()
 }

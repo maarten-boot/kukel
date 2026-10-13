@@ -103,6 +103,7 @@ func (c *Class) build(module string) {
 		Name:       c.QualifiedName(),
 		FieldIndex: map[string]int{},
 		Methods:    map[string]*value.MethodObj{},
+		Native:     true,
 		Show:       c.Show,
 	}
 	for name, fn := range c.Methods {

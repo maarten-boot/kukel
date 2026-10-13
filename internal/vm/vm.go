@@ -39,7 +39,7 @@ type RuntimeError struct {
 	Kind  string       // the kind of an Error object; "" for other values
 	Msg   string       // the message of an Error object, or the value as text
 	Trace []TraceEntry // innermost call first
-	Fatal bool         // try cannot catch it (exit, the step limit)
+	Fatal bool         // try cannot catch it (exit, the step limit, cancellation)
 	Exit  *int         // set by exit(code): not an error, the program ends
 }
 
@@ -98,7 +98,8 @@ type VM struct {
 
 	// StepLimit, when positive, stops the program with a fatal error after
 	// that many backward jumps, calls of Kukel functions and thrown
-	// exceptions (for tests that run untrusted code).
+	// exceptions: for tests, and for Go programs that run untrusted code
+	// (the kukel package resets the count for every call from Go).
 	StepLimit int
 	steps     int
 	stack     []value.Value
@@ -114,6 +115,7 @@ type VM struct {
 	builtins Builtins    // how New found the built-ins (for workers)
 	config   *native.Config
 	inited   bool       // Init has run
+	initErr  error      // why Init failed
 	cancel   *Canceller // set by Cancellable; nil: the program cannot be cancelled
 }
 
@@ -247,7 +249,8 @@ func (vm *VM) makeClasses() error {
 	return nil
 }
 
-// Stdout, Stdin and Call implement value.Env for the built-ins.
+// Stdout, Stderr, Stdin, Call, Rand, Started, Local, Thrown, Done and Err
+// implement value.Env for the built-ins and the native modules.
 func (vm *VM) Stdout() io.Writer { return vm.stdout }
 func (vm *VM) Stderr() io.Writer { return vm.stderr }
 
@@ -327,15 +330,19 @@ func (vm *VM) Start(fn value.Value, args []value.Value) (value.Value, error) {
 	return vm.call(fn, args)
 }
 
-// Init runs the global initializers, the first time only.
+// Init runs the global initializers, the first time only. If they fail,
+// every later Init gives the same error: the globals are not usable.
 func (vm *VM) Init() error {
-	if vm.inited {
-		return nil
+	if !vm.inited {
+		vm.inited = true
+		_, vm.initErr = vm.call(value.MakeFunction(vm.prog.Init), nil)
 	}
-	vm.inited = true
-	_, err := vm.call(value.MakeFunction(vm.prog.Init), nil)
-	return err
+	return vm.initErr
 }
+
+// CloseOutput flushes the output shared with workers (ShareOutput) and
+// drops what they write later. Run does it when main returns.
+func (vm *VM) CloseOutput() { vm.closeOutput() }
 
 // Global returns the value of the global called name: a top-level name of
 // the program ("main"), or a module's ("util::f", "json::encode").
@@ -354,30 +361,79 @@ func (vm *VM) ResetSteps() { vm.steps = 0 }
 // Config is what the program may use (nil: everything).
 func (vm *VM) Config() *native.Config { return vm.config }
 
-// Canceller stops a running program from another goroutine.
+// Canceller stops a running program from another goroutine. Cancellers
+// form a tree: cancelling one cancels the ones made from it (Child).
 type Canceller struct {
 	flag atomic.Bool
 	once sync.Once
 	done chan struct{}
 	err  error
+	keep atomic.Bool // workers use it: Release keeps it in its parent
+
+	mu       sync.Mutex
+	children map[*Canceller]bool
 }
 
-// Cancel makes the program stop at its next step with a CancelledError
-// that try cannot catch; Go functions that wait (sleep, receive) return at
-// once. It may be called from any goroutine, and more than once.
+// NewCanceller makes a Canceller that nothing has cancelled yet.
+func NewCanceller() *Canceller { return &Canceller{done: make(chan struct{})} }
+
+// Cancel makes the programs that use c (and its children) stop at their
+// next step with a CancelledError that try cannot catch; Go functions that
+// wait (sleep, receive) return at once. It may be called from any
+// goroutine, and more than once.
 func (c *Canceller) Cancel(reason error) {
 	c.once.Do(func() {
 		c.err = reason
 		c.flag.Store(true)
 		close(c.done)
+		c.mu.Lock()
+		children := c.children
+		c.children = nil
+		c.mu.Unlock()
+		for child := range children {
+			child.Cancel(reason)
+		}
 	})
 }
+
+// Child makes a Canceller that is cancelled when c is (at once if c
+// already is).
+func (c *Canceller) Child() *Canceller {
+	child := NewCanceller()
+	c.mu.Lock()
+	cancelled := c.flag.Load()
+	if !cancelled {
+		if c.children == nil {
+			c.children = map[*Canceller]bool{}
+		}
+		c.children[child] = true
+	}
+	c.mu.Unlock()
+	if cancelled {
+		child.Cancel(c.err)
+	}
+	return child
+}
+
+// Release forgets child (made by Child) when it is no longer needed, unless
+// workers use it: they must still be cancelled with c.
+func (c *Canceller) Release(child *Canceller) {
+	if child.keep.Load() {
+		return
+	}
+	c.mu.Lock()
+	delete(c.children, child)
+	c.mu.Unlock()
+}
+
+// Keep marks c as used by a worker (see Release).
+func (c *Canceller) Keep() { c.keep.Store(true) }
 
 // Cancellable makes the program cancellable from now on with the
 // returned Canceller (replacing an earlier one). Workers started
 // afterwards share it: cancelling the program cancels them too.
 func (vm *VM) Cancellable() *Canceller {
-	vm.cancel = &Canceller{done: make(chan struct{})}
+	vm.cancel = NewCanceller()
 	return vm.cancel
 }
 
@@ -588,6 +644,9 @@ func (vm *VM) newObject(argc int) error {
 		return value.Errorf(value.TypeError, "cannot create an object of %s with new", cv.Kind())
 	}
 	c := cv.AsClass()
+	if c.Native && c.Ctor == nil {
+		return value.Errorf(value.TypeError, "native class %s has no constructor: its objects come from the functions of its module", c.Name)
+	}
 	obj := value.NewObject(c)
 	vm.stack[vm.sp-argc-1] = obj
 	if c.Ctor == nil {
@@ -915,6 +974,12 @@ func (vm *VM) catch(re *RuntimeError, stopDepth int) bool {
 			return true
 		}
 	}
+	// Not caught here (or fatal): the frames above stopDepth are gone, and
+	// so are their handlers, so that a VM used again (an embedded
+	// interpreter after a step limit) has no stale ones.
+	for n := len(vm.handlers); n > 0 && vm.handlers[n-1].frame >= stopDepth; n-- {
+		vm.handlers = vm.handlers[:n-1]
+	}
 	vm.frames = vm.frames[:stopDepth]
 	return false
 }
@@ -937,9 +1002,6 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 	ip := f.ip
 	stack := vm.stack
 	sp := vm.sp
-
-	// fail records the position of the failing instruction and returns the
-	// exception.
 
 	for {
 		start := ip

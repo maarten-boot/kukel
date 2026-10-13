@@ -150,6 +150,9 @@ func (c *compiler) declareClass(d *ast.ClassDecl) {
 			if m.isCtor() && m.static {
 				c.errorf(mem.Pos(), "the constructor %s::%s cannot be static", k.name, k.local)
 			}
+			if len(k.bc.Methods) > maxIndex {
+				c.errorf(mem.Pos(), "too many member functions in class %s (more than %d)", k.name, maxIndex+1)
+			}
 			k.bc.Methods = append(k.bc.Methods, bytecode.Method{Name: m.name, Static: m.static, Func: -1})
 			c.addMember(k, m)
 		}

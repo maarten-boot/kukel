@@ -86,6 +86,10 @@ func TestLoadErrors(t *testing.T) {
 		"both.kkl":    "use dup; main() {}",
 		"bad.kkl":     "use broken; main() {}",
 		"broken.kkl":  "f( {}",
+		"selfuse.kkl": "use selfuse; main() {}",
+		"errmod.kkl":  "use Error; main() {}",
+		"sub/me.kkl":  "use me; f() {}",
+		"useme.kkl":   "use me; main() {}",
 	})
 	tests := []struct {
 		files []string
@@ -98,6 +102,9 @@ func TestLoadErrors(t *testing.T) {
 		{[]string{"both.kkl", "dup.kkl"}, "both.kkl:1:5: " + filepath.Join(dir, "dup.kkl") + " is both a file of the program and module dup"},
 		{[]string{"bad.kkl"}, "broken.kkl:1:4: "},
 		{[]string{"nofile.kkl"}, "nofile.kkl"},
+		{[]string{"selfuse.kkl"}, "selfuse.kkl is both a file of the program and module selfuse"}, // a program file that uses itself
+		{[]string{"errmod.kkl"}, "errmod.kkl:1:5: a module cannot be called Error"},
+		{[]string{"useme.kkl"}, "me.kkl:1:5: module me cannot use itself"},
 	}
 	for _, tc := range tests {
 		var files []string
@@ -108,5 +115,22 @@ func TestLoadErrors(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), tc.msg) {
 			t.Errorf("%v: got %v, want an error containing %q", tc.files, err, tc.msg)
 		}
+	}
+}
+
+// An empty entry in the search path is skipped, not the current directory.
+func TestEmptyPathEntry(t *testing.T) {
+	dir := tree(t, map[string]string{"prog/main.kkl": "use cwdmod; main() {}", "cwdmod.kkl": "f() {}"})
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil { // cwdmod.kkl is in the current directory
+		t.Fatal(err)
+	}
+	defer os.Chdir(wd)
+	_, err = Load([]string{filepath.Join(dir, "prog", "main.kkl")}, []string{"", filepath.Join(dir, "none")})
+	if err == nil || !strings.Contains(err.Error(), "module cwdmod not found") {
+		t.Errorf("got %v", err)
 	}
 }

@@ -66,7 +66,7 @@ func TestErrors(t *testing.T) {
 		{encode, []value.Value{value.MakeMap(m)}, "the value contains itself"},
 		{encode, []value.Value{value.MakeFloat(-1 / zero())}, "-inf has no JSON form"},
 		{decode, []value.Value{value.MakeInt(1)}, "argument 1 must be a string, not int"},
-		{decode, []value.Value{value.MakeString(strings.Repeat("[", 20000))}, "invalid JSON"},
+		{decode, []value.Value{value.MakeString(strings.Repeat("[", 20000))}, "nested more than 10000 deep"},
 		{decode, []value.Value{value.MakeString(`{"a":1,}`)}, "invalid JSON at byte 7"},
 	}
 	for _, tc := range tests {
@@ -103,4 +103,19 @@ func FuzzJSON(f *testing.F) {
 			t.Fatalf("%q: %s then %v (%v)", s, once, twice, err)
 		}
 	})
+}
+
+// Deep nesting is a ValueError, not a crash of the process.
+func TestDeepDecode(t *testing.T) {
+	for _, n := range []int{maxDepth + 1, 3_000_000} {
+		s := strings.Repeat("[", n) + strings.Repeat("]", n)
+		_, err := call(decode, value.MakeString(s))
+		if err == nil || !strings.Contains(err.Error(), "nested more than 10000 deep") {
+			t.Errorf("depth %d: %v", n, err)
+		}
+	}
+	s := strings.Repeat("[", maxDepth) + strings.Repeat("]", maxDepth)
+	if _, err := call(decode, value.MakeString(s)); err != nil {
+		t.Errorf("depth %d: %v", maxDepth, err)
+	}
 }

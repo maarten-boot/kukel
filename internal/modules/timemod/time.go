@@ -10,6 +10,7 @@ package timemod
 
 import (
 	"fmt"
+	"math"
 	stdtime "time"
 	_ "time/tzdata" // time zones by name on every system
 
@@ -116,9 +117,9 @@ func newTime(env value.Env, this *value.ObjectObj, args []value.Value) (value.Va
 			}
 		}
 	}
-	var sec float64
+	var sec, nsec int64
 	if a.Has(5) {
-		if sec, err = a.Number(5); err != nil {
+		if sec, nsec, err = seconds(a, 5); err != nil {
 			return value.NilValue, err
 		}
 	}
@@ -128,10 +129,28 @@ func newTime(env value.Env, this *value.ObjectObj, args []value.Value) (value.Va
 			return value.NilValue, err
 		}
 	}
-	whole := int64(sec)
 	this.State = stdtime.Date(int(parts[0]), stdtime.Month(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]),
-		int(whole), int((sec-float64(whole))*1e9+0.5), loc)
+		int(sec), int(nsec), loc)
 	return value.NilValue, nil
+}
+
+// seconds reads argument i, a number of seconds, as whole seconds and
+// nanoseconds (0 to 999999999). nan, inf and numbers beyond about 2.9e11
+// years are a ValueError.
+func seconds(a native.Args, i int) (whole, nsec int64, err error) {
+	s, err := a.Number(i)
+	if err != nil {
+		return 0, 0, err
+	}
+	if math.IsNaN(s) || math.IsInf(s, 0) || math.Abs(s) >= 9e18 {
+		return 0, 0, a.Errorf(value.ValueError, "%s seconds is out of range", value.FormatFloat(s))
+	}
+	w := math.Floor(s)
+	ns := math.Round((s - w) * 1e9)
+	if ns >= 1e9 {
+		w, ns = w+1, ns-1e9
+	}
+	return int64(w), int64(ns), nil
 }
 
 func location(a native.Args, i int) (*stdtime.Location, error) {
@@ -179,10 +198,14 @@ func sleep(env value.Env, args []value.Value) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, err
 	}
-	if s < 0 {
-		return value.NilValue, a.Errorf(value.ValueError, "negative duration %s", value.FormatFloat(s))
+	if s < 0 || math.IsNaN(s) {
+		return value.NilValue, a.Errorf(value.ValueError, "%s is not a usable duration", value.FormatFloat(s))
 	}
-	t := stdtime.NewTimer(stdtime.Duration(s * 1e9))
+	d := stdtime.Duration(math.MaxInt64) // about 292 years: as good as forever
+	if s < d.Seconds() {
+		d = stdtime.Duration(s * 1e9)
+	}
+	t := stdtime.NewTimer(d)
 	defer t.Stop()
 	select {
 	case <-t.C:
@@ -199,21 +222,21 @@ func fromUnix(env value.Env, args []value.Value) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, err
 	}
-	s, err := a.Number(0)
+	sec, nsec, err := seconds(a, 0)
 	if err != nil {
 		return value.NilValue, err
 	}
-	whole := int64(s)
-	return Time.Object(stdtime.Unix(whole, int64((s-float64(whole))*1e9)).UTC()), nil
+	return Time.Object(stdtime.Unix(sec, nsec).UTC()), nil
 }
 
 // t->add(seconds): the time that many seconds later (earlier if negative).
 func add(a native.Args, t stdtime.Time) (value.Value, error) {
-	s, err := a.Number(0)
+	sec, nsec, err := seconds(a, 0)
 	if err != nil {
 		return value.NilValue, err
 	}
-	return Time.Object(t.Add(stdtime.Duration(s * 1e9))), nil
+	// Through Unix seconds, not a Duration: those end at about 292 years.
+	return Time.Object(stdtime.Unix(t.Unix()+sec, int64(t.Nanosecond())+nsec).In(t.Location())), nil
 }
 
 // t->sub(u): the seconds from u to t, as a float.
@@ -222,7 +245,8 @@ func sub(a native.Args, t stdtime.Time) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, err
 	}
-	return value.MakeFloat(t.Sub(u).Seconds()), nil
+	// Not t.Sub(u): a Duration ends at about 292 years.
+	return value.MakeFloat(float64(t.Unix()-u.Unix()) + float64(t.Nanosecond()-u.Nanosecond())/1e9), nil
 }
 
 // t->inzone(zone): the same instant in another time zone.

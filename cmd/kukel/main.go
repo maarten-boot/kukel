@@ -157,7 +157,11 @@ func cmdBuild(args []string, stderr io.Writer) int {
 	out := ""
 	var files []string
 	for i := 0; i < len(args); i++ {
-		if args[i] == "-o" && i+1 < len(args) {
+		if args[i] == "-o" {
+			if i+1 == len(args) {
+				fmt.Fprintln(stderr, "kukel build: -o needs a file name\nusage: kukel build [-o prog.kkc] a.kkl ...")
+				return 2
+			}
 			out = args[i+1]
 			i++
 			continue

@@ -29,7 +29,7 @@ func (c *compiler) use(d *ast.UseDecl) {
 	// mix up), but not the prelude's class Error, so that Error::x stays
 	// unambiguous.
 	if g, ok := c.universal[name]; ok && g.kind != symBuiltin {
-		c.errorf(d.Name.NamePos, "a module cannot have the name %s, defined at %s", name, g.pos)
+		c.errorf(d.Name.NamePos, "a module cannot be called %s (the name of the class of runtime errors)", name)
 	}
 	m, ok := c.modules[name]
 	if !ok {

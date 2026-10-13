@@ -44,18 +44,21 @@ hello, Kukel
 | `kukel run a.kkl b.kkl [-- args]` | Compile the files as one program and run it; the arguments after `--` go to `main` |
 | `kukel check a.kkl ...` | Compile only and report the first error; prints nothing when the program is fine |
 | `kukel build [-o prog.kkc] a.kkl ...` | Compile to a bytecode file (default name: the first file with `.kkc`) |
-| `kukel exec prog.kkc [args]` | Run a bytecode file |
+| `kukel exec prog.kkc [--] [args]` | Run a bytecode file (a first `--` is skipped) |
 | `kukel disasm prog.kkc` or `kukel disasm a.kkl ...` | Show the bytecode in readable form |
-| `kukel tokens a.kkl`, `kukel ast [-pos] a.kkl` | Show the tokens or the syntax tree (for debugging) |
+| `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | Show the tokens or the syntax tree of each file (for debugging; `-pos` adds positions) |
+| `kukel version` | Show the version, the bytecode format and the modules written in Go |
+| `kukel help` | Show the commands |
 
 The exit code is `main`'s result when it returns an int, else 0. A compile
 error or an uncaught exception gives exit code 1; `exit(code)` ends the
 program with that code. A wrong command line (an unknown command, a missing
-file name) gives exit code 2.
+file name, `-o` without a name) gives exit code 2. The operating system
+keeps only the low 8 bits of an exit code: `return 263` exits with 7,
+`return -1` with 255.
 
 Files used as modules (`use name;`) are found next to the file that uses
-them or through `KUKEL_PATH`; see [Modules](#modules). The operating system keeps only the low 8
-bits of an exit code: `return 263` exits with 7, `return -1` with 255.
+them or through `KUKEL_PATH`; see [Modules](#modules).
 
 A `.kkc` file starts with a format version; a file written by another
 version of the format is refused (compile the program again). Files are
@@ -72,6 +75,9 @@ first line `#!/usr/bin/env ...` is allowed) and `/* ... */` (not nested; a
 
 **Identifiers**: letters, digits and `_`, not starting with a digit, at most
 255 characters; case matters.
+
+**Nesting**: expressions and statements may nest at most 1000 levels deep
+(parentheses, blocks, ...); deeper is a compile error.
 
 **Keywords**: `break case catch class const continue default do else elseif
 false finally fn for global if in local new nil return static switch this
@@ -124,9 +130,14 @@ methods when they are the same member function of the same object
 int and float).
 
 **Printing**: `print`/`str` show strings as they are; inside vectors, maps
-and objects strings are quoted. Floats always show a `.` or an exponent
-(`1.0`, `1e+21`, `inf`, `nan`). Objects print as `Point{x: 1, y: 2}`; a
-container inside itself prints as `[...]`, `{...}` or `Point{...}`.
+and objects strings are quoted. Floats always show a `.` or an exponent,
+in the shortest form that reads back as the same float: an exponent below
+1e-4 and from 1e6 on (`1.0`, `123456.0`, `1e+06`, `1.5e-05`, `inf`,
+`nan`). Objects print as `Point{x: 1, y: 2}`; a container inside itself
+prints as `[...]`, `{...}` or `Point{...}`. Functions print as
+`<function main>`, `<function P::m>` or `<function main/fn@4>` (a function
+literal on line 4), built-ins as `<builtin println>`, classes as
+`<class P>` and bound methods as `<method P::m>`.
 
 ---
 
@@ -210,8 +221,9 @@ geometry::Circle{r: 1}
 - `use` holds for the file that contains it. A module sees its own names,
   the built-ins, `Error`, and the modules it uses itself; it does not see the
   program's names. A program and its modules may define the same names.
-- Names that start with `_` are private: `geometry::_square` is a compile
-  error outside the module.
+- Top-level names that start with `_` are private: `geometry::_square` is a
+  compile error outside the module. Members of a module's classes are not
+  private (`p->_m()` works).
 - Each module is loaded once, however many files use it, and its global
   initializers run before those of the files that use it. A module name
   stands for one file in the whole program. Modules may not use each other
@@ -256,7 +268,8 @@ skipping keys deleted in the meantime. Anything else is a `TypeError`.
 
 **Switch**: the value is compared with `==` to each `case` (`1` and `1.0`
 match); control falls through to the next label until `break`. Case values
-are constant expressions; duplicates and a second `default` are errors.
+are constant expressions (with `?:` in parentheses: `case (A ? 1 : 2):`);
+duplicates and a second `default` are errors.
 `case` labels may appear inside nested statements (as in C), but not where
 jumping to them would enter a try block or skip a `local`'s initialization.
 A `local` directly in a switch body is not allowed: put it in a block.
@@ -305,7 +318,7 @@ as an int; strings cannot be changed (`s[i] = x` is an error).
 **Indexing**: `v[i]` with an int from 0 to `len(v) - 1` (no negative
 indexes); assigning `v[len(v)]` is an error (use `push`). `m[k]` gives
 `nil` for a missing key (use `haskey` to tell a stored nil apart). Map keys
-are strings and numbers; `1` and `1.0` are the same key.
+are strings and numbers (not `nan`); `1` and `1.0` are the same key.
 
 **Literals**: `[a, b, v..]` (`v..` inserts the elements of vector `v`),
 `{key: value, ...}` — keys are expressions: `{name: 1}` uses the variable
@@ -340,8 +353,11 @@ main() {
 - A function without `return value` returns `nil`.
 - `f(a, v.., b)` passes the elements of vector `v` as separate arguments.
 - A call with the wrong number of arguments is a compile error when the
-  function is known when compiling (a function, a static member function,
-  `Base::m(...)`, `new C(...)`), and an `ArgumentError` otherwise.
+  function is known when compiling (a function written in Kukel, also of a
+  module; a static member function; `Base::m(...)`; `new C(...)`), and an
+  `ArgumentError` otherwise: calls through variables and `p->m(...)`, and
+  built-ins and functions of modules written in Go, which check their
+  arguments when they run.
 - Functions are values: `local f = square; f(3);`.
 - Recursion is limited to 10000 nested calls (`StackOverflowError`).
 
@@ -424,18 +440,22 @@ main() {
   `this->f()`. A static member function has no `this`.
 - `p->m(...)` calls the member function of `p`'s class (all member
   functions are virtual). `Base::m(...)` calls `Base`'s version on the
-  current `this` (not virtual). `C::f(...)` calls a static member function;
-  `C::x` is a static data member.
+  current `this` (not virtual; spread arguments are not allowed there).
+  `C::f(...)` calls a static member function; `C::x` is a static data
+  member.
 - A derived class may redeclare a member function of its base (overriding
-  it); redeclaring a data member is an error.
+  it) if both are static or both are not; the parameters may differ.
+  Redeclaring a data member is an error.
 - `p->x` reads or assigns a data member (all members are public). Static
   data members are reached as `C::x` only; a static member function can
   also be called as `p->f(...)`.
   `p->m` without a call is a *bound method*: a function value that calls
   `m` on `p` later (`sort(v, p->less)`). `(p->f)(x)` calls a function held
   in a data member.
-- A member function may be declared without a definition; calling it is a
-  `MemberError` ("declared but not defined").
+- A member function may be declared without a definition. Calling it is a
+  compile error where the compiler knows the callee (`new C(...)`,
+  `C::f(...)`, `Base::m(...)`), else a `MemberError` ("declared but not
+  defined") when the call runs (`p->m(...)`).
 
 ---
 
@@ -466,7 +486,7 @@ main() {
   if `kind` is nil, `kind` becomes the name of its class.
 - An exception thrown in a `finally` block replaces the one in progress.
 - An uncaught exception ends the program with exit code 1, printing
-  `kind: message` (just `kind` when the message is nil; `uncaught exception:
+  `kind: message` (just `kind` when the message is nil or empty; `uncaught exception:
   value` for values that are not `Error` objects) and the stack trace.
 - `exit(code)` ends the program at once; it cannot be caught and `finally`
   blocks do not run.
@@ -477,9 +497,9 @@ Kinds of runtime errors:
 |---|---|
 | `TypeError` | an operation on values of the wrong type (`1 + "a"`, calling an int, ...) |
 | `ZeroDivisionError` | integer `/` or `%` by zero |
-| `RangeError` | an index out of range, a shift count outside 0..63, a number that does not fit |
+| `RangeError` | an index out of range, a shift count outside 0..63, a number that does not fit, an argument outside the range a built-in takes (`char(300)`, `randint(5, 1)`, `pop([])`) |
 | `ArgumentError` | a wrong number of arguments; an argument a built-in cannot work with (`replace` of `""`, `min` of no values) |
-| `MemberError` | an unknown data member or member function, a function declared but not defined |
+| `MemberError` | an unknown data member or member function, a call of a member function declared but not defined (when the compiler could not see it) |
 | `ValueError` | a value a function cannot work with: a string that is not a number (`int`, `float`), invalid JSON, a date that does not exist, ... |
 | `IOError` | a file or input/output error |
 | `StackOverflowError` | more than 10000 nested calls |
@@ -487,6 +507,7 @@ Kinds of runtime errors:
 | `WorkerError` | `w->wait()` of a worker that failed (the message holds the worker's error) |
 | `HostError` | a function of a Go program that embeds Kukel failed ([embedding.md](embedding.md)) |
 | `CancelledError` | the Go program that runs Kukel stopped it (a time limit); cannot be caught |
+| `StepLimitError` | the step limit set by a Go program that runs Kukel was reached; cannot be caught |
 | `InternalError` | a damaged `.kkc` file that the loader's checks did not catch (should not happen) |
 
 ---
@@ -494,8 +515,9 @@ Kinds of runtime errors:
 ## 10. Built-in functions
 
 Argument positions in error messages count from 1. Unless noted, a wrong
-type is a `TypeError` and a wrong count, or a value a function cannot work
-with, an `ArgumentError`.
+type is a `TypeError`, a wrong count an `ArgumentError`, a number or index
+outside what the function takes a `RangeError`, and another value it cannot
+work with an `ArgumentError`.
 
 ### Output and input
 
@@ -562,7 +584,7 @@ with, an `ArgumentError`.
 | `sin(x)`, `cos(x)`, `tan(x)`, `atan2(y, x)` | Trigonometry (radians) |
 | `floor(x)`, `ceil(x)`, `round(x)` | Rounded to an int (`round`: halves away from zero); `RangeError` if it does not fit |
 | `random()` | A float from 0 up to (not including) 1 |
-| `randint(a, b)` | An int from `a` to `b`, both included |
+| `randint(a, b)` | An int from `a` to `b`, both included (`RangeError` if `a > b`) |
 | `seed(n)` | Restarts the random numbers from seed `n` (the same seed gives the same numbers) |
 
 ### System
@@ -621,12 +643,12 @@ throws an exception it does not catch ends `run()` with that exception
 
 | Function | Description |
 |---|---|
-| `events::after(seconds, f, args...)` | Calls `f(args...)` once, that many seconds from now; gives an `events::Timer` |
-| `events::every(seconds, f, args...)` | Calls `f(args...)` every that many seconds (at least 0.001), the first time after one interval; a timer that falls behind skips the missed calls |
+| `events::after(seconds, f, args...)` | Calls `f(args...)` once, that many seconds (0 to 1e9) from now; gives an `events::Timer`. `f` must be a function (`TypeError`) |
+| `events::every(seconds, f, args...)` | Calls `f(args...)` every that many seconds (0.001 to 1e9), the first time after one interval; a timer that falls behind skips the missed calls |
 | `events::post(f, args...)` | Calls `f(args...)` soon, after the calls already posted (a call posted by a handler runs in the next round, after the timers that are due) |
 | `events::run()` | Dispatches events as described above. Calling it from a handler is a `ValueError` |
-| `events::stop()` | Makes `run()` return after the current handler |
-| `events::onerror(f)` | `f(e)` receives the exceptions handlers do not catch, and the loop goes on; `events::onerror(nil)` lets them end `run()` again |
+| `events::stop()` | Makes `run()` return after the current handler (outside `run()` it has no effect) |
+| `events::onerror(f)` | `f(e)` receives the exceptions handlers do not catch, and the loop goes on; an exception `f` itself does not catch ends `run()`. `events::onerror(nil)` lets them end `run()` again |
 | `events::pending()` | The number of active timers, posted calls and open sources: what keeps `run()` going |
 
 Timers fire in the order of their deadlines (timers with the same deadline
@@ -654,8 +676,8 @@ main() {
 
 | Function | Description |
 |---|---|
-| `json::encode(v [, indent])` | `v` as JSON text: `nil` is `null`, vectors are arrays, maps are objects in their order (number keys become their text). Floats keep a `.0` so they decode as floats again. With `indent` (a string such as `"  "`) the text spreads over lines. A function, class or object is a `TypeError`; `inf`, `nan`, a string that is not UTF-8, or a value that contains itself is a `ValueError` |
-| `json::decode(s)` | The value JSON text `s` stands for: objects become maps (in the order of the text; a repeated key keeps its first place and its last value), arrays vectors, a number without fraction or exponent that fits in 64 bits an int, any other number a float. Invalid JSON is a `ValueError` |
+| `json::encode(v [, indent])` | `v` as JSON text: `nil` is `null`, vectors are arrays, maps are objects in their order (number keys become their text, so keys `1` and `"1"` in one map give the same JSON key twice). Floats keep a `.0` so they decode as floats again. With `indent` (a string such as `"  "`) the text spreads over lines. A function, class or object is a `TypeError`; `inf`, `nan`, a string that is not UTF-8, a value that contains itself, or vectors and maps nested more than 10000 deep is a `ValueError` |
+| `json::decode(s)` | The value JSON text `s` stands for: objects become maps (in the order of the text; a repeated key keeps its first place and its last value), arrays vectors, a number without fraction or exponent that fits in 64 bits an int, any other number a float (one too large for a float is `inf`). Invalid UTF-8 and lone surrogates (`"\ud800"`) become U+FFFD. Invalid JSON, or arrays and objects nested more than 10000 deep, is a `ValueError` |
 
 ### strings
 
@@ -704,10 +726,10 @@ every system. Durations are seconds (ints or floats). A time prints as
 | Function | Description |
 |---|---|
 | `time::now()` | The current time, in the local time zone |
-| `time::sleep(seconds)` | Waits that long (`ValueError` if negative) |
-| `new time::Time(year, month, day [, hour, minute, second [, zone]])` | That time in `zone` (default `"UTC"`); `second` may have a fraction. Values out of range carry over (month 13 is January of the next year) |
+| `time::sleep(seconds)` | Waits that long (`ValueError` if negative or `nan`; beyond about 292 years it waits as long as the program runs) |
+| `new time::Time(year, month, day [, hour [, minute [, second [, zone]]]])` | That time in `zone` (default `"UTC"`); `second` may have a fraction. Values out of range carry over (month 13 is January of the next year); a `second` of `nan` or `inf` is a `ValueError` |
 | `time::Time::parse(text [, format [, zone]])` | The time `text` stands for: without `format` in RFC 3339 (`"2026-10-14T09:30:00+02:00"`), else by `format` (below). A text without an offset is in `zone` (default `"UTC"`). A text that does not match, or a date that does not exist (`"2026-02-30"`), is a `ValueError` |
-| `time::Time::fromunix(seconds)` | The time that many seconds after 1970-01-01 00:00 UTC, in UTC |
+| `time::Time::fromunix(seconds)` | The time that many seconds after 1970-01-01 00:00 UTC, in UTC (`nan`, `inf` and values beyond about 2.9e11 years are a `ValueError`, as for `add`) |
 
 | Member function | Description |
 |---|---|
@@ -715,12 +737,12 @@ every system. Durations are seconds (ints or floats). A time prints as
 | `t->hour()`, `t->minute()`, `t->second()`, `t->nanosecond()` | The time of day |
 | `t->weekday()` | 0 (Sunday) to 6 (Saturday) |
 | `t->yearday()` | 1 to 366 |
-| `t->zone()` | The zone's name (`"Europe/Amsterdam"`, or an offset such as `"+02:00"` for a time parsed with one) |
+| `t->zone()` | The zone's name (`"Europe/Amsterdam"`, or an offset such as `"+02:00"` for a time parsed with one; `"UTC"` for an offset of zero) |
 | `t->offset()` | Seconds east of UTC (7200 for CEST) |
 | `t->unix()` | Seconds since 1970-01-01 00:00 UTC, as a float |
 | `t->format([format])` | The time as text: without `format` in RFC 3339, else by `format` (below) |
-| `t->add(seconds)` | The time that many seconds later (earlier if negative) |
-| `t->sub(u)` | The seconds from `u` to `t`, as a float |
+| `t->add(seconds)` | The time that many seconds later (earlier if negative); `nan`, `inf` and values beyond about 2.9e11 years are a `ValueError` |
+| `t->sub(u)` | The seconds from `u` to `t`, as a float (exact also over centuries) |
 | `t->before(u)`, `t->after(u)`, `t->equal(u)` | Compare instants (`equal` ignores the zone; `==` compares objects) |
 | `t->compare(u)` | -1, 0 or 1 |
 | `t->utc()`, `t->local()`, `t->inzone(zone)` | The same instant in UTC, the local zone, or `zone` |
@@ -734,14 +756,18 @@ every system. Durations are seconds (ints or floats). A time prints as
 | `%M` minute (00-59) | `%S` second (00-60) | `%f` microseconds (000000-999999) |
 | `%p` AM or PM | `%y` year (00-99) | `%j` day of the year (001-366) |
 | `%b` month (Jan) | `%B` month (January) | `%a` weekday (Mon) |
-| `%A` weekday (Monday) | `%z` offset (+0200) | `%Z` zone abbreviation (CEST) |
+| `%A` weekday (Monday) | `%z` offset (+0200) | `%Z` zone abbreviation (CEST; empty for a time parsed with an offset) |
 | `%%` a `%` | | |
 
 `parse` takes the same directives, except `%Z` (abbreviations are
-ambiguous; use `%z`). Numbers may have fewer digits than shown, `%f` reads
-1 to 9 digits as a fraction of a second, `%z` also reads `Z`, `+02` and
-`+02:00`, `%y` reads 69-99 as 1969-1999 and 00-68 as 2000-2068, and names
-are read in any case. An unknown directive is a `ValueError`.
+ambiguous; use `%z`). Numbers may have fewer digits than shown (`%Y` at
+most 4), `%f` reads 1 to 9 digits as a fraction of a second, `%z` also
+reads `Z`, `+02` and `+02:00` (hours up to 23, minutes up to 59), `%y`
+reads 69-99 as 1969-1999 and 00-68 as 2000-2068, and names are read in any
+case. A weekday (`%a`, `%A`) must match the date. Second 60 (a leap second)
+is accepted and counts as the first second of the next minute. Parts the
+format leaves out are those of 1970-01-01 00:00:00. A text that does not
+match, or an unknown directive, is a `ValueError`.
 
 ### worker
 
@@ -772,21 +798,26 @@ A worker runs either a function of the same program (`start`: a new
 interpreter with its own globals, so it also works with `kukel exec`), or
 another program (`startfile`). It ends when its function (or `main`)
 returns; `exit(code)` in a worker ends only that worker, and `wait()` gives
-`code`. When the main program ends, workers still running end with it
-(they can no longer write output).
+`code`. A worker's standard input is empty (`readline()` gives `nil`); it
+writes to the same output as its parent. A worker that fails reports
+nothing by itself: its error comes from `wait()`. When the main program
+ends, workers still running end with it (they can no longer write output).
 
 **Messages** (also the arguments of `start` and `startfile`, and what
 `wait()` gives) are copies of `nil`, booleans, numbers, strings, and
 vectors and maps of those; a part that occurs twice, or contains itself, is
 copied once, so the copy has the same shape. Objects, functions and
-classes cannot be sent (`TypeError`). `nil` cannot be sent either: a
-`receive()` that gives `nil` means there are no more messages. Messages
-queue up (`send` never waits) and arrive in the order they were sent.
+classes cannot be sent (`TypeError`). `nil` cannot be sent with `send`
+either: a `receive()` that gives `nil` means there are no more messages
+(`nil` is fine inside a message, and as an argument of `start`). Messages
+queue up (`send` never waits) and arrive in the order they were sent. A
+result that cannot be copied (an object) makes the worker fail: `wait()`
+gives a `WorkerError`.
 
 | Function | Description |
 |---|---|
 | `worker::start(f, args...)` | Runs `f(args...)` in a new interpreter of this program; `f` is a top-level or static member function (not a function literal, bound method or built-in: `TypeError`). Gives a `worker::Worker` |
-| `worker::startfile(path, args...)` | Compiles the program in `path` (a `.kkl` file with the modules it uses, found as `kukel run` finds them; or a `.kkc` file) and runs its `main` with the vector of the arguments. A compile error is a `CompileError`, a missing file an `IOError`, a damaged `.kkc` file a `ValueError` |
+| `worker::startfile(path, args...)` | Compiles the program in `path` (a `.kkl` file with the modules it uses, found as `kukel run` finds them; or a `.kkc` file) and runs its `main` with the vector of the arguments. `path` is relative to the current directory, as for `readfile`. A compile error (also a module not found) is a `CompileError`, a missing file an `IOError`, a damaged `.kkc` file a `ValueError` |
 | `worker::send(v)` | In a worker: a copy of `v` goes to the parent |
 | `worker::receive([timeout])` | In a worker: the next message from the parent; waits for it, at most `timeout` seconds if given. `nil` after the parent's `stop()` (once the messages sent before are taken) or when the time is up |
 | `worker::onmessage(f)` | In a worker: the event loop (`events`) calls `f(message)` for each message from the parent, and `events::run()` keeps going until the parent's `stop()` |

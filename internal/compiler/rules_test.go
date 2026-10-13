@@ -24,6 +24,7 @@ var ruleCases = map[string]struct {
 		bad: [][2]string{
 			{"f() {}", "the program has no main function"},
 			{"main(a, b) {}", "main takes at most one parameter"},
+			{"main(a..) {}", "cannot have a default or be a rest parameter"},
 			{"class Error {} main() {}", "Error is already defined"},
 			{"f() {} f() {} main() {}", "f is already defined"},
 			{"class f {} f() {} main() {}", "f is already defined"},
