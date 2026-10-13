@@ -6,7 +6,8 @@ bytecode for a stack machine and runs it, or stores the bytecode in a `.kkc`
 file to run later.
 
 The formal grammar is in [`syntax.ebnf`](../syntax.ebnf); this document
-describes what programs mean.
+describes what programs mean. How they are compiled and executed is
+specified in [vm.md](vm.md).
 
 ```
 // hello.kkl

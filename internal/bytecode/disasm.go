@@ -153,7 +153,12 @@ func (d *disasm) operand(f *Function, op Op, pc int) string {
 	case OpCallMethod:
 		return fmt.Sprintf("%s, %d  ; cache %d", d.constName(f, ReadU16(f.Code, pc+1)), ReadU16(f.Code, pc+3), ReadU16(f.Code, pc+5))
 	case OpCallDirect:
-		return fmt.Sprintf("%s, %d", d.funcName(ReadU16(f.Code, pc+1)), ReadU16(f.Code, pc+3))
+		fn := ReadU16(f.Code, pc+1)
+		s := fmt.Sprintf("%d, %d", fn, ReadU16(f.Code, pc+3))
+		if fn < len(d.prog.Funcs) {
+			s += "  ; " + d.prog.Funcs[fn].FuncName
+		}
+		return s
 	case OpLoadFunc:
 		return d.funcName(ReadU16(f.Code, pc+1))
 	case OpLoadStatic, OpStoreStatic:

@@ -54,7 +54,9 @@ caught RangeError: index 5 out of range for vector of length 3
 The full description is in [docs/reference.md](docs/reference.md); the
 grammar is in [syntax.ebnf](syntax.ebnf) (and as a
 [Lark](https://github.com/lark-parser/lark) grammar in
-[syntax.lark](syntax.lark)).
+[syntax.lark](syntax.lark)). How programs are compiled and run (the virtual
+machine, every instruction, the `.kkc` format) is specified in
+[docs/vm.md](docs/vm.md).
 
 ## Installing
 
@@ -99,7 +101,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/lexer`, `internal/parser`, `internal/ast` | source to syntax tree |
 | `internal/compiler` | name resolution, the language's rules, code generation |
 | `internal/bytecode` | instruction set, `.kkc` files, the verifier that checks loaded files |
-| `internal/vm` | the stack machine: calls, objects, closures, exceptions |
+| `internal/vm` | the stack machine: calls, objects, closures, exceptions (specified in [docs/vm.md](docs/vm.md)) |
 | `internal/value`, `internal/builtins` | values with their operators, built-in functions |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
