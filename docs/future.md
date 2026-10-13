@@ -48,6 +48,7 @@ main() {
   (`use "lib/util.kkl";`), replacing "list every file on the command line".
 - Libraries written in Go register themselves under a name; a program that
   does not `use` them pays nothing.
+- Where modules come from (Kukel files, Go, C libraries) is in 1.6.
 
 **F-1** Syntax: `use gui;` or `import gui;`? Also for `.kkl` files?
 **F-2** Do the current built-ins move into modules (`str::split`,
@@ -124,6 +125,85 @@ Kukel values turned into bytes and back:
 Databases and GUIs need dates. Today only `time()` (a float) exists. A
 `time::Time` native class (parse, format, arithmetic, time zones) would
 cover SQL `TIMESTAMP` columns and timers.
+
+### 1.6 Where modules come from
+
+A module behind `use` can come from three places. A program does not see
+the difference: each gives names under `name::`.
+
+**Kukel modules (`.kkl` source or compiled `.kkc`).** This is entirely
+Kukel's own compiler and VM; Go plays no part.
+
+- `use util;` looks for `util.kkl` or `util.kkc` on a search path (the
+  program's directory, then `KUKEL_PATH`), and loads each module once.
+- The compiler gives the module's top-level names the prefix `util::`.
+  Names starting with `_` could stay private to the module (**F-19**).
+- A `.kkc` module carries a table of the names it exports (functions,
+  classes, constants and globals, with parameter counts), so a program can
+  be compiled against it without its source. The loader checks the table
+  against what the program uses, like the current check of built-ins.
+- Open points: cycles between modules (refuse them at first), and whether
+  `kukel build` writes one `.kkc` per module or links them all into one
+  file (**F-20**).
+
+**Native modules written in Go, compiled into `kukel`.** The modules the
+ideas in this document need (`gui`, `zmq`, `db`, `json`, `time`) are Go
+packages that register their functions and native classes (1.2) under a
+module name, the way the built-ins do today. Pure-Go libraries exist for
+each, so no C compiler is needed:
+
+| Module | Go library |
+|---|---|
+| `db` | `database/sql` with `modernc.org/sqlite` (no cgo), and the Postgres and MySQL drivers |
+| `zmq` | `github.com/go-zeromq/zmq4` |
+| `gui` | `modernc.org/tk9.0` |
+| `json`, `time` | the standard library |
+
+`kukel` stays one static binary that cross-compiles to Linux, macOS and
+Windows. Build tags can leave out the large modules (`go build -tags
+nogui`), and `kukel version` lists the modules a binary contains.
+
+**Foreign libraries (`.so` on Linux, `.dll` on Windows, `.dylib` on
+macOS).** For a C library that has no Go binding. Go offers four ways:
+
+| Approach | How | Drawbacks |
+|---|---|---|
+| cgo | C libraries are linked into `kukel` when it is built | needs a C compiler; harder cross-compiling; the set of libraries is fixed per binary |
+| Go's `plugin` package | loads a Go-built `.so` at run time | no Windows; the plugin must be built with exactly the same Go version and dependency versions; cannot be unloaded. Too fragile |
+| `github.com/ebitengine/purego` | opens any C `.so`/`.dll` at run time and calls its functions, without cgo | Linux, macOS and Windows; structs and callbacks are limited; every signature must be declared |
+| a separate process | the library runs in a helper program that talks to Kukel over a pipe or socket (like HashiCorp's go-plugin) | works everywhere and a crash cannot take the VM down, but every call is slow and values are copied |
+
+The best fit is an `ffi` module on top of purego, in which the program
+declares each function's signature:
+
+```
+use ffi;
+
+main() {
+    local libm = ffi::open("libm.so.6");               // or "msvcrt.dll"
+    local cos = libm->func("cos", "double", ["double"]);
+    println(cos(0.5));
+    libm->close();
+}
+```
+
+- Types: integers of each width, `double`, `float`, C strings (copied in
+  and out), and opaque pointers as a native class. Structs and callbacks
+  come later, if at all (**F-21**).
+- A wrong signature crashes the process instead of throwing; `ffi` is for
+  writing modules, not for everyday programs. A `--no-ffi` switch (or a
+  build tag) can turn it off for untrusted code, together with the step
+  limit.
+- A library that is used a lot is better wrapped once as a Kukel module
+  over `ffi`, or as a Go native module.
+
+So the order is: Kukel modules and Go native modules first (they cover
+every idea here), `ffi` later and only if a library needs it.
+
+**F-19** Private names in modules: by a `_` prefix, an `export` list, or
+everything public?
+**F-20** `kukel build`: one `.kkc` per module, or one linked file?
+**F-21** Is `ffi` wanted at all, and with structs and callbacks?
 
 ---
 
@@ -410,7 +490,7 @@ Each step is usable on its own and prepares the next:
 
 | Step | What | Needs |
 |---|---|---|
-| 1 | Modules (`use`), native classes, `json` | — |
+| 1 | Modules (`use`) from Kukel files and Go, native classes, `json` | — |
 | 2 | Public embedding API; several interpreters in one process | 1 |
 | 3 | Event loop, timers; workers with messages | 1, 2 |
 | 4 | ZeroMQ (blocking first, then events) | 1, 3 |
@@ -418,7 +498,8 @@ Each step is usable on its own and prepares the next:
 | 6 | Time type; then the ORM on top of SQL | 5 |
 | 7 | Tk GUI (after a proof of concept for the threading) | 1, 3 |
 
-Steps 4, 5 and 7 are independent of each other once 1 and 3 exist.
+Steps 4, 5 and 7 are independent of each other once 1 and 3 exist. A
+`ffi` module (1.6) can come at any point after step 1.
 
-The open questions **F-1** to **F-18** are best answered just before the
+The open questions **F-1** to **F-21** are best answered just before the
 step that needs them.
