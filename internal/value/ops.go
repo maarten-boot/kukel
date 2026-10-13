@@ -6,7 +6,7 @@ import (
 )
 
 // Error is a runtime error raised by an operation. Kind names the class of
-// error (it becomes the "kind" field of the Error object in milestone 7).
+// error; it becomes the "kind" field of the Error object the VM throws.
 type Error struct {
 	Kind string
 	Msg  string

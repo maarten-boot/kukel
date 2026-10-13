@@ -5,8 +5,8 @@ tokenizes and parses it, compiles it to bytecode for a stack machine, stores
 that bytecode in a file, and executes it.
 
 ```
-source files ──lexer──▶ tokens ──parser──▶ AST ──checker──▶ AST + scopes
-            ──compiler──▶ bytecode image ──writer──▶ .kkc file
+source files ──lexer──▶ tokens ──parser──▶ AST
+            ──compiler (names, rules, code)──▶ bytecode image ──writer──▶ .kkc file
 .kkc file ──loader──▶ bytecode image ──VM──▶ program run
 ```
 
@@ -50,7 +50,7 @@ source files ──lexer──▶ tokens ──parser──▶ AST ──checker
 - Q10 Relational operators: **numbers with numbers, strings with strings (byte order)**; any other mix throws
 - Q11 Float formatting in `print`/`str`: **shortest round-trip (`strconv.FormatFloat(f,'g',-1,64)`), always showing a `.` or exponent**
 - Q12 Bytecode compatibility: **version number in the header; a mismatch is refused** (no migration)
-- Q13 How a thrown runtime error looks: **an `Error` object with `message`, `kind` and `trace`** (milestone 7: `Error` is a real class from a small prelude compiled in front of every program, `class Error { message, kind, trace; Error(message = nil, kind = nil); }`; programs may throw it and derive from it)
+- Q13 How a thrown runtime error looks: **an `Error` object with `message`, `kind` and `trace`** (milestone 7: `Error` is a real class from a small prelude compiled in front of every program, `class Error { message; kind; trace; Error(message, kind); }` with `Error::Error(message = nil, kind = nil)`; programs may throw it and derive from it)
 - Q14 Can `print(obj)` call a user method such as `toString`? **No in v1**
 - Q15 Closure capture: **by reference** (Lua/JS/Go style upvalues)
 - Q16 Loop variables and closures: **fresh binding per iteration** for both for-each and `for (local ...)` (Go 1.22 semantics)
@@ -96,11 +96,12 @@ source files ──lexer──▶ tokens ──parser──▶ AST ──checker
 
 ## 2. Project setup (approved)
 
-- [x] `go mod init` (module name `kukel`), Go ≥ 1.22
+- [x] `go mod init` (module name `github.com/maarten-boot/kukel`), Go ≥ 1.22
 - [x] Layout (packages are created by the milestone that needs them):
   ```
   cmd/kukel/          CLI
   internal/token/     token kinds, positions
+  internal/diag/      the error type all stages share
   internal/lexer/
   internal/ast/
   internal/parser/
@@ -112,7 +113,7 @@ source files ──lexer──▶ tokens ──parser──▶ AST ──checker
   tests/              .kkl programs + expected output
   docs/               language reference
   ```
-- [x] CLI subcommands (`tokens` works; the others report the milestone that adds them):
+- [x] CLI subcommands (all done; also `kukel version` and `kukel help`):
   - `kukel run a.kkl b.kkl [-- args]`: compile in memory and run
   - `kukel build -o prog.kkc a.kkl b.kkl`: compile to a file
   - `kukel exec prog.kkc [args]`: run a stored image
@@ -196,9 +197,9 @@ All the "Rule:" comments in syntax.ebnf. The checks run while the compiler resol
 ## 6. Runtime values (`internal/value`)
 
 - [x] `Value` representation: a tagged struct `{kind, num uint64, obj any}` (32 bytes), so numbers never allocate
-- [x] Kinds (Nil, Bool, Int, Float, String, Vector, Map, Function, Closure, Builtin, Class, Object, BoundMethod; internal: Iterator, Cell, Internal; Error is a prelude class): Nil, Bool, Int, Float, String (immutable `string`), Vector (`*[]Value`), Map, Class, Object, Function (code + captured upvalue cells), BoundMethod (object + method), Builtin, Error (Q13: `message`, `kind`, `trace`)
+- [x] Kinds (Nil, Bool, Int, Float, String, Vector, Map, Function, Closure, Builtin, Class, Object, BoundMethod; internal: Iterator, Cell, Internal; Error is a prelude class): Nil, Bool, Int, Float, String (immutable `string`), Vector (`*VectorObj`), Map, Class, Object, Function (code + captured upvalue cells), BoundMethod (object + method), Builtin; Error (Q13: `message`, `kind`, `trace`) is a prelude class, not a kind
 - [x] `typeof`: Function, BoundMethod and Builtin all report `"function"`
-- [x] Map: keys are strings and numbers only; a float key with an integral value is normalized to an int key (so 1 and 1.0 are the same key; an existing key keeps its original form); insertion order kept (Q6); deleted entries are compacted when more than half are gone; NaN is not a key
+- [x] Map: keys are strings and numbers only; 1 and 1.0 are the same key; the key keeps the form it was first stored with; insertion order kept (Q6); deleted entries are compacted when more than half are gone; NaN is not a key
 - [x] Printing: containers inside themselves print as `[...]` / `{...}`
 - [x] Equality, truthiness, ordering, `typeof` names, string conversion (Q2, Q10, Q11); int/float comparisons are exact (no rounding through float64); floats print as `1.0`, `1e+21`, `inf`, `-inf`, `nan`; inside containers strings are quoted with Kukel escapes
 - [x] All operator semantics live in `internal/value` and are shared by the VM and the compiler's constant folding
@@ -207,14 +208,14 @@ All the "Rule:" comments in syntax.ebnf. The checks run while the compiler resol
 ## 7. Bytecode + compiler (`internal/bytecode`, `internal/compiler`)
 
 ### Instruction set (1-byte opcode + fixed little-endian operands: u16 for indices and counts, u32 for absolute jump targets)
-- [ ] Stack: `CONST k`, `NIL`, `TRUE`, `FALSE`, `POP`, `DUP`, `DUP2` (done; `e[i] op= x` uses `DUP2`, and `e[i]++` as a value keeps the old value in a hidden slot), `SWAP`/`ROT` if `e->x` needs them
+- [x] Stack: `CONST k`, `NIL`, `TRUE`, `FALSE`, `POP`, `DUP`, `DUP2` (`e[i] op= x` uses `DUP2`, and `e[i]++` as a value keeps the old value in a hidden slot); `SWAP`/`ROT` turned out not to be needed
 - [x] Variables: `LOAD_LOCAL i`/`STORE_LOCAL i` (params, temporaries, locals and catch variables share frame slots), `LOAD_GLOBAL g`/`STORE_GLOBAL g`, `LOAD_MEMBER i`/`STORE_MEMBER i` (on `this`, slot known at compile time), `LOAD_STATIC c,i`/`STORE_STATIC c,i`, `LOAD_THIS`
 - [x] Fields on any object: `GET_MEMBER name` (data member, else bound method, else error), `SET_MEMBER name` (data member only); slot lookup by name per class, cached later. `this->x` and unqualified `x` of a known data member compile to `LOAD_MEMBER`/`STORE_MEMBER slot`
 - [x] Closures: `CLOSURE fn` (the capture list, local slot or enclosing upvalue, is in the function's `Upvalues`), `LOAD_UPVALUE i`/`STORE_UPVALUE i`, `LOAD_CELL i`/`STORE_CELL i` / `NEW_CELL i` for captured locals in the defining frame
 - [x] Arithmetic/logic: `ADD SUB MUL DIV MOD NEG NOT BITNOT BITAND BITOR BITXOR SHL SHR EQ NE LT LE GT GE INC DEC` (int fast paths in the VM)
 - [x] Control: `JUMP off`, `JUMP_IF_FALSE off`, `JUMP_IF_TRUE off` (for `&&`, `||`, `?:`) (`&&`/`||` produce `true`/`false`, Q4)
 - [x] Calls: `CALL argc`, `CALL_V`, `CALL_METHOD name argc`, `CALL_METHOD_V name`, `CALL_DIRECT func argc` (Q3: `Base::m(...)`, a non-virtual call with the current `this`), `LOAD_FUNC func` (static member functions are plain function values), `NEW argc` / `NEW_V` (the class is a value on the stack, so a class in a variable needs nothing extra), `RETURN`, `RETURN_NIL`
-- [ ] Spread: calls with a spread argument build an argument vector (`MAKE_VECTOR` + `APPEND`/`EXTEND`) and use `CALL_V` (done) / `CALL_METHOD_V` / `NEW_V`; vector literals with spread use `EXTEND` (done)
+- [x] Spread: calls with a spread argument build an argument vector (`MAKE_VECTOR` + `APPEND`/`EXTEND`) and use `CALL_V` / `CALL_METHOD_V` / `NEW_V`; vector literals with spread use `EXTEND`
 - [x] Collections: `MAKE_VECTOR n`, `APPEND`, `EXTEND`, `MAKE_MAP n`, `INDEX_GET`, `INDEX_SET` (leaves the value, so `x = v[i] = y` works)
 - [x] For-each: `ITER_INIT` (vector: index; map: key snapshot; string: index; else throw), `ITER_NEXT slot, n, off` (the iterator lives in a hidden slot; pushes 1 or 2 values, or jumps to `off` at the end)
 - [x] Exceptions: `TRY_PUSH kind, handler` (kind catch: the handler gets the thrown value; kind finally: it gets the pending exception, which `RETHROW` throws again unchanged), `TRY_POP`, `THROW`, `RETHROW`
@@ -227,7 +228,7 @@ All the "Rule:" comments in syntax.ebnf. The checks run while the compiler resol
 - [x] Short-circuit `&&`, `||`, `?:`; conditions compile to jumps (no boolean is built for `if (a && !b)`)
 - [x] Comma operator: evaluate and `POP` all but the last
 - [x] Constants are inlined as `CONST` (evaluated by the compiler); `-literal` folded
-- [x] Compound assignment and `++`/`--` (pre and post) for each lvalue kind (local, cell, upvalue, global, member, this-field, static, index) (local, cell, upvalue, global, member, static, index, field); the index and field forms evaluate `e` (and `i`) only once
+- [x] Compound assignment and `++`/`--` (pre and post) for each lvalue kind (local, cell, upvalue, global, member, this-field, static, index); the index and field forms evaluate `e` (and `i`) only once
 - [x] Loops: `while`, `do-while`, `for` (an empty test = loop forever), for-each; break/continue targets, with labels, patched via jump lists; a label on any other statement lets `break label` leave it
 - [x] Per-iteration loop variables (Q16): only when the variable is captured by a closure, give each iteration a new cell (copy the old value before the update for `for`); uncaptured variables keep a plain slot (no cost)
 - [x] `switch`: evaluate the value into a hidden slot, then a chain of `EQ` + jump to each case label's address (labels may sit inside nested statements, Duff's-device style); jump to `default` or past the end. The dispatch code is placed after the body, so no patching per case is needed. Later, maybe: a jump table for dense int cases

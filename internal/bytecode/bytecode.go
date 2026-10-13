@@ -70,7 +70,7 @@ const (
 	OpReturn    // return the top of the stack
 	OpReturnNil // return nil
 
-	// Vectors (milestone 4 uses them to build spread argument lists).
+	// Vectors: vector literals and the argument lists of spread calls.
 	OpMakeVector // n u16: pop n values, push a vector of them
 	OpAppend     // pop x, append it to the vector below
 	OpExtend     // pop vector x, append its elements to the vector below
@@ -262,7 +262,7 @@ type Function struct {
 	NumParams   int    // required parameters
 	NumOptional int    // optional parameters (with a default), after the required ones
 	HasRest     bool   // a rest parameter follows the optional ones
-	NumSlots    int    // parameters + temporaries + locals
+	NumSlots    int    // parameters + temporaries + locals + hidden slots (iterators, saved values)
 	MaxStack    int    // operand stack depth needed above the slots
 	Code        []byte
 	Consts      []value.Value

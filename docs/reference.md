@@ -49,7 +49,9 @@ hello, Kukel
 
 The exit code is `main`'s result when it returns an int, else 0. A compile
 error or an uncaught exception gives exit code 1; `exit(code)` ends the
-program with that code.
+program with that code. A wrong command line (an unknown command, a missing
+file name) gives exit code 2. The operating system keeps only the low 8
+bits of an exit code: `return 263` exits with 7, `return -1` with 255.
 
 A `.kkc` file starts with a format version; a file written by another
 version of the format is refused (compile the program again). Files are
@@ -74,7 +76,8 @@ throw true try while`.
 **Integers**: `42`, `1_000_000` (`_` only between digits), `0xFF_FF`,
 `0b1010`. A leading zero does not mean octal. Decimal literals go up to
 9223372036854775807 (and `-9223372036854775808`); hexadecimal and binary
-literals may use all 64 bits (`0xFFFFFFFFFFFFFFFF` is -1).
+literals may use all 64 bits (`0xFFFFFFFFFFFFFFFF` is -1): at most 16 hex
+or 64 binary digits, leading zeros included.
 
 **Floats**: `1.5`, `1.`, `.5`, `2e10`, `1.5E-3`. A value beyond the float
 range is an error.
@@ -111,8 +114,10 @@ including `""`, `[]` and `{}`.
 
 **Equality** (`==`, `!=`): numbers by value (`1 == 1.0`), strings by
 content, `nil` and booleans by value; vectors, maps, objects, classes and
-functions only when they are the same one (`[1] == [1]` is false). Values of
-different types are never equal (except int and float).
+functions only when they are the same one (`[1] == [1]` is false); bound
+methods when they are the same member function of the same object
+(`p->m == p->m` is true). Values of different types are never equal (except
+int and float).
 
 **Printing**: `print`/`str` show strings as they are; inside vectors, maps
 and objects strings are quoted. Floats always show a `.` or an exponent
@@ -135,13 +140,17 @@ Point::Point(x, y) { this->x = x; this->y = y; }
 main(args) { println(square(MAX), HALF, count, names, new Point(1, 2)); }
 ```
 
-- All top-level names (globals, constants, functions, classes) and the
-  built-in functions share one name space: each name is defined once, and
-  the built-in names are reserved.
+- All top-level names (globals, constants, functions, classes), the
+  built-in functions and the class `Error` share one name space: each name
+  is defined once, and the built-in names cannot be redefined or assigned.
+  A local, parameter or member may reuse a built-in's name; it hides the
+  built-in where it is visible.
 - Using a name that is not defined anywhere is a compile error. Assigning to
   a constant, function, class or built-in is a compile error.
 - A constant's value must be computable when compiling: literals, constants
-  defined earlier, and operators on them.
+  defined earlier, and the unary, binary and `?:` operators on them (not
+  calls, not the comma operator). Every part is checked, also the part that
+  `&&`, `||` or `?:` skips.
 - Global initializers run in program order (files in command-line order)
   before `main`. A global can be used anywhere, also above its declaration;
   an initializer that runs earlier sees `nil`.
@@ -207,7 +216,9 @@ Operators, from lowest to highest precedence:
 | `c ? a : b` | right | |
 | `\|\|` | left | gives `true` or `false`; stops when the left side is true |
 | `&&` | left | gives `true` or `false`; stops when the left side is false |
-| `\|` `^` `&` | left | bitwise, ints only |
+| `\|` | left | bitwise or, ints only |
+| `^` | left | bitwise exclusive or, ints only |
+| `&` | left | bitwise and, ints only |
 | `==` `!=` | left | see equality in section 3 |
 | `<` `<=` `>` `>=` | left | numbers with numbers, strings with strings (byte order) |
 | `<<` `>>` | left | ints; the count must be 0..63; `>>` keeps the sign |
@@ -350,7 +361,9 @@ main() {
   `C::x` is a static data member.
 - A derived class may redeclare a member function of its base (overriding
   it); redeclaring a data member is an error.
-- `p->x` reads or assigns a data member (all members are public).
+- `p->x` reads or assigns a data member (all members are public). Static
+  data members are reached as `C::x` only; a static member function can
+  also be called as `p->f(...)`.
   `p->m` without a call is a *bound method*: a function value that calls
   `m` on `p` later (`sort(v, p->less)`). `(p->f)(x)` calls a function held
   in a data member.
@@ -380,14 +393,14 @@ main() {
 - Any value can be thrown; `catch (e)` catches everything.
 - Runtime errors throw objects of the built-in class `Error`, which has the
   data members `message`, `kind` and `trace`. Programs throw it and derive
-  from it too (`new Error(message [, kind])`).
+  from it too (`new Error([message [, kind]])`).
 - The first time an `Error` is thrown, `trace` gets the stack trace (a
   vector of strings such as `"f (prog.kkl:3)"`, innermost call first) and,
   if `kind` is nil, `kind` becomes the name of its class.
 - An exception thrown in a `finally` block replaces the one in progress.
 - An uncaught exception ends the program with exit code 1, printing
-  `kind: message` (or `uncaught exception: value` for other values) and the
-  stack trace.
+  `kind: message` (just `kind` when the message is nil; `uncaught exception:
+  value` for values that are not `Error` objects) and the stack trace.
 - `exit(code)` ends the program at once; it cannot be caught and `finally`
   blocks do not run.
 
@@ -398,18 +411,20 @@ Kinds of runtime errors:
 | `TypeError` | an operation on values of the wrong type (`1 + "a"`, calling an int, ...) |
 | `ZeroDivisionError` | integer `/` or `%` by zero |
 | `RangeError` | an index out of range, a shift count outside 0..63, a number that does not fit |
-| `ArgumentError` | a wrong number of arguments |
+| `ArgumentError` | a wrong number of arguments; an argument a built-in cannot work with (`replace` of `""`, `min` of no values) |
 | `MemberError` | an unknown data member or member function, a function declared but not defined |
 | `ValueError` | a string that is not a number (`int`, `float`) |
 | `IOError` | a file or input/output error |
 | `StackOverflowError` | more than 10000 nested calls |
+| `InternalError` | a damaged `.kkc` file that the loader's checks did not catch (should not happen) |
 
 ---
 
 ## 10. Built-in functions
 
 Argument positions in error messages count from 1. Unless noted, a wrong
-type is a `TypeError` and a wrong count an `ArgumentError`.
+type is a `TypeError` and a wrong count, or a value a function cannot work
+with, an `ArgumentError`.
 
 ### Output and input
 
@@ -430,8 +445,8 @@ type is a `TypeError` and a wrong count an `ArgumentError`.
 |---|---|
 | `typeof(x)` | `"nil"`, `"bool"`, `"int"`, `"float"`, `"string"`, `"vector"`, `"map"`, `"function"`, `"class"` or `"object"` |
 | `str(x)` | `x` as text, as `print` writes it |
-| `int(x)` | An int: floats are truncated toward zero; strings are read like literals (`"42"`, `"-0x10"`, `"1_000"`, `"0b11"`, surrounding spaces allowed); `true` is 1 |
-| `float(x)` | A float from an int, float or string (`"2.5"`, `"1e3"`, `"inf"`) |
+| `int(x)` | An int: floats are truncated toward zero; strings in decimal, `0x` or `0b` form with an optional sign (`"42"`, `"-0x10"`, `"0b11"`), surrounding spaces allowed and every `_` ignored (`"1_000"`); `true` is 1, `false` 0 |
+| `float(x)` | A float from an int, float or string (`"2.5"`, `"1e3"`, `"inf"`, also Go's other forms such as `"0x1p3"`) |
 | `isnil(x)` | Whether `x` is `nil` |
 | `classof(obj)` | The class of an object |
 | `instanceof(x, C)` | Whether `x` is an object of class `C` or of a class derived from it |
@@ -447,7 +462,7 @@ type is a `TypeError` and a wrong count an `ArgumentError`.
 | `join(v [, sep])` | The elements joined with `sep`; non-strings as `str` gives them |
 | `upper(s)`, `lower(s)` | ASCII letters in upper or lower case |
 | `trim(s)` | `s` without white space at both ends |
-| `replace(s, old, new)` | Every `old` replaced by `new` |
+| `replace(s, old, new)` | Every `old` replaced by `new` (`ArgumentError` if `old` is `""`) |
 | `char(code)` | A one-byte string (code 0..255) |
 | `ord(s [, i])` | The byte at `i` (default 0) as an int |
 
@@ -470,7 +485,7 @@ type is a `TypeError` and a wrong count an `ArgumentError`.
 | Function | Description |
 |---|---|
 | `abs(x)` | Absolute value |
-| `min(a, b, ...)`, `max(a, b, ...)` | Smallest or largest of numbers or of strings; also `min(vector)` |
+| `min(a, b, ...)`, `max(a, b, ...)` | Smallest or largest of numbers or of strings; also `min(vector)` (`ArgumentError` for no values) |
 | `pow(x, y)` | `x` to the power `y`: an int for ints with `y >= 0` (wrapping around), else a float |
 | `sqrt(x)`, `exp(x)`, `log(x)` | Square root, e<sup>x</sup>, natural logarithm (floats) |
 | `sin(x)`, `cos(x)`, `tan(x)`, `atan2(y, x)` | Trigonometry (radians) |

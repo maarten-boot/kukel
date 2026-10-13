@@ -1,5 +1,5 @@
-// Package diag defines the error type shared by the lexer, parser, checker
-// and compiler: a message at a source position.
+// Package diag defines the error type shared by the lexer, parser and
+// compiler: a message at a source position.
 package diag
 
 import (

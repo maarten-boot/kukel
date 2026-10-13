@@ -21,5 +21,6 @@ main(args; t) {
     try { throw "multi
 line"; } catch (e) { p->x %= 1.5E-3 >> 2 ^ ~t; } finally { ; }
     a -= b *= c /= d &= e |= f ^= g >>= h; a == b ? c : d; [args.., 2];
+    do { if (a + b > c) ; elseif (a <= b << 1) ; else a = true || false || nil; } while (0);
     return --count ++ - -1 / 2 * 3 % 4 & 5 | 6;
 }

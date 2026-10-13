@@ -1,5 +1,5 @@
 // Milestone 11: reading standard input line by line (wordfreq.in).
-// Counts words (letters only, case-insensitive) and prints the most common.
+// Counts words (letters and apostrophes, case-insensitive) and prints the most common.
 
 const TOP = 5;
 

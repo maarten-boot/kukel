@@ -94,7 +94,8 @@ type VM struct {
 	errorClass *value.ClassObj // the prelude's Error class
 
 	// StepLimit, when positive, stops the program with a fatal error after
-	// that many backward jumps and calls (for tests that run untrusted code).
+	// that many backward jumps, calls of Kukel functions and thrown
+	// exceptions (for tests that run untrusted code).
 	StepLimit int
 	steps     int
 	stack     []value.Value
@@ -508,7 +509,7 @@ func objectOf(v value.Value) *value.ObjectObj {
 	return nil
 }
 
-// step counts a backward jump or a call against StepLimit.
+// step counts a backward jump, a call or a throw against StepLimit.
 func (vm *VM) step() error {
 	if vm.StepLimit <= 0 {
 		return nil

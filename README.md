@@ -98,6 +98,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 
 | Package | Role |
 |---|---|
+| `internal/token`, `internal/diag` | token kinds and source positions; the error type all stages share |
 | `internal/lexer`, `internal/parser`, `internal/ast` | source to syntax tree |
 | `internal/compiler` | name resolution, the language's rules, code generation |
 | `internal/bytecode` | instruction set, `.kkc` files, the verifier that checks loaded files |

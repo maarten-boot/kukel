@@ -241,23 +241,58 @@ sample.kkl:23:67  ,         ,
 sample.kkl:23:69  INT       2  = 2
 sample.kkl:23:70  ]         ]
 sample.kkl:23:71  ;         ;
-sample.kkl:24:5   return    return
-sample.kkl:24:12  --        --
-sample.kkl:24:14  IDENT     count
-sample.kkl:24:20  ++        ++
-sample.kkl:24:23  -         -
-sample.kkl:24:25  -         -
-sample.kkl:24:26  INT       1  = 1
-sample.kkl:24:28  /         /
-sample.kkl:24:30  INT       2  = 2
-sample.kkl:24:32  *         *
-sample.kkl:24:34  INT       3  = 3
-sample.kkl:24:36  %         %
-sample.kkl:24:38  INT       4  = 4
-sample.kkl:24:40  &         &
-sample.kkl:24:42  INT       5  = 5
-sample.kkl:24:44  |         |
-sample.kkl:24:46  INT       6  = 6
-sample.kkl:24:47  ;         ;
-sample.kkl:25:1   }         }
-sample.kkl:26:1   EOF
+sample.kkl:24:5   do        do
+sample.kkl:24:8   {         {
+sample.kkl:24:10  if        if
+sample.kkl:24:13  (         (
+sample.kkl:24:14  IDENT     a
+sample.kkl:24:16  +         +
+sample.kkl:24:18  IDENT     b
+sample.kkl:24:20  >         >
+sample.kkl:24:22  IDENT     c
+sample.kkl:24:23  )         )
+sample.kkl:24:25  ;         ;
+sample.kkl:24:27  elseif    elseif
+sample.kkl:24:34  (         (
+sample.kkl:24:35  IDENT     a
+sample.kkl:24:37  <=        <=
+sample.kkl:24:40  IDENT     b
+sample.kkl:24:42  <<        <<
+sample.kkl:24:45  INT       1  = 1
+sample.kkl:24:46  )         )
+sample.kkl:24:48  ;         ;
+sample.kkl:24:50  else      else
+sample.kkl:24:55  IDENT     a
+sample.kkl:24:57  =         =
+sample.kkl:24:59  true      true
+sample.kkl:24:64  ||        ||
+sample.kkl:24:67  false     false
+sample.kkl:24:73  ||        ||
+sample.kkl:24:76  nil       nil
+sample.kkl:24:79  ;         ;
+sample.kkl:24:81  }         }
+sample.kkl:24:83  while     while
+sample.kkl:24:89  (         (
+sample.kkl:24:90  INT       0  = 0
+sample.kkl:24:91  )         )
+sample.kkl:24:92  ;         ;
+sample.kkl:25:5   return    return
+sample.kkl:25:12  --        --
+sample.kkl:25:14  IDENT     count
+sample.kkl:25:20  ++        ++
+sample.kkl:25:23  -         -
+sample.kkl:25:25  -         -
+sample.kkl:25:26  INT       1  = 1
+sample.kkl:25:28  /         /
+sample.kkl:25:30  INT       2  = 2
+sample.kkl:25:32  *         *
+sample.kkl:25:34  INT       3  = 3
+sample.kkl:25:36  %         %
+sample.kkl:25:38  INT       4  = 4
+sample.kkl:25:40  &         &
+sample.kkl:25:42  INT       5  = 5
+sample.kkl:25:44  |         |
+sample.kkl:25:46  INT       6  = 6
+sample.kkl:25:47  ;         ;
+sample.kkl:26:1   }         }
+sample.kkl:27:1   EOF

@@ -1,12 +1,9 @@
 // Package compiler translates syntax trees into bytecode for the stack
-// machine. It also resolves names (locals, parameters, temporaries, then
-// top-level names) and evaluates constants.
-//
-// Milestone 3 supports: functions with required parameters and
-// temporaries, global and constant declarations, locals, expressions on
-// numbers, strings and booleans, calls, if/elseif/else, while, do-while,
-// for, break, continue and return. Other constructs are reported as "not
-// supported yet".
+// machine. It resolves names (locals, parameters, temporaries, captured
+// variables, members, then top-level names), checks the language's rules
+// (the "Rule:" comments of syntax.ebnf), evaluates constants and generates
+// the code of every function, member function and function literal,
+// together with the prelude that defines class Error.
 package compiler
 
 import (

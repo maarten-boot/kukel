@@ -51,8 +51,9 @@ main(args; t) {
     for (local k, val in m) println(k, val);
 
     outer: for (;;) {
-        inner: while (1) { break outer; }
+        inner: while (1) { if (t) continue outer; break outer; }
     }
+    block: { if (t) break block; t = 1; }
 
     switch (count) {
         case MAX + 1:

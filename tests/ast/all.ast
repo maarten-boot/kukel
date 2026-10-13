@@ -207,7 +207,21 @@ File all.kkl
                 While
                   Int 1
                   Block
+                    If
+                      Name t
+                      Then
+                        Continue outer
                     Break outer
+      Label block
+        Block
+          If
+            Name t
+            Then
+              Break block
+          ExprStmt
+            Assign =
+              Name t
+              Int 1
       Switch
         Name count
         Block

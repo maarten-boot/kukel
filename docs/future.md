@@ -24,8 +24,9 @@ first keeps each idea small.
 
 ### 1.1 Modules (name spaces)
 
-Today all built-ins share one flat name space with the program (57 names,
-all reserved). GUI, messaging and database libraries would add hundreds.
+Today all built-ins share one flat name space with the program (57 names
+plus the class `Error`, reserved at the top level; locals and members may
+reuse them). GUI, messaging and database libraries would add hundreds.
 They need name spaces, loaded only when a program asks for them:
 
 ```
@@ -369,8 +370,8 @@ main() {
 }
 ```
 
-- Kukel can already list a class's data members (the VM has them), so a
-  mapping by convention is possible: class name → table, data members →
+- The VM already knows a class's data members (no built-in exposes them
+  yet; one would be added), so a mapping by convention is possible: class name → table, data members →
   columns, `id` → primary key. Kukel has no annotations, so types and other
   details come from a description in static members or a `db::model(...)`
   call. (**F-17**)
@@ -391,6 +392,7 @@ members, a `db::model(...)` call, or a new syntax?
 Carried over from TODO.md item 14, plus things the ideas above make useful:
 
 - jump tables for `switch` over dense int cases;
+- a peephole pass over the generated code;
 - a REPL (`kukel repl`): handy for trying the GUI, messaging and database
   libraries interactively;
 - reporting several compile errors at once;

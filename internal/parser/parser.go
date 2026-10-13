@@ -1,7 +1,7 @@
 // Package parser builds the syntax tree of a Kukel source file
 // (syntax.ebnf, sections 1-3) by recursive descent. It reports the first
 // syntax error and stops. Semantic rules (the "Rule:" comments of the
-// grammar) are checked later, by the checker.
+// grammar) are checked later, by the compiler.
 package parser
 
 import (

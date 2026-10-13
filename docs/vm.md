@@ -34,6 +34,7 @@ source files ──lexer──▶ tokens ──parser──▶ syntax trees ─�
 | Package | Role |
 |---|---|
 | `internal/lexer`, `internal/parser`, `internal/ast` | source text to syntax trees |
+| `internal/token`, `internal/diag` | token kinds and source positions; the error type all stages share |
 | `internal/compiler` | name resolution, the language's rules, constant evaluation, code generation; the prelude |
 | `internal/bytecode` | instructions, the program image, `.kkc` encoding and decoding, the verifier, the disassembler |
 | `internal/vm` | the stack machine |
@@ -50,8 +51,8 @@ passed the verifier, cannot crash the VM (section 8).
 ## 2. Values
 
 A value is a small struct: a kind, 64 bits of payload (the bits of a bool,
-int or float) and a pointer-sized reference to an object (a string, vector,
-map, ...). Numbers and booleans never allocate.
+int or float) and a reference to an object (a string, vector, map, ...; a
+Go interface value, two words). Numbers and booleans never allocate.
 
 | Kind | Payload | Notes |
 |---|---|---|
@@ -296,18 +297,22 @@ which skip all handlers: `finally` blocks do not run.
 
 `CALL_METHOD`, `CALL_METHOD_V`, `GET_MEMBER` and `SET_MEMBER` each have a
 cache slot (an operand). The slot remembers the class of the last object
-the instruction saw, and the method (or data member slot) it found there.
+the instruction saw, and what it found there: the member function for the
+call instructions, the data member's slot for `GET_MEMBER`/`SET_MEMBER`.
 The next time an object of the same class comes along, the lookup is
-skipped. The caches belong to the VM, not to the image.
+skipped. (`GET_MEMBER` of a member function, which makes a bound method,
+is not cached.) The caches belong to the VM, not to the image.
 
 ### 4.11 Limits
 
 | Limit | Value |
 |---|---|
 | nested calls | 10000 (`StackOverflowError`) |
-| constants, slots, globals, arguments, cache slots per function | 65536 (u16 operands) |
-| code per function | 16 MiB in `.kkc` files |
-| step limit | off; when set (tests), backward jumps, calls and caught exceptions are counted, and exceeding it is fatal |
+| constants, slots, globals, cache slots per function | 65536 (u16 operands) |
+| arguments of one call | 65535 |
+| optional parameters of one function | 255 |
+| code per function, `MaxStack` | 16 MiB, 2<sup>20</sup> in `.kkc` files |
+| step limit | off; when set (tests), backward jumps, calls of Kukel functions and thrown exceptions are counted, and exceeding it is fatal |
 
 ---
 
@@ -457,8 +462,10 @@ after each instruction (`bytecode.StackUse`) and records the maximum as
 after `cond ? a : b`).
 
 An expression statement is the expression and `POP`, except for
-assignments and `++`/`--`, which then skip keeping their value: `i++;` on a
-plain local is one `INC_LOCAL`.
+assignments and `++`/`--` to variables, which then skip keeping their
+value: `x = 1;` is `CONST 1; STORE_LOCAL x`, and `i++;` on a plain local is
+one `INC_LOCAL`. (`INDEX_SET` and `SET_MEMBER` always leave the value, so
+`v[i] = x;` and `p->x = 1;` end with `POP`.)
 
 ### 6.3 Conditions
 
@@ -497,9 +504,11 @@ needs nothing extra.
 
 ### 6.5 Functions
 
-A function's code starts with its **prologue**: for each optional parameter
-`JUMP_IF_ARG i` over the default value's code, then `NEW_CELL` for captured
-parameters. Every function ends with `RETURN_NIL`.
+A function's code starts with its **prologue**, one parameter after the
+other: for an optional parameter `i`, `JUMP_IF_ARG i` over the code of its
+default value; for a captured parameter, `LOAD_LOCAL i; NEW_CELL i` to put
+it in a cell (so a later default sees the cell). Captured temporaries get
+`NIL; NEW_CELL`. Every function ends with `RETURN_NIL`.
 
 ```
 defs(a, b = a * 2, rest..) {     0  JUMP_IF_ARG   1 -> 17
@@ -672,7 +681,8 @@ layout changes (version 2: milestone 12's superinstructions and inline
 cache slots). A reader refuses any version other than its own, telling the
 user to compile the program again. Built-ins are referred to by name, so a
 program that uses a built-in the running `kukel` does not have is refused
-when it is loaded.
+when the VM is set up to run it (`kukel exec`), as is a program without the
+prelude's `Error` class; `Decode` and `kukel disasm` accept such files.
 
 ---
 
@@ -703,10 +713,15 @@ make the VM crash or read outside its data.
 The compiler's output always passes. The test suite verifies every program
 it compiles, which also checks the compiler's own bookkeeping.
 
-**What only the VM can check** (a value of the wrong kind where an
-instruction expects a cell, an iterator, a vector being built, a pending
-exception or `this`; a data member slot beyond the object's): these raise
-an `InternalError` exception ("invalid bytecode") instead of crashing.
+**What only the VM can check** raises an `InternalError` exception instead
+of crashing: a value of the wrong kind where an instruction expects a cell,
+an iterator, a vector being built or a pending exception; `LOAD_MEMBER` or
+`STORE_MEMBER` without `this` or beyond the object's data members;
+`LOAD_UPVALUE`/`STORE_UPVALUE` outside a closure or beyond its cells;
+`CLOSURE` capturing a slot that holds no cell, or an upvalue that is not
+there; `TRY_POP` whose innermost handler belongs to another frame; an
+unknown opcode. Inline caches cannot mislead the VM: an entry is only
+trusted for the class and the kind of member it was filled for.
 
 The fuzz tests (`make fuzz`) feed mutated files and arbitrary code to the
 loader and run whatever it accepts under a step limit, looking for crashes.
