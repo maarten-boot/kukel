@@ -1,0 +1,422 @@
+# Kukel: ideas for the future
+
+Plans for after v0.1.0. Nothing here is built yet; the Kukel code below shows
+how things *could* look and is not meant to run. Each idea lists open
+questions (**F-n**) to settle before it is built, in the same way the Q-list
+in [TODO.md](../TODO.md) settled the first version.
+
+Contents:
+
+1. [Foundations several ideas need](#1-foundations-several-ideas-need)
+2. [Multiple interpreters](#2-multiple-interpreters)
+3. [Events and a Tk GUI](#3-events-and-a-tk-gui)
+4. [ZeroMQ messaging](#4-zeromq-messaging)
+5. [SQL and an ORM](#5-sql-and-an-orm)
+6. [Smaller items](#6-smaller-items)
+7. [Suggested order](#7-suggested-order)
+
+---
+
+## 1. Foundations several ideas need
+
+The four ideas share needs that Kukel does not have today. Building these
+first keeps each idea small.
+
+### 1.1 Modules (name spaces)
+
+Today all built-ins share one flat name space with the program (57 names,
+all reserved). GUI, messaging and database libraries would add hundreds.
+They need name spaces, loaded only when a program asks for them:
+
+```
+use gui;                 // or: import "gui";
+use db;
+
+main() {
+    local w = new gui::Window("Hello");
+    local conn = db::open("sqlite:app.db");
+}
+```
+
+- `use name;` makes a library's functions and classes available as
+  `name::f(...)` and `name::Class`. The `::` syntax already exists (static
+  members), so the grammar change is small: `use` declarations, and
+  `Identifier :: Identifier` meaning a module member when the left side is
+  a module.
+- The same mechanism could load other Kukel source files
+  (`use "lib/util.kkl";`), replacing "list every file on the command line".
+- Libraries written in Go register themselves under a name; a program that
+  does not `use` them pays nothing.
+
+**F-1** Syntax: `use gui;` or `import gui;`? Also for `.kkl` files?
+**F-2** Do the current built-ins move into modules (`str::split`,
+`math::sqrt`), or stay global as a small core?
+
+### 1.2 Classes and objects implemented in Go ("native classes")
+
+A window, a socket or a database connection is a Go value with methods.
+Kukel needs a way for Go code to define classes whose objects carry Go state:
+
+```
+local sock = new zmq::Socket("REQ");    // a native class
+sock->connect("tcp://localhost:5555");  // native methods
+sock->close();
+```
+
+- A native class has Go methods (like built-ins, but with `this`) and an
+  opaque Go value inside each object.
+- Kukel classes should be able to derive from native ones
+  (`class MyWindow : gui::Window { ... }`), so that programs override event
+  methods such as `onClose()`.
+- Resources need explicit closing (`close()`); a `finally` block or a
+  future `with` statement makes that safe. Garbage collection could close
+  forgotten ones as a safety net (Go finalizers), but not as the plan.
+
+**F-3** Is deriving from native classes needed from the start (GUI style
+"override `onClick`"), or are callbacks (`button->onClick(fn() {...})`) enough?
+**F-4** A `with (local f = open(...)) { ... }` statement that closes
+automatically, or keep `try`/`finally`?
+
+### 1.3 An event loop
+
+GUI events, incoming messages and timers all mean "call this Kukel function
+when something happens". The VM runs one Kukel call at a time, so events must
+be queued and dispatched from one loop:
+
+```
+main() {
+    events::every(1000, fn() { println("tick"); });
+    sock->onMessage(fn(msg) { println("got", msg); });
+    events::run();          // dispatches until events::stop()
+}
+```
+
+- One loop per interpreter; Tk, ZeroMQ and timers feed it from their own
+  goroutines; handlers run on the interpreter's goroutine, one at a time
+  (no locking inside Kukel programs).
+- An exception in a handler: report it and continue, or stop the loop
+  (**F-5**).
+- Later, if wanted: `await`-style coroutines instead of callbacks. That is a
+  much larger change to the VM (saving and resuming frames) and not needed
+  for the first versions.
+
+**F-5** What happens to an uncaught exception in an event handler?
+**F-6** Callbacks only, or coroutines (`await`) later?
+
+### 1.4 Values that travel: serialization
+
+Messages between interpreters, ZeroMQ payloads and database rows all need
+Kukel values turned into bytes and back:
+
+- `json::encode(v)` / `json::decode(s)` for nil, booleans, numbers, strings,
+  vectors and maps (Go's `encoding/json`, much faster than the Kukel parser
+  in `tests/run/json.kkl`);
+- maybe a compact binary form for messages between interpreters, which can
+  also keep ints and floats apart exactly.
+- Objects, functions and classes cannot travel; encoding them is an error
+  (or objects become maps of their data members, **F-7**).
+
+**F-7** Can objects be encoded (as maps of their data members)?
+
+### 1.5 A date and time type
+
+Databases and GUIs need dates. Today only `time()` (a float) exists. A
+`time::Time` native class (parse, format, arithmetic, time zones) would
+cover SQL `TIMESTAMP` columns and timers.
+
+---
+
+## 2. Multiple interpreters
+
+**Goal**: several independent Kukel interpreters at once, in one process:
+from Go programs that embed Kukel, and from Kukel itself (workers that run in
+parallel and talk through messages).
+
+### 2.1 Embedding Kukel in Go programs
+
+A public Go package (today everything is in `internal/`):
+
+```go
+import "github.com/maarten-boot/min-kukel/kukel"
+
+prog, err := kukel.Compile(files...)          // compile once
+interp := kukel.New(prog, kukel.Options{       // as many as needed
+    Stdout:    os.Stdout,
+    StepLimit: 1_000_000,                      // sandboxing
+    Modules:   []string{"json"},               // what the program may use
+})
+interp.Register("notify", func(args []kukel.Value) (kukel.Value, error) { ... })
+result, err := interp.Call("main", kukel.String("hi"))
+```
+
+- Much of this is ready: a compiled program can already be shared by
+  several VMs (milestone 12 moved the inline caches into the VM), and each
+  VM has its own globals, output, input and random numbers.
+- Needed: a stable public API (values, errors, calling Kukel functions,
+  registering Go functions), and limits for untrusted code: steps (exists
+  for tests), memory, and which modules (files, network) are allowed.
+
+### 2.2 Interpreters inside Kukel (workers)
+
+```
+use worker;
+
+main() {
+    local w = worker::start("crunch.kkl", ["--fast"]);   // a new interpreter on its own goroutine
+    w->send({"job": 1, "data": [1, 2, 3]});              // values are copied (serialized)
+    println(w->receive());                               // waits for the answer
+    w->stop();
+}
+```
+
+```
+// crunch.kkl
+use worker;
+
+main(args) {
+    while (true) {
+        local msg = worker::receive();        // from the parent
+        if (msg == nil) break;                // the parent stopped us
+        worker::send(sum(msg["data"]));
+    }
+}
+```
+
+- Interpreters share nothing; messages are copied (section 1.4), so there
+  are no data races and no locks in Kukel programs. This is the actor model
+  (as in Erlang, or Go's goroutines with channels).
+- Real parallelism comes for free: each interpreter is a goroutine.
+- With the event loop (section 1.3), `w->onMessage(fn(msg) {...})` instead
+  of a blocking `receive()`.
+- ZeroMQ's `inproc://` transport could carry these messages, so that a
+  worker can later move to another process or machine unchanged.
+
+**F-8** Is the main goal embedding in Go, workers inside Kukel, or both?
+**F-9** Blocking `receive()`, event callbacks, or both?
+**F-10** Can a worker start workers? Limits on how many?
+
+---
+
+## 3. Events and a Tk GUI
+
+**Goal**: desktop GUI programs written in Kukel, with Tk widgets and Kukel
+functions (closures, bound methods) as event handlers.
+
+```
+use tk;
+
+class Counter {
+    count, label;
+    Counter(window);
+    clicked();
+}
+
+Counter::Counter(window) {
+    count = 0;
+    label = new tk::Label(window, "clicked 0 times");
+    local button = new tk::Button(window, "Click me");
+    button->onClick(this->clicked);               // a bound method as handler
+    label->pack();
+    button->pack();
+}
+
+Counter::clicked() {
+    count++;
+    label->setText("clicked " + str(count) + " times");
+}
+
+main() {
+    local window = new tk::Window("Kukel");
+    new Counter(window);
+    tk::run();                                    // the event loop (section 1.3)
+}
+```
+
+Design notes:
+
+- **Which Tk binding.** Options in Go:
+  - `modernc.org/tk9.0`: Tk 9 without cgo. It keeps `go install` working
+    with no C libraries, but it is large and young.
+  - a cgo binding to the system's Tcl/Tk: smaller, but it needs Tcl/Tk and
+    a C compiler wherever kukel is built.
+  - talking to a `wish` process over a pipe (sending Tcl commands): the
+    simplest and keeps kukel pure Go, but slower and with less control.
+- **Threads**: Tk must run on one OS thread (often the main one). The Tk
+  loop runs there and posts events into the interpreter's event queue;
+  calls from Kukel into Tk are passed to the Tk thread. This is the main
+  technical risk, so a small proof of concept should come first.
+- **Widgets**: start small: window, label, button, entry (text field),
+  text, list box, canvas, menus, message boxes; layout with `pack` and
+  `grid`. The Tk API maps well onto native classes (section 1.2).
+- **Optional build**: GUI support pulls in large dependencies. Build it
+  only with a tag (`go build -tags tk`), or as a separate binary
+  (`kukel-tk`), so the default `kukel` stays small.
+
+**F-11** Which binding: pure Go (`tk9.0`), cgo, or a `wish` pipe?
+**F-12** Tk specifically, or open to another toolkit (Fyne, a web UI)?
+**F-13** Part of `kukel` behind a build tag, or a separate `kukel-tk`?
+
+---
+
+## 4. ZeroMQ messaging
+
+**Goal**: Kukel programs that talk to other programs (any language) over
+ZeroMQ: request/reply, publish/subscribe, pipelines.
+
+```
+use zmq;
+
+main() {
+    local server = new zmq::Socket("REP");
+    server->bind("tcp://*:5555");
+    while (true) {
+        local request = json::decode(server->receive());
+        server->send(json::encode({"echo": request, "at": time()}));
+    }
+}
+```
+
+```
+use zmq;
+
+main() {
+    local sub = new zmq::Socket("SUB");
+    sub->connect("tcp://localhost:5556");
+    sub->subscribe("prices.");
+    sub->onMessage(fn(msg) { println("update:", msg); });   // via the event loop
+    events::run();
+}
+```
+
+Design notes:
+
+- **Library**: `github.com/go-zeromq/zmq4` is pure Go (keeps `go install`
+  simple, covers the common socket types); `github.com/pebbe/zmq4` wraps
+  the C libzmq (complete and fast, but needs libzmq and cgo).
+- **Socket types**: REQ/REP, PUB/SUB, PUSH/PULL, DEALER/ROUTER, PAIR; multi-part
+  messages as vectors of strings.
+- **Payloads** are bytes (Kukel strings already are); structured data with
+  `json::encode`/`decode` or the binary form (section 1.4).
+- **Blocking and events**: blocking `receive()` (with a timeout) for simple
+  programs; `onMessage` handlers through the event loop; a `zmq::poll` over
+  several sockets.
+- **Errors**: a `NetError` kind for connection and timeout problems.
+
+**F-14** Pure Go (`go-zeromq/zmq4`) or libzmq (`pebbe/zmq4`)?
+**F-15** Which socket types and features first (security/CURVE, monitors)?
+
+---
+
+## 5. SQL and an ORM
+
+**Goal**: Kukel programs that use SQL databases: first plain queries, then
+an object-relational mapping that stores Kukel objects in tables.
+
+### 5.1 Plain SQL
+
+```
+use db;
+
+main() {
+    local conn = db::open("sqlite:shop.db");     // or "postgres://...", "mysql://..."
+    conn->exec("CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY, name TEXT, price REAL)");
+    conn->exec("INSERT INTO items (name, price) VALUES (?, ?)", "pen", 1.5);
+    for (local row in conn->query("SELECT * FROM items WHERE price < ?", 10))
+        println(row["id"], row["name"], row["price"]);   // a row is a map
+    try {
+        conn->begin();
+        conn->exec("UPDATE items SET price = price * 1.1");
+        conn->commit();
+    } catch (e) {
+        conn->rollback();
+        throw e;
+    }
+}
+```
+
+- Built on Go's `database/sql`; drivers: SQLite (`modernc.org/sqlite`, pure
+  Go), PostgreSQL (`pgx`), MySQL (`go-sql-driver/mysql`).
+- Always with parameters (`?`), never by gluing strings together (SQL
+  injection); values map as nil ↔ NULL, int, float, string, bool, and dates
+  once there is a time type (section 1.5).
+- `query` gives a vector of maps (simple); `cursor` for large results.
+
+### 5.2 The ORM
+
+```
+use db;
+
+class Item : db::Model {           // a native base class (section 1.2)
+    static table, columns;          // the mapping, as static data members
+    id, name, price;
+}
+
+global itemsSetup = db::model(Item, "items", {"id": "INTEGER PRIMARY KEY", "name": "TEXT", "price": "REAL"});
+
+main() {
+    local conn = db::open("sqlite:shop.db");
+    conn->migrate(Item);                                  // CREATE TABLE if needed
+
+    local pen = new Item();
+    pen->name = "pen"; pen->price = 1.5;
+    conn->save(pen);                                      // INSERT; sets pen->id
+    pen->price = 1.75;
+    conn->save(pen);                                      // UPDATE
+
+    for (local item in conn->find(Item)->where("price < ?", 10)->orderBy("name")->all())
+        println(item->id, item->name, item->price);       // objects of class Item
+    conn->delete(pen);
+}
+```
+
+- Kukel can already list a class's data members (the VM has them), so a
+  mapping by convention is possible: class name → table, data members →
+  columns, `id` → primary key. Kukel has no annotations, so types and other
+  details come from a description in static members or a `db::model(...)`
+  call. (**F-17**)
+- Query building by method chaining (`where`, `orderBy`, `limit`) produces
+  parameterized SQL.
+- Relations (`has many`, `belongs to`), lazy loading and migrations of
+  existing tables are each a project of their own: later, if needed.
+
+**F-16** Which databases first (SQLite only, to start)?
+**F-17** How a class describes its table: conventions only, static data
+members, a `db::model(...)` call, or a new syntax?
+**F-18** Plain SQL only at first, with the ORM later on top?
+
+---
+
+## 6. Smaller items
+
+Carried over from TODO.md item 14, plus things the ideas above make useful:
+
+- jump tables for `switch` over dense int cases;
+- a REPL (`kukel repl`): handy for trying the GUI, messaging and database
+  libraries interactively;
+- reporting several compile errors at once;
+- strings without an extra allocation per value (a different `Value`
+  layout);
+- a debugger hook (breakpoints, stepping) on the VM, which the
+  disassembler and line tables already prepare for;
+- a code formatter (`kukel fmt`), using the parser.
+
+---
+
+## 7. Suggested order
+
+Each step is usable on its own and prepares the next:
+
+| Step | What | Needs |
+|---|---|---|
+| 1 | Modules (`use`), native classes, `json` | — |
+| 2 | Public embedding API; several interpreters in one process | 1 |
+| 3 | Event loop, timers; workers with messages | 1, 2 |
+| 4 | ZeroMQ (blocking first, then events) | 1, 3 |
+| 5 | SQL: plain queries, transactions (SQLite first) | 1 |
+| 6 | Time type; then the ORM on top of SQL | 5 |
+| 7 | Tk GUI (after a proof of concept for the threading) | 1, 3 |
+
+Steps 4, 5 and 7 are independent of each other once 1 and 3 exist.
+
+The open questions **F-1** to **F-18** are best answered just before the
+step that needs them.
