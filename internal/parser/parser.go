@@ -5,10 +5,10 @@
 package parser
 
 import (
-	"kukel/internal/ast"
-	"kukel/internal/diag"
-	"kukel/internal/lexer"
-	"kukel/internal/token"
+	"github.com/maarten-boot/min-kukel/internal/ast"
+	"github.com/maarten-boot/min-kukel/internal/diag"
+	"github.com/maarten-boot/min-kukel/internal/lexer"
+	"github.com/maarten-boot/min-kukel/internal/token"
 )
 
 // ParseFile parses one source file.

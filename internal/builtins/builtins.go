@@ -5,7 +5,7 @@ import (
 	"io"
 	"sort"
 
-	"kukel/internal/value"
+	"github.com/maarten-boot/min-kukel/internal/value"
 )
 
 var table = map[string]*value.BuiltinObj{}

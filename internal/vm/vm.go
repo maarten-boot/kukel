@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"kukel/internal/bytecode"
-	"kukel/internal/value"
+	"github.com/maarten-boot/min-kukel/internal/bytecode"
+	"github.com/maarten-boot/min-kukel/internal/value"
 )
 
 // MaxFrames bounds the call depth; deeper recursion is a stack overflow.

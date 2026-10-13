@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"kukel/internal/token"
+	"github.com/maarten-boot/min-kukel/internal/token"
 )
 
 // kinds tokenizes src and returns the token kinds, without the final EOF.

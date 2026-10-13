@@ -3,10 +3,10 @@ package compiler
 import (
 	"fmt"
 
-	"kukel/internal/ast"
-	"kukel/internal/bytecode"
-	"kukel/internal/token"
-	"kukel/internal/value"
+	"github.com/maarten-boot/min-kukel/internal/ast"
+	"github.com/maarten-boot/min-kukel/internal/bytecode"
+	"github.com/maarten-boot/min-kukel/internal/token"
+	"github.com/maarten-boot/min-kukel/internal/value"
 )
 
 // classInfo is what the compiler knows about a class.

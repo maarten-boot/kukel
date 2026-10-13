@@ -3,8 +3,8 @@ package compiler
 import (
 	"fmt"
 
-	"kukel/internal/ast"
-	"kukel/internal/bytecode"
+	"github.com/maarten-boot/min-kukel/internal/ast"
+	"github.com/maarten-boot/min-kukel/internal/bytecode"
 )
 
 // funcLit compiles a function literal as a function of its own and returns

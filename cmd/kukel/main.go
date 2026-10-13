@@ -10,14 +10,14 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"kukel/internal/ast"
-	"kukel/internal/builtins"
-	"kukel/internal/bytecode"
-	"kukel/internal/compiler"
-	"kukel/internal/lexer"
-	"kukel/internal/parser"
-	"kukel/internal/token"
-	"kukel/internal/vm"
+	"github.com/maarten-boot/min-kukel/internal/ast"
+	"github.com/maarten-boot/min-kukel/internal/builtins"
+	"github.com/maarten-boot/min-kukel/internal/bytecode"
+	"github.com/maarten-boot/min-kukel/internal/compiler"
+	"github.com/maarten-boot/min-kukel/internal/lexer"
+	"github.com/maarten-boot/min-kukel/internal/parser"
+	"github.com/maarten-boot/min-kukel/internal/token"
+	"github.com/maarten-boot/min-kukel/internal/vm"
 )
 
 const usage = `usage: kukel <command> [arguments]
@@ -30,6 +30,7 @@ commands:
   disasm a.kkl ... | prog.kkc     show the bytecode in readable form
   tokens a.kkl ...                show the tokens of source files
   ast [-pos] a.kkl ...            show the syntax tree of source files
+  version                         show the version of kukel
   help                            show this text
 `
 
@@ -48,6 +49,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "help", "-h", "-help", "--help":
 		fmt.Fprint(stdout, usage)
 		return 0
+	case "version", "-version", "--version":
+		return cmdVersion(stdout)
 	case "tokens":
 		return cmdTokens(args, stdout, stderr)
 	case "ast":

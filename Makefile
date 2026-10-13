@@ -1,13 +1,19 @@
 GO       ?= go
 BIN      := bin/kukel
 FUZZTIME ?= 30s
+VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo devel)
+LDFLAGS  := -X main.version=$(VERSION)
 
-.PHONY: all build test vet fmt fuzz bench golden clean
+.PHONY: all build install test vet fmt fuzz bench golden clean
 
 all: vet test build
 
 build:
-	$(GO) build -o $(BIN) ./cmd/kukel
+	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/kukel
+
+# Install kukel in $(go env GOPATH)/bin (or $GOBIN).
+install:
+	$(GO) install -ldflags "$(LDFLAGS)" ./cmd/kukel
 
 test:
 	$(GO) test ./...

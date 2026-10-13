@@ -1,8 +1,8 @@
 package compiler
 
 import (
-	"kukel/internal/ast"
-	"kukel/internal/token"
+	"github.com/maarten-boot/min-kukel/internal/ast"
+	"github.com/maarten-boot/min-kukel/internal/token"
 )
 
 // paramShape is what a call needs to know about a function's parameters.

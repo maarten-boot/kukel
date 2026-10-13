@@ -10,13 +10,13 @@ import (
 	"strings"
 	"testing"
 
-	"kukel/internal/ast"
-	"kukel/internal/builtins"
-	"kukel/internal/bytecode"
-	"kukel/internal/compiler"
-	"kukel/internal/parser"
-	"kukel/internal/value"
-	"kukel/internal/vm"
+	"github.com/maarten-boot/min-kukel/internal/ast"
+	"github.com/maarten-boot/min-kukel/internal/builtins"
+	"github.com/maarten-boot/min-kukel/internal/bytecode"
+	"github.com/maarten-boot/min-kukel/internal/compiler"
+	"github.com/maarten-boot/min-kukel/internal/parser"
+	"github.com/maarten-boot/min-kukel/internal/value"
+	"github.com/maarten-boot/min-kukel/internal/vm"
 )
 
 // compilePrograms compiles every program in tests/run that compiles.

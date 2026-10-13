@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"kukel/internal/diag"
-	"kukel/internal/token"
+	"github.com/maarten-boot/min-kukel/internal/diag"
+	"github.com/maarten-boot/min-kukel/internal/token"
 )
 
 const maxNameLen = 255 // identifiers and float literals

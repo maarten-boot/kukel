@@ -2,7 +2,7 @@
 // sections 1-3).
 package ast
 
-import "kukel/internal/token"
+import "github.com/maarten-boot/min-kukel/internal/token"
 
 // Node is any node of the tree. Pos is the position of its first token.
 type Node interface {

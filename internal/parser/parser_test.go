@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"kukel/internal/ast"
-	"kukel/internal/diag"
+	"github.com/maarten-boot/min-kukel/internal/ast"
+	"github.com/maarten-boot/min-kukel/internal/diag"
 )
 
 // sexpr writes an expression compactly, with explicit structure:

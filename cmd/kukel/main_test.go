@@ -210,12 +210,17 @@ func TestBuildExecDisasm(t *testing.T) {
 	}
 }
 
-// TestReferenceExamples runs every example in docs/reference.md that has a
-// main function: the documentation must not show programs that fail.
+// TestReferenceExamples runs every example in docs/reference.md and the
+// README that has a main function: the documentation must not show
+// programs that fail.
 func TestReferenceExamples(t *testing.T) {
-	doc, err := os.ReadFile("../../docs/reference.md")
-	if err != nil {
-		t.Fatal(err)
+	var doc []byte
+	for _, name := range []string{"../../docs/reference.md", "../../README.md"} {
+		text, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		doc = append(doc, text...)
 	}
 	blocks := strings.Split(string(doc), "```")
 	n := 0
@@ -266,6 +271,14 @@ func TestASTError(t *testing.T) {
 	want := src + ":3:1: expected ';' after expression, found '}'\n"
 	if stderr.String() != want {
 		t.Errorf("stderr = %q, want %q", stderr.String(), want)
+	}
+}
+
+func TestVersion(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"version"}, nil, &stdout, &stderr); code != 0 ||
+		!strings.HasPrefix(stdout.String(), "kukel ") || !strings.Contains(stdout.String(), "bytecode format") {
+		t.Errorf("version: exit %d, stdout %q", code, stdout.String())
 	}
 }
 

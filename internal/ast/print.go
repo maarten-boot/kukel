@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"kukel/internal/token"
+	"github.com/maarten-boot/min-kukel/internal/token"
 )
 
 // Fprint writes n as an indented tree, one node per line. With withPos each

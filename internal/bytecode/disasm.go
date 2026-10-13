@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"kukel/internal/value"
+	"github.com/maarten-boot/min-kukel/internal/value"
 )
 
 // Disassemble writes a readable listing of the program.

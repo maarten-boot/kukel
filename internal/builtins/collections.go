@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"kukel/internal/value"
+	"github.com/maarten-boot/min-kukel/internal/value"
 )
 
 // String and collection built-ins (milestone 5).

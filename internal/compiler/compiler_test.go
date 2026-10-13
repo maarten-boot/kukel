@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"kukel/internal/ast"
-	"kukel/internal/bytecode"
-	"kukel/internal/diag"
-	"kukel/internal/parser"
+	"github.com/maarten-boot/min-kukel/internal/ast"
+	"github.com/maarten-boot/min-kukel/internal/bytecode"
+	"github.com/maarten-boot/min-kukel/internal/diag"
+	"github.com/maarten-boot/min-kukel/internal/parser"
 )
 
 var testBuiltins = []string{"print", "println", "str"}
