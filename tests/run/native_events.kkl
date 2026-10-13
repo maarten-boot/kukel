@@ -1,0 +1,52 @@
+// Native module events: timers, posted calls, stop() and exceptions.
+// The output depends only on the order of the deadlines, not on timing.
+use events;
+
+main() {
+    // Posted calls run first, in order; one posted by a handler runs after.
+    events::post(fn() {
+        println("posted 1");
+        events::post(println, "posted by a handler");
+    });
+    events::post(println, "posted 2");
+    events::run();
+
+    // Timers fire in the order of their deadlines.
+    local n = 0, tick;
+    tick = events::every(0.02, fn() {
+        n++;
+        println("tick", n);
+        if (n == 3) tick->cancel();
+    });
+    events::after(0.05, fn(who) { println("after", who); }, "0.05");
+    events::after(0.01, println, "after 0.01 (a built-in as handler)");
+    println("pending:", events::pending(), tick);
+    events::run();                    // returns when nothing is left
+    println("done:", events::pending(), tick, tick->active());
+
+    // stop() ends run() early; the timer stays active for the next run.
+    local t = events::every(0.01, println, "every 0.01");
+    events::after(0.025, events::stop);
+    events::run();
+    println("stopped; active:", t->active());
+    t->cancel();
+
+    // An exception leaves run() ...
+    events::after(0, fn() { throw "boom"; });
+    events::after(0.01, println, "kept for the next run");
+    try {
+        events::run();
+    } catch (e) {
+        println("caught:", e);
+    }
+    // ... unless onerror takes it, and the loop goes on.
+    events::onerror(fn(e) { println("onerror:", e->kind, e->message); });
+    events::after(0, fn() { local v = []; return v[1]; });
+    events::run();
+
+    try {
+        events::every(0, println);
+    } catch (e) {
+        println(e->kind + ":", e->message);
+    }
+}

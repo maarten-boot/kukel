@@ -111,6 +111,13 @@ type Env interface {
 	Rand() *rand.Rand
 	// Started is when the program started (for clock).
 	Started() time.Time
+	// Local returns the value stored under key for this interpreter,
+	// storing init() first if there is none: per-program state of a
+	// native module (such as its event loop).
+	Local(key any, init func() any) any
+	// Thrown returns the value a Kukel exception carries, when err (from
+	// Call) is one that a try could catch; not for exit() or fatal errors.
+	Thrown(err error) (Value, bool)
 }
 
 // ExitError is returned by the exit built-in: the program stops at once

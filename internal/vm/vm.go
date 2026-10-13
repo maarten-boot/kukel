@@ -107,7 +107,8 @@ type VM struct {
 	rand      *rand.Rand
 	started   time.Time
 
-	stderr io.Writer // what eprint writes to (os.Stderr unless SetStderr)
+	stderr io.Writer   // what eprint writes to (os.Stderr unless SetStderr)
+	locals map[any]any // per-program state of native modules (Local)
 }
 
 // Builtins resolves built-in functions by name.
@@ -235,6 +236,27 @@ func (vm *VM) SetStderr(w io.Writer) { vm.stderr = w }
 func (vm *VM) Stdin() *bufio.Reader  { return vm.stdin }
 func (vm *VM) Rand() *rand.Rand      { return vm.rand }
 func (vm *VM) Started() time.Time    { return vm.started }
+
+// Local implements value.Env.
+func (vm *VM) Local(key any, init func() any) any {
+	if vm.locals == nil {
+		vm.locals = map[any]any{}
+	}
+	v, ok := vm.locals[key]
+	if !ok {
+		v = init()
+		vm.locals[key] = v
+	}
+	return v
+}
+
+// Thrown implements value.Env.
+func (vm *VM) Thrown(err error) (value.Value, bool) {
+	if re, ok := err.(*RuntimeError); ok && !re.Fatal && re.Exit == nil {
+		return re.Value, true
+	}
+	return value.NilValue, false
+}
 
 // Call calls fn from a built-in (sort's comparator, for example). The
 // built-in's own arguments stay on the stack below the new call.

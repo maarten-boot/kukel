@@ -17,6 +17,7 @@ import (
 	"github.com/maarten-boot/kukel/internal/compiler"
 	"github.com/maarten-boot/kukel/internal/lexer"
 	"github.com/maarten-boot/kukel/internal/loader"
+	_ "github.com/maarten-boot/kukel/internal/modules/eventsmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/jsonmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/stringsmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/timemod"

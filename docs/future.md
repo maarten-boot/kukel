@@ -96,7 +96,7 @@ be queued and dispatched from one loop:
 
 ```
 main() {
-    events::every(1000, fn() { println("tick"); });
+    events::every(1, fn() { println("tick"); });   // seconds
     sock->onMessage(fn(msg) { println("got", msg); });
     events::run();          // dispatches until events::stop()
 }
@@ -111,8 +111,14 @@ main() {
   much larger change to the VM (saving and resuming frames) and not needed
   for the first versions.
 
+*Done (TODO.md Q37): the native module `events`, with timers, `post`,
+`stop`, `onerror`; Go modules feed it with `eventsmod.For(env).Post` and
+`Hold`.*
+
 **F-5** What happens to an uncaught exception in an event handler?
+*Answered: it leaves `events::run()`, unless `events::onerror(f)` takes it.*
 **F-6** Callbacks only, or coroutines (`await`) later?
+*Answered for now: callbacks only.*
 
 ### 1.4 Values that travel: serialization
 

@@ -41,7 +41,7 @@ source files ──loader (lexer, parser)──▶ syntax trees ──compiler�
 | `internal/vm` | the stack machine |
 | `internal/value` | run-time values and the semantics of the operators |
 | `internal/builtins` | built-in functions |
-| `internal/native`, `internal/modules/...` | modules written in Go (`json`, `strings`, `time`) and their native classes |
+| `internal/native`, `internal/modules/...` | modules written in Go (`events`, `json`, `strings`, `time`) and their native classes |
 
 The compiler checks everything the language requires at compile time; the
 VM checks the rest at run time and turns every failure into a Kukel
@@ -258,6 +258,12 @@ object's Go value, after which `NEW` leaves the object (there is no
 constructor frame). A native class without a constructor cannot be used
 with `new`; its objects come from its module's functions. The compiler
 refuses a native class as a base class.
+
+Go code reaches the interpreter through `value.Env` (the VM): output and
+input, `Call` to call a Kukel function (a nested execution, section 4.3),
+`Local` for state a module keeps per interpreter (the `events` module keeps
+its event loop there), and `Thrown` to get the value of a Kukel exception
+that `Call` returned as an error.
 
 ### 4.8 Closures and cells
 

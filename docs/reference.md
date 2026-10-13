@@ -33,7 +33,7 @@ hello, Kukel
 8. [Classes and objects](#8-classes-and-objects)
 9. [Exceptions](#9-exceptions)
 10. [Built-in functions](#10-built-in-functions)
-11. [Modules written in Go: json, strings, time](#11-modules-written-in-go-json-strings-time)
+11. [Modules written in Go](#11-modules-written-in-go): events, json, strings, time
 
 ---
 
@@ -572,7 +572,7 @@ with, an `ArgumentError`.
 
 ---
 
-## 11. Modules written in Go: json, strings, time
+## 11. Modules written in Go
 
 These modules are part of `kukel` (`kukel version` lists them). A program
 uses them like modules written in Kukel (see [Modules](#modules)): `use
@@ -585,6 +585,56 @@ data and have member functions but no data members. `typeof` gives
 compares whether two values are the same object. A native class cannot
 (yet) be used as a base class, and a native class without a constructor
 has no `new`: its objects come from the module's functions.
+
+### events
+
+An event loop: it calls Kukel functions when timers expire, when calls are
+posted, or when other modules deliver events (later: windows, sockets).
+
+```
+use events;
+
+main() {
+    local n = 0, tick;
+    tick = events::every(0.5, fn() {
+        n++;
+        println("tick", n);
+        if (n == 3) tick->cancel();
+    });
+    events::after(1.2, println, "after 1.2 s");
+    events::run();              // tick 1, tick 2, after 1.2 s, tick 3
+    println("done");
+}
+```
+
+Handlers run one at a time, inside `events::run()`, so they never need to
+lock anything. `run()` returns when nothing is left to do (no active timer,
+nothing posted, no open source) or after `events::stop()`; it can be
+called again later. Durations are seconds (ints or floats). A handler that
+throws an exception it does not catch ends `run()` with that exception
+(timers and posted calls stay for the next `run()`), unless
+`events::onerror` has a handler for it.
+
+| Function | Description |
+|---|---|
+| `events::after(seconds, f, args...)` | Calls `f(args...)` once, that many seconds from now; gives an `events::Timer` |
+| `events::every(seconds, f, args...)` | Calls `f(args...)` every that many seconds (at least 0.001), the first time after one interval; a timer that falls behind skips the missed calls |
+| `events::post(f, args...)` | Calls `f(args...)` soon, after the calls already posted (a call posted by a handler runs in the next round, after the timers that are due) |
+| `events::run()` | Dispatches events as described above. Calling it from a handler is a `ValueError` |
+| `events::stop()` | Makes `run()` return after the current handler |
+| `events::onerror(f)` | `f(e)` receives the exceptions handlers do not catch, and the loop goes on; `events::onerror(nil)` lets them end `run()` again |
+| `events::pending()` | The number of active timers, posted calls and open sources: what keeps `run()` going |
+
+Timers fire in the order of their deadlines (timers with the same deadline
+in the order they were made). A late timer fires late, never early.
+
+| Member function | Description |
+|---|---|
+| `t->cancel()` | The timer does not fire again (no effect on a timer that is done) |
+| `t->active()` | Whether the timer will still fire |
+
+A timer prints as `events::Timer(once)`, `events::Timer(every 0.5s)`,
+`events::Timer(fired)` or `events::Timer(cancelled)`.
 
 ### json
 
