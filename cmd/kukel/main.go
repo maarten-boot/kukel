@@ -24,6 +24,7 @@ const usage = `usage: kukel <command> [arguments]
 
 commands:
   run a.kkl b.kkl [-- args]       compile in memory and run
+  check a.kkl ...                 compile only: report errors, run nothing
   build -o prog.kkc a.kkl b.kkl   compile to a bytecode file
   exec prog.kkc [args]            run a bytecode file
   disasm a.kkl ... | prog.kkc     show the bytecode in readable form
@@ -53,6 +54,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return cmdAST(args, stdout, stderr)
 	case "run":
 		return cmdRun(args, stdin, stdout, stderr)
+	case "check":
+		return cmdCheck(args, stderr)
 	case "disasm":
 		return cmdDisasm(args, stdout, stderr)
 	case "build", "exec":
@@ -117,6 +120,20 @@ func cmdRun(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return code
+}
+
+// cmdCheck compiles the source files as one program and reports the first
+// error; it prints nothing when the program is fine.
+func cmdCheck(files []string, stderr io.Writer) int {
+	if len(files) == 0 {
+		fmt.Fprintln(stderr, "usage: kukel check a.kkl ...")
+		return 2
+	}
+	if _, err := compileFiles(files); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
 }
 
 // cmdDisasm prints the bytecode of a program compiled from source files.

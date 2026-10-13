@@ -35,11 +35,12 @@ const (
 
 // global is a top-level name.
 type global struct {
-	kind  symKind
-	index int         // global slot; -1 for a built-in not yet used
-	value value.Value // symConst
-	class *classInfo  // symClass
-	pos   token.Pos   // definition (zero for built-ins)
+	kind   symKind
+	index  int         // global slot; -1 for a built-in not yet used
+	value  value.Value // symConst
+	class  *classInfo  // symClass
+	params *paramShape // symFunc
+	pos    token.Pos   // definition (zero for built-ins)
 }
 
 type compiler struct {
@@ -97,6 +98,7 @@ func Compile(files []*ast.File, builtins []string) (prog *bytecode.Program, err 
 				}
 				g := c.define(d.Name, symFunc)
 				c.prog.Globals[g.index].Func = len(jobs)
+				g.params = shapeOf(d.Name.Name, d.Params)
 				jobs = append(jobs, funcJob{decl: d})
 			case *ast.GlobalDecl:
 				for _, v := range d.Vars {
@@ -1006,6 +1008,7 @@ func (c *compiler) expr(e ast.Expr) {
 		if c.memberCall(e) {
 			return
 		}
+		c.checkArgs(c.staticCallee(e.Fun), e.Args, e.Lparen)
 		c.expr(e.Fun)
 		if hasSpread(e.Args) {
 			c.argVector(e.Args)
@@ -1062,6 +1065,7 @@ func (c *compiler) expr(e ast.Expr) {
 			func(argc int) { c.emit(bytecode.OpCallMethod, c.nameConst(e.Name), argc) },
 			func() { c.emit(bytecode.OpCallMethodV, c.nameConst(e.Name)) })
 	case *ast.NewExpr:
+		c.checkNew(e)
 		c.newClassValue(e.Class)
 		c.callArgs(e.Args, e.New,
 			func(argc int) { c.emit(bytecode.OpNew, argc) },

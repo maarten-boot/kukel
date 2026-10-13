@@ -153,6 +153,20 @@ func firstDiff(got, want string) string {
 	return ""
 }
 
+func TestCheck(t *testing.T) {
+	dir := t.TempDir()
+	good, bad := filepath.Join(dir, "good.kkl"), filepath.Join(dir, "bad.kkl")
+	os.WriteFile(good, []byte("main() { println(\"not run\"); }\n"), 0o644)
+	os.WriteFile(bad, []byte("f(a) {}\nmain() {\n  f();\n}\n"), 0o644)
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"check", good}, nil, &stdout, &stderr); code != 0 || stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Errorf("check good: exit %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+	if code := run([]string{"check", bad}, nil, &stdout, &stderr); code != 1 || stderr.String() != bad+":3:4: f expects 1 argument(s), got 0\n" {
+		t.Errorf("check bad: exit %d, stderr %q", code, stderr.String())
+	}
+}
+
 func TestTokensError(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "bad.kkl")

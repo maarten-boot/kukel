@@ -33,15 +33,16 @@ type memberInfo struct {
 	name   string
 	pos    token.Pos
 	kind   memberKind
-	class  *classInfo // the declaring class
-	field  int        // memberField: slot in the object
-	slot   int        // memberStatic: index in the class's statics
-	static bool       // memberMethod
-	params int        // memberMethod: declared parameters, without the rest parameter
-	rest   bool       // memberMethod: has a rest parameter
-	method int        // memberMethod: index in bytecode.Class.Methods
-	fn     int        // memberMethod: index in Program.Funcs, -1 until defined
-	defPos token.Pos  // memberMethod: position of the definition
+	class  *classInfo  // the declaring class
+	field  int         // memberField: slot in the object
+	slot   int         // memberStatic: index in the class's statics
+	static bool        // memberMethod
+	params int         // memberMethod: declared parameters, without the rest parameter
+	rest   bool        // memberMethod: has a rest parameter
+	method int         // memberMethod: index in bytecode.Class.Methods
+	fn     int         // memberMethod: index in Program.Funcs, -1 until defined
+	defPos token.Pos   // memberMethod: position of the definition
+	def    *paramShape // memberMethod: the definition's parameters
 }
 
 // lookup finds a member in k or its base classes.
@@ -176,6 +177,7 @@ func (c *compiler) methodDefinition(d *ast.FuncDecl) (*classInfo, *memberInfo) {
 			m.fullName(), shape(n, rest), m.pos, shape(m.params, m.rest))
 	}
 	m.defPos = d.Name.NamePos
+	m.def = shapeOf(m.fullName(), d.Params)
 	return k, m
 }
 
@@ -372,6 +374,7 @@ func (c *compiler) memberCall(e *ast.CallExpr) bool {
 		}
 		if m.static {
 			c.emit(bytecode.OpLoadFunc, c.funcIndex(m, fun.NamePos))
+			c.checkArgs(m.def, e.Args, e.Lparen)
 			c.callArgs(e.Args, e.Lparen, call, callV)
 			return true
 		}
@@ -398,6 +401,7 @@ func (c *compiler) memberCall(e *ast.CallExpr) bool {
 			c.errorf(e.Lparen, "spread arguments are not supported in a %s::%s(...) call", k.name, m.name)
 		}
 		fn := c.funcIndex(m, fun.Name.NamePos)
+		c.checkArgs(m.def, e.Args, e.Lparen)
 		c.emit(bytecode.OpLoadThis)
 		for _, a := range e.Args {
 			c.expr(a)

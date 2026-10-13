@@ -67,6 +67,7 @@ source files ──lexer──▶ tokens ──parser──▶ AST ──checker
 - Q27 (decided in milestone 6) Objects print as `Point{x: 1, y: 2}` (also inside containers; an object inside itself prints `Point{...}`); bound methods print as `<method C::m>`; `p->m == p->m` is true (same object, same method)
 - Q28 (decided in milestone 6) A static member function can also be called through an object (`p->f()`, without `this`); `p->f` of a static one gives the plain function. Spread arguments are not supported in `Base::m(...)` calls
 - Q29 (decided in milestone 7) Any value can be thrown; `catch (e)` catches everything (there are no typed catch clauses; test with `instanceof(e, SomeError)` and rethrow with `throw e;`). The first time an `Error` object is thrown, the VM sets its `trace` (a vector of strings like `"f (file.kkl:3)"`, innermost call first) and, if `kind` is nil, sets `kind` to the name of its class; throwing it again keeps the original trace. An uncaught `Error` prints `kind: message` and the trace; any other uncaught value prints `uncaught exception: <value>`
+- Q32 (decided in milestone 9) A call whose callee is known at compile time — a top-level function, a static member function (`C::f(...)` or unqualified inside the class), `Base::m(...)`, or `new C(...)` naming a class — with the wrong number of arguments is a compile error (the message is the same as at run time). Calls through variables, members, spread arguments and virtual calls (`p->m(...)`) are checked at run time. `new C(...)` of a class whose constructor is declared but not defined is a compile error too
 - Q31 (decided in milestone 8) A function literal is named `<enclosing function>/fn@<line>` in traces and when printed (`main/fn@12`); closures are equal only to themselves
 - Q30 (decided in milestone 7) An exception thrown in a `finally` block replaces the one that was pending; a `case`/`default` label inside a try, catch or finally block of its switch is a compile error (checked before the local-initialization rule)
 
@@ -101,7 +102,6 @@ source files ──lexer──▶ tokens ──parser──▶ AST ──checker
   internal/lexer/
   internal/ast/
   internal/parser/
-  internal/check/     semantic checks, scope resolution, constant folding
   internal/compiler/  AST → bytecode
   internal/bytecode/  opcodes, image structs, (de)serialization, disassembler
   internal/value/     runtime value types
@@ -115,6 +115,7 @@ source files ──lexer──▶ tokens ──parser──▶ AST ──checker
   - `kukel build -o prog.kkc a.kkl b.kkl`: compile to a file
   - `kukel exec prog.kkc [args]`: run a stored image
   - `kukel disasm prog.kkc`: dump the bytecode in readable form
+  - `kukel check a.kkl ...`: compile only and report errors
   - `kukel tokens a.kkl` / `kukel ast a.kkl`: debug dumps
 - [x] Makefile: `all`, `build` (→ `bin/kukel`), `test`, `vet` (incl. gofmt check), `fmt`, `fuzz` (`FUZZTIME=30s`), `bench`, `golden`, `clean`
 
@@ -166,9 +167,9 @@ source files ──lexer──▶ tokens ──parser──▶ AST ──checker
 - [x] Shared error type `internal/diag` (`file:line:col: message`) for lexer, parser and later passes
 - [x] Tests: precedence/associativity table (S-expressions), literal folding values, statement shapes, 35 error cases with positions, `FuzzParser`; golden `tests/ast/*.kkl` → `.ast` (`make golden`)
 
-## 5. Semantic checks + scope resolution (`internal/check`)
+## 5. Semantic checks + scope resolution (done in `internal/compiler`)
 
-All the "Rule:" comments in syntax.ebnf:
+All the "Rule:" comments in syntax.ebnf. The checks run while the compiler resolves names and generates code, so there is no separate checker pass. `internal/compiler/rules_test.go` has valid and invalid programs for every rule with a "Rule:" comment, and a test that fails when syntax.ebnf gets a rule without test cases.
 
 - [x] One top-level name space: globals, constants, functions, classes and built-ins; each name defined once (Q18) — done in the compiler (milestone 3)
 - [x] Constants: evaluate in program order at compile time (literals, earlier constants, unary/binary/`?:`); result must be nil/bool/number/string; errors (e.g. division by zero) are compile errors
@@ -176,7 +177,9 @@ All the "Rule:" comments in syntax.ebnf:
 - [x] `C::m` definition: class C must exist and declare `m`; shape matches the declaration: same number of parameters (required + optional; temporaries not counted) and a rest `..` in both or neither; names may differ (Q19)
 - [x] `this` only in non-static member functions and in function literals nested in them
 - [x] Parameters: once an optional parameter appears, all later ones need defaults (or are the rest parameter); the rest parameter is last; at most 255 optional parameters; a default may use earlier parameters (only those: a later name resolves as if the parameter did not exist) — milestone 4
-- [ ] Lvalues: the target of an assignment or `++`/`--` must be a variable (global, local, parameter, temporary, captured, member), `C::x`, `e[i]` or `e->x`; not a constant, function, class, built-in or `this`
+- [x] Lvalues: the target of an assignment or `++`/`--` must be a variable (global, local, parameter, temporary, captured, member), `C::x`, `e[i]` or `e->x`; not a constant, function, class, built-in or `this`
+- [x] Argument counts of callees known at compile time (Q32)
+- [x] `kukel check a.kkl ...`: compile only, report the first error, run nothing (silent when fine)
 - [x] `local`: only directly inside a block or in a for initializer, not directly in a switch body, no duplicate in the same block; the name is visible *after* its initializer
 - [x] `catch (e)`: `e` is a new local of the catch block
 - [x] `case`/`default`: only inside a switch body; case values are constant expressions; no two equal case values (1 and 1.0 are equal); at most one default
@@ -278,7 +281,7 @@ All the "Rule:" comments in syntax.ebnf:
 6. [x] Classes, objects, methods, `this`, `p->x`, bound methods, static members, constructors, inheritance (done 2026-10-13, branch `milestone-6-classes`; frames got bigger: fib(27) 29 → 35 ms, to win back in milestone 12)
 7. [x] Exceptions: try/catch/finally, runtime errors as exceptions, stack traces (done 2026-10-13, branch `milestone-7-exceptions`)
 8. [x] Closures: fn literals, captured cells, per-iteration loop variables (done 2026-10-13, branch `milestone-8-closures`; ~37 ns per closure call)
-9. [ ] Semantic checker complete (all "Rule:" items)
+9. [x] Semantic checker complete (all "Rule:" items) (done 2026-10-13, branch `milestone-9-checker`: rules audit test, compile-time argument counts, `kukel check`)
 10. [ ] `.kkc` writer/reader/validator + `build`/`exec`/`disasm`
 11. [ ] Remaining built-ins, test suite, fuzzing, benchmarks, language reference
 12. [ ] Later/optional: peephole optimizer, inline caches for methods and fields, jump tables for switch, a REPL, multiple error reporting
