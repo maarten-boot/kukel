@@ -25,7 +25,7 @@ const usage = `usage: kukel <command> [arguments]
 commands:
   run a.kkl b.kkl [-- args]       compile in memory and run
   check a.kkl ...                 compile only: report errors, run nothing
-  build -o prog.kkc a.kkl b.kkl   compile to a bytecode file
+  build [-o prog.kkc] a.kkl ...   compile to a bytecode file (default: a.kkc)
   exec prog.kkc [args]            run a bytecode file
   disasm a.kkl ... | prog.kkc     show the bytecode in readable form
   tokens a.kkl ...                show the tokens of source files
@@ -58,8 +58,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return cmdCheck(args, stderr)
 	case "disasm":
 		return cmdDisasm(args, stdout, stderr)
-	case "build", "exec":
-		return notYet(cmd, 10, stderr)
+	case "build":
+		return cmdBuild(args, stderr)
+	case "exec":
+		return cmdExec(args, stdin, stdout, stderr)
 	}
 	fmt.Fprintf(stderr, "kukel: unknown command %q\n\n%s", cmd, usage)
 	return 2
@@ -106,6 +108,11 @@ func cmdRun(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	return runProgram(prog, progArgs, stdin, stdout, stderr)
+}
+
+// runProgram runs a compiled program and returns its exit code.
+func runProgram(prog *bytecode.Program, progArgs []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	out := bufio.NewWriter(stdout)
 	defer out.Flush()
 	machine, err := vm.New(prog, builtins.Lookup, out, stdin)
@@ -136,19 +143,91 @@ func cmdCheck(files []string, stderr io.Writer) int {
 	return 0
 }
 
-// cmdDisasm prints the bytecode of a program compiled from source files.
-// (Reading .kkc files comes with milestone 10.)
-func cmdDisasm(files []string, stdout, stderr io.Writer) int {
+// cmdBuild compiles source files into a bytecode file.
+func cmdBuild(args []string, stderr io.Writer) int {
+	out := ""
+	var files []string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "-o" && i+1 < len(args) {
+			out = args[i+1]
+			i++
+			continue
+		}
+		files = append(files, args[i])
+	}
 	if len(files) == 0 {
-		fmt.Fprintln(stderr, "usage: kukel disasm a.kkl ...")
+		fmt.Fprintln(stderr, "usage: kukel build [-o prog.kkc] a.kkl ...")
 		return 2
 	}
-	for _, f := range files {
-		if strings.HasSuffix(f, ".kkc") {
-			return notYet("disasm of a .kkc file", 10, stderr)
-		}
+	if out == "" {
+		out = strings.TrimSuffix(files[0], ".kkl") + ".kkc"
 	}
 	prog, err := compileFiles(files)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	data, err := bytecode.Encode(prog)
+	if err == nil {
+		err = os.WriteFile(out, data, 0o644)
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, "kukel:", err)
+		return 1
+	}
+	return 0
+}
+
+// loadKKC reads and verifies a bytecode file.
+func loadKKC(file string) (*bytecode.Program, error) {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	prog, err := bytecode.Decode(data)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %v", file, err)
+	}
+	return prog, nil
+}
+
+// cmdExec runs a bytecode file; the arguments after it (an optional "--"
+// first) go to main.
+func cmdExec(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "usage: kukel exec prog.kkc [args]")
+		return 2
+	}
+	progArgs := args[1:]
+	if len(progArgs) > 0 && progArgs[0] == "--" {
+		progArgs = progArgs[1:]
+	}
+	prog, err := loadKKC(args[0])
+	if err != nil {
+		fmt.Fprintln(stderr, "kukel:", err)
+		return 1
+	}
+	return runProgram(prog, progArgs, stdin, stdout, stderr)
+}
+
+// cmdDisasm prints the bytecode of one .kkc file, or of the program
+// compiled from source files.
+func cmdDisasm(files []string, stdout, stderr io.Writer) int {
+	if len(files) == 0 {
+		fmt.Fprintln(stderr, "usage: kukel disasm prog.kkc | a.kkl ...")
+		return 2
+	}
+	var prog *bytecode.Program
+	var err error
+	if strings.HasSuffix(files[0], ".kkc") {
+		if len(files) > 1 {
+			fmt.Fprintln(stderr, "usage: kukel disasm prog.kkc | a.kkl ...")
+			return 2
+		}
+		prog, err = loadKKC(files[0])
+	} else {
+		prog, err = compileFiles(files)
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

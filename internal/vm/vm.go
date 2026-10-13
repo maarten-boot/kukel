@@ -32,6 +32,7 @@ type RuntimeError struct {
 	Kind  string       // the kind of an Error object; "" for other values
 	Msg   string       // the message of an Error object, or the value as text
 	Trace []TraceEntry // innermost call first
+	Fatal bool         // try cannot catch it (the step limit)
 }
 
 // Error returns the message and the stack trace. Long traces (deep
@@ -84,11 +85,16 @@ type VM struct {
 	classes    []*value.ClassObj
 	handlers   []handler
 	errorClass *value.ClassObj // the prelude's Error class
-	stack      []value.Value
-	sp         int // first free stack entry
-	frames     []frame
-	stdout     io.Writer
-	stdin      io.Reader
+
+	// StepLimit, when positive, stops the program with a fatal error after
+	// that many backward jumps and calls (for tests that run untrusted code).
+	StepLimit int
+	steps     int
+	stack     []value.Value
+	sp        int // first free stack entry
+	frames    []frame
+	stdout    io.Writer
+	stdin     io.Reader
 }
 
 // Builtins resolves built-in functions by name.
@@ -378,6 +384,9 @@ func (vm *VM) callOp(op bytecode.Op, f *frame, ip, sp int) error {
 // callFunction pushes a frame for fn; its arguments are the top argc stack
 // entries, below them is the callee's place.
 func (vm *VM) callFunction(fn *bytecode.Function, this value.Value, up []*value.CellObj, argc int, ctor bool) error {
+	if err := vm.step(); err != nil {
+		return err
+	}
 	{
 		maxArgs := fn.NumParams + fn.NumOptional
 		if argc < fn.NumParams || (argc > maxArgs && !fn.HasRest) {
@@ -409,6 +418,24 @@ func (vm *VM) callFunction(fn *bytecode.Function, this value.Value, up []*value.
 }
 
 func makeFunction(fn value.Named) value.Value { return value.MakeFunction(fn) }
+
+// step counts a backward jump or a call against StepLimit.
+func (vm *VM) step() error {
+	if vm.StepLimit <= 0 {
+		return nil
+	}
+	if vm.steps++; vm.steps > vm.StepLimit {
+		return &RuntimeError{Kind: "StepLimitError", Msg: fmt.Sprintf("more than %d steps", vm.StepLimit),
+			Trace: vm.trace(), Fatal: true}
+	}
+	return nil
+}
+
+// bad reports bytecode that the verifier cannot rule out but that is wrong
+// at run time (a value of the wrong kind in a slot, for example).
+func bad(f *frame, what string) error {
+	return value.Errorf(value.InternalError, "invalid bytecode in %s: %s", f.fn.FuncName, what)
+}
 
 // argCountError describes a call with the wrong number of arguments.
 func argCountError(fn *bytecode.Function, argc int) error {
@@ -525,6 +552,11 @@ func (vm *VM) execute(stopDepth int) (value.Value, error) {
 			return r, nil
 		}
 		re := err.(*RuntimeError)
+		if !re.Fatal {
+			if e := vm.step(); e != nil { // a throw/catch cycle is a loop too
+				re = e.(*RuntimeError)
+			}
+		}
 		if !vm.catch(re, stopDepth) {
 			return value.NilValue, re
 		}
@@ -534,7 +566,7 @@ func (vm *VM) execute(stopDepth int) (value.Value, error) {
 // catch hands an exception to the innermost handler that belongs to a frame
 // at or above stopDepth. It reports whether there was one.
 func (vm *VM) catch(re *RuntimeError, stopDepth int) bool {
-	if n := len(vm.handlers); n > 0 {
+	if n := len(vm.handlers); n > 0 && !re.Fatal {
 		h := vm.handlers[n-1]
 		if h.frame >= stopDepth {
 			vm.handlers = vm.handlers[:n-1]
@@ -698,24 +730,49 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			stack[sp-1] = r
 
 		case bytecode.OpJump:
-			ip = bytecode.ReadU32(code, ip)
+			if t := bytecode.ReadU32(code, ip); t < ip {
+				if e := vm.step(); e != nil {
+					return fail(start, e)
+				}
+				ip = t
+			} else {
+				ip = t
+			}
 		case bytecode.OpJumpIfFalse:
 			sp--
 			if !stack[sp].Truthy() {
-				ip = bytecode.ReadU32(code, ip)
+				t := bytecode.ReadU32(code, ip)
+				if t < ip {
+					if e := vm.step(); e != nil {
+						return fail(start, e)
+					}
+				}
+				ip = t
 			} else {
 				ip += 4
 			}
 		case bytecode.OpJumpIfTrue:
 			sp--
 			if stack[sp].Truthy() {
-				ip = bytecode.ReadU32(code, ip)
+				t := bytecode.ReadU32(code, ip)
+				if t < ip {
+					if e := vm.step(); e != nil {
+						return fail(start, e)
+					}
+				}
+				ip = t
 			} else {
 				ip += 4
 			}
 		case bytecode.OpJumpIfArg:
 			if bytecode.ReadU16(code, ip) < f.argc {
-				ip = bytecode.ReadU32(code, ip+2)
+				t := bytecode.ReadU32(code, ip+2)
+				if t < ip {
+					if e := vm.step(); e != nil {
+						return fail(start, e)
+					}
+				}
+				ip = t
 			} else {
 				ip += 6
 			}
@@ -729,6 +786,9 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			stack[sp] = value.MakeVector(elems)
 			sp++
 		case bytecode.OpAppend:
+			if stack[sp-2].Kind() != value.Vector {
+				return fail(start, bad(f, "APPEND without a vector"))
+			}
 			vec := stack[sp-2].AsVector() // always a fresh vector made by the compiler's code
 			vec.Elems = append(vec.Elems, stack[sp-1])
 			sp--
@@ -736,6 +796,9 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			x := stack[sp-1]
 			if x.Kind() != value.Vector {
 				return fail(start, value.Errorf(value.TypeError, "cannot spread %s (a vector is needed)", x.Kind()))
+			}
+			if stack[sp-2].Kind() != value.Vector {
+				return fail(start, bad(f, "EXTEND without a vector"))
 			}
 			vec := stack[sp-2].AsVector()
 			vec.Elems = append(vec.Elems, x.AsVector().Elems...)
@@ -774,10 +837,19 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			stack[sp-1] = it
 		case bytecode.OpIterNext:
 			it := stack[base+bytecode.ReadU16(code, ip)]
+			if it.Kind() != value.Iterator {
+				return fail(start, bad(f, "ITER_NEXT without an iterator"))
+			}
 			n := bytecode.ReadU16(code, ip+2)
 			first, second, ok := it.Next()
 			if !ok {
-				ip = bytecode.ReadU32(code, ip+4)
+				t := bytecode.ReadU32(code, ip+4)
+				if t < ip {
+					if e := vm.step(); e != nil {
+						return fail(start, e)
+					}
+				}
+				ip = t
 				break
 			}
 			ip += 8
@@ -803,6 +875,9 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			fields := f.this.AsObject().Fields
 			i := bytecode.ReadU16(code, ip)
 			ip += 2
+			if i >= len(fields) {
+				return fail(start, bad(f, "data member slot out of range"))
+			}
 			if op == bytecode.OpLoadMember {
 				stack[sp] = fields[i]
 				sp++
@@ -873,18 +948,30 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			stack[base+bytecode.ReadU16(code, ip)] = value.NewCell(stack[sp])
 			ip += 2
 		case bytecode.OpLoadCell:
+			if stack[base+bytecode.ReadU16(code, ip)].Kind() != value.Cell {
+				return fail(start, bad(f, "LOAD_CELL without a cell"))
+			}
 			stack[sp] = stack[base+bytecode.ReadU16(code, ip)].AsCell().V
 			ip += 2
 			sp++
 		case bytecode.OpStoreCell:
+			if stack[base+bytecode.ReadU16(code, ip)].Kind() != value.Cell {
+				return fail(start, bad(f, "STORE_CELL without a cell"))
+			}
 			sp--
 			stack[base+bytecode.ReadU16(code, ip)].AsCell().V = stack[sp]
 			ip += 2
 		case bytecode.OpLoadUpvalue:
+			if bytecode.ReadU16(code, ip) >= len(f.up) {
+				return fail(start, bad(f, "upvalue out of range"))
+			}
 			stack[sp] = f.up[bytecode.ReadU16(code, ip)].V
 			ip += 2
 			sp++
 		case bytecode.OpStoreUpvalue:
+			if bytecode.ReadU16(code, ip) >= len(f.up) {
+				return fail(start, bad(f, "upvalue out of range"))
+			}
 			sp--
 			f.up[bytecode.ReadU16(code, ip)].V = stack[sp]
 			ip += 2
@@ -893,10 +980,13 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			ip += 2
 			cells := make([]*value.CellObj, len(fn.Upvalues))
 			for i, u := range fn.Upvalues {
-				if u.FromLocal {
+				switch {
+				case u.FromLocal && u.Index < f.fn.NumSlots && stack[base+u.Index].Kind() == value.Cell:
 					cells[i] = stack[base+u.Index].AsCell()
-				} else {
+				case !u.FromLocal && u.Index < len(f.up):
 					cells[i] = f.up[u.Index]
+				default:
+					return fail(start, bad(f, "closure captures a variable that is not there"))
 				}
 			}
 			stack[sp] = value.MakeClosure(&value.ClosureObj{Fn: fn, Cells: cells, This: f.this})
@@ -911,6 +1001,9 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			})
 			ip += 6
 		case bytecode.OpTryPop:
+			if n := len(vm.handlers); n == 0 || vm.handlers[n-1].frame != len(vm.frames)-1 {
+				return fail(start, bad(f, "TRY_POP without a handler"))
+			}
 			vm.handlers = vm.handlers[:len(vm.handlers)-1]
 		case bytecode.OpThrow:
 			sp--
@@ -919,8 +1012,12 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			return value.NilValue, vm.throwValue(stack[sp])
 		case bytecode.OpRethrow:
 			sp--
+			re, ok := stack[sp].Obj().(*RuntimeError)
+			if stack[sp].Kind() != value.Internal || !ok {
+				return fail(start, bad(f, "RETHROW without a pending exception"))
+			}
 			vm.sp = sp
-			return value.NilValue, stack[sp].Obj().(*RuntimeError)
+			return value.NilValue, re
 
 		default:
 			return fail(start, value.Errorf(value.InternalError, "bad opcode %d at %d in %s", op, start, f.fn.FuncName))

@@ -7,6 +7,7 @@ import (
 
 	"kukel/internal/ast"
 	"kukel/internal/builtins"
+	"kukel/internal/bytecode"
 	"kukel/internal/compiler"
 	"kukel/internal/parser"
 	"kukel/internal/vm"
@@ -22,6 +23,9 @@ func runSource(t *testing.T, src string, args ...string) (string, int, error) {
 	prog, err := compiler.Compile([]*ast.File{f}, builtins.Names())
 	if err != nil {
 		t.Fatalf("compile: %v", err)
+	}
+	if err := bytecode.Verify(prog); err != nil {
+		t.Fatalf("the compiler produced code the verifier rejects: %v", err)
 	}
 	var out bytes.Buffer
 	machine, err := vm.New(prog, builtins.Lookup, &out, strings.NewReader(""))

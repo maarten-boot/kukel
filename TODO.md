@@ -236,11 +236,12 @@ All the "Rule:" comments in syntax.ebnf. The checks run while the compiler resol
 - [x] Program init: functions, classes and built-ins bound to their global slots; then one generated init function runs the `global` initializers in program order; then `main` (built-ins get a global slot only when used)
 
 ### Bytecode file `.kkc`
-- [ ] Format (little-endian, uvarints):
-  `magic "KUKL"`, `format version`, `flags`, string table, constant pool (int/float/string), globals table (names), classes, functions (code, upvalue descriptors, line tables, source file names), init function, entry info, optional CRC32 at the end
-- [ ] Writer + reader with a round-trip test (compile → write → read → deep-equal)
-- [ ] Validate on load: opcodes, operand ranges, jump targets inside the code (never trust the file)
-- [ ] `kukel disasm` (of `.kkl` sources done in milestone 3; `.kkc` files here)
+- [x] Format (little-endian, uvarints; the layout is documented in `internal/bytecode/file.go`):
+  `magic "KUKL"`, `format version` (1; another version is refused, Q12), `flags`, main, globals, classes, init function, functions (code, constants, upvalue descriptors, line tables, slot names, source file names), CRC-32 at the end
+- [x] Writer + reader with a round-trip test (compile → write → read → write gives the same bytes, and the same disassembly) for every program in `tests/run`
+- [x] Validate on load: opcodes, operand ranges, jump targets inside the code (never trust the file). `bytecode.Verify` also follows every path: the stack depth and the number of try handlers must agree at each instruction, never underflow, stay within MaxStack; no function may run off its end or return with a handler registered. Every program the compiler makes is verified in the tests (a cross-check of the compiler). The VM adds cheap guards for what the verifier cannot see (a slot holding the wrong kind of value)
+- [x] `kukel disasm` (of `.kkl` sources and `.kkc` files)
+- [x] `kukel build [-o prog.kkc] a.kkl ...` (default output: the first file with `.kkc`) and `kukel exec prog.kkc [--] [args]`; `*.kkc` is in `.gitignore`
 
 ## 8. VM (`internal/vm`) + built-ins (`internal/builtins`)
 
@@ -264,11 +265,11 @@ All the "Rule:" comments in syntax.ebnf. The checks run while the compiler resol
 
 ## 9. Tests, examples, docs
 
-- [ ] `tests/run/*.kkl` + `.out` (expected stdout) and `.err` (expected stderr); `// args:` and `// exit:` comment lines; a Go test runs all of them through `run` (done) and `build`+`exec` (milestone 10)
+- [x] `tests/run/*.kkl` + `.out` (expected stdout) and `.err` (expected stderr); `// args:` and `// exit:` comment lines; a Go test runs all of them through `run` and through `build`+`exec`, which must agree
 - [ ] Coverage list: every statement kind, every operator incl. wraparound and int/float mixing, default/rest parameters, temporaries, globals and constants (incl. use before declaration, constant folding errors), classes/inheritance/static members/constructors, `p->x` and bound methods, labelled break/continue, switch fall-through, nested case labels and constant case values, for-each over vector/map/string (incl. mutation during the loop), spread in calls/new/vectors, closures (shared captured variables, counters, closures in loops), try/catch/finally with break/continue/return through the finally, runtime errors being caught, uncaught error trace, maps with 1/1.0 keys
 - [ ] Error tests for every compile-time rule (unknown name, assignment to a constant, unterminated comment, bad escape, `'''`, `1__0`, ...)
 - [ ] Example programs: fizzbuzz, recursive fib, word count (file + map), a small class hierarchy, a JSON-ish pretty-printer, sort with a closure comparator
-- [ ] Fuzzing: lexer, parser, compiler (done: `make fuzz`), bytecode loader (malformed `.kkc` must never crash the VM)
+- [x] Fuzzing (`make fuzz`): lexer, parser, compiler, bytecode loader (`FuzzDecode`: mutated files) and verifier + VM (`FuzzVerifyCode`: arbitrary code inside real programs, run with `vm.StepLimit`); found and fixed: TRY_POP without a handler, loops the step limit did not count
 - [ ] Benchmarks: fib(30), loop of 10M additions, string building, closure calls; compare before and after optimizations
 - [ ] `docs/reference.md`: language reference (incl. the evaluated map keys, `->` rules, closure semantics, for-each mutation rules)
 
@@ -283,6 +284,6 @@ All the "Rule:" comments in syntax.ebnf. The checks run while the compiler resol
 7. [x] Exceptions: try/catch/finally, runtime errors as exceptions, stack traces (done 2026-10-13, branch `milestone-7-exceptions`)
 8. [x] Closures: fn literals, captured cells, per-iteration loop variables (done 2026-10-13, branch `milestone-8-closures`; ~37 ns per closure call)
 9. [x] Semantic checker complete (all "Rule:" items) (done 2026-10-13, branch `milestone-9-checker`: rules audit test, compile-time argument counts, `kukel check`)
-10. [ ] `.kkc` writer/reader/validator + `build`/`exec`/`disasm`
+10. [x] `.kkc` writer/reader/validator + `build`/`exec`/`disasm` (done 2026-10-13, branch `milestone-10-kkc`, on top of milestone 9; also Q33 constructor inheritance)
 11. [ ] Remaining built-ins, test suite, fuzzing, benchmarks, language reference
 12. [ ] Later/optional: peephole optimizer, inline caches for methods and fields, jump tables for switch, a REPL, multiple error reporting

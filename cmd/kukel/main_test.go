@@ -96,6 +96,17 @@ func TestRunGolden(t *testing.T) {
 			dirPrefix := filepath.Dir(src) + string(filepath.Separator)
 			gotOut := strings.ReplaceAll(stdout.String(), dirPrefix, "")
 			gotErr := strings.ReplaceAll(stderr.String(), dirPrefix, "")
+
+			// The same through a bytecode file: build, then exec.
+			kkc := filepath.Join(t.TempDir(), "prog.kkc")
+			var bOut, bErr bytes.Buffer
+			bCode := run([]string{"build", "-o", kkc, src}, nil, &bOut, &bErr)
+			if bCode == 0 {
+				bCode = run(append([]string{"exec", kkc}, args...), strings.NewReader(""), &bOut, &bErr)
+			}
+			if b, e := strings.ReplaceAll(bOut.String(), dirPrefix, ""), strings.ReplaceAll(bErr.String(), dirPrefix, ""); b != gotOut || e != gotErr || bCode != code {
+				t.Errorf("build+exec differs from run:\n stdout %q\n stderr %q\n exit %d", b, e, bCode)
+			}
 			if *update {
 				if err := os.WriteFile(base+".out", []byte(gotOut), 0o644); err != nil {
 					t.Fatal(err)
@@ -167,6 +178,36 @@ func TestCheck(t *testing.T) {
 	}
 }
 
+func TestBuildExecDisasm(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "hello.kkl")
+	os.WriteFile(src, []byte("main(args) { println(\"hello\", args); return len(args); }\n"), 0o644)
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"build", src}, nil, &stdout, &stderr); code != 0 {
+		t.Fatalf("build: exit %d: %s", code, stderr.String())
+	}
+	kkc := filepath.Join(dir, "hello.kkc") // the default output name
+	if code := run([]string{"exec", kkc, "--", "a", "b"}, nil, &stdout, &stderr); code != 2 || stdout.String() != "hello [\"a\", \"b\"]\n" {
+		t.Errorf("exec: exit %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	if code := run([]string{"disasm", kkc}, nil, &stdout, &stderr); code != 0 || !strings.Contains(stdout.String(), "function main") {
+		t.Errorf("disasm: exit %d, stderr %q", code, stderr.String())
+	}
+	// A damaged file is refused with a message, not run.
+	data, _ := os.ReadFile(kkc)
+	data[len(data)/2] ^= 1
+	os.WriteFile(kkc, data, 0o644)
+	stderr.Reset()
+	if code := run([]string{"exec", kkc}, nil, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "checksum mismatch") {
+		t.Errorf("damaged file: exit %d, stderr %q", code, stderr.String())
+	}
+	stderr.Reset()
+	if code := run([]string{"exec", src}, nil, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "not a kukel bytecode file") {
+		t.Errorf("source as bytecode: exit %d, stderr %q", code, stderr.String())
+	}
+}
+
 func TestTokensError(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "bad.kkl")
@@ -213,7 +254,7 @@ func TestUsage(t *testing.T) {
 		t.Errorf("ast without files: exit %d, stderr %q", code, stderr.String())
 	}
 	stderr.Reset()
-	if code := run([]string{"build", "x.kkl"}, nil, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "not implemented yet") {
-		t.Errorf("build: exit %d, stderr %q", code, stderr.String())
+	if code := run([]string{"exec"}, nil, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "usage: kukel exec") {
+		t.Errorf("exec without a file: exit %d, stderr %q", code, stderr.String())
 	}
 }

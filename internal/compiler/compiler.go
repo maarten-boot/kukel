@@ -369,49 +369,8 @@ func (c *compiler) mark(pos token.Pos) {
 
 // stackEffect is the change in operand stack depth caused by op.
 func stackEffect(op bytecode.Op, operands []int) int {
-	operand := 0
-	if len(operands) > 0 {
-		operand = operands[0]
-	}
-	switch op {
-	case bytecode.OpConst, bytecode.OpNil, bytecode.OpTrue, bytecode.OpFalse, bytecode.OpDup,
-		bytecode.OpLoadLocal, bytecode.OpLoadGlobal:
-		return 1
-	case bytecode.OpPop, bytecode.OpStoreLocal, bytecode.OpStoreGlobal,
-		bytecode.OpAdd, bytecode.OpSub, bytecode.OpMul, bytecode.OpDiv, bytecode.OpMod,
-		bytecode.OpBitAnd, bytecode.OpBitOr, bytecode.OpBitXor, bytecode.OpShl, bytecode.OpShr,
-		bytecode.OpEq, bytecode.OpNe, bytecode.OpLt, bytecode.OpLe, bytecode.OpGt, bytecode.OpGe,
-		bytecode.OpJumpIfFalse, bytecode.OpJumpIfTrue, bytecode.OpReturn:
-		return -1
-	case bytecode.OpCall:
-		return -operand
-	case bytecode.OpMakeVector:
-		return 1 - operand
-	case bytecode.OpMakeMap:
-		return 1 - 2*operand
-	case bytecode.OpAppend, bytecode.OpExtend, bytecode.OpCallV, bytecode.OpIndexGet:
-		return -1
-	case bytecode.OpIndexSet:
-		return -2
-	case bytecode.OpDup2:
-		return 2
-	case bytecode.OpIterNext: // when the loop goes on
-		return operands[1]
-	case bytecode.OpLoadThis, bytecode.OpLoadMember, bytecode.OpLoadFunc, bytecode.OpLoadStatic:
-		return 1
-	case bytecode.OpStoreMember, bytecode.OpSetMember, bytecode.OpStoreStatic,
-		bytecode.OpCallMethodV, bytecode.OpNewV:
-		return -1
-	case bytecode.OpCallMethod, bytecode.OpCallDirect:
-		return -operands[1]
-	case bytecode.OpThrow, bytecode.OpRethrow, bytecode.OpNewCell, bytecode.OpStoreCell, bytecode.OpStoreUpvalue:
-		return -1
-	case bytecode.OpLoadCell, bytecode.OpLoadUpvalue, bytecode.OpClosure:
-		return 1
-	case bytecode.OpNew:
-		return -operand
-	}
-	return 0
+	pops, pushes := bytecode.StackUse(op, operands)
+	return pushes - pops
 }
 
 // emit appends an instruction and returns the offset of its first operand.
