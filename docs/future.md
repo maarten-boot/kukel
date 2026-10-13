@@ -269,7 +269,7 @@ result, err := interp.Call("main", kukel.String("hi"))
 use worker;
 
 main() {
-    local w = worker::start("crunch.kkl", ["--fast"]);   // a new interpreter on its own goroutine
+    local w = worker::startfile("crunch.kkl", "--fast"); // a new interpreter on its own goroutine
     w->send({"job": 1, "data": [1, 2, 3]});              // values are copied (serialized)
     println(w->receive());                               // waits for the answer
     w->stop();
@@ -293,14 +293,20 @@ main(args) {
   are no data races and no locks in Kukel programs. This is the actor model
   (as in Erlang, or Go's goroutines with channels).
 - Real parallelism comes for free: each interpreter is a goroutine.
-- With the event loop (section 1.3), `w->onMessage(fn(msg) {...})` instead
+- With the event loop (section 1.3), `w->onmessage(fn(msg) {...})` instead
   of a blocking `receive()`.
 - ZeroMQ's `inproc://` transport could carry these messages, so that a
   worker can later move to another process or machine unchanged.
 
+*Done (TODO.md Q38): the native module `worker`, with `start(f, ...)` for a
+function of the program and `startfile(path, ...)` for another program.*
+
 **F-8** Is the main goal embedding in Go, workers inside Kukel, or both?
+*Answered: both; workers first, embedding later.*
 **F-9** Blocking `receive()`, event callbacks, or both?
+*Answered: both, on both sides.*
 **F-10** Can a worker start workers? Limits on how many?
+*Answered: yes; no fixed limit.*
 
 ---
 

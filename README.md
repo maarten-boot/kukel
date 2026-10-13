@@ -51,7 +51,8 @@ caught RangeError: index 5 out of range for vector of length 3
 - `switch` with fall-through, labelled `break`/`continue`
 - modules: `use geometry;` loads `geometry.kkl`, reached as `geometry::name`;
   modules written in Go: `events` (an event loop with timers), `json`,
-  `strings` (a string builder) and `time`
+  `strings` (a string builder), `time`, and `worker` (interpreters that run
+  in parallel and exchange messages)
 - 57 built-in functions (strings, collections, math, files, ...)
 
 The full description is in [docs/reference.md](docs/reference.md); the
@@ -104,7 +105,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/token`, `internal/diag` | token kinds and source positions; the error type all stages share |
 | `internal/lexer`, `internal/parser`, `internal/ast` | source to syntax tree |
 | `internal/loader` | finds and reads the modules a program uses |
-| `internal/native`, `internal/modules/...` | modules written in Go (`events`, `json`, `strings`, `time`) and native classes |
+| `internal/native`, `internal/modules/...` | modules written in Go (`events`, `json`, `strings`, `time`, `worker`) and native classes |
 | `internal/compiler` | name resolution, the language's rules, code generation |
 | `internal/bytecode` | instruction set, `.kkc` files, the verifier that checks loaded files |
 | `internal/vm` | the stack machine: calls, objects, closures, exceptions (specified in [docs/vm.md](docs/vm.md)) |

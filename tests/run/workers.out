@@ -1,0 +1,8 @@
+primes below 40000: 4203
+{"by": "calc", "result": 42}
+3
+nil calc stopped worker::Worker(calculator, done)
+WorkerError: worker calculator failed: ValueError: unknown op mul
+heard HELLO
+heard WORKERS
+TypeError: worker::start: argument 1 must be a top-level or static member function, not a function literal (a closure, bound method or built-in cannot run in another interpreter)

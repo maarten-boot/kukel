@@ -21,6 +21,7 @@ import (
 	_ "github.com/maarten-boot/kukel/internal/modules/jsonmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/stringsmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/timemod"
+	_ "github.com/maarten-boot/kukel/internal/modules/workermod"
 	"github.com/maarten-boot/kukel/internal/parser"
 	"github.com/maarten-boot/kukel/internal/token"
 	"github.com/maarten-boot/kukel/internal/vm"

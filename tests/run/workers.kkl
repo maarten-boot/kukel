@@ -1,0 +1,79 @@
+// Native module worker: interpreters that run in parallel and talk only
+// through messages (copies of plain data).
+use worker;
+use events;
+
+// Counts the primes in [from, to): one slice of the work.
+countPrimes(from, to; n) {
+    n = 0;
+    for (local i = max(from, 2); i < to; i++) {
+        local prime = true;
+        for (local d = 2; d * d <= i; d++)
+            if (i % d == 0) { prime = false; break; }
+        if (prime) n++;
+    }
+    return n;
+}
+
+// Answers requests until the parent stops it.
+calculator(name) {
+    for (local req = worker::receive(); req != nil; req = worker::receive()) {
+        switch (req["op"]) {
+            case "add": worker::send({"by": name, "result": req["a"] + req["b"]}); break;
+            case "len": worker::send({"by": name, "result": len(req["v"])}); break;
+            default: throw new Error("unknown op " + str(req["op"]), "ValueError");
+        }
+    }
+    return name + " stopped";
+}
+
+// Uses the event loop instead of a blocking receive().
+shouter() {
+    worker::onmessage(fn(text) { worker::send(upper(text)); });
+    events::run();
+}
+
+main() {
+    // Four workers count primes below 40000 in parallel.
+    local slices = [];
+    for (local i = 0; i < 4; i++) push(slices, worker::start(countPrimes, i * 10000, (i + 1) * 10000));
+    local total = 0;
+    for (local w in slices) total += w->wait();
+    println("primes below 40000:", total);
+
+    // Requests and answers; messages are copies.
+    local calc = worker::start(calculator, "calc");
+    local req = {"op": "add", "a": 2, "b": 40};
+    calc->send(req);
+    req["a"] = 1000;                      // does not change the copy that was sent
+    println(calc->receive());
+    calc->send({"op": "len", "v": [1, 2, 3]});
+    println(calc->receive()["result"]);
+    calc->stop();
+    println(calc->receive(), calc->wait(), calc);
+
+    // A failure in a worker comes back from wait().
+    local broken = worker::start(calculator, "broken");
+    broken->send({"op": "mul"});
+    try {
+        broken->wait();
+    } catch (e) {
+        println(e->kind + ":", e->message);
+    }
+
+    // Callbacks on both sides, through the event loop.
+    local s = worker::start(shouter), heard = 0;
+    s->onmessage(fn(text) {
+        println("heard", text);
+        if (++heard == 2) s->stop();
+    });
+    s->send("hello");
+    s->send("workers");
+    events::run();
+
+    try {
+        worker::start(fn() { return 1; });
+    } catch (e) {
+        println(e->kind + ":", e->message);
+    }
+}

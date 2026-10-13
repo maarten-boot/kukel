@@ -33,7 +33,7 @@ hello, Kukel
 8. [Classes and objects](#8-classes-and-objects)
 9. [Exceptions](#9-exceptions)
 10. [Built-in functions](#10-built-in-functions)
-11. [Modules written in Go](#11-modules-written-in-go): events, json, strings, time
+11. [Modules written in Go](#11-modules-written-in-go): events, json, strings, time, worker
 
 ---
 
@@ -480,9 +480,11 @@ Kinds of runtime errors:
 | `RangeError` | an index out of range, a shift count outside 0..63, a number that does not fit |
 | `ArgumentError` | a wrong number of arguments; an argument a built-in cannot work with (`replace` of `""`, `min` of no values) |
 | `MemberError` | an unknown data member or member function, a function declared but not defined |
-| `ValueError` | a string that is not a number (`int`, `float`) |
+| `ValueError` | a value a function cannot work with: a string that is not a number (`int`, `float`), invalid JSON, a date that does not exist, ... |
 | `IOError` | a file or input/output error |
 | `StackOverflowError` | more than 10000 nested calls |
+| `CompileError` | `worker::startfile` of a program with a compile error |
+| `WorkerError` | `w->wait()` of a worker that failed (the message holds the worker's error) |
 | `InternalError` | a damaged `.kkc` file that the loader's checks did not catch (should not happen) |
 
 ---
@@ -738,3 +740,67 @@ ambiguous; use `%z`). Numbers may have fewer digits than shown, `%f` reads
 1 to 9 digits as a fraction of a second, `%z` also reads `Z`, `+02` and
 `+02:00`, `%y` reads 69-99 as 1969-1999 and 00-68 as 2000-2068, and names
 are read in any case. An unknown directive is a `ValueError`.
+
+### worker
+
+Workers are interpreters that run in parallel, each on its own thread, and
+talk to the interpreter that started them only through messages. They
+share nothing: each has its own globals, and a message is a copy of plain
+data, so no locking is needed.
+
+```
+use worker;
+
+square(id) {                                // runs in the worker
+    for (local m = worker::receive(); m != nil; m = worker::receive())
+        worker::send([id, m * m]);
+    return "worker " + str(id) + " done";
+}
+
+main() {
+    local w = worker::start(square, 1);
+    w->send(7);
+    println(w->receive());                  // [1, 49]
+    w->stop();                              // its receive() now gives nil
+    println(w->wait());                     // worker 1 done
+}
+```
+
+A worker runs either a function of the same program (`start`: a new
+interpreter with its own globals, so it also works with `kukel exec`), or
+another program (`startfile`). It ends when its function (or `main`)
+returns; `exit(code)` in a worker ends only that worker, and `wait()` gives
+`code`. When the main program ends, workers still running end with it
+(they can no longer write output).
+
+**Messages** (also the arguments of `start` and `startfile`, and what
+`wait()` gives) are copies of `nil`, booleans, numbers, strings, and
+vectors and maps of those; a part that occurs twice, or contains itself, is
+copied once, so the copy has the same shape. Objects, functions and
+classes cannot be sent (`TypeError`). `nil` cannot be sent either: a
+`receive()` that gives `nil` means there are no more messages. Messages
+queue up (`send` never waits) and arrive in the order they were sent.
+
+| Function | Description |
+|---|---|
+| `worker::start(f, args...)` | Runs `f(args...)` in a new interpreter of this program; `f` is a top-level or static member function (not a function literal, bound method or built-in: `TypeError`). Gives a `worker::Worker` |
+| `worker::startfile(path, args...)` | Compiles the program in `path` (a `.kkl` file with the modules it uses, found as `kukel run` finds them; or a `.kkc` file) and runs its `main` with the vector of the arguments. A compile error is a `CompileError`, a missing file an `IOError`, a damaged `.kkc` file a `ValueError` |
+| `worker::send(v)` | In a worker: a copy of `v` goes to the parent |
+| `worker::receive([timeout])` | In a worker: the next message from the parent; waits for it, at most `timeout` seconds if given. `nil` after the parent's `stop()` (once the messages sent before are taken) or when the time is up |
+| `worker::onmessage(f)` | In a worker: the event loop (`events`) calls `f(message)` for each message from the parent, and `events::run()` keeps going until the parent's `stop()` |
+| `worker::isworker()` | Whether this interpreter is a worker |
+
+Outside a worker, `worker::send`, `receive` and `onmessage` are a
+`ValueError`.
+
+| Member function | Description |
+|---|---|
+| `w->send(v)` | A copy of `v` goes to the worker (`ValueError` after `stop()` or when the worker has ended) |
+| `w->receive([timeout])` | The next message from the worker; `nil` when it has ended (and its messages are taken) or when the time is up |
+| `w->onmessage(f)` | The event loop calls `f(message)` for each message from the worker, and `events::run()` keeps going until the worker ends. Afterwards `receive()` is a `ValueError` |
+| `w->stop()` | No more messages to the worker: its `receive()` gives `nil` once it has taken those sent before |
+| `w->wait()` | Waits until the worker ends and gives a copy of what its function returned. A worker that failed gives a `WorkerError` with the worker's error in its message |
+| `w->done()` | Whether the worker has ended |
+
+A worker prints as `worker::Worker(square, running)` (or `done`, `failed`).
+

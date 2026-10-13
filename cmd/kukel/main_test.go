@@ -290,7 +290,7 @@ func TestVersion(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"version"}, nil, &stdout, &stderr); code != 0 ||
 		!strings.HasPrefix(stdout.String(), "kukel ") || !strings.Contains(stdout.String(), "bytecode format") ||
-		!strings.Contains(stdout.String(), "modules written in Go: events, json, strings, time\n") {
+		!strings.Contains(stdout.String(), "modules written in Go: events, json, strings, time, worker\n") {
 		t.Errorf("version: exit %d, stdout %q", code, stdout.String())
 	}
 }

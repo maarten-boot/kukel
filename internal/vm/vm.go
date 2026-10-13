@@ -13,6 +13,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/maarten-boot/kukel/internal/bytecode"
@@ -107,8 +108,9 @@ type VM struct {
 	rand      *rand.Rand
 	started   time.Time
 
-	stderr io.Writer   // what eprint writes to (os.Stderr unless SetStderr)
-	locals map[any]any // per-program state of native modules (Local)
+	stderr   io.Writer   // what eprint writes to (os.Stderr unless SetStderr)
+	locals   map[any]any // per-program state of native modules (Local)
+	builtins Builtins    // how New found the built-ins (for workers)
 }
 
 // Builtins resolves built-in functions by name.
@@ -118,14 +120,15 @@ type Builtins func(name string) (*value.BuiltinObj, bool)
 // their global slots.
 func New(prog *bytecode.Program, builtins Builtins, stdout io.Writer, stdin io.Reader) (*VM, error) {
 	vm := &VM{
-		prog:    prog,
-		globals: make([]value.Value, len(prog.Globals)),
-		stack:   make([]value.Value, 1024),
-		stdout:  stdout,
-		stdin:   bufio.NewReader(stdin),
-		rand:    rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
-		started: time.Now(),
-		stderr:  os.Stderr,
+		builtins: builtins,
+		prog:     prog,
+		globals:  make([]value.Value, len(prog.Globals)),
+		stack:    make([]value.Value, 1024),
+		stdout:   stdout,
+		stdin:    bufio.NewReader(stdin),
+		rand:     rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
+		started:  time.Now(),
+		stderr:   os.Stderr,
 	}
 	for i, g := range prog.Globals {
 		switch g.Kind {
@@ -266,28 +269,20 @@ func (vm *VM) Call(fn value.Value, args []value.Value) (value.Value, error) {
 
 // Run runs the global initializers, then main(args). It returns main's
 // result as the exit code (an int result; anything else is 0).
+//
+// When main returns, the program ends: if workers share the output
+// (ShareOutput), it is flushed and closed, so that workers still running
+// cannot write any more.
 func (vm *VM) Run(args []string) (int, error) {
-	code, err := vm.run0(args)
+	defer vm.closeOutput()
+	elems := make([]value.Value, len(args))
+	for i, a := range args {
+		elems[i] = value.MakeString(a)
+	}
+	result, err := vm.Start(value.NilValue, []value.Value{value.MakeVector(elems)})
 	if re, ok := err.(*RuntimeError); ok && re.Exit != nil {
 		return *re.Exit, nil // exit(code)
 	}
-	return code, err
-}
-
-func (vm *VM) run0(args []string) (int, error) {
-	if _, err := vm.call(value.MakeFunction(vm.prog.Init), nil); err != nil {
-		return 1, err
-	}
-	main := vm.globals[vm.prog.Main]
-	var mainArgs []value.Value
-	if f, ok := main.Obj().(*bytecode.Function); ok && f.ParamSlots() > 0 {
-		elems := make([]value.Value, len(args))
-		for i, a := range args {
-			elems[i] = value.MakeString(a)
-		}
-		mainArgs = []value.Value{value.MakeVector(elems)}
-	}
-	result, err := vm.call(main, mainArgs)
 	if err != nil {
 		return 1, err
 	}
@@ -295,6 +290,84 @@ func (vm *VM) run0(args []string) (int, error) {
 		return int(result.AsInt()), nil
 	}
 	return 0, nil
+}
+
+// Start runs the global initializers, then calls fn(args...) and gives its
+// result. With fn nil it calls main, with args[0] as its parameter if main
+// has one. exit(code) gives a *RuntimeError with Exit set.
+func (vm *VM) Start(fn value.Value, args []value.Value) (value.Value, error) {
+	if _, err := vm.call(value.MakeFunction(vm.prog.Init), nil); err != nil {
+		return value.NilValue, err
+	}
+	if fn.IsNil() {
+		fn = vm.globals[vm.prog.Main]
+		if f, ok := fn.Obj().(*bytecode.Function); !ok || f.ParamSlots() == 0 {
+			args = nil
+		} else if len(args) > 1 {
+			args = args[:1]
+		}
+	}
+	return vm.call(fn, args)
+}
+
+// Program is the program the VM runs.
+func (vm *VM) Program() *bytecode.Program { return vm.prog }
+
+// BuiltinLookup is how the VM found its built-ins (New's builtins).
+func (vm *VM) BuiltinLookup() Builtins { return vm.builtins }
+
+// ShareOutput makes the VM's standard output and error safe to use from
+// several goroutines (workers) and returns them; other VMs can write to
+// them too. Calling it again gives the same writers.
+func (vm *VM) ShareOutput() (stdout, stderr io.Writer) {
+	if _, ok := vm.stdout.(*sharedWriter); !ok {
+		vm.stdout = &sharedWriter{w: vm.stdout}
+		vm.stderr = &sharedWriter{w: vm.stderr}
+	}
+	return vm.stdout, vm.stderr
+}
+
+func (vm *VM) closeOutput() {
+	for _, w := range []io.Writer{vm.stdout, vm.stderr} {
+		if s, ok := w.(*sharedWriter); ok {
+			s.close()
+		}
+	}
+}
+
+// sharedWriter is an output several goroutines write to. After close,
+// writes are dropped.
+type sharedWriter struct {
+	mu     sync.Mutex
+	w      io.Writer
+	closed bool
+}
+
+func (s *sharedWriter) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return len(p), nil
+	}
+	return s.w.Write(p)
+}
+
+// Flush flushes the underlying writer if it buffers (eprint flushes the
+// standard output first).
+func (s *sharedWriter) Flush() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if f, ok := s.w.(interface{ Flush() error }); ok && !s.closed {
+		return f.Flush()
+	}
+	return nil
+}
+
+func (s *sharedWriter) close() {
+	s.Flush()
+	s.mu.Lock()
+	s.closed = true
+	s.mu.Unlock()
 }
 
 // call calls fn with args from Go and runs it to completion. An exception
