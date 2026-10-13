@@ -257,7 +257,7 @@ func (c *compiler) loadMember(m *memberInfo, pos token.Pos) {
 	default: // a bound method this->m
 		c.checkThis(pos, "member function "+m.name)
 		c.emit(bytecode.OpLoadThis)
-		c.emit(bytecode.OpGetMember, c.constIndex(stringValue(m.name), pos))
+		c.emit(bytecode.OpGetMember, c.constIndex(stringValue(m.name), pos), c.cache(pos))
 	}
 }
 
@@ -393,8 +393,8 @@ func (c *compiler) memberCall(e *ast.CallExpr) bool {
 		c.emit(bytecode.OpLoadThis)
 		name := c.constIndex(stringValue(m.name), fun.NamePos)
 		c.callArgs(e.Args, e.Lparen,
-			func(argc int) { c.emit(bytecode.OpCallMethod, name, argc) },
-			func() { c.emit(bytecode.OpCallMethodV, name) })
+			func(argc int) { c.emit(bytecode.OpCallMethod, name, argc, c.cache(fun.NamePos)) },
+			func() { c.emit(bytecode.OpCallMethodV, name, c.cache(fun.NamePos)) })
 		return true
 	case *ast.StaticRef:
 		k := c.classNamed(fun.Class)

@@ -43,6 +43,9 @@ func NewObject(c *ClassObj) Value {
 	return Value{kind: Object, obj: &ObjectObj{Class: c, Fields: make([]Value, len(c.FieldNames))}}
 }
 
+// ObjectValue is the value of an existing object.
+func ObjectValue(o *ObjectObj) Value { return Value{kind: Object, obj: o} }
+
 func MakeBoundMethod(recv Value, m *MethodObj) Value {
 	return Value{kind: BoundMethod, obj: &BoundMethodObj{Recv: recv, Method: m}}
 }

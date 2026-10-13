@@ -26,13 +26,13 @@ import (
 //	u32 CRC-32 (IEEE) of everything before it
 //
 // A function is: str name, str file, uv line, uv required, uv optional,
-// byte rest, uv slots, uv max stack, uv n + str slot names,
+// byte rest, uv slots, uv max stack, uv caches, uv n + str slot names,
 // uv n + upvalues (str name, byte from-local, uv index), uv n + code bytes,
 // uv n + constants (byte tag, then: int zigzag uv, float 8 bytes, string str),
 // uv n + line entries (uv pc, uv line).
 
 // FormatVersion is the version of the .kkc format written by Encode.
-const FormatVersion = 1
+const FormatVersion = 2 // 2: milestone 12 superinstructions
 
 const magic = "KUKL"
 
@@ -118,6 +118,7 @@ func (e *encoder) function(f *Function) error {
 	e.flag(f.HasRest)
 	e.uv(f.NumSlots)
 	e.uv(f.MaxStack)
+	e.uv(f.NumCaches)
 	e.strs(f.SlotNames)
 	e.uv(len(f.Upvalues))
 	for _, u := range f.Upvalues {
@@ -215,9 +216,11 @@ func Decode(data []byte) (*Program, error) {
 		p.Classes[i] = c
 	}
 	p.Init = d.function()
+	p.Init.Index = -1
 	p.Funcs = make([]*Function, d.count())
 	for i := range p.Funcs {
 		p.Funcs[i] = d.function()
+		p.Funcs[i].Index = i
 	}
 	if d.err != nil {
 		return nil, d.err
@@ -307,7 +310,7 @@ func (d *decoder) strs() []string {
 func (d *decoder) function() *Function {
 	f := &Function{FuncName: d.str(), File: d.str(), Line: d.uv()}
 	f.NumParams, f.NumOptional, f.HasRest = d.uv(), d.uv(), d.flag()
-	f.NumSlots, f.MaxStack = d.uv(), d.uv()
+	f.NumSlots, f.MaxStack, f.NumCaches = d.uv(), d.uv(), d.uv()
 	f.SlotNames = d.strs()
 	f.Upvalues = make([]Upvalue, d.count())
 	for i := range f.Upvalues {

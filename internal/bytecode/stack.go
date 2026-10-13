@@ -18,6 +18,8 @@ func StackUse(op Op, operands []int) (pops, pushes int) {
 	case OpPop, OpStoreLocal, OpStoreGlobal, OpStoreMember, OpStoreStatic, OpStoreCell,
 		OpStoreUpvalue, OpNewCell, OpJumpIfFalse, OpJumpIfTrue, OpReturn, OpThrow, OpRethrow:
 		return 1, 0
+	case OpCmpJump:
+		return 2, 0
 	case OpDup:
 		return 1, 2
 	case OpDup2:

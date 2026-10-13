@@ -120,7 +120,8 @@ type ExitError struct{ Code int }
 func (e *ExitError) Error() string { return fmt.Sprintf("exit %d", e.Code) }
 
 // BuiltinObj is a function implemented in Go. It returns an error message
-// (a runtime error) or a result.
+// (a runtime error) or a result. args is a view of the VM's stack, valid
+// only during the call: copy values out of it, never keep the slice.
 type BuiltinObj struct {
 	Name string
 	Fn   func(env Env, args []Value) (Value, error)
@@ -159,6 +160,18 @@ func (v Value) Truthy() bool {
 
 // String returns the text print() and str() produce for v.
 func (v Value) String() string {
+	switch v.kind { // simple values without a builder
+	case Nil:
+		return "nil"
+	case Bool:
+		return strconv.FormatBool(v.AsBool())
+	case Int:
+		return strconv.FormatInt(v.AsInt(), 10)
+	case Float:
+		return FormatFloat(v.AsFloat())
+	case String:
+		return v.AsString()
+	}
 	var b strings.Builder
 	v.write(&b, false, nil)
 	return b.String()
@@ -328,7 +341,7 @@ func (v Value) AsCell() *CellObj { return v.obj.(*CellObj) }
 type ClosureObj struct {
 	Fn    Named
 	Cells []*CellObj
-	This  Value
+	This  *ObjectObj // nil outside member functions
 }
 
 func MakeClosure(c *ClosureObj) Value  { return Value{kind: Closure, obj: c} }

@@ -50,12 +50,18 @@ func Verify(p *Program) error {
 			}
 		}
 	}
+	if p.Init.Index != -1 {
+		return fmt.Errorf("invalid bytecode: the init function has index %d", p.Init.Index)
+	}
 	if err := v.function(p.Init); err != nil {
 		return err
 	}
-	for _, f := range p.Funcs {
+	for i, f := range p.Funcs {
 		if f == nil {
 			return fmt.Errorf("invalid bytecode: missing function")
+		}
+		if f.Index != i {
+			return fmt.Errorf("invalid bytecode: function %d has index %d", i, f.Index)
 		}
 		if err := v.function(f); err != nil {
 			return err
@@ -73,7 +79,7 @@ func (v *verifier) function(f *Function) error {
 		return fmt.Errorf("invalid bytecode in %s at %d: %s", f.FuncName, pc, fmt.Sprintf(format, args...))
 	}
 	if f.NumParams < 0 || f.NumOptional < 0 || f.NumOptional > 255 || f.NumSlots < f.ParamSlots() ||
-		f.NumSlots > maxCount || f.MaxStack < 0 || f.MaxStack > maxStack {
+		f.NumSlots > maxCount || f.MaxStack < 0 || f.MaxStack > maxStack || f.NumCaches < 0 || f.NumCaches > maxCount {
 		return fail(0, "bad parameter, slot or stack counts")
 	}
 	for i, u := range f.Upvalues {
@@ -181,6 +187,10 @@ func (v *verifier) function(f *Function) error {
 			if err = visit(in.operands[0], after, it.pc); err == nil {
 				err = visit(next, after, it.pc)
 			}
+		case OpCmpJump:
+			if err = visit(in.operands[1], after, it.pc); err == nil {
+				err = visit(next, after, it.pc)
+			}
 		case OpJumpIfArg:
 			if err = visit(in.operands[1], after, it.pc); err == nil {
 				err = visit(next, after, it.pc)
@@ -236,8 +246,12 @@ func (v *verifier) operands(f *Function, pc int, op Op, x []int) error {
 		if x[0] >= len(f.Consts) {
 			return fail("refers to constant %d of %d", x[0], len(f.Consts))
 		}
-	case OpLoadLocal, OpStoreLocal, OpNewCell, OpLoadCell, OpStoreCell:
+	case OpLoadLocal, OpStoreLocal, OpNewCell, OpLoadCell, OpStoreCell, OpIncLocal, OpDecLocal:
 		return slot(x[0])
+	case OpCmpJump:
+		if x[0]&^CmpJumpIfTrue > CmpNe {
+			return fail("has unknown comparison %d", x[0])
+		}
 	case OpIterNext:
 		if x[1] < 1 || x[1] > 2 {
 			return fail("pushes %d values", x[1])
@@ -248,6 +262,9 @@ func (v *verifier) operands(f *Function, pc int, op Op, x []int) error {
 			return fail("refers to global %d of %d", x[0], len(p.Globals))
 		}
 	case OpGetMember, OpSetMember, OpCallMethod, OpCallMethodV:
+		if c := x[len(x)-1]; c >= f.NumCaches {
+			return fail("uses cache %d of %d", c, f.NumCaches)
+		}
 		return name(x[0])
 	case OpCallDirect, OpLoadFunc, OpClosure:
 		return funcIndex(x[0])

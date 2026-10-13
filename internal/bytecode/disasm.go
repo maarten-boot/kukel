@@ -129,7 +129,7 @@ func (d *disasm) operand(f *Function, op Op, pc int) string {
 		return fmt.Sprint(u)
 	case OpClosure:
 		return d.funcName(ReadU16(f.Code, pc+1))
-	case OpLoadLocal, OpStoreLocal, OpNewCell, OpLoadCell, OpStoreCell:
+	case OpLoadLocal, OpStoreLocal, OpNewCell, OpLoadCell, OpStoreCell, OpIncLocal, OpDecLocal:
 		s := ReadU16(f.Code, pc+1)
 		if s < len(f.SlotNames) {
 			return fmt.Sprintf("%d  ; %s", s, f.SlotNames[s])
@@ -149,9 +149,9 @@ func (d *disasm) operand(f *Function, op Op, pc int) string {
 		}
 		return fmt.Sprintf("%d, %d -> %d%s", slot, ReadU16(f.Code, pc+3), ReadU32(f.Code, pc+5), name)
 	case OpGetMember, OpSetMember, OpCallMethodV:
-		return d.constName(f, ReadU16(f.Code, pc+1))
+		return fmt.Sprintf("%s  ; cache %d", d.constName(f, ReadU16(f.Code, pc+1)), ReadU16(f.Code, pc+3))
 	case OpCallMethod:
-		return fmt.Sprintf("%s, %d", d.constName(f, ReadU16(f.Code, pc+1)), ReadU16(f.Code, pc+3))
+		return fmt.Sprintf("%s, %d  ; cache %d", d.constName(f, ReadU16(f.Code, pc+1)), ReadU16(f.Code, pc+3), ReadU16(f.Code, pc+5))
 	case OpCallDirect:
 		return fmt.Sprintf("%s, %d", d.funcName(ReadU16(f.Code, pc+1)), ReadU16(f.Code, pc+3))
 	case OpLoadFunc:
@@ -172,6 +172,17 @@ func (d *disasm) operand(f *Function, op Op, pc int) string {
 			kind = "finally"
 		}
 		return fmt.Sprintf("%s -> %d", kind, ReadU32(f.Code, pc+3))
+	case OpCmpJump:
+		k := ReadU16(f.Code, pc+1)
+		when := "unless"
+		if k&CmpJumpIfTrue != 0 {
+			when = "if"
+		}
+		name := "?"
+		if c := k &^ CmpJumpIfTrue; c < len(cmpNames) {
+			name = cmpNames[c]
+		}
+		return fmt.Sprintf("%s %s -> %d", when, name, ReadU32(f.Code, pc+3))
 	case OpJumpIfArg:
 		return fmt.Sprintf("%d -> %d", ReadU16(f.Code, pc+1), ReadU32(f.Code, pc+3))
 	case OpJump, OpJumpIfFalse, OpJumpIfTrue:

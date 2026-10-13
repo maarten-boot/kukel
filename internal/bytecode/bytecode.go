@@ -86,10 +86,10 @@ const (
 	OpLoadThis    // push this
 	OpLoadMember  // field u16: push this.fields[field]
 	OpStoreMember // field u16: pop into this.fields[field]
-	OpGetMember   // name u16: obj -> obj->name (data member or bound method)
-	OpSetMember   // name u16: obj v -> v, after obj->name = v
-	OpCallMethod  // name u16, argc u16: obj args -> result of obj->name(args)
-	OpCallMethodV // name u16: obj argvector -> result
+	OpGetMember   // name u16, cache u16: obj -> obj->name (data member or bound method)
+	OpSetMember   // name u16, cache u16: obj v -> v, after obj->name = v
+	OpCallMethod  // name u16, argc u16, cache u16: obj args -> result of obj->name(args)
+	OpCallMethodV // name u16, cache u16: obj argvector -> result
 	OpCallDirect  // func u16, argc u16: obj args -> result of Funcs[func] with this = obj (Base::m(...))
 	OpLoadFunc    // func u16: push Funcs[func] (a static member function)
 	OpLoadStatic  // class u16, slot u16: push a static data member
@@ -110,6 +110,11 @@ const (
 	OpLoadUpvalue  // index u16: push the value of the closure's captured cell
 	OpStoreUpvalue // index u16: pop into the closure's captured cell
 	OpClosure      // func u16: push a closure of Funcs[func] (see Function.Upvalues)
+
+	// Superinstructions (milestone 12): common pairs fused into one.
+	OpCmpJump  // cmp u16, target u32: pop b, a; jump if (a cmp b) == want (see CmpJump*)
+	OpIncLocal // slot u16: slot++ (a statement: no value is pushed)
+	OpDecLocal // slot u16: slot--
 
 	numOps
 )
@@ -176,10 +181,10 @@ var opInfo = [numOps]OpInfo{
 	OpLoadThis:     {"LOAD_THIS", nil},
 	OpLoadMember:   {"LOAD_MEMBER", u16},
 	OpStoreMember:  {"STORE_MEMBER", u16},
-	OpGetMember:    {"GET_MEMBER", u16},
-	OpSetMember:    {"SET_MEMBER", u16},
-	OpCallMethod:   {"CALL_METHOD", []int{2, 2}},
-	OpCallMethodV:  {"CALL_METHOD_V", u16},
+	OpGetMember:    {"GET_MEMBER", []int{2, 2}},
+	OpSetMember:    {"SET_MEMBER", []int{2, 2}},
+	OpCallMethod:   {"CALL_METHOD", []int{2, 2, 2}},
+	OpCallMethodV:  {"CALL_METHOD_V", []int{2, 2}},
 	OpCallDirect:   {"CALL_DIRECT", []int{2, 2}},
 	OpLoadFunc:     {"LOAD_FUNC", u16},
 	OpLoadStatic:   {"LOAD_STATIC", []int{2, 2}},
@@ -196,7 +201,24 @@ var opInfo = [numOps]OpInfo{
 	OpLoadUpvalue:  {"LOAD_UPVALUE", u16},
 	OpStoreUpvalue: {"STORE_UPVALUE", u16},
 	OpClosure:      {"CLOSURE", u16},
+	OpCmpJump:      {"CMP_JUMP", []int{2, 4}},
+	OpIncLocal:     {"INC_LOCAL", u16},
+	OpDecLocal:     {"DEC_LOCAL", u16},
 }
+
+// The comparison operand of CMP_JUMP: one of these, plus CmpJumpIfTrue to
+// jump when the comparison holds (else when it does not).
+const (
+	CmpLt = iota
+	CmpLe
+	CmpGt
+	CmpGe
+	CmpEq
+	CmpNe
+	CmpJumpIfTrue = 0x100
+)
+
+var cmpNames = [...]string{CmpLt: "<", CmpLe: "<=", CmpGt: ">", CmpGe: ">=", CmpEq: "==", CmpNe: "!="}
 
 // Info returns the description of op; ok is false for an unknown opcode.
 func Info(op Op) (OpInfo, bool) {
@@ -247,6 +269,11 @@ type Function struct {
 	Lines       []LineInfo // sorted by PC
 	SlotNames   []string   // for the disassembler
 	Upvalues    []Upvalue  // a function literal's captured variables
+	NumCaches   int        // inline cache slots of member instructions (the VM keeps the caches)
+
+	// Index is the function's position in Program.Funcs (-1 for Init). It is
+	// not stored in files: the compiler and Decode set it.
+	Index int
 }
 
 // Upvalue says where a closure gets a captured cell when it is made: from a

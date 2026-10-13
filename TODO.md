@@ -238,7 +238,7 @@ All the "Rule:" comments in syntax.ebnf. The checks run while the compiler resol
 
 ### Bytecode file `.kkc`
 - [x] Format (little-endian, uvarints; the layout is documented in `internal/bytecode/file.go`):
-  `magic "KUKL"`, `format version` (1; another version is refused, Q12), `flags`, main, globals, classes, init function, functions (code, constants, upvalue descriptors, line tables, slot names, source file names), CRC-32 at the end
+  `magic "KUKL"`, `format version` (2 since milestone 12; another version is refused, Q12), `flags`, main, globals, classes, init function, functions (code, constants, upvalue descriptors, line tables, slot names, source file names), CRC-32 at the end
 - [x] Writer + reader with a round-trip test (compile → write → read → write gives the same bytes, and the same disassembly) for every program in `tests/run`
 - [x] Validate on load: opcodes, operand ranges, jump targets inside the code (never trust the file). `bytecode.Verify` also follows every path: the stack depth and the number of try handlers must agree at each instruction, never underflow, stay within MaxStack; no function may run off its end or return with a handler registered. Every program the compiler makes is verified in the tests (a cross-check of the compiler). The VM adds cheap guards for what the verifier cannot see (a slot holding the wrong kind of value)
 - [x] `kukel disasm` (of `.kkl` sources and `.kkc` files)
@@ -287,4 +287,20 @@ All the "Rule:" comments in syntax.ebnf. The checks run while the compiler resol
 9. [x] Semantic checker complete (all "Rule:" items) (done 2026-10-13, branch `milestone-9-checker`: rules audit test, compile-time argument counts, `kukel check`)
 10. [x] `.kkc` writer/reader/validator + `build`/`exec`/`disasm` (done 2026-10-13, branch `milestone-10-kkc`, on top of milestone 9; also Q33 constructor inheritance)
 11. [x] Remaining built-ins, test suite, fuzzing, benchmarks, language reference (done 2026-10-13, branch `milestone-11-builtins`)
-12. [ ] Later/optional: peephole optimizer, inline caches for methods and fields, jump tables for switch, a REPL, multiple error reporting
+12. [x] Performance (done 2026-10-13, branch `milestone-12-performance`), measured with `make bench` (median of 5 runs, milestone 11 → 12):
+
+    | Benchmark | before | after | |
+    |---|---|---|---|
+    | fib(27) | 36 ms | 31 ms | −14% |
+    | 1M-iteration loop | 43 ms | 31 ms | −28% |
+    | 1M method calls | 83 ms | 55 ms | −34% |
+    | 1M closure calls | 70 ms | 54 ms | −23% |
+    | string building | 41 ms (600k allocations) | 22 ms (200k) | −46% |
+    | maps and vectors | 32 ms (100k allocations) | 21 ms (85) | −34% |
+
+    - superinstructions: `CMP_JUMP` (a comparison and the jump on it), `INC_LOCAL`/`DEC_LOCAL` (`i++` as a statement); a `for` loop runs 9 instead of 12 instructions per iteration
+    - frames shrank from ~104 to ~56 bytes (`this` and the closure as pointers) and are filled in place
+    - inline caches for `CALL_METHOD`, `GET_MEMBER`, `SET_MEMBER`: the last class seen and its method or data member slot; the caches live in the VM (a compiled program can be shared), each function has an index and each member instruction a cache slot
+    - built-ins get their arguments as a view of the stack instead of a copy (they must not keep the slice); `str` of simple values without a builder
+    - `.kkc` format version 2 (new instructions, cache counts); version 1 files are refused (Q12)
+13. [ ] Later/optional: jump tables for dense int switches, a peephole pass, a REPL, reporting several compile errors at once, a string representation that does not box (each new string costs one allocation for its value)

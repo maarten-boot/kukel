@@ -157,7 +157,21 @@ func Compile(files []*ast.File, builtins []string) (prog *bytecode.Program, err 
 			c.block(fd.Body)
 		})
 	}
+	c.prog.Init.Index = -1
+	for i, f := range c.prog.Funcs {
+		f.Index = i
+	}
 	return c.prog, nil
+}
+
+// cache reserves an inline cache slot for a member instruction.
+func (c *compiler) cache(pos token.Pos) int {
+	fn := c.fs.fn
+	if fn.NumCaches > maxIndex {
+		c.errorf(pos, "too many member accesses in one function (more than %d)", maxIndex+1)
+	}
+	fn.NumCaches++
+	return fn.NumCaches - 1
 }
 
 // initializers collects the global initializers (the body of <init>) for
@@ -1017,12 +1031,12 @@ func (c *compiler) expr(e ast.Expr) {
 		}
 		c.expr(e.X)
 		c.mark(e.Name.NamePos)
-		c.emit(bytecode.OpGetMember, c.nameConst(e.Name))
+		c.emit(bytecode.OpGetMember, c.nameConst(e.Name), c.cache(e.Name.NamePos))
 	case *ast.MethodCall:
 		c.expr(e.X)
 		c.callArgs(e.Args, e.Name.NamePos,
-			func(argc int) { c.emit(bytecode.OpCallMethod, c.nameConst(e.Name), argc) },
-			func() { c.emit(bytecode.OpCallMethodV, c.nameConst(e.Name)) })
+			func(argc int) { c.emit(bytecode.OpCallMethod, c.nameConst(e.Name), argc, c.cache(e.Name.NamePos)) },
+			func() { c.emit(bytecode.OpCallMethodV, c.nameConst(e.Name), c.cache(e.Name.NamePos)) })
 	case *ast.NewExpr:
 		c.checkNew(e)
 		c.newClassValue(e.Class)
@@ -1104,11 +1118,28 @@ func (c *compiler) branch(e ast.Expr, jumpIf bool) []int {
 			return c.branch(e.X, !jumpIf)
 		}
 	}
+	if b, ok := e.(*ast.BinaryExpr); ok {
+		if cmp, ok := cmpJumps[b.Op]; ok {
+			// A comparison and the jump on its result in one instruction.
+			c.expr(b.X)
+			c.expr(b.Y)
+			c.mark(b.OpPos)
+			if jumpIf {
+				cmp |= bytecode.CmpJumpIfTrue
+			}
+			return []int{c.emit(bytecode.OpCmpJump, cmp, 0) + 2}
+		}
+	}
 	c.expr(e)
 	if jumpIf {
 		return []int{c.jump(bytecode.OpJumpIfTrue)}
 	}
 	return []int{c.jump(bytecode.OpJumpIfFalse)}
+}
+
+var cmpJumps = map[token.Kind]int{
+	token.LT: bytecode.CmpLt, token.LE: bytecode.CmpLe, token.GT: bytecode.CmpGt,
+	token.GE: bytecode.CmpGe, token.EQ: bytecode.CmpEq, token.NE: bytecode.CmpNe,
 }
 
 // lvKind is the kind of an assignment target.
@@ -1147,7 +1178,7 @@ func (v variable) load(c *compiler) {
 		c.emit(bytecode.OpIndexGet)
 	case lvMember:
 		c.emit(bytecode.OpDup)
-		c.emit(bytecode.OpGetMember, v.index)
+		c.emit(bytecode.OpGetMember, v.index, c.cache(token.Pos{}))
 	case lvThisField:
 		c.emit(bytecode.OpLoadMember, v.index)
 	case lvStatic:
@@ -1166,7 +1197,7 @@ func (v variable) store(c *compiler, keep bool) {
 		if v.kind == lvIndex {
 			c.emit(bytecode.OpIndexSet) // leaves the value
 		} else {
-			c.emit(bytecode.OpSetMember, v.index) // leaves the value
+			c.emit(bytecode.OpSetMember, v.index, c.cache(token.Pos{})) // leaves the value
 		}
 		if !keep {
 			c.emit(bytecode.OpPop)
@@ -1309,6 +1340,15 @@ func (c *compiler) incDec(e *ast.IncDecExpr, keep bool) {
 	op := bytecode.OpInc
 	if e.Op == token.DEC {
 		op = bytecode.OpDec
+	}
+	if v.kind == lvLocal && !keep { // i++ as a statement: one instruction
+		c.mark(e.OpPos)
+		if e.Op == token.DEC {
+			c.emit(bytecode.OpDecLocal, v.index)
+		} else {
+			c.emit(bytecode.OpIncLocal, v.index)
+		}
+		return
 	}
 	v.load(c)
 	c.mark(e.OpPos)
