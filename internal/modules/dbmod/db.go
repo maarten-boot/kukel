@@ -23,8 +23,6 @@ import (
 	"strings"
 	stdtime "time"
 
-	_ "modernc.org/sqlite" // the driver "sqlite"
-
 	"github.com/maarten-boot/kukel/internal/modules/timemod"
 	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/value"
@@ -103,9 +101,12 @@ func init() {
 		return "db::Cursor(open)"
 	}
 	ormInit()
+	if len(drivers) == 0 {
+		return // built without any database (tags nosqlite, nopostgres and nomysql): no module db
+	}
 	native.Register(&native.Module{
 		Name:    "db",
-		Doc:     "SQL databases (SQLite), and objects in tables",
+		Doc:     "SQL databases (" + strings.Join(Kinds(), ", ") + "), and objects in tables",
 		Funcs:   map[string]native.Func{"open": open},
 		Classes: []*native.Class{Conn, Cursor, Query},
 	})
@@ -130,6 +131,10 @@ func open(env value.Env, args []value.Value) (value.Value, error) {
 	src, err := sourceOf(u)
 	if err != nil {
 		return value.NilValue, a.Errorf(value.ValueError, "%v", err)
+	}
+	if !drivers[src.dialect] {
+		tag := map[dialect]string{sqlite: "nosqlite", postgres: "nopostgres", mysqlDB: "nomysql"}[src.dialect]
+		return value.NilValue, a.Errorf(value.ValueError, "this kukel was built without %s (build tag %s)", dialectNames[src.dialect], tag)
 	}
 	// One connection: a transaction, lastid() and an in-memory database
 	// belong to one session.

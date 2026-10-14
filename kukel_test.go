@@ -8,12 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/maarten-boot/kukel"
+	"github.com/maarten-boot/kukel/internal/modules/dbmod"
 )
 
 func compile(t *testing.T, src string, opts kukel.CompileOptions) *kukel.Program {
@@ -202,15 +204,26 @@ main() {}`, kukel.CompileOptions{}), kukel.Options{StepLimit: 1000})
 }
 
 func TestCancel(t *testing.T) {
-	in := interp(t, compile(t, `use time; use worker; use zmq; use db;
-slowsql() { db::open("sqlite::memory:")->first("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n) SELECT count(*) FROM n"); }
+	uses, defs := "use time; use worker;\n", `
 loop() { while (true) {} }
 nap() { time::sleep(60); }
-listen() { local s = new zmq::Socket("PULL"); s->bind("inproc://nobody"); s->receive(); }
 waitFor() { worker::start(loop)->wait(); }
 quick() { return 1; }
-main() {}`, kukel.CompileOptions{}), kukel.Options{})
-	for _, name := range []string{"loop", "nap", "waitFor", "listen", "slowsql"} {
+main() {}
+`
+	names := []string{"loop", "nap", "waitFor"}
+	if slices.Contains(kukel.StandardModules(), "zmq") { // not when built with the tag nozmq
+		uses += "use zmq;\n"
+		defs += `listen() { local s = new zmq::Socket("PULL"); s->bind("inproc://nobody"); s->receive(); }` + "\n"
+		names = append(names, "listen")
+	}
+	if dbmod.Has("SQLite") { // not when built with the tag nosqlite
+		uses += "use db;\n"
+		defs += `slowsql() { db::open("sqlite::memory:")->first("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n) SELECT count(*) FROM n"); }` + "\n"
+		names = append(names, "slowsql")
+	}
+	in := interp(t, compile(t, uses+defs, kukel.CompileOptions{}), kukel.Options{})
+	for _, name := range names {
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		start := time.Now()
 		_, err := in.CallContext(ctx, name)

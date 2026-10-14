@@ -3,13 +3,21 @@ BIN      := bin/kukel
 FUZZTIME ?= 30s
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo devel)
 LDFLAGS  := -X main.version=$(VERSION)
+# The build tags that leave everything optional out (make small).
+SMALL    := nosqlite,nopostgres,nomysql,nozmq
 
-.PHONY: all build install test vet fmt fuzz bench golden clean
+.PHONY: all build small install test test-small vet fmt fuzz bench golden clean
 
 all: vet test build
 
 build:
 	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/kukel
+
+# A kukel without the optional modules and databases (TAGS picks others:
+# make small TAGS=nopostgres,nomysql).
+TAGS ?= $(SMALL)
+small:
+	$(GO) build -tags $(TAGS) -ldflags "$(LDFLAGS)" -o bin/kukel-small ./cmd/kukel
 
 # Install kukel in $(go env GOPATH)/bin (or $GOBIN).
 install:
@@ -18,10 +26,15 @@ install:
 test:
 	$(GO) test ./...
 
+# The tests of the smallest build: what needs a left-out part skips.
+test-small:
+	$(GO) test -tags $(SMALL) ./...
+
 vet:
 	@unformatted="$$(gofmt -l .)"; if [ -n "$$unformatted" ]; then \
 		echo "gofmt needed:"; echo "$$unformatted"; exit 1; fi
 	$(GO) vet ./...
+	$(GO) vet -tags $(SMALL) ./...
 
 fmt:
 	gofmt -w .

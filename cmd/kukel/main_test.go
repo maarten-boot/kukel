@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/maarten-boot/kukel/internal/modules/dbmod"
 	"github.com/maarten-boot/kukel/internal/native"
 )
 
@@ -74,6 +75,9 @@ func TestRunGolden(t *testing.T) {
 			text, err := os.ReadFile(src)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if why := unavailable(string(text)); why != "" {
+				t.Skip(why)
 			}
 			base := strings.TrimSuffix(src, ".kkl")
 			_, statErr := os.Stat(base + ".err")
@@ -241,6 +245,9 @@ func TestReferenceExamples(t *testing.T) {
 			}
 			continue
 		}
+		if unavailable(code) != "" {
+			continue
+		}
 		n++
 		src := filepath.Join(dir, "example.kkl")
 		os.WriteFile(src, []byte(code), 0o644)
@@ -301,11 +308,33 @@ func TestASTError(t *testing.T) {
 	}
 }
 
+// fullModules are the modules of a kukel built without tags.
+const fullModules = "db (SQLite, PostgreSQL, MySQL), events, json, strings, time, worker, zmq"
+
+// fullBuild reports whether this kukel has every module and database
+// (no build tag left one out).
+func fullBuild() bool {
+	_, zmq := native.Lookup("zmq")
+	return zmq && len(dbmod.Kinds()) == 3
+}
+
+// unavailable tells why program src cannot run in this kukel, built
+// without a module or database it uses ("" if it can).
+func unavailable(src string) string {
+	if _, ok := native.Lookup("zmq"); !ok && strings.Contains(src, "use zmq;") {
+		return "built without zmq (tag nozmq)"
+	}
+	if !dbmod.Has("SQLite") && strings.Contains(src, "use db;") {
+		return "built without SQLite (tag nosqlite)"
+	}
+	return ""
+}
+
 func TestVersion(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"version"}, nil, &stdout, &stderr); code != 0 ||
 		!strings.HasPrefix(stdout.String(), "kukel ") || !strings.Contains(stdout.String(), "bytecode format") ||
-		!strings.Contains(stdout.String(), "modules written in Go: db, events, json, strings, time, worker, zmq\n") {
+		!strings.Contains(stdout.String(), "modules written in Go: "+fullModules+"\n") && fullBuild() {
 		t.Errorf("version: exit %d, stdout %q", code, stdout.String())
 	}
 }

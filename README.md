@@ -80,6 +80,19 @@ make            # vet, test and build bin/kukel
 make install    # install kukel into $(go env GOPATH)/bin
 ```
 
+`kukel` holds everything (about 22 MB). Build tags leave parts out for a
+smaller binary: `nopostgres`, `nomysql`, `nosqlite` (all three: no module
+`db`) and `nozmq`. With all four it is about 6 MB; with SQLite as the only
+database about 13 MB:
+
+```
+go install -tags nopostgres,nomysql github.com/maarten-boot/kukel/cmd/kukel@latest
+make small                    # bin/kukel-small, all four tags
+make small TAGS=nozmq         # other tags
+```
+
+`kukel version` lists the modules (and databases) a binary has.
+
 ## Using it
 
 | Command | What it does |
@@ -143,7 +156,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/value`, `internal/builtins` | values with their operators, built-in functions |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q54). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q55). Ideas for later are in [docs/future.md](docs/future.md).
 
 ## Development
 
@@ -151,6 +164,7 @@ design decisions (Q1–Q54). Ideas for later are in [docs/future.md](docs/future
 |---|---|
 | `make` | gofmt check, `go vet`, tests, build |
 | `make install` | install `kukel` into `$(go env GOPATH)/bin` |
+| `make small`, `make test-small` | build `bin/kukel-small`, or run the tests, without the optional parts (`make vet` also vets that build) |
 | `make fuzz FUZZTIME=1m` | fuzz the lexer, parser, compiler, bytecode loader and verifier (what they accept runs in the VM with a step limit), `json::decode`, time parsing and `kukel fmt` |
 | `make bench` | benchmarks |
 | `make golden` | rewrite the expected outputs in `tests/` after an intended change |

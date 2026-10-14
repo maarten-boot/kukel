@@ -2,15 +2,49 @@ package dbmod
 
 import (
 	"fmt"
-	"net"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
-
-	"github.com/go-sql-driver/mysql"
-	_ "github.com/jackc/pgx/v5/stdlib" // the driver "pgx"
 )
+
+// The drivers are in files of their own, each left out by a build tag:
+// nosqlite, nopostgres, nomysql (driver_*.go). drivers holds the ones this
+// kukel has.
+var drivers = map[dialect]bool{}
+
+var dialectNames = map[dialect]string{sqlite: "SQLite", postgres: "PostgreSQL", mysqlDB: "MySQL"}
+
+func addDriver(d dialect) bool {
+	drivers[d] = true
+	return true
+}
+
+// Kinds names the databases this kukel can open, in order.
+func Kinds() []string {
+	var names []string
+	for _, d := range []dialect{sqlite, postgres, mysqlDB} {
+		if drivers[d] {
+			names = append(names, dialectNames[d])
+		}
+	}
+	return names
+}
+
+// Has reports whether this kukel can open databases of kind ("SQLite",
+// "PostgreSQL" or "MySQL").
+func Has(kind string) bool {
+	for _, k := range Kinds() {
+		if k == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// mysqlDSN makes the data source name of the MySQL driver from a URL
+// (driver_mysql.go; nil without it).
+var mysqlDSN func(p *url.URL) string
 
 // The databases db::open reaches (TODO.md Q54): SQLite in a file or in
 // memory, and PostgreSQL and MySQL (or MariaDB) servers. Programs write ?
@@ -56,22 +90,9 @@ func sourceOf(u string) (source, error) {
 	case "postgres", "postgresql":
 		return source{"pgx", u, postgres, shown}, nil
 	case "mysql":
-		c := mysql.NewConfig()
-		c.User = p.User.Username()
-		c.Passwd, _ = p.User.Password()
-		c.Net, c.Addr = "tcp", p.Host
-		if p.Port() == "" {
-			c.Addr = net.JoinHostPort(p.Hostname(), "3306")
-		}
-		c.DBName = strings.TrimPrefix(p.Path, "/")
-		c.ParseTime = true // DATETIME and TIMESTAMP give times
-		dsn := c.FormatDSN()
-		if p.RawQuery != "" { // options such as tls=true: the driver reads them
-			sep := "?"
-			if strings.Contains(dsn, "?") {
-				sep = "&"
-			}
-			dsn += sep + p.RawQuery
+		dsn := ""
+		if mysqlDSN != nil {
+			dsn = mysqlDSN(p)
 		}
 		return source{"mysql", dsn, mysqlDB, shown}, nil
 	}

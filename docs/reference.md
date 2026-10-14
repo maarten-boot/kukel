@@ -50,7 +50,7 @@ hello, Kukel
 | `kukel repl [a.kkl ...]` | Read declarations and statements and run them as they come (see [The REPL](#the-repl)); with files, their declarations come first (`main` is not called) |
 | `kukel fmt [-w \| -l] a.kkl ...` | Format source files: indentation (4 spaces) and the spaces between tokens; line breaks and comments stay, at most one blank line in a row. A statement that starts with `if`, `while`, `do`, `for`, `switch`, `try` or `with` gets a blank line before it (above the comments right above it), except as the first statement of a block, after a label, as the statement of `else` or a header without braces, or as the `while` of a `do`. Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`; `-w` and `-l` together are a usage error). A file with a syntax error or a NUL byte is left alone, and the exit code is 1 |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | Show the tokens or the syntax tree of each file (for debugging; `-pos` adds positions) |
-| `kukel version` (also `-version`, `--version`) | Show the version, the bytecode format and the modules written in Go |
+| `kukel version` (also `-version`, `--version`) | Show the version, the bytecode format and the modules written in Go, with the databases `db` can open (`db (SQLite, PostgreSQL, MySQL)`): a `kukel` built with tags may lack some (see the README) |
 | `kukel help` (also `-h`, `-help`, `--help`) | Show the commands |
 
 A compile reports several errors at once, in the order of the source: the
@@ -841,7 +841,7 @@ same name (from a join) keep the last value, so name them with `AS`.
 
 | Function or member function | Description |
 |---|---|
-| `db::open(url)` | A `db::Conn`: `"sqlite:path"` opens the file `path` (relative to the current directory; any characters, also `?`, `#` and `%`), creating it if needed; `"sqlite::memory:"` is a database in memory, gone when closed. `"postgres://user:password@host:5432/database?sslmode=disable"` (also `postgresql://`; the options are PostgreSQL's) and `"mysql://user:password@host:3306/database"` (options such as `?tls=true` are the MySQL driver's) connect to a server. A database that cannot be opened or reached is a `DBError`, another URL a `ValueError`. In SQLite, foreign keys are enforced and a database another program is writing is waited for up to 5 seconds |
+| `db::open(url)` | A `db::Conn`: `"sqlite:path"` opens the file `path` (relative to the current directory; any characters, also `?`, `#` and `%`), creating it if needed; `"sqlite::memory:"` is a database in memory, gone when closed. `"postgres://user:password@host:5432/database?sslmode=disable"` (also `postgresql://`; the options are PostgreSQL's) and `"mysql://user:password@host:3306/database"` (options such as `?tls=true` are the MySQL driver's) connect to a server. A database that cannot be opened or reached is a `DBError`, another URL a `ValueError`, as is a kind of database this `kukel` was built without (`kukel version` lists the ones it has). In SQLite, foreign keys are enforced and a database another program is writing is waited for up to 5 seconds |
 | `conn->exec(sql, args...)` | Runs a statement that gives no rows (`CREATE`, `INSERT`, `UPDATE`, `DELETE`, ...) and gives the number of rows it changed |
 | `conn->lastid()` | The id of the last row an `INSERT` added (SQLite's `last_insert_rowid`, MySQL's `LAST_INSERT_ID`), or `nil`. PostgreSQL has none: write `INSERT ... RETURNING id` and use `first` |
 | `conn->query(sql, args...)` | All rows of a query, as a vector of maps |

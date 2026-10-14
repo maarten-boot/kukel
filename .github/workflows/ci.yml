@@ -21,6 +21,8 @@ jobs:
         run: make vet
       - name: Test
         run: make test
+      - name: Test the smallest build (build tags)
+        run: make test-small && make small && ./bin/kukel-small version
       - name: Build
         run: make build && ./bin/kukel version
       - name: Fuzz briefly

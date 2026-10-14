@@ -30,6 +30,10 @@ Contents:
 A **`Program`** is compiled code. It never changes while it runs, so one
 `Program` can serve any number of interpreters, also at the same time.
 
+The package brings the standard modules written in Go (`StandardModules()`
+lists them). The build tags of the README leave large ones out of a Go
+program that imports it too: `go build -tags nopostgres,nomysql,nozmq`.
+
 | Function | |
 |---|---|
 | `CompileFiles(files, opts)` | Compiles `.kkl` files as one program, with the modules they use (next to the files, then in `opts.Path`; a module compiled on its own, `name.kkc`, is linked in) |

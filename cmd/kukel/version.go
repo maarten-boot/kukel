@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/maarten-boot/kukel/internal/bytecode"
+	"github.com/maarten-boot/kukel/internal/modules/dbmod"
 	"github.com/maarten-boot/kukel/internal/native"
 )
 
@@ -50,6 +51,18 @@ func versionText() string {
 
 func cmdVersion(stdout io.Writer) int {
 	fmt.Fprintln(stdout, versionText())
-	fmt.Fprintln(stdout, "modules written in Go:", strings.Join(native.Names(), ", "))
+	fmt.Fprintln(stdout, "modules written in Go:", strings.Join(moduleNames(), ", "))
 	return 0
+}
+
+// moduleNames lists the modules written in Go that this kukel has; for db,
+// the databases it can open (build tags leave some out).
+func moduleNames() []string {
+	names := native.Names()
+	for i, name := range names {
+		if name == "db" {
+			names[i] = "db (" + strings.Join(dbmod.Kinds(), ", ") + ")"
+		}
+	}
+	return names
 }

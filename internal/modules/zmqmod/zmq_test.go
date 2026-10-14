@@ -1,3 +1,5 @@
+//go:build !nozmq
+
 package zmqmod_test
 
 import (

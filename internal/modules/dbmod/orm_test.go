@@ -1,3 +1,5 @@
+//go:build !nosqlite
+
 package dbmod_test
 
 import "testing"

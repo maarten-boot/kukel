@@ -202,7 +202,8 @@ Windows. Build tags can leave out the large modules (`go build -tags
 nogui`), and `kukel version` lists the modules a binary contains.
 
 *Done for `json`, `strings` and `time` (TODO.md Q36), and `kukel version`
-lists them; build tags come with the first large module.*
+lists them. Build tags are done for the large ones (Q55): `nopostgres`,
+`nomysql`, `nosqlite` and `nozmq`; a GUI module would get `nogui`.*
 
 **Foreign libraries (`.so` on Linux, `.dll` on Windows, `.dylib` on
 macOS).** For a C library that has no Go binding. Go offers four ways:
