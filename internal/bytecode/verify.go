@@ -264,7 +264,7 @@ func (v *verifier) operands(f *Function, pc int, op Op, x []int) error {
 		if x[0] >= len(f.Consts) {
 			return fail("refers to constant %d of %d", x[0], len(f.Consts))
 		}
-	case OpLoadLocal, OpStoreLocal, OpNewCell, OpLoadCell, OpStoreCell, OpIncLocal, OpDecLocal:
+	case OpLoadLocal, OpStoreLocal, OpNewCell, OpLoadCell, OpStoreCell, OpIncLocal, OpDecLocal, OpAddLocal:
 		return slot(x[0])
 	case OpCmpJump:
 		if x[0]&^CmpJumpIfTrue > CmpNe {

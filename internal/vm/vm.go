@@ -1502,6 +1502,20 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			}
 			ip += 2
 
+		case bytecode.OpAddLocal:
+			sp--
+			v, x := &stack[base+bytecode.ReadU16(code, ip)], stack[sp]
+			if v.Kind() == value.Int && x.Kind() == value.Int {
+				*v = value.MakeInt(v.AsInt() + x.AsInt())
+			} else {
+				r, e := value.Arith(value.Add, *v, x)
+				if e != nil {
+					return vm.fail(f, start, sp+1, e)
+				}
+				*v = r
+			}
+			ip += 2
+
 		case bytecode.OpSwitchTable:
 			sp--
 			x, t := stack[sp], &f.fn.Tables[bytecode.ReadU16(code, ip)]

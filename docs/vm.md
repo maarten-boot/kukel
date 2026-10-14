@@ -448,6 +448,7 @@ code: the numbers, names, operands and stack effects.
 | 73 | `INC_LOCAL` | slot:u16 | 0 | 0 | `slot = slot + 1` (statement `i++`) |
 | 74 | `DEC_LOCAL` | slot:u16 | 0 | 0 | `slot = slot - 1` |
 | 75 | `SWITCH_TABLE` | table:u16, miss:u32 | 1 | 0 | `x`: jump to the target of `x` in the function's jump table `table`, else to `miss` (below) |
+| 76 | `ADD_LOCAL` | slot:u16 | 1 | 0 | `x`: `slot = slot + x` (statement `local += x`) |
 
 `CMP_JUMP`'s `cmp` operand is the comparison in its low byte (0 `<`,
 1 `<=`, 2 `>`, 3 `>=`, 4 `==`, 5 `!=`), plus 0x100 to jump when the
@@ -559,6 +560,10 @@ return v[i]++;                  LOAD_LOCAL v; LOAD_LOCAL i; DUP2; INDEX_GET
 `INDEX_SET` and `SET_MEMBER` leave the assigned value, so `a = v[i] = b`
 needs nothing extra.
 
+`x += e` as a statement, with `x` a local (not in a cell) and no
+assignment or `++`/`--` inside `e`, is `e; ADD_LOCAL x`; `i++` and `i--` as
+statements are `INC_LOCAL i` and `DEC_LOCAL i`.
+
 ### 6.5 Functions
 
 A function's code starts with its **prologue**, one parameter after the
@@ -586,28 +591,38 @@ and `EXTEND`, then uses `CALL_V`, `CALL_METHOD_V` or `NEW_V`.
 
 ### 6.6 Loops
 
+The test of a `while` or `for` loop comes after the body (Kukel v0.8): the
+loop starts with a jump to it, and then each iteration takes one jump, back
+from the test to the body:
+
 ```
-for (local i = 0; i < n; i++) {     6  CONST 0 ; STORE_LOCAL i
-    if (i == 2) continue;          12  LOAD_LOCAL i; LOAD_LOCAL n
-    s += i;                        18  CMP_JUMP unless < -> 61
-}                                  25  LOAD_LOCAL i; CONST 2
-                                   31  CMP_JUMP unless == -> 43
-                                   38  JUMP -> 53            (continue)
-                                   43  LOAD_LOCAL s; LOAD_LOCAL i; ADD; STORE_LOCAL s
-                                   53  INC_LOCAL i
-                                   56  JUMP -> 12
+for (local i = 0; i < n; i++) {     6  CONST 0; STORE_LOCAL i
+    if (i == 2) continue;          12  JUMP -> 44
+    s += i;                        17  LOAD_LOCAL i; CONST 2
+}                                  23  CMP_JUMP unless == -> 35
+                                   30  JUMP -> 41            (continue)
+                                   35  LOAD_LOCAL i; ADD_LOCAL s
+                                   41  INC_LOCAL i
+                                   44  LOAD_LOCAL i; LOAD_LOCAL n
+                                   50  CMP_JUMP if < -> 17
 ```
 
 `break` and `continue` are jumps, patched once the loop's end and its
-continue point are known (for `for`, the update; for `while`, the
-condition; for `do`, the condition at the bottom). Labels name which loop
-or statement they mean.
+continue point are known (for `for`, the update; for `while` and `do`, the
+condition at the bottom). Labels name which loop or statement they mean.
 
 **Fresh variables per iteration**: a `local` declaration in a loop body
 runs `NEW_CELL` each time if a literal captures it, so each iteration's
 closures get their own cell. For a captured `for (local i ...)` variable,
 the compiler adds `LOAD_CELL i; NEW_CELL i` just before the update: the next
 iteration gets a new cell that starts with the current value.
+
+**Peephole pass**: when a function's code is complete, a pass rewrites it
+in place without moving instructions: a jump to an unconditional `JUMP`
+goes straight to that jump's target, and a `JUMP` to a `RETURN` or
+`RETURN_NIL` becomes that instruction (the bytes after it become `NOP`s,
+which never run). Every loop still has a backward jump, which counts a
+step.
 
 ### 6.7 For-each
 
@@ -746,7 +761,7 @@ uv   n + jump tables         min (a zigzag varint), uv n + targets (uv target+1,
 **Versions**: the format version changes whenever the instruction set or the
 layout changes (version 2: milestone 12's superinstructions and inline
 cache slots; version 3: native globals; version 4: `THROW` takes only
-`Error` objects; version 5: jump tables, `SWITCH_TABLE`). A reader refuses any version other
+`Error` objects; version 5: jump tables, `SWITCH_TABLE`, `ADD_LOCAL`). A reader refuses any version other
 than its own, telling the user to compile the program again. Built-ins and
 the names of native modules are referred to by name, so a program that uses
 one the running `kukel` does not have is refused when the VM is set up to

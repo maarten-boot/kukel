@@ -132,7 +132,7 @@ func (d *disasm) operand(f *Function, op Op, pc int) string {
 		return fmt.Sprint(u)
 	case OpClosure:
 		return d.funcName(ReadU16(f.Code, pc+1))
-	case OpLoadLocal, OpStoreLocal, OpNewCell, OpLoadCell, OpStoreCell, OpIncLocal, OpDecLocal:
+	case OpLoadLocal, OpStoreLocal, OpNewCell, OpLoadCell, OpStoreCell, OpIncLocal, OpDecLocal, OpAddLocal:
 		s := ReadU16(f.Code, pc+1)
 		if s < len(f.SlotNames) {
 			return fmt.Sprintf("%d  ; %s", s, f.SlotNames[s])

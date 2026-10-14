@@ -482,12 +482,50 @@ func (c *compiler) function(name string, pos token.Pos, params *ast.ParamList, c
 
 	body()
 	c.emit(bytecode.OpReturnNil)
+	peephole(fs.fn)
 
 	fs.fn.MaxStack = fs.maxDepth
 	if len(fs.fn.Code) > bytecode.MaxCodeSize || fs.fn.MaxStack > bytecode.MaxStackDepth {
 		c.errorf(pos, "function %s is too large (more than %d bytes of code or a stack deeper than %d)", name, bytecode.MaxCodeSize, bytecode.MaxStackDepth)
 	}
 	return fs.fn
+}
+
+// peephole improves the code of fn in place, without changing its size or
+// moving instructions: a jump to an unconditional jump goes to where that
+// one goes (jump threading), and an unconditional jump to a return becomes
+// the return (followed by NOPs that never run). Every loop still has a
+// backward jump, which counts a step.
+func peephole(fn *bytecode.Function) {
+	code := fn.Code
+	final := func(t int) int {
+		for range 8 { // a cycle of jumps stays as it is
+			if bytecode.Op(code[t]) != bytecode.OpJump {
+				break
+			}
+			t = bytecode.ReadU32(code, t+1)
+		}
+		return t
+	}
+	for pc := 0; pc < len(code); pc += bytecode.Op(code[pc]).Size() {
+		op, at := bytecode.Op(code[pc]), 0 // at: the jump target operand
+		switch op {
+		case bytecode.OpJump, bytecode.OpJumpIfFalse, bytecode.OpJumpIfTrue:
+			at = pc + 1
+		case bytecode.OpCmpJump, bytecode.OpJumpIfArg:
+			at = pc + 3
+		default:
+			continue
+		}
+		t := final(bytecode.ReadU32(code, at))
+		binary.LittleEndian.PutUint32(code[at:], uint32(t))
+		if r := bytecode.Op(code[t]); op == bytecode.OpJump && (r == bytecode.OpReturn || r == bytecode.OpReturnNil) {
+			code[pc] = byte(r)
+			for i := pc + 1; i < at+4; i++ {
+				code[i] = byte(bytecode.OpNop)
+			}
+		}
+	}
 }
 
 // declare adds a name to the innermost scope and gives it a slot. A name
@@ -757,15 +795,20 @@ func (c *compiler) ifStmt(s *ast.IfStmt) {
 	c.patch([]int{end}, c.here())
 }
 
+// whileStmt compiles a while loop with its test at the bottom, so that an
+// iteration takes one jump:
+//
+//	JUMP test; top: body; test: cond, jump to top if true
 func (c *compiler) whileStmt(s *ast.WhileStmt, labels []*ast.Ident) {
+	toTest := c.jump(bytecode.OpJump)
 	top := c.here()
-	exit := c.branch(s.Cond, false)
 	t := c.pushTarget(targetLoop, labels)
 	c.stmt(s.Body)
 	c.popTarget()
-	c.patch(t.continues, top)
-	c.emit(bytecode.OpJump, top)
-	c.patch(append(exit, t.breaks...), c.here())
+	c.patch(append(t.continues, toTest), c.here())
+	c.mark(s.Cond.Pos())
+	c.patch(c.branch(s.Cond, true), top)
+	c.patch(t.breaks, c.here())
 }
 
 func (c *compiler) doStmt(s *ast.DoStmt, labels []*ast.Ident) {
@@ -786,12 +829,12 @@ func (c *compiler) forStmt(s *ast.ForStmt, labels []*ast.Ident) {
 	} else if s.Init != nil {
 		c.exprDiscard(s.Init)
 	}
-	top := c.here()
-	var exit []int
+	// The test is at the bottom, as in whileStmt.
+	var toTest int
 	if s.Cond != nil {
-		c.mark(s.Cond.Pos())
-		exit = c.branch(s.Cond, false)
+		toTest = c.jump(bytecode.OpJump)
 	}
+	top := c.here()
 	t := c.pushTarget(targetLoop, labels)
 	c.stmt(s.Body)
 	c.popTarget()
@@ -808,8 +851,14 @@ func (c *compiler) forStmt(s *ast.ForStmt, labels []*ast.Ident) {
 		c.mark(s.Post.Pos())
 		c.exprDiscard(s.Post)
 	}
-	c.emit(bytecode.OpJump, top)
-	c.patch(append(exit, t.breaks...), c.here())
+	if s.Cond != nil {
+		c.patch([]int{toTest}, c.here())
+		c.mark(s.Cond.Pos())
+		c.patch(c.branch(s.Cond, true), top)
+	} else {
+		c.emit(bytecode.OpJump, top)
+	}
+	c.patch(t.breaks, c.here())
 	c.popScope()
 }
 
@@ -1555,6 +1604,14 @@ func (c *compiler) globalVariable(g *global, name string, pos token.Pos) variabl
 
 func (c *compiler) assign(e *ast.AssignExpr, keep bool) {
 	v := c.lvalue(e.LHS)
+	if e.Op == token.ADD_ASSIGN && v.kind == lvLocal && !keep && !assigns(e.RHS) {
+		// x += e as a statement: one instruction after e. It reads x after
+		// e, which is the same as long as e assigns nothing.
+		c.expr(e.RHS)
+		c.mark(e.LHS.Pos())
+		c.emit(bytecode.OpAddLocal, v.index)
+		return
+	}
 	if e.Op == token.ASSIGN {
 		c.expr(e.RHS)
 	} else {
@@ -1564,6 +1621,19 @@ func (c *compiler) assign(e *ast.AssignExpr, keep bool) {
 		c.emit(assignOps[e.Op])
 	}
 	v.store(c, keep)
+}
+
+// assigns reports whether expression e contains an assignment or ++/--.
+func assigns(e ast.Expr) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		switch n.(type) {
+		case *ast.AssignExpr, *ast.IncDecExpr:
+			found = true
+		}
+		return !found
+	})
+	return found
 }
 
 func (c *compiler) incDec(e *ast.IncDecExpr, keep bool) {

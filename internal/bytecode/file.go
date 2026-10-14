@@ -41,7 +41,7 @@ const (
 )
 
 // FormatVersion is the version of the .kkc format written by Encode.
-const FormatVersion = 5 // 2: milestone 12 superinstructions; 3: native modules (GlobalNative); 4: THROW takes only Error objects (Kukel v0.4); 5: jump tables (Kukel v0.8)
+const FormatVersion = 5 // 2: milestone 12 superinstructions; 3: native modules (GlobalNative); 4: THROW takes only Error objects (Kukel v0.4); 5: jump tables and ADD_LOCAL (Kukel v0.8)
 
 const magic = "KUKL"
 

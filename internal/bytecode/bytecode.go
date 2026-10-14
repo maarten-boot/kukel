@@ -119,6 +119,7 @@ const (
 
 	// Jump tables (Kukel v0.8): a switch whose case values are dense ints.
 	OpSwitchTable // table u16, miss u32: pop x; jump to Tables[table]'s target for x, else to miss
+	OpAddLocal    // slot u16: pop x; slot = slot + x (statement "local += x")
 
 	numOps
 )
@@ -209,6 +210,7 @@ var opInfo = [numOps]OpInfo{
 	OpIncLocal:     {"INC_LOCAL", u16},
 	OpDecLocal:     {"DEC_LOCAL", u16},
 	OpSwitchTable:  {"SWITCH_TABLE", []int{2, 4}},
+	OpAddLocal:     {"ADD_LOCAL", u16},
 }
 
 // The comparison operand of CMP_JUMP: one of these, plus CmpJumpIfTrue to
