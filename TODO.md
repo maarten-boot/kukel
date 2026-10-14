@@ -87,6 +87,7 @@ source files ──lexer──▶ tokens ──parser──▶ AST
 - Q47 (decided 2026-10-14) `kukel fmt [-w | -l]`: formats by tokens, not from the syntax tree, so line breaks and comments stay: re-indents (4 spaces by braces and brackets, brackets opened on one line count once, switch labels one level in and their statements two, a statement without braces under if/while/for/else/do one level deeper, an else with its if), normalizes the spaces between tokens (a trailing comment keeps its distance), at most one blank line in a row, no trailing spaces. Refuses files that do not parse or hold a NUL byte; checks that its output gives the same tokens and comments. Later (wanted): more breathing space, such as a blank line before if/while/do/for/switch
 - Q48 (decided 2026-10-14) `kukel repl [a.kkl ...]`: a compiler session (`compiler.Session`) adds each piece (declarations, or statements) to the same Program, and `vm.Extend` gives the VM the new globals, classes and functions, so state persists. A top-level `local` at the prompt is a session variable (a global; declaring it again reuses it). The value of a final expression statement (not an assignment or ++/--) is shown with `Repr`, unless nil. A one-line statement (or the last line of a piece) without its `;` gets one; a blank line ends an incomplete piece. A piece with a compile error adds nothing: the session compiles the pieces before it again, into the same indexes. Member functions may be defined in a later piece. `Program.Init` holds all the session's global initializers, for workers
 - Q49 (decided 2026-10-14) Modules compiled on their own: `kukel build -module [-o m.kkc] m.kkl` writes a module file (the .kkc format with flags 1, format version unchanged; a program file and a module file each refuse to be read as the other). It holds a header (the module's declarations with function bodies and global initializers blanked out, lines kept) and its own functions, whose global/class/function operands refer to name tables. The loader takes `name.kkc` when a directory has no `name.kkl`; the compiler runs pass 1 on the header and links the code in pass 2 (relocating by name; the program's init calls the module's init where its initializers would run), then verifies the program. The data members of the module's classes, and of classes whose statics its code reads, are checked against the program's (else "compile module m again")
+- Q50 (decided 2026-10-14) Performance, before more modules: jump tables for switches with at least 4 int cases spread over fewer than twice as many values (`SWITCH_TABLE`, a float with an integral value matches as `==` would); strings unboxed (length in `num`, a `*byte` in `obj`) with concatenation results in a growable buffer, so `s += x` appends in place (string bytes never change; strings sent to workers are detached); `while`/`for` loops test at the bottom; `ADD_LOCAL` for `local += x` as a statement when `x` assigns nothing; a size-preserving peephole pass (jump threading, a `JUMP` to a return becomes the return). Bytecode format 5. Tried and dropped: keeping the inline caches in a local of the dispatch loop (slower: the loop function is sensitive to added state)
 
 ## 1b. Syntax changes in version 2 (all adopted)
 
@@ -215,7 +216,7 @@ All the "Rule:" comments in syntax.ebnf. The checks run while the compiler resol
 
 ## 6. Runtime values (`internal/value`)
 
-- [x] `Value` representation: a tagged struct `{kind, num uint64, obj any}` (32 bytes), so numbers never allocate
+- [x] `Value` representation: a tagged struct `{kind, num uint64, obj any}` (32 bytes), so numbers never allocate; since Q50 a string is its length in `num` and a pointer to its bytes in `obj`, so strings do not allocate a box either
 - [x] Kinds (Nil, Bool, Int, Float, String, Vector, Map, Function, Closure, Builtin, Class, Object, BoundMethod; internal: Iterator, Cell, Internal; Error is a prelude class): Nil, Bool, Int, Float, String (immutable `string`), Vector (`*VectorObj`), Map, Class, Object, Function (code + captured upvalue cells), BoundMethod (object + method), Builtin; Error (Q13: `message`, `kind`, `trace`) is a prelude class, not a kind
 - [x] `typeof`: Function, BoundMethod and Builtin all report `"function"`
 - [x] Map: keys are strings and numbers only; 1 and 1.0 are the same key; the key keeps the form it was first stored with; insertion order kept (Q6); deleted entries are compacted when more than half are gone; NaN is not a key
@@ -334,4 +335,17 @@ All the "Rule:" comments in syntax.ebnf. The checks run while the compiler resol
 21. [x] ZeroMQ (Q43; branch `zmq`): the native module `zmq`
 22. [x] SQL with SQLite (Q44; branch `sql`): the native module `db`; Go ≥ 1.25
 23. [x] Smaller steps (branch `small-steps`): the `with` statement (Q45), several compile errors at once (Q46), `kukel fmt` (Q47), `kukel repl` (Q48), modules compiled on their own (Q49)
-24. [ ] Later/optional (see also [docs/future.md](docs/future.md): native classes in host modules, deriving from native classes, multiple interpreters, events and Tk, ZeroMQ, SQL/ORM): jump tables for dense int switches, a peephole pass, a string representation that does not box (each new string costs one allocation for its value)
+24. [x] Performance (Q50; branch `performance`), measured with `make bench` (fastest of 8 interleaved runs, v0.7.0 → this branch; this machine varies ±10% between runs):
+
+    | Benchmark | before | after | |
+    |---|---|---|---|
+    | 1M-iteration loop | 33 ms | 24 ms | −28% |
+    | dense int switch, 1M times | 160 ms | 60 ms | −62% |
+    | `s += "x"` 20,000 times, then indexing | 47 ms (211 MB) | 1.6 ms (0.1 MB) | −97% |
+    | string building | 25 ms (200k allocations) | 21 ms (100k) | −16% |
+    | 1M field reads and writes | 68 ms | 60 ms | −11% |
+    | fib(27), 1M method calls, 1M closure calls, maps and vectors, 1M string compares | 32, 58, 57, 22, 55 ms | 34, 57, 57, 23, 54 ms | ±6% |
+
+    - `SWITCH_TABLE` and per-function jump tables; `ADD_LOCAL`; loops test at the bottom; the peephole pass; strings without a box and with in-place appends (see Q50)
+    - `.kkc` format version 5
+25. [ ] Later/optional (see also [docs/future.md](docs/future.md): native classes in host modules, deriving from native classes, multiple interpreters, events and Tk, ZeroMQ, SQL/ORM): a register-based or otherwise restructured dispatch loop, if call speed matters (the loop of `run` is at its limit for small changes)

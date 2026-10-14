@@ -537,13 +537,13 @@ members, a `db::model(...)` call, or a new syntax?
 Carried over from the last item of TODO.md's milestone list, plus things the
 ideas above make useful:
 
-- jump tables for `switch` over dense int cases;
-- a peephole pass over the generated code;
+- jump tables for `switch` over dense int cases (*done*, TODO.md Q50);
+- a peephole pass over the generated code (*done*, Q50);
 - a REPL (`kukel repl`): handy for trying the GUI, messaging and database
   libraries interactively (*done*, TODO.md Q48);
 - reporting several compile errors at once (*done*, TODO.md Q46);
 - strings without an extra allocation per value (a different `Value`
-  layout);
+  layout) (*done*, Q50, with in-place appends for `s += x`);
 - a debugger hook (breakpoints, stepping) on the VM, which the
   disassembler and line tables already prepare for;
 - a code formatter (`kukel fmt`): *done* for indentation and spacing
