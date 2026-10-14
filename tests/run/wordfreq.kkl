@@ -7,6 +7,7 @@ isLetter(c) { return c >= 'a' && c <= 'z' || c == '\''; }
 
 words(line) {
     local out = [], word = "";
+
     for (local c in lower(line) + " ") {
         if (isLetter(c)) {
             word += char(c);
@@ -20,6 +21,7 @@ words(line) {
 
 main() {
     local line, counts = {}, total = 0;
+
     while ((line = readline()) != nil) {
         for (local w in words(line)) {
             counts[w] = (haskey(counts, w) ? counts[w] : 0) + 1;
@@ -29,6 +31,7 @@ main() {
     local list = keys(counts);
     sort(list, fn(a, b) { return counts[a] > counts[b] || counts[a] == counts[b] && a < b; });
     println(total, "words,", len(counts), "different");
+
     for (local i, w in slice(list, 0, min(TOP, len(list))))
         println(str(i + 1) + ".", w, counts[w], str(round(100.0 * counts[w] / total)) + "%");
 }

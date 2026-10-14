@@ -10,6 +10,7 @@ check(age) {
 
 main() {
     println(check(30));
+
     try {
         check(-1);
     } finally {

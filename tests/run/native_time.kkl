@@ -20,6 +20,7 @@ main() {
 
     local sorted = [xmas, launch, t];
     sort(sorted, fn(a, b) { return a->before(b); });
+
     for (local s in sorted) println(s->format("%Y-%m-%d"));
 
     try {

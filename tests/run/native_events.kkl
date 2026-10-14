@@ -16,6 +16,7 @@ main() {
     tick = events::every(0.02, fn() {
         n++;
         println("tick", n);
+
         if (n == 3) tick->cancel();
     });
     events::after(0.05, fn(who) { println("after", who); }, "0.05");
@@ -34,6 +35,7 @@ main() {
     // An exception leaves run() ...
     events::after(0, fn() { throw new Error("boom"); });
     events::after(0.01, println, "kept for the next run");
+
     try {
         events::run();
     } catch (e) {
@@ -49,6 +51,7 @@ main() {
     } catch (e) {
         println(e->kind + ":", e->message);
     }
+
     try {
         events::after(1, "not a function");      // checked when the timer is made
     } catch (e) {

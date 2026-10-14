@@ -25,12 +25,14 @@ Parser::Parser(text) { this->text = text; pos = 0; }
 Parser::parse() {
     local v = value();
     skip();
+
     if (pos < len(text)) fail("unexpected text after the value");
     return v;
 }
 
 Parser::value() {
     skip();
+
     switch (peek()) {
         case '{': return object();
         case '[': return array();
@@ -46,7 +48,9 @@ Parser::object() {
     local m = {}, key;
     expect('{');
     skip();
+
     if (peek() == '}') { pos++; return m; }
+
     while (true) {
         skip();
         key = string();
@@ -54,6 +58,7 @@ Parser::object() {
         expect(':');
         m[key] = value();
         skip();
+
         if (peek() == '}') { pos++; return m; }
         expect(',');
     }
@@ -63,10 +68,13 @@ Parser::array() {
     local v = [];
     expect('[');
     skip();
+
     if (peek() == ']') { pos++; return v; }
+
     while (true) {
         push(v, value());
         skip();
+
         if (peek() == ']') { pos++; return v; }
         expect(',');
     }
@@ -75,13 +83,16 @@ Parser::array() {
 Parser::string() {
     local out = "", c;
     expect('"');
+
     while (true) {
         if (pos >= len(text)) fail("unterminated string");
         c = text[pos++];
+
         switch (c) {
             case '"': return out;
             case '\\':
                 c = text[pos++];
+
                 switch (c) {
                     case 'n': out += "\n"; break;
                     case 't': out += "\t"; break;
@@ -96,10 +107,14 @@ Parser::string() {
 
 Parser::number() {
     local start = pos;
+
     if (peek() == '-') pos++;
+
     while (pos < len(text) && (text[pos] >= '0' && text[pos] <= '9' || find(".eE+-", char(text[pos])) >= 0)) pos++;
+
     if (pos == start) fail("expected a value");
     local s = slice(text, start, pos);
+
     try {
         return find(s, ".") >= 0 || find(lower(s), "e") >= 0 ? float(s) : int(s);
     } catch (e) {
@@ -121,16 +136,19 @@ Parser::fail(what) { throw new JSONError(what + " at offset " + str(pos)); }
 // pretty writes a value as indented JSON.
 pretty(v, indent = "") {
     local inner = indent + "  ";
+
     switch (typeof(v)) {
         case "map": {
             if (len(v) == 0) return "{}";
             local parts = [];
+
             for (local k, x in v) push(parts, inner + pretty(k) + ": " + pretty(x, inner));
             return "{\n" + join(parts, ",\n") + "\n" + indent + "}";
         }
         case "vector": {
             if (len(v) == 0) return "[]";
             local items = [];
+
             for (local x in v) push(items, inner + pretty(x, inner));
             return "[\n" + join(items, ",\n") + "\n" + indent + "]";
         }
@@ -149,6 +167,7 @@ main() {
     println(doc["nested"]["pi"] * 2, len(doc["tags"]), doc["quote"]);
 
     println(new Parser("[1E5, 1e+5, -2.5e-1, -7]")->parse());
+
     for (local bad in ["[1, 2", "{\"a\" 1}", "[1] x", "nope", "[-]", "[1.2.3]"]) {
         try { new Parser(bad)->parse(); }
         catch (e) { println(e->kind + ":", e->message); }

@@ -6,10 +6,13 @@ use events;
 // Counts the primes in [from, to): one slice of the work.
 countPrimes(from, to) {
     local n = 0;
+
     for (local i = max(from, 2); i < to; i++) {
         local prime = true;
+
         for (local d = 2; d * d <= i; d++)
             if (i % d == 0) { prime = false; break; }
+
         if (prime) n++;
     }
     return n;
@@ -36,8 +39,10 @@ shouter() {
 main() {
     // Four workers count primes below 40000 in parallel.
     local slices = [];
+
     for (local i = 0; i < 4; i++) push(slices, worker::start(countPrimes, i * 10000, (i + 1) * 10000));
     local total = 0;
+
     for (local w in slices) total += w->wait();
     println("primes below 40000:", total);
 
@@ -55,6 +60,7 @@ main() {
     // A failure in a worker comes back from wait().
     local broken = worker::start(calculator, "broken");
     broken->send({"op": "mul"});
+
     try {
         broken->wait();
     } catch (e) {
@@ -65,6 +71,7 @@ main() {
     local s = worker::start(shouter), heard = 0;
     s->onmessage(fn(text) {
         println("heard", text);
+
         if (++heard == 2) s->stop();
     });
     s->send("hello");

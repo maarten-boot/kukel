@@ -11,6 +11,7 @@ server() {
     local rep = new zmq::Socket("REP");
     rep->bind("inproc://calc");
     worker::send("ready");
+
     for (local req = rep->receive(); req != "stop"; req = rep->receive()) {
         if (typeof(req) == "vector")                  // a message of several parts
             rep->send(["sum", str(int(req[0]) + int(req[1]))]);
@@ -44,8 +45,10 @@ main() {
     println(pull->receive(0.05));                     // nothing yet: nil
     pull->onmessage(fn(job) {
         println("job", job);
+
         if (++done == 3) pull->close();               // closing ends events::run()
     });
+
     for (local i = 1; i <= 3; i++) push->send(str(i));
     events::run();
     push->close();
@@ -61,6 +64,7 @@ main() {
     time::sleep(0.05);                                // let both connect
     alice->send("hi from alice");
     bob->send("hi from bob");
+
     for (local i = 0; i < 2; i++) {
         local m = router->receive(5);                 // [identity, text]
         router->send([m[0], "welcome, " + m[0]]);

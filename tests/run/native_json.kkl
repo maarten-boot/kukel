@@ -2,8 +2,10 @@
 use json;
 
 main() {
-    local doc = {"name": "Kukel", "version": [0, 2], "pi": 3.14159, "ratio": 2.0,
-                 "tags": ["fun", "tiny"], "parent": nil, "done": false};
+    local doc = {
+        "name": "Kukel", "version": [0, 2], "pi": 3.14159, "ratio": 2.0,
+        "tags": ["fun", "tiny"], "parent": nil, "done": false
+    };
     local text = json::encode(doc);
     println(text);
     println(json::encode({"list": [1, {"a": []}], "empty": {}}, "  "));
@@ -16,6 +18,7 @@ main() {
     println(json::decode("\"tab\\tquote\\\" \\u00e9\""));
 
     local wrong = ["[1, 2", "{\"a\": }", "[] []", "{1: 2}"];
+
     for (local w in wrong)
         try { json::decode(w); } catch (e) { println(e->kind + ":", e->message); }
     local v = [1]; push(v, v);

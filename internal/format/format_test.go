@@ -11,7 +11,7 @@ func TestFormat(t *testing.T) {
 	tests := []struct{ in, want string }{
 		// indentation by braces and brackets; spacing around operators
 		{"main(){\nlocal x=1+2*3;\nif(x>5){println( x );}\n}\n",
-			"main() {\n    local x = 1 + 2 * 3;\n    if (x > 5) { println(x); }\n}\n"},
+			"main() {\n    local x = 1 + 2 * 3;\n\n    if (x > 5) { println(x); }\n}\n"},
 		// a statement without braces on the next line hangs one level deeper
 		{"f() {\nif (a)\nif (b)\nx();\nelse\ny();\nz();\n}\n",
 			"f() {\n    if (a)\n        if (b)\n            x();\n        else\n            y();\n    z();\n}\n"},
@@ -30,8 +30,10 @@ func TestFormat(t *testing.T) {
 			"// head\n\nmain() {\n    x = 1;      // set x\n\n    events::post(fn() {\n        println(1);\n    });\n}\n"},
 		// labels and the colon of a label; with; multi-line strings stay as they are
 		{"main() {\nouter: for (;;) { break outer; }\nwith (local c = open()) c->x();\ns = \"a\n  b\";\n}\n",
-			"main() {\n    outer: for (;;) { break outer; }\n    with (local c = open()) c->x();\n    s = \"a\n  b\";\n}\n"},
+			"main() {\n    outer: for (;;) { break outer; }\n\n    with (local c = open()) c->x();\n    s = \"a\n  b\";\n}\n"},
 	}
+	// a block or brackets opened on a hanging line keep its extra level
+	tests = append(tests, struct{ in, want string }{"f(v) {\nfor (local x in v)\nif (x) {\nfoo(1,\n2);\nif (y)\nwhile (z) {\nq(\n);\n}\n} else {\nbar();\n}\nlocal m = [1,\n2];\n}\n", "f(v) {\n    for (local x in v)\n        if (x) {\n            foo(1,\n                2);\n\n            if (y)\n                while (z) {\n                    q(\n                    );\n                }\n        } else {\n            bar();\n        }\n    local m = [1,\n        2];\n}\n"})
 	for _, tc := range tests {
 		got, err := Source("t.kkl", []byte(tc.in))
 		if err != nil {
@@ -43,6 +45,20 @@ func TestFormat(t *testing.T) {
 		}
 	}
 }
+
+// Breathing space: a blank line before if, while, do, for, switch, try and
+// with, but not at the start of a block, after a label, under else or a
+// header without braces, before the while of a do, or inside a map.
+func TestBreathe(t *testing.T) {
+	got, err := Source("t.kkl", []byte(breatheIn))
+	if err != nil || string(got) != breatheOut {
+		t.Errorf("got (%v):\n%s\nwant:\n%s", err, got, breatheOut)
+	}
+}
+
+const breatheIn = "f(x, v) {\n    local n = 0;\n    if (x) n++;\n    for (local i = 0; i < 3; i++) {\n        if (i == 1) continue;\n        n += i;\n        while (n > 10) n--;\n    }\n    // explains the switch\n    switch (x) {\n        case 1:\n            if (n) n = 0;\n            break;\n        default:\n            n = 1;\n            for (;;) break;\n    }\n    outer: for (local a in v) break outer;\n    if (n)\n        n = 1;\n    else if (x)\n        n = 2;\n    else\n        if (v) n = 3;\n    do n--; while (n > 0);\n    do\n        n++;\n    while (n < 3);\n    local m = {\n        \"a\": 1\n    };\n\n    try { n = 1; } catch (e) { }\n    with (local z = nil) n = 2;\n    return n;\n}\nmain() {\n    if (true) f(1, []);\n}\n"
+
+const breatheOut = "f(x, v) {\n    local n = 0;\n\n    if (x) n++;\n\n    for (local i = 0; i < 3; i++) {\n        if (i == 1) continue;\n        n += i;\n\n        while (n > 10) n--;\n    }\n\n    // explains the switch\n    switch (x) {\n        case 1:\n            if (n) n = 0;\n            break;\n        default:\n            n = 1;\n\n            for (;;) break;\n    }\n\n    outer: for (local a in v) break outer;\n\n    if (n)\n        n = 1;\n    else if (x)\n        n = 2;\n    else\n        if (v) n = 3;\n\n    do n--; while (n > 0);\n\n    do\n        n++;\n    while (n < 3);\n    local m = {\n        \"a\": 1\n    };\n\n    try { n = 1; } catch (e) {}\n\n    with (local z = nil) n = 2;\n    return n;\n}\nmain() {\n    if (true) f(1, []);\n}\n"
 
 func TestRefused(t *testing.T) {
 	if _, err := Source("t.kkl", []byte("main() { x = ; }")); err == nil || !strings.Contains(err.Error(), "expected expression") {

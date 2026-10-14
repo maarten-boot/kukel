@@ -25,10 +25,10 @@ Lines::line(a, b = "") {
     return this;
 }
 
-class Plain : strings::Builder { }          // no constructor: the native one runs
+class Plain : strings::Builder {}          // no constructor: the native one runs
 
 class Broken : strings::Builder { Broken(); }
-Broken::Broken() { }                        // forgets strings::Builder::Builder(...)
+Broken::Broken() {}                        // forgets strings::Builder::Builder(...)
 
 class Stamp : time::Time { label; Stamp(label, y, m, d); describe(); }
 Stamp::Stamp(label, y, m, d) { time::Time::Time(y, m, d); this->label = label; }
@@ -46,6 +46,7 @@ main() {
     println(p->str(), p);
 
     local b = new Broken();
+
     try { b->add("z"); } catch (e) { println(e->kind + ":", e->message); }
 
     local s = new Stamp("release", 2026, 10, 14);

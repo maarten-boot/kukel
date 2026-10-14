@@ -6,6 +6,7 @@ class Res { name, fail; Res(name, fail); close(); }
 Res::Res(name, fail = false) { this->name = name; this->fail = fail; println("open", name); }
 Res::close() {
     println("close", name);
+
     if (fail) throw new Error("close of " + name + " failed", "IOError");
 }
 
@@ -23,6 +24,7 @@ main() {
     for (local i = 0; i < 3; i++) {
         with (local r = new Res("loop" + str(i))) {
             if (i == 0) continue;
+
             if (i == 2) break;
             println("body", i);
         }
@@ -35,16 +37,19 @@ main() {
     } catch (e) {
         println(e->kind + ":", e->message);       // the body's exception wins
     }
+
     try {
         with (local r = new Res("close only", true)) println("body ends normally");
     } catch (e) {
         println(e->kind + ":", e->message);       // the close failure comes out
     }
+
     try {
         with (local a = new Res("before"), b = fail()) println("never");
     } catch (e) {
         println(e->kind + ":", e->message);       // "before" was closed
     }
+
     try {
         with (local x = 42) println("the body runs; closing 42 fails");
     } catch (e) {

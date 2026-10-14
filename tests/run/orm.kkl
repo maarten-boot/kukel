@@ -29,6 +29,7 @@ main() {
     println("saved", pen->id);
     pen->price = 1.75;
     conn->save(pen);                       // an update
+
     for (local n in ["ink", "paper", "clip"]) {
         local i = new Item();
         i->name = n; i->price = len(n) * 1.0; i->instock = n != "ink";
@@ -37,6 +38,7 @@ main() {
 
     local cheap = conn->find(Item)->where("price < ?", 5)->orderby("name");
     println(cheap, cheap->count());
+
     for (local i in cheap->all()) println(i->id, i->name, i->price, i->instock);
     println(conn->find(Item)->where("instock")->where("name <> ?", "pen")->first()->name);
     println(conn->find(Item)->orderby("price DESC")->limit(2, 1)->all());
@@ -46,6 +48,7 @@ main() {
     println(conn->find(Item)->where("price > ?", 4)->delete(), conn->find(Item)->count());
 
     local t = new Tag();
+
     try { conn->save(t); } catch (e) { println(e->kind + ":", e->message); }
     t->id = "urgent"; t->label = "Urgent!";
     conn->save(t);

@@ -25,12 +25,14 @@ memoize(f) {
 
 map(v, f) {
     local out = [];
+
     for (local x in v) push(out, f(x));
     return out;
 }
 
 filter(v, keep) {
     local out = [];
+
     for (local x in v) if (keep(x)) push(out, x);
     return out;
 }
@@ -57,7 +59,9 @@ main() {
 
     // one closure per iteration, each with its own i
     local greeters = [];
+
     for (local i = 1; i <= 3; i++) push(greeters, fn(name) { return "#" + str(i) + " " + name; });
+
     for (local g in greeters) print(g("kukel"), "| ");
     println();
 }

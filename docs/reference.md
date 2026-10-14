@@ -48,7 +48,7 @@ hello, Kukel
 | `kukel exec prog.kkc [--] [args]` | Run a bytecode file (a first `--` is skipped). A module compiled on its own is not a program: `exec` and `disasm` refuse it |
 | `kukel disasm prog.kkc` or `kukel disasm a.kkl ...` | Show the bytecode in readable form |
 | `kukel repl [a.kkl ...]` | Read declarations and statements and run them as they come (see [The REPL](#the-repl)); with files, their declarations come first (`main` is not called) |
-| `kukel fmt [-w \| -l] a.kkl ...` | Format source files: indentation (4 spaces) and the spaces between tokens; line breaks and comments stay, at most one blank line in a row. Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`; `-w` and `-l` together are a usage error). A file with a syntax error or a NUL byte is left alone, and the exit code is 1 |
+| `kukel fmt [-w \| -l] a.kkl ...` | Format source files: indentation (4 spaces) and the spaces between tokens; line breaks and comments stay, at most one blank line in a row. A statement that starts with `if`, `while`, `do`, `for`, `switch`, `try` or `with` gets a blank line before it (above the comments right above it), except as the first statement of a block, after a label, as the statement of `else` or a header without braces, or as the `while` of a `do`. Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`; `-w` and `-l` together are a usage error). A file with a syntax error or a NUL byte is left alone, and the exit code is 1 |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | Show the tokens or the syntax tree of each file (for debugging; `-pos` adds positions) |
 | `kukel version` (also `-version`, `--version`) | Show the version, the bytecode format and the modules written in Go |
 | `kukel help` (also `-h`, `-help`, `--help`) | Show the commands |
@@ -441,6 +441,7 @@ area(w, h = w) { return w * h; }               // h is optional, its default may
 report(level, parts..) { println(level, parts..); } // parts: a vector of the rest
 sum(v) {
     local total = 0;
+
     for (local x in v) total += x;
     return total;
 }
@@ -483,6 +484,7 @@ main() {
     println(next());                // 3
 
     local fs = [];
+
     for (local i = 0; i < 3; i++) push(fs, fn() { return i; });
     println(fs[0](), fs[1](), fs[2]());   // 0 1 2: a new i for each iteration
 }
@@ -525,7 +527,7 @@ class Rect : Shape {
 Rect::Rect(w, h) { Shape::Shape("rect"); this->w = w; this->h = h; }
 Rect::area() { return w * h; }
 
-class Square : Rect { }     // no constructor: uses Rect's
+class Square : Rect {}     // no constructor: uses Rect's
 
 main() {
     local s = new Square(3, 3);
@@ -801,6 +803,7 @@ main() {
     local conn = db::open("sqlite::memory:");      // or "sqlite:shop.db"
     conn->exec("CREATE TABLE items (name TEXT, price REAL)");
     conn->exec("INSERT INTO items VALUES (?, ?)", "pen", 1.5);
+
     for (local row in conn->query("SELECT * FROM items WHERE price < ?", 10))
         println(row["name"], row["price"]);         // pen 1.5
     conn->close();
@@ -933,6 +936,7 @@ main() {
     tick = events::every(0.5, fn() {
         n++;
         println("tick", n);
+
         if (n == 3) tick->cancel();
     });
     events::after(1.2, println, "after 1.2 s");
@@ -994,6 +998,7 @@ use strings;
 
 main() {
     local b = new strings::Builder();
+
     for (local i = 0; i < 3; i++) b->add(i, ";");
     println(b->str(), b->len());            // 0;1;2; 6
 }

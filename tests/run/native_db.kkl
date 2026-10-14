@@ -10,6 +10,7 @@ main() {
 
     // Values always go in as parameters (?), never glued into the SQL text.
     local added = new time::Time(2026, 10, 14);
+
     for (local item in [["pen", 1.5, true], ["ink", 12, false], ["it's; DROP TABLE items", nil, true]])
         conn->exec("INSERT INTO items (name, price, instock, added) VALUES (?, ?, ?, ?)", item.., added);
     println("last id:", conn->lastid());
@@ -34,6 +35,7 @@ main() {
 
     // A cursor reads one row at a time.
     local c = conn->cursor("SELECT name FROM items WHERE instock ORDER BY name");
+
     for (local row = c->next(); row != nil; row = c->next()) println("in stock:", row["name"]);
 
     conn->close();

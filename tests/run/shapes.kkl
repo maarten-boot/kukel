@@ -44,11 +44,13 @@ Circle::larger(a, b) { return a->area() > b->area(); }
 
 main() {
     local shapes = [new Rect(2, 5), new Square(3), new Circle(2), new Circle(1)];
+
     for (local s in shapes) println(s->describe());
     println(Shape::count(), "shapes made");
 
     sort(shapes, Circle::larger);       // a static function as comparator
     local names = [];
+
     for (local s in shapes) push(names, s->name);
     println("largest first:", join(names, ", "));
 

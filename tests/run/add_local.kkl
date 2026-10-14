@@ -7,6 +7,8 @@ main() {
     y += (y = 1);            // reads y before the assignment: 10 + 1
     local z = 5; z += z++;   // 5 + 5
     println(x, s, f, y, z);
+
     try { v += 1; } catch (e) { println(e->kind + ":", e->message); }
+
     try { local q = nil; q += 1; } catch (e) { println(e->kind + ":", e->message); }
 }

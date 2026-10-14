@@ -5,7 +5,9 @@ global found = 0;
 
 isPrime(n) {
     local d;
+
     if (n < 2) return false;
+
     for (d = 2; d * d <= n; d++)
         if (n % d == 0) return false;
     return true;
@@ -22,9 +24,12 @@ main() {
 
     // the first number above 1000 whose digit sum is 20
     local n = 1000;
+
     while (true) {
         local sum = 0, m = n;
+
         do { sum += m % 10; m /= 10; } while (m > 0);
+
         if (sum == 20) break;
         n++;
     }

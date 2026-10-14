@@ -1,6 +1,9 @@
 // Package format formats Kukel source (kukel fmt): it re-indents lines and
 // normalizes the spaces between tokens. Line breaks and comments stay where
-// they are, and at most one blank line in a row is kept.
+// they are, and at most one blank line in a row is kept. A statement that
+// starts with if, while, do, for, switch, try or with gets a blank line
+// before it (breathing space), unless it starts a block or follows a label
+// (see breathe).
 //
 // The result is checked: read again, it must give the same tokens and
 // comments as the input, or Source refuses it (so formatting can never
@@ -79,6 +82,7 @@ type open struct {
 	kind      token.Kind // LBRACE, LPAREN or LBRACK
 	header    bool       // the "(" of if, while, for, switch, catch or with
 	line      int        // the source line it was opened on
+	hang      int        // the hanging levels of that line (if (...) under a for without braces)
 	isMap     bool       // a "{" of a map literal (not a block)
 	isSwitch  bool       // the "{" of a switch body
 	caseBlock bool       // a block opened on the line of a case label
@@ -102,6 +106,8 @@ type formatter struct {
 	lineHanging   int           // the hanging levels of the current line
 	lineCode      *token.Token  // the last token of the current line that is not a comment
 	ifs           map[int][]int // per bracket depth: the hanging levels of lines that start with if
+	doBody        bool          // the current line is the statement of a do without braces
+	doTail        bool          // the current line ended that statement: a while next is the do's
 }
 
 func layout(toks []token.Token, src []byte) []byte {
@@ -113,7 +119,7 @@ func layout(toks []token.Token, src []byte) []byte {
 			if i > 0 {
 				f.endLine(f.lineCode, f.lineHanging)
 				f.b.WriteByte('\n')
-				if t.Pos.Line-endLine >= 2 {
+				if t.Pos.Line-endLine >= 2 || f.breathe(toks, i) {
 					f.b.WriteByte('\n') // one blank line at most
 				}
 			}
@@ -133,6 +139,48 @@ func layout(toks []token.Token, src []byte) []byte {
 		f.b.WriteByte('\n')
 	}
 	return []byte(f.b.String())
+}
+
+// breathe tells whether the line that starts with toks[i] gets a blank
+// line before it: it starts a statement with if, while, do, for, switch, try
+// or with (maybe after a label), or it is a comment right above such a
+// statement. Not at the start of a block, after a label, as the statement
+// of a header without braces (else, for (...), ...), as the while of a do,
+// or inside an expression.
+func (f *formatter) breathe(toks []token.Token, i int) bool {
+	if top := f.top(); top != nil && (top.kind != token.LBRACE || top.isMap) {
+		return false // inside parentheses, brackets or a map literal
+	}
+	switch {
+	case f.lineCode == nil: // after a line of comments: the blank line went above them
+		return false
+	case f.lineCode.Kind == token.LBRACE || f.lineCode.Kind == token.COLON:
+		return false // the first statement of a block, or after a label
+	case f.hanging > 0:
+		return false // the statement of else, do, if (...), ... without braces
+	}
+	j := i
+	for j < len(toks) && toks[j].Kind == token.COMMENT { // comments right above it
+		end := toks[j].Pos.Line + strings.Count(toks[j].Text, "\n")
+		j++
+		if j < len(toks) && toks[j].Pos.Line > end+1 {
+			return false // a blank line between the comments and what follows
+		}
+	}
+	if j == len(toks) || j > i && toks[j-1].Pos.Line == toks[j].Pos.Line {
+		return false
+	}
+	t := toks[j]
+	if t.Kind == token.IDENT && j+2 < len(toks) && toks[j+1].Kind == token.COLON && toks[j+2].Pos.Line == t.Pos.Line {
+		t = toks[j+2] // a label: outer: for (...)
+	}
+	switch t.Kind {
+	case token.WHILE:
+		return !f.doTail
+	case token.IF, token.DO, token.FOR, token.SWITCH, token.TRY, token.WITH:
+		return true
+	}
+	return false
 }
 
 // startLine writes the indentation of a line that starts with rest[0].
@@ -160,7 +208,7 @@ func (f *formatter) startLine(rest []token.Token) {
 	level, lastLine := 0, -1
 	for i, o := range entries {
 		if o.line != lastLine { // brackets opened on one line count once
-			level++
+			level += 1 + o.hang
 		}
 		lastLine = o.line
 		// The statements under a case label are one level deeper than the
@@ -175,6 +223,9 @@ func (f *formatter) startLine(rest []token.Token) {
 	hanging := f.hanging
 	if t.Kind == token.LBRACE {
 		hanging = 0
+	}
+	if n < len(f.stack) && (len(entries) == 0 || f.stack[n].line != entries[len(entries)-1].line) {
+		hanging = f.stack[n].hang // a closing bracket lines up with the line that opened it
 	}
 	// An else on its own line lines up with its if: the last if that
 	// started a line at this depth.
@@ -193,6 +244,7 @@ func (f *formatter) startLine(rest []token.Token) {
 	}
 	f.lineHanging = hanging
 	f.hanging = 0
+	f.doTail, f.doBody = f.doBody, false
 	f.b.WriteString(strings.Repeat(Indent, level+hanging))
 }
 
@@ -204,6 +256,9 @@ func (f *formatter) endLine(t *token.Token, wasHanging int) {
 		f.hanging = wasHanging
 	case t.Kind == token.ELSE || t.Kind == token.DO || t.Kind == token.RPAREN && f.closedHeader:
 		f.hanging = wasHanging + 1
+	}
+	if t != nil && t.Kind == token.DO {
+		f.doBody = true // the next line is its statement; a while after that is the do's
 	}
 }
 
@@ -297,7 +352,7 @@ func (f *formatter) after(t *token.Token) {
 	case token.SWITCH:
 		f.switchAt = len(f.stack)
 	case token.LPAREN, token.LBRACK:
-		o := &open{kind: t.Kind, line: t.Pos.Line}
+		o := &open{kind: t.Kind, line: t.Pos.Line, hang: f.lineHanging}
 		if t.Kind == token.LPAREN && f.last != nil {
 			switch f.last.Kind {
 			case token.IF, token.WHILE, token.FOR, token.SWITCH, token.CATCH, token.WITH:
@@ -306,7 +361,7 @@ func (f *formatter) after(t *token.Token) {
 		}
 		f.stack = append(f.stack, o)
 	case token.LBRACE:
-		o := &open{kind: t.Kind, line: t.Pos.Line, isMap: f.mapBrace()}
+		o := &open{kind: t.Kind, line: t.Pos.Line, hang: f.lineHanging, isMap: f.mapBrace()}
 		if f.switchAt == len(f.stack) && !o.isMap {
 			o.isSwitch, f.switchAt = true, -1
 		} else if top := f.top(); !o.isMap && top != nil && top.isSwitch && f.lineHead != nil &&

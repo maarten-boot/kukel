@@ -21,6 +21,7 @@ Square::area() { return side * side; }
 main(args) {
     local shapes = [new Circle(1), new Square(3), new Circle(2)];
     sort(shapes, fn(a, b) { return a->area() < b->area(); });
+
     for (local s in shapes) println(s->describe());
 
     try {
@@ -89,7 +90,7 @@ make install    # install kukel into $(go env GOPATH)/bin
 | `kukel build -module [-o m.kkc] m.kkl` | compile a module on its own; `use m;` finds `m.kkc` when there is no `m.kkl` |
 | `kukel exec prog.kkc [--] [args]` | run a bytecode file |
 | `kukel disasm prog.kkc` (or `a.kkl ...`) | show the bytecode |
-| `kukel fmt [-w \| -l] a.kkl ...` | format source files (indentation and spacing) |
+| `kukel fmt [-w \| -l] a.kkl ...` | format source files (indentation, spacing, a blank line before `if`, `for`, ...) |
 | `kukel repl [a.kkl ...]` | read declarations and statements and run them as they come |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | show the tokens or the syntax tree |
 | `kukel version` | show the version and the modules written in Go |
@@ -142,7 +143,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/value`, `internal/builtins` | values with their operators, built-in functions |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q52). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q53). Ideas for later are in [docs/future.md](docs/future.md).
 
 ## Development
 
