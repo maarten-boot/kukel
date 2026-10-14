@@ -1,0 +1,12 @@
+saved 1
+db::Query("item" WHERE (price < ?) ORDER BY name) 3
+4 clip 4.0 true
+2 ink 3.0 false
+1 pen 1.75 true
+paper
+[Item{id: 4, name: "clip", price: 4.0, instock: true, added: nil}, Item{id: 2, name: "ink", price: 3.0, instock: false, added: nil}]
+pen 1.75 time::Time(2026-10-15T00:00:00Z) bool nil
+true false 3
+1 2
+ValueError: db::Conn::save: Tag->id is nil: set it before saving (the key is TEXT PRIMARY KEY, which the database does not fill in)
+[Tag{id: "urgent", label: "URGENT"}] [{"id": "urgent", "label": "URGENT"}]

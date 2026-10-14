@@ -99,11 +99,12 @@ func init() {
 		}
 		return "db::Cursor(open)"
 	}
+	ormInit()
 	native.Register(&native.Module{
 		Name:    "db",
-		Doc:     "SQL databases (SQLite)",
+		Doc:     "SQL databases (SQLite), and objects in tables",
 		Funcs:   map[string]native.Func{"open": open},
-		Classes: []*native.Class{Conn, Cursor},
+		Classes: []*native.Class{Conn, Cursor, Query},
 	})
 }
 
@@ -238,26 +239,42 @@ func params(a native.Args) (string, []any, error) {
 	}
 	ps := make([]any, len(a.V)-1)
 	for i, v := range a.V[1:] {
-		switch v.Kind() {
-		case value.Nil:
-			ps[i] = nil
-		case value.Bool:
-			ps[i] = v.AsBool()
-		case value.Int:
-			ps[i] = v.AsInt()
-		case value.Float:
-			ps[i] = v.AsFloat()
-		case value.String:
-			ps[i] = v.AsString()
-		default:
-			t, err := a.Object(i+1, timemod.Time)
-			if err != nil {
-				return "", nil, a.Errorf(value.TypeError, "argument %d cannot be stored in a database: %s (nil, booleans, numbers, strings and time::Time can)", i+2, v.Kind())
-			}
-			ps[i] = t.(stdtime.Time)
+		p, ok := dbValue(v)
+		if !ok {
+			return "", nil, a.Errorf(value.TypeError, "argument %d cannot be stored in a database: %s (nil, booleans, numbers, strings and time::Time can)", i+2, kindOf(v))
 		}
+		ps[i] = p
 	}
 	return text, ps, nil
+}
+
+// dbValue turns a Kukel value into one for the database: nil (NULL),
+// booleans, ints, floats, strings and time::Time; ok is false for others.
+func dbValue(v value.Value) (p any, ok bool) {
+	switch v.Kind() {
+	case value.Nil:
+		return nil, true
+	case value.Bool:
+		return v.AsBool(), true
+	case value.Int:
+		return v.AsInt(), true
+	case value.Float:
+		return v.AsFloat(), true
+	case value.String:
+		return v.AsString(), true
+	}
+	if timemod.Time.Is(v) {
+		return v.AsObject().State.(stdtime.Time), true
+	}
+	return nil, false
+}
+
+// kindOf names the kind of v for messages: its class for an object.
+func kindOf(v value.Value) string {
+	if v.Kind() == value.Object {
+		return v.AsObject().Class.Name
+	}
+	return v.Kind().String()
 }
 
 // conn->exec(sql, args...): runs a statement that gives no rows (INSERT,

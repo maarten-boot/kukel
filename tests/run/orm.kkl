@@ -1,0 +1,55 @@
+// The object mapping of module db: classes stored as tables by convention
+// (data members are columns, id the primary key), with columns() for SQL
+// types and table() for another table name; save, get, find and delete.
+use db;
+use time;
+
+class Item {
+    id, name, price, instock, added;
+    static columns();
+}
+Item::columns() {
+    return {"name": "TEXT NOT NULL", "price": "REAL", "instock": "BOOLEAN", "added": "DATETIME"};
+}
+
+class Tag { id, label; static columns(); static table(); }
+Tag::columns() { return {"id": "TEXT PRIMARY KEY"}; }
+Tag::table() { return "tags"; }
+
+main() {
+    local conn = db::open("sqlite::memory:");
+    conn->migrate(Item);
+    conn->migrate(Item);                   // nothing more to do
+    conn->migrate(Tag);
+
+    local pen = new Item();
+    pen->name = "pen"; pen->price = 1.5; pen->instock = true;
+    pen->added = new time::Time(2026, 10, 15);
+    conn->save(pen);
+    println("saved", pen->id);
+    pen->price = 1.75;
+    conn->save(pen);                       // an update
+    for (local n in ["ink", "paper", "clip"]) {
+        local i = new Item();
+        i->name = n; i->price = len(n) * 1.0; i->instock = n != "ink";
+        conn->save(i);
+    }
+
+    local cheap = conn->find(Item)->where("price < ?", 5)->orderby("name");
+    println(cheap, cheap->count());
+    for (local i in cheap->all()) println(i->id, i->name, i->price, i->instock);
+    println(conn->find(Item)->where("instock")->where("name <> ?", "pen")->first()->name);
+    println(conn->find(Item)->orderby("price DESC")->limit(2, 1)->all());
+    local g = conn->get(Item, 1);
+    println(g->name, g->price, g->added, typeof(g->instock), conn->get(Item, 99));
+    println(conn->delete(pen), conn->delete(pen), conn->find(Item)->count());
+    println(conn->find(Item)->where("price > ?", 4)->delete(), conn->find(Item)->count());
+
+    local t = new Tag();
+    try { conn->save(t); } catch (e) { println(e->kind + ":", e->message); }
+    t->id = "urgent"; t->label = "Urgent!";
+    conn->save(t);
+    t->label = "URGENT";
+    conn->save(t);                         // the same key: an update
+    println(conn->find(Tag)->all(), conn->query("SELECT * FROM tags"));
+}

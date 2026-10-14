@@ -530,13 +530,20 @@ main() {
   existing tables are each a project of their own: later, if needed.
 
 *Plain SQL is done for SQLite (TODO.md Q44): the module `db` with `exec`,
-`query`, `first`, cursors and transactions. Still to come: PostgreSQL and
-MySQL, and the ORM.*
+`query`, `first`, cursors and transactions. The ORM is done too (Q52), as a
+data mapper rather than the sketch above: any class, no `db::Model` base;
+`conn->migrate(C)`, `save`, `get`, `delete`, and `conn->find(C)->where(...)
+->orderby(...)->limit(...)->all()`; see the language reference. Still to
+come: PostgreSQL and MySQL; relations; keys that the database or `kukel`
+generates other than integers (UUIDs).*
 
 **F-16** Which databases first (SQLite only, to start)?
 *Answered: SQLite first.*
 **F-17** How a class describes its table: conventions only, static data
 members, a `db::model(...)` call, or a new syntax?
+*Answered: conventions (data members are columns, `id` the key, the class
+name in lower case the table), with optional static member functions
+`columns()` and `table()`.*
 **F-18** Plain SQL only at first, with the ORM later on top?
 *Answered: yes; plain SQL is done, the ORM comes later on top.*
 

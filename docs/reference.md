@@ -846,6 +846,80 @@ items.name (2067)"`). A connection prints as `db::Conn(sqlite:shop.db)`, or
 from databases (and the files they are stored in) by leaving `db` out of
 `StandardModules`.
 
+**Objects in tables.** A connection can also store objects of Kukel classes,
+one row each, by convention: the data members are the columns of the
+class's table, `id` is the primary key, and the table is the class's name
+in lower case (`Item` is `item`; for `shop::Item` too). Two optional static
+member functions change that: `table()` gives another table name, and
+`columns()` gives columns their SQL types and constraints.
+
+```
+use db;
+
+class Item {
+    id, name, price, instock;
+    static columns();
+}
+Item::columns() { return {"name": "TEXT NOT NULL", "price": "REAL", "instock": "BOOLEAN"}; }
+
+main() {
+    local conn = db::open("sqlite::memory:");
+    conn->migrate(Item);                         // CREATE TABLE item (...)
+
+    local pen = new Item();
+    pen->name = "pen"; pen->price = 1.5; pen->instock = true;
+    conn->save(pen);                             // INSERT; sets pen->id
+    pen->price = 1.75;
+    conn->save(pen);                             // UPDATE
+    local ink = new Item();
+    ink->name = "ink"; ink->price = 3.0; ink->instock = false;
+    conn->save(ink);
+
+    for (local i in conn->find(Item)->where("price < ?", 5)->orderby("name")->all())
+        println(i->id, i->name, i->price, i->instock);   // 2 ink 3.0 false, then 1 pen 1.75 true
+    println(conn->get(Item, 1)->name, conn->find(Item)->count());   // pen 2
+    conn->delete(pen);
+}
+```
+
+| Member function | Description |
+|---|---|
+| `conn->migrate(C)` | Creates the table of class `C` if there is none: `id` (an `INTEGER PRIMARY KEY` unless `columns()` says otherwise), then the other data members, in order, with the types `columns()` gives (none for the others). For an existing table it adds a column for each data member the table lacks. It never drops or changes a column |
+| `conn->save(p)` | Stores object `p` and gives it. With `p->id` nil it inserts a row, and `p->id` gets the id the database chose; with an id it inserts the row, or updates the row that has that id. Each data member must be a value the database can store (`TypeError`) |
+| `conn->get(C, id)` | The object of class `C` stored with that id, or `nil` |
+| `conn->delete(p)` | Deletes the row of `p`; gives whether there was one |
+| `conn->find(C)` | A `db::Query` for all objects of class `C` |
+| `q->where(sql, args...)` | A query for the rows that also meet the SQL condition (`"price < ?"`); each `?` takes the next argument |
+| `q->orderby(sql)` | A query that sorts by the SQL text (`"name"`, `"price DESC, name"`) |
+| `q->limit(n [, offset])` | A query for at most `n` rows, after skipping `offset` |
+| `q->all()`, `q->first()` | The objects the query finds (a vector), or the first one (or `nil`) |
+| `q->count()` | How many rows it finds |
+| `q->delete()` | Deletes the rows `where` selects; gives how many (`orderby` and `limit` are a `ValueError` here) |
+
+- An object loaded from a table is made without running the constructor;
+  its data members get the columns of the same names (columns the class
+  does not have are left out, data members the table lacks stay `nil`).
+  Values come back as for `query`: a column declared `BOOLEAN` gives
+  booleans, one declared `DATETIME` (or `DATE`, `TIMESTAMP`) gives
+  `time::Time` values; `columns()` is where to declare them.
+- A key of another type: `columns()` returning `{"id": "TEXT PRIMARY
+  KEY"}` makes the program choose the keys (a name, a UUID it makes):
+  `p->id` must be set before the first `save` (`ValueError` otherwise).
+- `save` and the others take part in a transaction (`begin`). An insert
+  that is rolled back leaves `p->id` set: saving `p` again stores it under
+  that id.
+- `where` and `orderby` take SQL text: put values in with `?`, never by
+  joining strings. A query is never changed by its member functions (they
+  give new queries), so it can be refined in several ways and reused.
+- A class needs a data member `id` (`ValueError`); `table()` must give a
+  name of letters, digits and `_`, and `columns()` a map from data members
+  to strings. A class derived from another maps to its own table, with
+  the inherited data members. Classes written in Go cannot be stored.
+- Relations between classes (an order's lines), and migrations that
+  rename or drop columns, are the program's own SQL for now.
+- A query prints as its SQL: `db::Query("item" WHERE (price < ?) ORDER BY
+  name)`.
+
 ### events
 
 An event loop: it calls Kukel functions when timers expire, when calls are
