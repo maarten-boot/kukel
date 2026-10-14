@@ -64,3 +64,54 @@ const mainOfMapping = `main() {
     conn->close();
     try { q->all(); } catch (e) { println(e->kind + ":", e->message); }
 }`
+
+// Relations: include() asks in parts of 500 values; relations() is checked.
+func TestRelations(t *testing.T) {
+	got := run(t, `use db;
+class Box { id, items; static relations(); }
+Box::relations() { return {"items": db::many(Item, "boxid")}; }
+class Item { id, boxid, box; static relations(); }
+Item::relations() { return {"box": db::one(Box, "boxid")}; }
+class NotMember { id; static relations(); }
+NotMember::relations() { return {"x": db::many(Item, "boxid")}; }
+class NoKey { id, items; static relations(); }
+NoKey::relations() { return {"items": db::many(Item, "nokey")}; }
+class Typed { id, items; static relations(); static columns(); }
+Typed::relations() { return {"items": db::many(Item, "boxid")}; }
+Typed::columns() { return {"items": "TEXT"}; }
+class NotRel { id, items; static relations(); }
+NotRel::relations() { return {"items": [Item, "boxid"]}; }
+main() {
+    local conn = db::open("sqlite::memory:");
+    conn->migrate(Box);
+    conn->migrate(Item);
+    println(conn->query("SELECT name FROM pragma_table_info('box')"));
+    conn->begin();
+    for (local i = 0; i < 1200; i++) {
+        local b = conn->save(new Box());
+        for (local j = 0; j < i % 3; j++) {
+            local it = new Item();
+            it->boxid = b->id;
+            conn->save(it);
+        }
+    }
+    conn->commit();
+    local total = 0, boxes = conn->find(Box)->include("items")->all();
+    for (local b in boxes) total += len(b->items);
+    local items = conn->find(Item)->include("box")->all(), right = 0;
+    for (local it in items) if (it->box->id == it->boxid) right++;
+    println(len(boxes), total, len(items), right);
+    for (local c in [NotMember, NoKey, Typed, NotRel])
+        try { conn->migrate(c); } catch (e) { println(e->kind + ":", e->message); }
+}`)
+	want := `[{"name": "id"}]
+1200 1200 1200 1200
+ValueError: db::Conn::migrate: NotMember::relations() names x, which is not a data member of NotMember
+ValueError: db::Conn::migrate: NoKey::relations(): items: Item has no data member nokey for the key (on the other side)
+ValueError: db::Conn::migrate: Typed::relations(): items is a column (the key, or named in columns()), not a relation
+TypeError: db::Conn::migrate: NotRel::relations() must map names to db::many(...) or db::one(...): "items": [<class Item>, "boxid"]
+`
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}

@@ -905,9 +905,11 @@ main() {
 | `conn->get(C, id)` | The object of class `C` stored with that id, or `nil` |
 | `conn->delete(p)` | Deletes the row of `p`; gives whether there was one |
 | `conn->find(C)` | A `db::Query` for all objects of class `C` |
+| `conn->load(p, name, ...)` | Fills the relation members `name`, ... of `p` (below); gives `p` |
 | `q->where(sql, args...)` | A query for the rows that also meet the SQL condition (`"price < ?"`); each `?` takes the next argument |
 | `q->orderby(sql)` | A query that sorts by the SQL text (`"name"`, `"price DESC, name"`) |
 | `q->limit(n [, offset])` | A query for at most `n` rows, after skipping `offset` |
+| `q->include(name, ...)` | A query that also fills the relation members `name`, ... of the objects it finds: one more query per relation, not one per object |
 | `q->all()`, `q->first()` | The objects the query finds (a vector), or the first one (or `nil`) |
 | `q->count()` | How many rows it finds |
 | `q->delete()` | Deletes the rows `where` selects; gives how many (`orderby` and `limit` are a `ValueError` here) |
@@ -935,10 +937,74 @@ main() {
   name of letters, digits and `_`, and `columns()` a map from data members
   to strings. A class derived from another maps to its own table, with
   the inherited data members. Classes written in Go cannot be stored.
-- Relations between classes (an order's lines), and migrations that
-  rename or drop columns, are the program's own SQL for now.
+- On PostgreSQL and MySQL every column needs a type: `migrate` names a
+  data member that `columns()` gives none (SQLite takes any value in an
+  untyped column).
+- Migrations that rename or drop columns are the program's own SQL.
 - A query prints as its SQL: `db::Query("item" WHERE (price < ?) ORDER BY
   name)`.
+
+**Relations.** A key that points to another object is an ordinary data
+member that holds its id (`orderid`). A static member function
+`relations()` names the data members that hold related objects instead:
+`db::many(C, key)` for the objects of class `C` whose data member `key` holds
+this object's id, `db::one(C, key)` for the object of class `C` whose id this
+object's data member `key` holds.
+
+```
+use db;
+
+class Order { id, customerid, day, customer, lines; static relations(); }
+Order::relations() {
+    return {"customer": db::one(Customer, "customerid"), "lines": db::many(Line, "orderid")};
+}
+
+class Customer { id, name; }
+class Line { id, orderid, product, qty; }
+
+main() {
+    local conn = db::open("sqlite::memory:");
+
+    for (local c in [Customer, Order, Line]) conn->migrate(c);
+
+    local ann = new Customer();
+    ann->name = "Ann";
+    conn->save(ann);
+    local o = new Order();
+    o->customerid = ann->id; o->day = "mon";
+    conn->save(o);
+
+    for (local p in ["pen", "ink"]) {
+        local l = new Line();
+        l->orderid = o->id; l->product = p; l->qty = 1;
+        conn->save(l);
+    }
+
+    local back = conn->get(Order, o->id);
+    println(back->customer, back->lines);                 // nil nil: not loaded
+    conn->load(back, "customer", "lines");
+    println(back->customer->name, len(back->lines));      // Ann 2
+
+    for (local x in conn->find(Order)->include("customer", "lines")->all())
+        println(x->day, x->customer->name, x->lines[0]->product);   // mon Ann pen
+}
+```
+
+- Relation members are not columns: `migrate` makes no column for them,
+  and `save` stores the object only, not the related ones (save those
+  one by one, with their key set). They hold what `load` or `include` put
+  there: a vector of objects (`db::many`, in the order of their ids; empty
+  when there are none), or an object or `nil` (`db::one`).
+- Related objects are not loaded when they are read: a data member cannot
+  load on first use, so `load` and `include` say when. `include` loads the
+  related objects of all the results of a query with one query per
+  relation (`WHERE orderid IN (...)`, in parts of 500 values).
+- The key data member must exist on the right side, and a relation member
+  may not be named in `columns()` (`ValueError`). A foreign key constraint
+  is the program's choice, in `columns()`: `{"orderid": "BIGINT REFERENCES
+  \"order\"(id) ON DELETE CASCADE"}`.
+- `db::many` and `db::one` give a `db::Relation`, which prints as
+  `db::many(Line, "orderid")`.
 
 ### events
 

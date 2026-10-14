@@ -156,7 +156,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/value`, `internal/builtins` | values with their operators, built-in functions |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q55). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q56). Ideas for later are in [docs/future.md](docs/future.md).
 
 ## Development
 

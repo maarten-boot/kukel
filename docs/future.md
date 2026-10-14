@@ -529,14 +529,18 @@ main() {
   parameterized SQL.
 - Relations (`has many`, `belongs to`), lazy loading and migrations of
   existing tables are each a project of their own: later, if needed.
+  *(Relations are done, Q56: `db::many` is has-many, `db::one`
+  belongs-to; loading is explicit, since a data member cannot load
+  lazily.)*
 
 *Plain SQL is done for SQLite (TODO.md Q44): the module `db` with `exec`,
 `query`, `first`, cursors and transactions. The ORM is done too (Q52), as a
 data mapper rather than the sketch above: any class, no `db::Model` base;
 `conn->migrate(C)`, `save`, `get`, `delete`, and `conn->find(C)->where(...)
 ->orderby(...)->limit(...)->all()`; see the language reference. Still to
-come: relations; keys that the database or `kukel` generates other than
-integers (UUIDs). PostgreSQL and MySQL/MariaDB are done (Q54).*
+come: keys that the database or `kukel` generates other than integers
+(UUIDs). PostgreSQL and MySQL/MariaDB are done (Q54), and relations
+(`db::many`, `db::one`, `conn->load`, `query->include`; Q56).*
 
 **F-16** Which databases first (SQLite only, to start)?
 *Answered: SQLite first; PostgreSQL and MySQL/MariaDB followed (Q54).*

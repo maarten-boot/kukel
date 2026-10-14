@@ -107,8 +107,8 @@ func init() {
 	native.Register(&native.Module{
 		Name:    "db",
 		Doc:     "SQL databases (" + strings.Join(Kinds(), ", ") + "), and objects in tables",
-		Funcs:   map[string]native.Func{"open": open},
-		Classes: []*native.Class{Conn, Cursor, Query},
+		Funcs:   map[string]native.Func{"open": open, "many": relationFunc(true), "one": relationFunc(false)},
+		Classes: []*native.Class{Conn, Cursor, Query, Relation},
 	})
 }
 

@@ -12,12 +12,25 @@ Item::columns() {
     return {"name": "VARCHAR(100) NOT NULL", "price": "DOUBLE PRECISION", "instock": "BOOLEAN", "added": "TIMESTAMP"};
 }
 
+class Customer { id, name, orders; static relations(); static columns(); }
+Customer::columns() { return {"name": "VARCHAR(20)"}; }
+Customer::relations() { return {"orders": db::many(Order, "customerid")}; }
+
+class Order { id, customerid, day, customer, lines; static relations(); static columns(); }
+Order::relations() {
+    return {"customer": db::one(Customer, "customerid"), "lines": db::many(Line, "orderid")};
+}
+Order::columns() { return {"customerid": "BIGINT", "day": "VARCHAR(10)"}; }
+
+class Line { id, orderid, product, qty; static columns(); }
+Line::columns() { return {"orderid": "BIGINT", "product": "VARCHAR(20)", "qty": "INTEGER"}; }
+
 class Tag { id, label; static columns(); }
 Tag::columns() { return {"id": "VARCHAR(40) PRIMARY KEY", "label": "TEXT"}; }
 
 main(args) {
     local conn = db::open(args[0]);
-    for (local t in ["item", "tag", "plain"]) conn->exec("DROP TABLE IF EXISTS " + t);
+    for (local t in ["item", "tag", "plain", "line", "order", "customer"]) conn->exec("DROP TABLE IF EXISTS " + quoted(args[0], t));
 
     // plain SQL: parameters, types, a ? inside a string, transactions
     conn->exec("CREATE TABLE plain (id INTEGER PRIMARY KEY, word VARCHAR(20) UNIQUE, n INTEGER, x DOUBLE PRECISION, ok BOOLEAN)");
@@ -66,5 +79,33 @@ main(args) {
     t->label = "URGENT";
     conn->save(t);
     println(conn->find(Tag)->all());
+
+    // relations
+    for (local c in [Customer, Order, Line]) conn->migrate(c);
+    local ann = new Customer(), bob = new Customer();
+    ann->name = "Ann"; conn->save(ann);
+    bob->name = "Bob"; conn->save(bob);
+    for (local spec in [[ann, "mon", ["pen", 2, "ink", 1]], [ann, "tue", ["paper", 5]], [bob, "wed", []]]) {
+        local o = new Order();
+        o->customerid = spec[0]->id; o->day = spec[1];
+        conn->save(o);
+
+        for (local i = 0; i < len(spec[2]); i += 2) {
+            local l = new Line();
+            l->orderid = o->id; l->product = spec[2][i]; l->qty = spec[2][i + 1];
+            conn->save(l);
+        }
+    }
+
+    local o = conn->load(conn->get(Order, 1), "customer", "lines");
+    println(o->customer->name, len(o->lines), o->lines[0]->product, o->lines[1]->qty);
+
+    for (local x in conn->find(Order)->include("customer", "lines")->orderby("id")->all())
+        println(x->day, x->customer->name, len(x->lines));
+    local c = conn->find(Customer)->include("orders")->where("name = ?", "Ann")->first();
+    println(c->name, len(c->orders), c->orders[1]->day);
     conn->close();
 }
+
+// quoted quotes a table name for DROP TABLE: "order" is a keyword.
+quoted(url, name) { return find(url, "mysql:") == 0 ? "`" + name + "`" : "\"" + name + "\""; }

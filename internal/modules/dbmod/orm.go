@@ -29,6 +29,7 @@ func ormInit() {
 	Conn.Methods["delete"] = connMethod("delete", 1, 1, deleteObject)
 	Conn.Methods["get"] = connMethod("get", 2, 2, get)
 	Conn.Methods["find"] = connMethod("find", 1, 1, find)
+	Conn.Methods["load"] = connMethod("load", 2, -1, load)
 	Query.Methods = map[string]value.NativeMethod{
 		"where": queryMethod("where", 1, -1, func(a native.Args, env value.Env, q *finder) (value.Value, error) {
 			text, err := a.String(0)
@@ -67,8 +68,22 @@ func ormInit() {
 			r.limit, r.offset = n, off
 			return Query.Object(r), nil
 		}),
+		"include": queryMethod("include", 1, -1, func(a native.Args, env value.Env, q *finder) (value.Value, error) {
+			r := q.copy()
+			for i := range a.V {
+				name, err := a.String(i)
+				if err != nil {
+					return value.NilValue, err
+				}
+				if q.model.rels[name] == nil {
+					return value.NilValue, a.Errorf(value.ValueError, "class %s has no relation %s (relations() names them)", q.model.class.Name, name)
+				}
+				r.include = append(r.include, name)
+			}
+			return Query.Object(r), nil
+		}),
 		"all": queryMethod("all", 0, 0, func(a native.Args, env value.Env, q *finder) (value.Value, error) {
-			objs, err := q.objects(a, env, q.selectSQL())
+			objs, err := q.load(a, env)
 			if err != nil {
 				return value.NilValue, err
 			}
@@ -77,7 +92,7 @@ func ormInit() {
 		"first": queryMethod("first", 0, 0, func(a native.Args, env value.Env, q *finder) (value.Value, error) {
 			r := q.copy()
 			r.limit = 1
-			objs, err := r.objects(a, env, r.selectSQL())
+			objs, err := r.load(a, env)
 			if err != nil || len(objs) == 0 {
 				return value.NilValue, err
 			}
@@ -112,8 +127,21 @@ type model struct {
 	conn    *conn
 	class   *value.ClassObj
 	table   string
-	types   map[string]string // the SQL type of each column ("" for none)
-	autoKey bool              // the database fills in id (an INTEGER PRIMARY KEY, AUTO_INCREMENT, IDENTITY, ...)
+	types   map[string]string    // the SQL type of each column ("" for none)
+	autoKey bool                 // the database fills in id (an INTEGER PRIMARY KEY, AUTO_INCREMENT, IDENTITY, ...)
+	rels    map[string]*relation // relation members (relations()): not columns
+}
+
+// columns are the data members stored in the table: all but the relation
+// members, in order.
+func (m *model) columns() []string {
+	var cols []string
+	for _, f := range m.class.FieldNames {
+		if m.rels[f] == nil {
+			cols = append(cols, f)
+		}
+	}
+	return cols
 }
 
 // modelOf finds the mapping of class k, asking its table() and columns().
@@ -156,6 +184,9 @@ func modelOf(a native.Args, env value.Env, c *conn, k *value.ClassObj) (*model, 
 		if bad != nil {
 			return nil, bad
 		}
+	}
+	if err := m.readRelations(a, env); err != nil {
+		return nil, err
 	}
 	key := strings.ToUpper(strings.Join(strings.Fields(m.types["id"]), " "))
 	m.autoKey = key == strings.ToUpper(c.keyType()) || strings.Contains(key, "AUTO_INCREMENT") ||
@@ -212,7 +243,8 @@ func sqlArgs(a native.Args, text string, args []value.Value) native.Args {
 func (m *model) columnValues(a native.Args, obj *value.ObjectObj) ([]string, []value.Value, error) {
 	var cols []string
 	var vals []value.Value
-	for i, f := range m.class.FieldNames {
+	for _, f := range m.columns() {
+		i := m.class.FieldIndex[f]
 		if f == "id" {
 			continue
 		}
@@ -249,9 +281,16 @@ func migrate(a native.Args, env value.Env, c *conn) (value.Value, error) {
 		have[firstValue(r).AsString()] = true
 	}
 	column := func(f string) string { return strings.TrimSpace(m.quote(f) + " " + m.types[f]) }
+	if c.dialect != sqlite { // SQLite takes columns without a type, the servers do not
+		for _, f := range m.columns() {
+			if m.types[f] == "" && !have[f] {
+				return value.NilValue, a.Errorf(value.ValueError, "%s->%s needs an SQL type in %s::columns() (%s columns have one)", k.Name, f, k.Name, dialectNames[c.dialect])
+			}
+		}
+	}
 	if len(have) == 0 {
 		defs := []string{column("id")}
-		for _, f := range m.class.FieldNames {
+		for _, f := range m.columns() {
 			if f != "id" {
 				defs = append(defs, column(f))
 			}
@@ -259,7 +298,7 @@ func migrate(a native.Args, env value.Env, c *conn) (value.Value, error) {
 		_, err := exec(sqlArgs(a, "CREATE TABLE "+m.quote(m.table)+" ("+strings.Join(defs, ", ")+")", nil), env, c)
 		return value.NilValue, err
 	}
-	for _, f := range m.class.FieldNames {
+	for _, f := range m.columns() {
 		if !have[f] {
 			if _, err := exec(sqlArgs(a, "ALTER TABLE "+m.quote(m.table)+" ADD COLUMN "+column(f), nil), env, c); err != nil {
 				return value.NilValue, err
@@ -416,12 +455,28 @@ type finder struct {
 	args          []value.Value // the values for their ?
 	order         string        // SQL after ORDER BY, or ""
 	limit, offset int64         // limit -1: none
+	include       []string      // relation members to fill (include())
+}
+
+// load runs the query and fills the relation members include() names.
+func (q *finder) load(a native.Args, env value.Env) ([]value.Value, error) {
+	objs, err := q.objects(a, env, q.selectSQL())
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range q.include {
+		if err := q.model.fill(a, env, objs, name); err != nil {
+			return nil, err
+		}
+	}
+	return objs, nil
 }
 
 func (q *finder) copy() *finder {
 	r := *q
 	r.wheres = append([]string(nil), q.wheres...)
 	r.args = append([]value.Value(nil), q.args...)
+	r.include = append([]string(nil), q.include...)
 	return &r
 }
 
@@ -520,4 +575,177 @@ func firstValue(row value.Value) value.Value {
 		}
 	})
 	return first
+}
+
+// ----------------------------------------------------------------------
+// Relations
+
+// relation is a relation member of a class: many objects of another class
+// whose data member key holds this object's id (db::many), or the one
+// object of another class whose id this object's data member key holds
+// (db::one).
+type relation struct {
+	many  bool
+	class *value.ClassObj
+	key   string
+}
+
+// Relation is the class of what db::many and db::one give.
+var Relation = &native.Class{Name: "Relation", Show: func(o *value.ObjectObj) string {
+	r := o.State.(*relation)
+	kind := "one"
+	if r.many {
+		kind = "many"
+	}
+	return "db::" + kind + "(" + r.class.Name + ", \"" + r.key + "\")"
+}}
+
+// db::many(C, key) and db::one(C, key): relations, for relations().
+func relationFunc(many bool) native.Func {
+	name := "db::one"
+	if many {
+		name = "db::many"
+	}
+	return func(env value.Env, args []value.Value) (value.Value, error) {
+		a, err := native.Check(name, args, 2, 2)
+		if err != nil {
+			return value.NilValue, err
+		}
+		k, err := classArg(a, 0, false)
+		if err != nil {
+			return value.NilValue, err
+		}
+		key, err := a.String(1)
+		if err != nil {
+			return value.NilValue, err
+		}
+		return Relation.Object(&relation{many: many, class: k, key: key}), nil
+	}
+}
+
+// readRelations reads the relations() of the model's class: a map from data
+// members to db::many(...) and db::one(...), checked against the classes.
+func (m *model) readRelations(a native.Args, env value.Env) error {
+	k := m.class
+	m.rels = map[string]*relation{}
+	v, ok, err := static(a, env, k, "relations")
+	if err != nil || !ok {
+		return err
+	}
+	if v.Kind() != value.Map {
+		return a.Errorf(value.TypeError, "%s::relations() must give a map from data members to db::many(...) and db::one(...), not %s", k.Name, kindOf(v))
+	}
+	var bad error
+	v.AsMap().Each(func(name, rv value.Value) {
+		if bad != nil {
+			return
+		}
+		if name.Kind() != value.String || !Relation.Is(rv) {
+			bad = a.Errorf(value.TypeError, "%s::relations() must map names to db::many(...) or db::one(...): %s: %s", k.Name, name.Repr(), rv.Repr())
+			return
+		}
+		r, member := rv.AsObject().State.(*relation), name.AsString()
+		owner, side := k, "this"
+		if r.many {
+			owner, side = r.class, "the other"
+		}
+		_, isMember := k.FieldIndex[member]
+		_, hasKey := owner.FieldIndex[r.key]
+		_, typed := m.types[member]
+		switch {
+		case !isMember:
+			bad = a.Errorf(value.ValueError, "%s::relations() names %s, which is not a data member of %s", k.Name, member, k.Name)
+		case member == "id" || typed:
+			bad = a.Errorf(value.ValueError, "%s::relations(): %s is a column (the key, or named in columns()), not a relation", k.Name, member)
+		case !hasKey || r.key == "id":
+			bad = a.Errorf(value.ValueError, "%s::relations(): %s: %s has no data member %s for the key (on %s side)", k.Name, member, owner.Name, r.key, side)
+		}
+		m.rels[member] = r
+	})
+	return bad
+}
+
+// fill sets relation member name of each of objs (objects of the model's
+// class): one query for all of them (WHERE ... IN (...), in parts).
+func (m *model) fill(a native.Args, env value.Env, objs []value.Value, name string) error {
+	r := m.rels[name]
+	if r == nil {
+		return a.Errorf(value.ValueError, "class %s has no relation %s (relations() names them)", m.class.Name, name)
+	}
+	other, err := modelOf(a, env, m.conn, r.class)
+	if err != nil {
+		return err
+	}
+	slot := m.class.FieldIndex[name]
+	// The values to look for: the objects' ids (many), or their keys (one).
+	from := "id"
+	if !r.many {
+		from = r.key
+	}
+	var keys []value.Value
+	seen := map[string]bool{}
+	for _, o := range objs {
+		k := o.AsObject().Fields[m.class.FieldIndex[from]]
+		if !k.IsNil() && !seen[k.Repr()] {
+			seen[k.Repr()] = true
+			keys = append(keys, k)
+		}
+	}
+	// The other objects, by the value that links them.
+	by := "id"
+	if r.many {
+		by = r.key
+	}
+	found := map[string][]value.Value{}
+	const part = 500 // values per query (the databases limit the number of parameters)
+	for i := 0; i < len(keys); i += part {
+		chunk := keys[i:min(i+part, len(keys))]
+		q := &finder{conn: m.conn, model: other, limit: -1, args: chunk,
+			wheres: []string{other.quote(by) + " IN (" + marks(len(chunk)) + ")"}}
+		if r.many {
+			q.order = other.quote("id")
+		}
+		got, err := q.objects(a, env, q.selectSQL())
+		if err != nil {
+			return err
+		}
+		for _, g := range got {
+			k := g.AsObject().Fields[other.class.FieldIndex[by]].Repr()
+			found[k] = append(found[k], g)
+		}
+	}
+	for _, o := range objs {
+		obj := o.AsObject()
+		k := obj.Fields[m.class.FieldIndex[from]]
+		switch {
+		case r.many:
+			obj.Fields[slot] = value.MakeVector(append([]value.Value{}, found[k.Repr()]...))
+		case !k.IsNil() && len(found[k.Repr()]) > 0:
+			obj.Fields[slot] = found[k.Repr()][0]
+		default:
+			obj.Fields[slot] = value.NilValue
+		}
+	}
+	return nil
+}
+
+// conn->load(p, name, ...): fills the relation members of object p.
+func load(a native.Args, env value.Env, c *conn) (value.Value, error) {
+	if a.V[0].Kind() != value.Object {
+		return value.NilValue, a.TypeError(0, "an object")
+	}
+	m, err := modelOf(a, env, c, a.V[0].AsObject().Class)
+	if err != nil {
+		return value.NilValue, err
+	}
+	for i := 1; i < len(a.V); i++ {
+		name, err := a.String(i)
+		if err != nil {
+			return value.NilValue, err
+		}
+		if err := m.fill(a, env, []value.Value{a.V[0]}, name); err != nil {
+			return value.NilValue, err
+		}
+	}
+	return a.V[0], nil
 }
