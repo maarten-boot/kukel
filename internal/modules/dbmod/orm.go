@@ -359,19 +359,39 @@ func save(a native.Args, env value.Env, c *conn) (value.Value, error) {
 		return value.NilValue, a.Errorf(value.TypeError, "%s->id cannot be stored in a database: %s", m.class.Name, kindOf(id))
 	}
 	text := "INSERT INTO " + m.quote(m.table) + " (" + m.names(append([]string{"id"}, cols...)) + ") VALUES (" + marks(len(cols)+1) + ")"
+	if c.dialect == mysqlDB {
+		// MySQL's ON DUPLICATE KEY UPDATE fires on any unique key, so it
+		// could change another row: update the row with this id, else
+		// insert it (the connection counts the rows an UPDATE finds).
+		found := value.MakeInt(0)
+		var err error
+		if len(cols) > 0 {
+			var sets []string
+			for _, col := range cols {
+				sets = append(sets, m.quote(col)+" = ?")
+			}
+			found, err = exec(sqlArgs(a, "UPDATE "+m.quote(m.table)+" SET "+strings.Join(sets, ", ")+" WHERE "+m.quote("id")+" = ?", append(vals, id)), env, c)
+		} else {
+			found, err = first(sqlArgs(a, "SELECT COUNT(*) FROM "+m.quote(m.table)+" WHERE "+m.quote("id")+" = ?", []value.Value{id}), env, c)
+			if err == nil {
+				found = firstValue(found)
+			}
+		}
+		if err != nil {
+			return value.NilValue, err
+		}
+		if found.AsInt() == 0 {
+			if _, err := exec(sqlArgs(a, text, append([]value.Value{id}, vals...)), env, c); err != nil {
+				return value.NilValue, err
+			}
+		}
+		return a.V[0], nil
+	}
 	var sets []string
 	for _, col := range cols {
-		if c.dialect == mysqlDB {
-			sets = append(sets, m.quote(col)+" = VALUES("+m.quote(col)+")")
-		} else {
-			sets = append(sets, m.quote(col)+" = excluded."+m.quote(col))
-		}
+		sets = append(sets, m.quote(col)+" = excluded."+m.quote(col))
 	}
 	switch {
-	case c.dialect == mysqlDB && len(cols) == 0:
-		text += " ON DUPLICATE KEY UPDATE " + m.quote("id") + " = " + m.quote("id")
-	case c.dialect == mysqlDB:
-		text += " ON DUPLICATE KEY UPDATE " + strings.Join(sets, ", ")
 	case len(cols) == 0:
 		text += " ON CONFLICT (" + m.quote("id") + ") DO NOTHING"
 	default:

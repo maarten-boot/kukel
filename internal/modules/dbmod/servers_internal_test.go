@@ -12,8 +12,8 @@ func TestSourceOf(t *testing.T) {
 		{"sqlite::memory:", "sqlite", ":memory:?_pragma=foreign_keys(1)", "sqlite::memory:"},
 		{"postgres://u:pw@db.example:5433/shop?sslmode=disable", "pgx", "postgres://u:pw@db.example:5433/shop?sslmode=disable", "postgres://u:***@db.example:5433/shop?sslmode=disable"},
 		{"postgresql://db.example/shop", "pgx", "postgresql://db.example/shop", "postgresql://db.example/shop"},
-		{"mysql://u:pw@db.example/shop", "mysql", "u:pw@tcp(db.example:3306)/shop?parseTime=true", "mysql://u:***@db.example/shop"},
-		{"mysql://u:pw@db.example:3307/shop?tls=true", "mysql", "u:pw@tcp(db.example:3307)/shop?parseTime=true&tls=true", "mysql://u:***@db.example:3307/shop?tls=true"},
+		{"mysql://u:pw@db.example/shop", "mysql", "u:pw@tcp(db.example:3306)/shop?clientFoundRows=true&parseTime=true", "mysql://u:***@db.example/shop"},
+		{"mysql://u:pw@db.example:3307/shop?tls=true", "mysql", "u:pw@tcp(db.example:3307)/shop?clientFoundRows=true&parseTime=true&tls=true", "mysql://u:***@db.example:3307/shop?tls=true"},
 	}
 	for _, tc := range tests {
 		s, err := sourceOf(tc.url)

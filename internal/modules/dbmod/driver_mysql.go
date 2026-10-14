@@ -25,7 +25,8 @@ func dsnOfMySQL(p *url.URL) string {
 		c.Addr = net.JoinHostPort(p.Hostname(), "3306")
 	}
 	c.DBName = strings.TrimPrefix(p.Path, "/")
-	c.ParseTime = true // DATETIME and TIMESTAMP give times
+	c.ParseTime = true       // DATETIME and TIMESTAMP give times
+	c.ClientFoundRows = true // an UPDATE counts the rows it finds, as in SQLite and PostgreSQL
 	dsn := c.FormatDSN()
 	if p.RawQuery != "" { // options such as tls=true: the driver reads them
 		sep := "?"
