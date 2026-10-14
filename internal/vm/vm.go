@@ -854,6 +854,18 @@ func (vm *VM) step() error {
 	return nil
 }
 
+// addTo is ADD_LOCAL's general case: *v = *v + x. (Out of the loop of
+// run, which is faster with less code in it.)
+//
+//go:noinline
+func addTo(v *value.Value, x value.Value) error {
+	r, err := value.Arith(value.Add, *v, x)
+	if err == nil {
+		*v = r
+	}
+	return err
+}
+
 // bad reports bytecode that the verifier cannot rule out but that is wrong
 // at run time (a value of the wrong kind in a slot, for example).
 func bad(f *frame, what string) error {
@@ -1504,15 +1516,11 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 
 		case bytecode.OpAddLocal:
 			sp--
-			v, x := &stack[base+bytecode.ReadU16(code, ip)], stack[sp]
-			if v.Kind() == value.Int && x.Kind() == value.Int {
-				*v = value.MakeInt(v.AsInt() + x.AsInt())
-			} else {
-				r, e := value.Arith(value.Add, *v, x)
-				if e != nil {
-					return vm.fail(f, start, sp+1, e)
-				}
-				*v = r
+			v := &stack[base+bytecode.ReadU16(code, ip)]
+			if v.Kind() == value.Int && stack[sp].Kind() == value.Int {
+				*v = value.MakeInt(v.AsInt() + stack[sp].AsInt())
+			} else if e := addTo(v, stack[sp]); e != nil {
+				return vm.fail(f, start, sp+1, e)
 			}
 			ip += 2
 
