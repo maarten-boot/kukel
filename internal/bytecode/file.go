@@ -31,8 +31,16 @@ import (
 // uv n + constants (byte tag, then: int zigzag uv, float 8 bytes, string str),
 // uv n + line entries (uv pc, uv line).
 
+// MaxCodeSize and MaxStackDepth are the largest code size (bytes) and
+// MaxStack of one function a .kkc file can hold; the compiler refuses
+// bigger functions.
+const (
+	MaxCodeSize   = 1 << 24
+	MaxStackDepth = 1 << 20
+)
+
 // FormatVersion is the version of the .kkc format written by Encode.
-const FormatVersion = 3 // 2: milestone 12 superinstructions; 3: native modules (GlobalNative)
+const FormatVersion = 4 // 2: milestone 12 superinstructions; 3: native modules (GlobalNative); 4: THROW takes only Error objects (Kukel v0.4)
 
 const magic = "KUKL"
 
@@ -167,8 +175,8 @@ func (e *encoder) function(f *Function) error {
 // allocate absurd amounts of memory.
 const (
 	maxCount    = 1 << 16 // globals, classes, functions, members, constants, ...
-	maxCodeSize = 1 << 24 // bytes of code in one function
-	maxStack    = 1 << 20 // MaxStack of one function
+	maxCodeSize = MaxCodeSize
+	maxStack    = MaxStackDepth
 )
 
 // Decode reads a program written by Encode and verifies it (see Verify),

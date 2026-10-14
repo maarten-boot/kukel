@@ -101,9 +101,10 @@ func other(a native.Args) (stdtime.Time, error) {
 	return s.(stdtime.Time), nil
 }
 
-// new time::Time(year, month, day [, hour, minute, second [, zone]]): second
-// may have a fraction; zone is a name such as "Europe/Amsterdam", "Local"
-// or "UTC" (the default).
+// new time::Time(year, month, day [, hour [, minute [, second [, zone]]]]):
+// second may have a fraction; zone is a name such as "Europe/Amsterdam",
+// "Local" or "UTC" (the default). Parts out of range carry over; a time
+// beyond about 2.9e11 years from 1970 is a ValueError.
 func newTime(env value.Env, this *value.ObjectObj, args []value.Value) (value.Value, error) {
 	a, err := native.Check("time::Time::Time", args, 3, 7)
 	if err != nil {
@@ -128,6 +129,13 @@ func newTime(env value.Env, this *value.ObjectObj, args []value.Value) (value.Va
 		if loc, err = location(a, 6); err != nil {
 			return value.NilValue, err
 		}
+	}
+	// Roughly how far from 1970 the parts reach, as floats (which do not
+	// wrap around): Go's time.Date would wrap silently beyond int64.
+	approx := (float64(parts[0])-1970)*3.16e7 + float64(parts[1])*2.7e6 + float64(parts[2])*86400 +
+		float64(parts[3])*3600 + float64(parts[4])*60 + float64(sec)
+	if approx >= maxUnix || approx <= -maxUnix {
+		return value.NilValue, a.Errorf(value.ValueError, "the time is out of range (about 2.9e11 years from 1970)")
 	}
 	this.State = stdtime.Date(int(parts[0]), stdtime.Month(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]),
 		int(sec), int(nsec), loc)
@@ -236,8 +244,15 @@ func add(a native.Args, t stdtime.Time) (value.Value, error) {
 		return value.NilValue, err
 	}
 	// Through Unix seconds, not a Duration: those end at about 292 years.
+	if float64(t.Unix())+float64(sec) >= maxUnix || float64(t.Unix())+float64(sec) <= -maxUnix {
+		return value.NilValue, a.Errorf(value.ValueError, "the result is out of range (about 2.9e11 years from 1970)")
+	}
 	return Time.Object(stdtime.Unix(t.Unix()+sec, int64(t.Nanosecond())+nsec).In(t.Location())), nil
 }
+
+// maxUnix bounds the Unix seconds of a time (about 2.9e11 years): beyond
+// it the int64 arithmetic of Go's time package wraps around.
+const maxUnix = 9e18
 
 // t->sub(u): the seconds from u to t, as a float.
 func sub(a native.Args, t stdtime.Time) (value.Value, error) {
@@ -245,8 +260,9 @@ func sub(a native.Args, t stdtime.Time) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, err
 	}
-	// Not t.Sub(u): a Duration ends at about 292 years.
-	return value.MakeFloat(float64(t.Unix()-u.Unix()) + float64(t.Nanosecond()-u.Nanosecond())/1e9), nil
+	// Not t.Sub(u): a Duration ends at about 292 years; and the seconds are
+	// subtracted as floats, which cannot wrap around.
+	return value.MakeFloat(float64(t.Unix()) - float64(u.Unix()) + float64(t.Nanosecond()-u.Nanosecond())/1e9), nil
 }
 
 // t->inzone(zone): the same instant in another time zone.

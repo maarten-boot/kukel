@@ -31,6 +31,7 @@ var ruleCases = map[string]struct {
 			{"global print; main() {}", "print is a built-in function and cannot be redefined"},
 		},
 	},
+	"start": {elsewhere: "internal/parser TestErrors: \"nesting too deep\""},
 	"throw_statement": {
 		ok: []string{`class E : Error {} main() { local e = new E(); try { throw e; } catch (x) { throw new Error("again", "Mine"); } }`},
 		bad: [][2]string{

@@ -27,7 +27,11 @@ type Module struct {
 	used bool
 }
 
-// NewModule makes an empty module. name must be a Kukel identifier.
+// NewModule makes an empty module. name must be a Kukel identifier that is
+// not a keyword. NewModule, Func and Const panic on such programming
+// mistakes: a bad name, a nil function, a name used twice, a constant that
+// is not nil, a boolean, a number or a string, or an addition after the
+// module is in use.
 func NewModule(name string) *Module {
 	if !isIdent(name) {
 		panic("kukel: module name " + name + " is not an identifier")
@@ -130,8 +134,8 @@ type Frame struct {
 	Line int
 }
 
-// Error gives the kind and message; for an exception of the program also
-// the trace, one "  at f (file:line)" line per call.
+// Error gives the kind and message, then the trace if there is one (one
+// "  at f (file:line)" line per call).
 func (e *Error) Error() string {
 	if e.err != nil {
 		return e.err.Error()
@@ -149,7 +153,9 @@ func Errorf(kind, format string, args ...any) *Error {
 	return &Error{Kind: kind, Message: fmt.Sprintf(format, args...)}
 }
 
-// ExitError is what Call gives when the program calls exit(code).
+// ExitError is what Call, CallContext, CallValue and Global give when the
+// program calls exit(code) (Run gives the code instead). A Func may return
+// one to end the program as exit(code) does.
 type ExitError struct{ Code int }
 
 func (e *ExitError) Error() string { return fmt.Sprintf("the program called exit(%d)", e.Code) }

@@ -386,3 +386,39 @@ main() {}`, kukel.CompileOptions{Modules: []*kukel.Module{boom}})
 		t.Errorf("FromGo([]byte): %v %s", v, v.Kind())
 	}
 }
+
+// Fixes from the third cross-check.
+func TestCrossCheck3(t *testing.T) {
+	// A step limit during the initializers does not break the interpreter:
+	// the next call runs them again.
+	p := compile(t, `global g = spin(); spin() { for (local i = 0; i < 50; i++) {} return 1; } f() { return g; } main() {}`, kukel.CompileOptions{})
+	in := interp(t, p, kukel.Options{StepLimit: 30})
+	var ke *kukel.Error
+	if _, err := in.Call("f"); !errors.As(err, &ke) || ke.Kind != "StepLimitError" {
+		t.Fatalf("first call: %v", err)
+	}
+	in2 := interp(t, p, kukel.Options{StepLimit: 1000})
+	if r, err := in2.Call("f"); err != nil || r.String() != "1" {
+		t.Errorf("with a budget that fits: %v, %v", r, err)
+	}
+
+	// An Error with an empty kind gets the class name.
+	q := interp(t, compile(t, `class Oops : Error {} f() { local e = new Oops("m"); e->kind = ""; throw e; } main() {}`, kukel.CompileOptions{}), kukel.Options{})
+	if _, err := q.Call("f"); !errors.As(err, &ke) || ke.Kind != "Oops" || err.Error()[:7] != "Oops: m" {
+		t.Errorf("empty kind: %v", err)
+	}
+
+	// Named string and bool types.
+	type S string
+	type B bool
+	if v, err := kukel.FromGo(map[string]any{"s": S("x"), "b": B(true), "a": [2]int{1, 2}}); err != nil || v.String() != `{"a": [1, 2], "b": true, "s": "x"}` {
+		t.Errorf("FromGo: %v, %v", v, err)
+	}
+	// Keys 1 and "1" give the same Go key.
+	m := kukel.NewMap()
+	m.SetKey(kukel.Int(1), kukel.String("int"))
+	m.SetKey(kukel.String("1"), kukel.String("str"))
+	if _, err := m.ToGo(); err == nil || !strings.Contains(err.Error(), "give the same Go key") {
+		t.Errorf("ToGo of clashing keys: %v", err)
+	}
+}

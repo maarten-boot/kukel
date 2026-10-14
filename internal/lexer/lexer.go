@@ -237,7 +237,7 @@ func (l *Lexer) number(start token.Pos) (token.Token, error) {
 		f, err := strconv.ParseFloat(clean, 64)
 		switch {
 		case err != nil && math.IsInf(f, 0):
-			return token.Token{}, l.errorf(start, "Number too large")
+			return token.Token{}, l.errorf(start, "number too large")
 		case err != nil && !errors.Is(err, strconv.ErrRange): // underflow gives 0
 			return token.Token{}, l.errorf(start, "malformed number %q", text)
 		}

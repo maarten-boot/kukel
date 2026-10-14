@@ -1,6 +1,6 @@
 # Kukel: ideas for the future
 
-Ideas for after v0.1.0. Parts marked *Done* are built (v0.2, see the
+Ideas for after v0.1.0. Parts marked *Done* are built (as of v0.4, see the
 language reference and docs/embedding.md); for the rest, the Kukel code below
 shows how things *could* look and is not meant to run. Each idea lists open
 questions (**F-n**) to settle before it is built, in the same way the Q-list
@@ -98,6 +98,8 @@ when something happens". The VM runs one Kukel call at a time, so events must
 be queued and dispatched from one loop:
 
 ```
+use events;
+
 main() {
     events::every(1, fn() { println("tick"); });   // seconds
     sock->onMessage(fn(msg) { println("got", msg); });
@@ -389,6 +391,7 @@ ZeroMQ: request/reply, publish/subscribe, pipelines.
 
 ```
 use zmq;
+use json;
 
 main() {
     local server = new zmq::Socket("REP");
@@ -402,6 +405,7 @@ main() {
 
 ```
 use zmq;
+use events;
 
 main() {
     local sub = new zmq::Socket("SUB");
@@ -534,9 +538,9 @@ Each step is usable on its own and prepares the next:
 
 | Step | What | Needs | Status |
 |---|---|---|---|
-| 1 | Modules (`use`) from Kukel files and Go, native classes, `json` | — | done (Q35, Q36) |
+| 1 | Modules (`use`) from Kukel files and Go, native classes, `json` | — | done (Q35, Q36), except `.kkc` modules |
 | 2 | Public embedding API; several interpreters in one process | 1 | done (Q39) |
-| 3 | Event loop, timers; workers with messages | 1, 2 | done (Q37, Q38) |
+| 3 | Event loop, timers; workers with messages | 1 | done (Q37, Q38) |
 | 4 | ZeroMQ (blocking first, then events) | 1, 3 | |
 | 5 | SQL: plain queries, transactions (SQLite first) | 1 | |
 | 6 | Time type; then the ORM on top of SQL | 5 | time type done (Q36) |

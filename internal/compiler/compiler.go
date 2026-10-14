@@ -34,6 +34,7 @@ const (
 // removedBuiltins are built-in functions that were removed, with what to
 // write instead: an undefined name that is one of these gets that advice.
 var removedBuiltins = map[string]string{
+	"elseif": "write 'else if' (syntax version 5)",
 	"isnil":  "write x == nil",
 	"substr": "write slice(s, start, end) (end is not included: substr(s, i, n) is slice(s, i, i + n))",
 }
@@ -389,6 +390,9 @@ func (c *compiler) function(name string, pos token.Pos, params *ast.ParamList, c
 	c.emit(bytecode.OpReturnNil)
 
 	fs.fn.MaxStack = fs.maxDepth
+	if len(fs.fn.Code) > bytecode.MaxCodeSize || fs.fn.MaxStack > bytecode.MaxStackDepth {
+		c.errorf(pos, "function %s is too large (more than %d bytes of code or a stack deeper than %d)", name, bytecode.MaxCodeSize, bytecode.MaxStackDepth)
+	}
 	return fs.fn
 }
 
@@ -1041,11 +1045,6 @@ func (c *compiler) expr(e ast.Expr) {
 		c.patch(elseJumps, c.here())
 		c.expr(e.Else)
 		c.patch([]int{end}, c.here())
-	case *ast.CommaExpr:
-		for _, x := range e.List[:len(e.List)-1] {
-			c.exprDiscard(x)
-		}
-		c.expr(e.List[len(e.List)-1])
 	case *ast.AssignExpr:
 		c.assign(e, true)
 	case *ast.IncDecExpr:
@@ -1468,6 +1467,9 @@ func (c *compiler) incDec(e *ast.IncDecExpr, keep bool) {
 // freeTempSlot releases the most recent one.
 func (c *compiler) tempSlot() int {
 	fs := c.fs
+	if fs.nslots > maxIndex {
+		c.errorf(token.Pos{File: fs.fn.File, Line: fs.line}, "too many local variables in %s (more than %d)", fs.fn.FuncName, maxIndex+1)
+	}
 	slot := fs.nslots
 	fs.nslots++
 	if slot == len(fs.fn.SlotNames) {

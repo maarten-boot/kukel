@@ -76,8 +76,8 @@ main(args) {
     }
 
     try {
-        throw "multi
-line";
+        throw new Error("multi
+line");
     } catch (e) {
         p->x %= 1.5E-3 >> 2 ^ ~t;
     } finally {

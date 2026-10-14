@@ -135,8 +135,8 @@ type EmptyStmt struct {
 	Semi token.Pos
 }
 
-// IfStmt is "if (cond) then [else else]". "elseif (c) s" is parsed as
-// "else if (c) s": Else is then an *IfStmt.
+// IfStmt is "if (cond) then [else else]". In "else if (c) s", Else is
+// another *IfStmt.
 type IfStmt struct {
 	If   token.Pos
 	Cond Expr

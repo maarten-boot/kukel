@@ -190,30 +190,34 @@ sample.kkl:22:47  }         }
 sample.kkl:23:5   try       try
 sample.kkl:23:9   {         {
 sample.kkl:23:11  throw     throw
-sample.kkl:23:17  STRING    "multi\nline"  = "multi\nline"
-sample.kkl:24:6   ;         ;
-sample.kkl:24:8   }         }
-sample.kkl:24:10  catch     catch
-sample.kkl:24:16  (         (
-sample.kkl:24:17  IDENT     e
-sample.kkl:24:18  )         )
-sample.kkl:24:20  {         {
-sample.kkl:24:22  IDENT     p
-sample.kkl:24:23  ->        ->
-sample.kkl:24:25  IDENT     x
-sample.kkl:24:27  %=        %=
-sample.kkl:24:30  FLOAT     1.5E-3  = 0.0015
-sample.kkl:24:37  >>        >>
-sample.kkl:24:40  INT       2  = 2
-sample.kkl:24:42  ^         ^
-sample.kkl:24:44  ~         ~
-sample.kkl:24:45  IDENT     t
-sample.kkl:24:46  ;         ;
-sample.kkl:24:48  }         }
-sample.kkl:24:50  finally   finally
-sample.kkl:24:58  {         {
-sample.kkl:24:60  ;         ;
-sample.kkl:24:62  }         }
+sample.kkl:23:17  new       new
+sample.kkl:23:21  IDENT     Error
+sample.kkl:23:26  (         (
+sample.kkl:23:27  STRING    "multi\nline"  = "multi\nline"
+sample.kkl:24:6   )         )
+sample.kkl:24:7   ;         ;
+sample.kkl:24:9   }         }
+sample.kkl:24:11  catch     catch
+sample.kkl:24:17  (         (
+sample.kkl:24:18  IDENT     e
+sample.kkl:24:19  )         )
+sample.kkl:24:21  {         {
+sample.kkl:24:23  IDENT     p
+sample.kkl:24:24  ->        ->
+sample.kkl:24:26  IDENT     x
+sample.kkl:24:28  %=        %=
+sample.kkl:24:31  FLOAT     1.5E-3  = 0.0015
+sample.kkl:24:38  >>        >>
+sample.kkl:24:41  INT       2  = 2
+sample.kkl:24:43  ^         ^
+sample.kkl:24:45  ~         ~
+sample.kkl:24:46  IDENT     t
+sample.kkl:24:47  ;         ;
+sample.kkl:24:49  }         }
+sample.kkl:24:51  finally   finally
+sample.kkl:24:59  {         {
+sample.kkl:24:61  ;         ;
+sample.kkl:24:63  }         }
 sample.kkl:25:5   IDENT     a
 sample.kkl:25:7   -=        -=
 sample.kkl:25:10  IDENT     b

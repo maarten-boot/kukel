@@ -172,8 +172,8 @@ func (v Value) SetKey(key, val Value) error {
 // String gives v as Kukel's print and str() show it.
 func (v Value) String() string { return v.v.String() }
 
-// FromGo makes a Value of a Go value: nil, a bool, any integer or float
-// type, a string or []byte (a string), a Value, a slice (a vector) or a
+// FromGo makes a Value of a Go value: nil, any bool, integer, float or
+// string type, []byte (a string), a Value, a slice or array (a vector) or a
 // map with string keys (a map, keys in sorted order), also nested.
 func FromGo(x any) (Value, error) {
 	switch x := x.(type) {
@@ -208,6 +208,10 @@ func FromGo(x any) (Value, error) {
 		return Int(int64(u)), nil
 	case reflect.Float32, reflect.Float64:
 		return Float(r.Float()), nil
+	case reflect.String: // named string types
+		return String(r.String()), nil
+	case reflect.Bool:
+		return Bool(r.Bool()), nil
 	case reflect.Slice, reflect.Array:
 		elems := make([]Value, r.Len())
 		for i := range elems {
@@ -237,7 +241,8 @@ func FromGo(x any) (Value, error) {
 // ToGo gives v as a Go value: nil, bool, int64, float64, string, []any for
 // a vector and map[string]any for a map (keys as str() shows them), nested.
 // A function, class or object stays a Value. A vector or map that contains
-// itself is an error.
+// itself is an error, and so is a map with two keys that give the same Go
+// key (1 and "1").
 func (v Value) ToGo() (any, error) {
 	return toGo(v.v, map[any]bool{})
 }
@@ -274,6 +279,10 @@ func toGo(v value.Value, open map[any]bool) (any, error) {
 		var err error
 		v.AsMap().Each(func(k, e value.Value) {
 			if err == nil {
+				if _, dup := out[k.String()]; dup {
+					err = fmt.Errorf("kukel: ToGo of a map with keys %s and %s, which give the same Go key", k.Repr(), value.MakeString(k.String()).Repr())
+					return
+				}
 				out[k.String()], err = toGo(e, open)
 			}
 		})

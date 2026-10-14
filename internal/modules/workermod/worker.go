@@ -236,9 +236,9 @@ func (w *worker) failure() error {
 	var ve *value.Error
 	switch {
 	case errors.As(w.err, &re):
-		msg = re.Msg
-		if re.Kind != "" {
-			msg = re.Kind + ": " + msg
+		msg = re.Kind
+		if re.Msg != "" {
+			msg += ": " + re.Msg
 		}
 	case errors.As(w.err, &ve): // the result could not be copied
 		msg = ve.Kind + ": " + ve.Msg
@@ -303,6 +303,11 @@ func receive(a native.Args, env value.Env, q *queue, timeoutArg int) (value.Valu
 // onmessage makes the event loop of env call f(message) for every message
 // of q; the loop keeps running until q ends.
 func onmessage(a native.Args, env value.Env, q *queue, f value.Value) error {
+	switch f.Kind() {
+	case value.Function, value.Closure, value.Builtin, value.BoundMethod:
+	default:
+		return a.TypeError(0, "a function")
+	}
 	q.mu.Lock()
 	if q.callbacks {
 		q.mu.Unlock()
@@ -370,8 +375,9 @@ func init() {
 			w.inbox.close()
 			return value.NilValue, nil
 		}),
-		// wait(): waits until the worker ends and gives what its function
-		// returned; a worker that failed gives a WorkerError.
+		// wait(): waits until the worker ends and gives a copy of what its
+		// function returned (a new copy each time); a worker that failed
+		// gives a WorkerError.
 		"wait": method("wait", 0, 0, func(a native.Args, env value.Env, w *worker) (value.Value, error) {
 			select {
 			case <-w.done:
@@ -381,7 +387,7 @@ func init() {
 			if w.err != nil {
 				return value.NilValue, w.failure()
 			}
-			return w.result, nil
+			return copyMessage(a, w.result) // a new copy each time
 		}),
 		// done(): whether the worker has ended.
 		"done": method("done", 0, 0, func(a native.Args, env value.Env, w *worker) (value.Value, error) {
@@ -518,10 +524,7 @@ func load(a native.Args, config *native.Config, path string) (*bytecode.Program,
 		if err != nil {
 			return nil, a.Errorf(value.IOError, "%v", err)
 		}
-		prog, err := bytecode.Decode(data)
-		if err == nil {
-			err = bytecode.Verify(prog)
-		}
+		prog, err := bytecode.Decode(data) // Decode also verifies
 		if err != nil {
 			return nil, a.Errorf(value.ValueError, "%s: %v", path, err)
 		}

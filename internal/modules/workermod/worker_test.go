@@ -164,3 +164,25 @@ main() {
 		t.Errorf("got %q, want %q", out, want)
 	}
 }
+
+// Fixes from the third cross-check.
+func TestWorkerChecks3(t *testing.T) {
+	out, _ := run(t, `use worker;
+quiet() { throw new Error(nil, "K"); }
+gives() { return [1]; }
+idle() { worker::receive(); }
+main() {
+    try { worker::start(quiet)->wait(); } catch (e) { println(e->message); }   // no ": " after the kind
+    local g = worker::start(gives), a = g->wait();
+    push(a, 2);
+    println(g->wait());                                                         // a new copy each time
+    local w = worker::start(idle);
+    try { w->onmessage(5); } catch (e) { println(e->kind, e->message); }
+    w->stop();
+    w->wait();
+}`, 0)
+	want := "worker quiet failed: K\n[1]\nTypeError worker::Worker::onmessage: argument 1 must be a function, not int\n"
+	if out != want {
+		t.Errorf("got %q, want %q", out, want)
+	}
+}

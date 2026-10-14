@@ -54,7 +54,8 @@
    ====================================================================== *)
 
 start               = program ;
-                      (* The start symbol: a source file. *)
+                      (* The start symbol: a source file. Rule: expressions
+                         and statements nest at most 1000 levels deep. *)
 
 program             = { use_declaration } , { definition } ;
                       (* A source file. The files given to kukel form the
@@ -226,16 +227,16 @@ for_statement       = "for" , "(" , [ for_init ] , ";" ,
 
 for_init            = "local" , local_variable , { "," , local_variable }
                     | expression_list ;
-
-expression_list     = assignment , { "," , assignment } ;
-                      (* The comma operator, only here: evaluated left to
-                         right (for (i = 0, j = n; i < j; i++, j--)). *)
                       (* Locals declared here are visible in the test, the
                          update and the body, not after the loop. Each
                          iteration has its own copy of them (a closure made
                          in the body keeps that iteration's value); the copy
                          for the next iteration starts with the value at the
                          end of the previous one, before the update runs. *)
+
+expression_list     = assignment , { "," , assignment } ;
+                      (* The comma operator, only here: evaluated left to
+                         right (for (i = 0, j = n; i < j; i++, j--)). *)
 
 foreach_statement   = "for" , "(" , "local" , Identifier , [ "," , Identifier ] ,
                       "in" , expression , ")" , statement ;

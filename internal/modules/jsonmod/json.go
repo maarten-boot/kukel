@@ -43,6 +43,9 @@ func encode(env value.Env, args []value.Value) (value.Value, error) {
 		if e.indent, err = a.String(1); err != nil {
 			return value.NilValue, err
 		}
+		if strings.Trim(e.indent, " \t") != "" { // anything else would not be JSON
+			return value.NilValue, a.Errorf(value.ValueError, "the indent must be spaces and tabs, not %s", strconv.Quote(e.indent))
+		}
 	}
 	if err := e.value(args[0], 0); err != nil {
 		return value.NilValue, err

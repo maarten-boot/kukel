@@ -101,7 +101,7 @@ const (
 	// Exceptions.
 	OpTryPush // kind u16, handler u32: register a handler (kind 0: catch, 1: finally)
 	OpTryPop  // remove the innermost handler
-	OpThrow   // pop a value and throw it
+	OpThrow   // pop an Error object and throw it (anything else: throw a TypeError)
 	OpRethrow // pop a pending exception (from a finally handler) and throw it again
 
 	// Closures. A captured local lives in a cell held by its slot.

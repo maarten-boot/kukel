@@ -1,6 +1,6 @@
 # Kukel interpreter: plan and TODO
 
-Goal: a Go program that reads Kukel source (grammar: `syntax.ebnf`, now version 3),
+Goal: a Go program that reads Kukel source (grammar: `syntax.ebnf`, now version 5),
 tokenizes and parses it, compiles it to bytecode for a stack machine, stores
 that bytecode in a file, and executes it.
 
@@ -17,7 +17,7 @@ source files ──lexer──▶ tokens ──parser──▶ AST
 | Topic | Decision |
 |---|---|
 | Implementation language | Go (module, standard library only) |
-| Syntax | `syntax.ebnf` **version 2** (see §1b for the changes from version 1); version 3 added modules (Q35). No compatibility with version 1 is needed |
+| Syntax | `syntax.ebnf` **version 2** (see §1b for the changes from version 1); version 3 added modules (Q35), version 4 removed temporaries (Q40), version 5 removed `elseif` and the comma operator outside `for` (Q41). No compatibility with older versions is kept |
 | Parser | Hand-written lexer and recursive-descent parser (`syntax.lark` is a tested reference only) |
 | "Stored tokenized code" | Compile to a stack-machine bytecode image, saved as a binary `.kkc` file that runs without the source |
 | File extensions | Source `.kkl`, compiled bytecode `.kkc`, binary `kukel` |
@@ -78,7 +78,7 @@ source files ──lexer──▶ tokens ──parser──▶ AST
 - Q38 (decided 2026-10-13, F-8/F-9/F-10 of docs/future.md) Workers first (embedding in Go later): the native module `worker`; `worker::start(f, args..)` runs a top-level or static member function in a new VM of the same program (own globals; works with `.kkc`), `worker::startfile(path, args..)` compiles a `.kkl` (with its modules) or loads a `.kkc` and runs its `main(vector of args)`; messages are copies of plain data (nil, bools, numbers, strings, vectors, maps; shape, sharing and cycles kept; `nil` cannot be sent, it marks the end), queued without limit; blocking `receive([timeout])` and `onmessage(f)` through the event loop, on both sides; `w->stop()`, `w->wait()` (result copy, or a `WorkerError`), `w->done()`; `exit` in a worker ends that worker; workers may start workers, no limit; when main returns (`kukel run`/`exec`; embedding: `Interp.Close`), running workers are abandoned and their output dropped. New error kinds `CompileError`, `WorkerError`
 - Q39 (decided 2026-10-13, §2.1 of docs/future.md) Embedding: the public package is the repository root (`import "github.com/maarten-boot/kukel"`): `CompileFiles`, `CompileSource`, `LoadProgram`, `Program.Encode`; `New(prog, Options{Stdout, Stderr, Stdin, StepLimit})`; `Interp.Run`, `Call`, `CallValue`, `Global`, and `RunContext`/`CallContext` (cancellation through a Go context: a `CancelledError` the program cannot catch; waiting Go functions return at once; workers are cancelled too); `Value` with constructors, accessors and `FromGo`/`ToGo`. Go functions come in host modules (`NewModule(name).Func(...).Const(...)`, per program, `use app; app::f()`), errors map to exceptions (`Errorf(kind, ...)`, other errors `HostError`). Limits for untrusted code: a step budget per call from Go, `CompileOptions.DenyBuiltins` (`SystemBuiltins`: files, stdin, getenv, exit), `StandardModules` allow-list, `NoFileModules`; enforced by the compiler and again when a `.kkc` is linked; workers inherit them. No memory limit (documented). Internally a `native.Config` per program replaces the process-wide registry lookups. After the second cross-check: `Interp.Close` (cancels workers, closes output), contexts also for calls made from Go functions, a panic in a Go function is a `HostError`, a failed initializer fails every call, unknown names in the allow-lists are errors, `NoFileModules` also refuses `worker::startfile`
 - Q40 (decided 2026-10-14) Temporaries (`f(a; t, u)`, from the first syntax) are removed: with `local` they are redundant (a local declared at the start of the body is exactly a temporary). Syntax version 4; the parser reports the old form with the advice to declare them with `local`
-- Q41 (decided 2026-10-14) One way for each thing (Kukel v0.4, syntax version 5): `elseif` is removed (write `else if`; no longer a keyword); the comma operator only in the first and last part of a `for` loop; the built-ins `isnil` (write `x == nil`) and `substr` (write `slice`) are removed; only `Error` objects can be thrown (this replaces Q29's "any value": a literal that is not one is a compile error, another value a `TypeError`), so a caught `e` always has `kind` and `message`. The old forms get error messages that name the replacement. Kept on purpose: `++`/`--` next to `+=`, `#` comments, the `time()` built-in, and static member functions called through objects (`p->f()` picks the static of the object's class, which `C::f()` cannot)
+- Q41 (decided 2026-10-14) One way for each thing (Kukel v0.4, syntax version 5): `elseif` is removed (write `else if`; no longer a keyword); the comma operator only in the first and last part of a `for` loop; the built-ins `isnil` (write `x == nil`) and `substr` (write `slice`) are removed; only `Error` objects can be thrown (this replaces Q29's "any value": a literal that is not one is a compile error, another value a `TypeError`), so a caught `e` always has `kind` and `message`. The old forms get error messages that name the replacement. Bytecode format 4 (old `.kkc` files are refused, since `THROW` changed meaning). Kept on purpose: `++`/`--` next to `+=`, `#` comments, the `time()` built-in, and static member functions called through objects (`p->f()` picks the static of the object's class, which `C::f()` cannot)
 
 ## 1b. Syntax changes in version 2 (all adopted)
 
@@ -96,7 +96,7 @@ source files ──lexer──▶ tokens ──parser──▶ AST
 12. Binary literals `0b1010` and `_` digit separators (`1_000_000`, `0xFF_FF`)
 13. `'''` is an error; the quote character is `'\''`
 14. Map keys stay evaluated (`{name: 1}` uses the variable); documented in the EBNF and the language reference
-15. Function literals / closures: `fn (params; temps) { ... }`
+15. Function literals / closures: `fn (params; temps) { ... }` (temporaries removed in version 4, Q40)
 - New keywords: `const`, `fn`, `global`, `in`, `this`
 
 ---
@@ -163,13 +163,13 @@ source files ──lexer──▶ tokens ──parser──▶ AST
   - top level: class, function, member-function definitions, `global` and `const` declarations
   - class definition (no `;` after `}`), member declarations (`static`, data vs. function declarations, `..` in declared parameters, `=` in a declaration is an error)
   - function / member-function definitions with `parameter_part` (`params ; temporaries`, both optional; temporaries removed in syntax version 4, Q40)
-  - all statements; `elseif` desugars to `else if`
+  - all statements (`elseif` desugared to `else if` until syntax version 5 removed it, Q41)
   - a `{` at the start of a statement is always a block
   - labelled statement: IDENT followed by a `:` token **on the same line** (the lexer already separates `::`)
   - `case <constant expression at logical_or level>:` and `default:` are statements in their own right (they may appear nested, C style)
   - `for (` → after `local IDENT [, IDENT]` look ahead: `in` = for-each, otherwise a local list as for initializer
 - [x] Expressions: precedence climbing or one function per level, with this exact structure:
-  - comma < assignment (right associative) < `?:` (middle part = full expression, last part = assignment) < `||` < `&&` < `|` < `^` < `&` < equality < relational < shift < additive < multiplicative < unary < postfix < primary
+  - comma (only in a `for` loop's first and last part since Q41) < assignment (right associative) < `?:` (last part = assignment) < `||` < `&&` < `|` < `^` < `&` < equality < relational < shift < additive < multiplicative < unary < postfix < primary
   - unary operators nest: `!!x`, `- -x`; `--x` is a decrement
   - fold `-` followed directly by an Integer/Float/Character literal into one literal (this allows `-9223372036854775808`); not when a postfix operator follows the literal (`-5[0]` is `-(5[0])`)
   - postfix: call, index, `->name(args)` (method call), `->name` (member / bound method), `++`, `--`
@@ -271,15 +271,15 @@ All the "Rule:" comments in syntax.ebnf. The checks run while the compiler resol
 
 ### Built-ins (v1; all done, documented in `docs/reference.md` section 10)
 - [x] I/O (arguments are separated by one space, strings unquoted): `print(...)` (no newline), `println(...)`, `readline()` (nil at EOF), `readfile(path)`, `writefile(path, s)`, `appendfile(path, s)`, `eprint(...)`, `eprintln(...)`
-- [x] Strings and collections (all done in milestone 5; built-ins can call back into Kukel through `Env.Call`, used by `sort`): `len(x)`, `substr(s, start [, len])`, `find(s, sub [, from])`, `split(s, sep)`, `join(vec, sep)`, `upper`/`lower`, `trim`, `replace(s, old, new)`, `char(code)`, `ord(s [, i])`, `push(v, x)`, `pop(v)`, `insert(v, i, x)`, `remove(v, i)`, `slice(v, a, b)`, `sort(v [, cmpfn])` (cmpfn may be a closure or bound method), `keys(m)`, `values(m)`, `haskey(m, k)`, `delete(m, k)`
-- [x] Type and conversion: `typeof(x)` (returns "nil", "bool", "int", "float", "string", "vector", "map", "class", "object", "function"), `int(x)`, `float(x)`, `str(x)`, `isnil(x)`, `classof(obj)`, `instanceof(obj, C)`
+- [x] Strings and collections (all done in milestone 5; built-ins can call back into Kukel through `Env.Call`, used by `sort`): `len(x)`, `find(s, sub [, from])`, `split(s, sep)`, `join(vec, sep)`, `upper`/`lower`, `trim`, `replace(s, old, new)`, `char(code)`, `ord(s [, i])`, `push(v, x)`, `pop(v)`, `insert(v, i, x)`, `remove(v, i)`, `slice(v, a, b)`, `sort(v [, cmpfn])` (cmpfn may be a closure or bound method), `keys(m)`, `values(m)`, `haskey(m, k)`, `delete(m, k)`
+- [x] Type and conversion: `typeof(x)` (returns "nil", "bool", "int", "float", "string", "vector", "map", "class", "object", "function"), `int(x)`, `float(x)`, `str(x)`, `classof(obj)`, `instanceof(obj, C)`
 - [x] Math and system: `abs`, `min`, `max`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `sin`/`cos`/`tan`/`atan2`, `log`/`exp`, `random()` / `randint(a, b)` / `seed(n)`, `time()`, `clock()`, `exit(code)`, `getenv(name)`; command-line arguments come through `main(args)`
 - [x] Built-in names live in the top-level name space; redefining or assigning one is a compile error (Q18)
 
 ## 9. Tests, examples, docs
 
 - [x] `tests/run/*.kkl` + `.out` (expected stdout) and `.err` (expected stderr); `// args:` and `// exit:` comment lines; a Go test runs all of them through `run` and through `build`+`exec`, which must agree
-- [x] Coverage list: every statement kind, every operator incl. wraparound and int/float mixing, default/rest parameters, temporaries, globals and constants (incl. use before declaration, constant folding errors), classes/inheritance/static members/constructors, `p->x` and bound methods, labelled break/continue, switch fall-through, nested case labels and constant case values, for-each over vector/map/string (incl. mutation during the loop), spread in calls/new/vectors, closures (shared captured variables, counters, closures in loops), try/catch/finally with break/continue/return through the finally, runtime errors being caught, uncaught error trace, maps with 1/1.0 keys
+- [x] Coverage list: every statement kind, every operator incl. wraparound and int/float mixing, default/rest parameters, globals and constants (incl. use before declaration, constant folding errors), classes/inheritance/static members/constructors, `p->x` and bound methods, labelled break/continue, switch fall-through, nested case labels and constant case values, for-each over vector/map/string (incl. mutation during the loop), spread in calls/new/vectors, closures (shared captured variables, counters, closures in loops), try/catch/finally with break/continue/return through the finally, runtime errors being caught, uncaught error trace, maps with 1/1.0 keys
 - [x] Error tests for every compile-time rule (unknown name, assignment to a constant, unterminated comment, bad escape, `'''`, `1__0`, ...)
 - [x] Example programs (in `tests/run`, all golden-tested): fizzbuzz, primes, word count, word frequencies from stdin (`.in` files are a test's standard input), a class hierarchy, a JSON parser and pretty-printer, closures (events, compose, memoize), exceptions, control flow
 - [x] Fuzzing (`make fuzz`): lexer, parser, compiler, bytecode loader (`FuzzDecode`: mutated files) and verifier + VM (`FuzzVerifyCode`: arbitrary code inside real programs, run with `vm.StepLimit`); found and fixed: TRY_POP without a handler, loops the step limit did not count

@@ -34,7 +34,7 @@ A **`Program`** is compiled code. It never changes while it runs, so one
 |---|---|
 | `CompileFiles(files, opts)` | Compiles `.kkl` files as one program, with the modules they use (next to the files, then in `opts.Path`) |
 | `CompileSource(name, src, opts)` | Compiles a program given as text; `name` appears in messages. Modules written in Kukel come from `opts.Path` only |
-| `LoadProgram(data, opts)` | Reads a program from the bytes of a `.kkc` file (`kukel build`, or `Program.Encode`) |
+| `LoadProgram(data, opts)` | Reads a program from the bytes of a `.kkc` file (`kukel build`, or `Program.Encode`). `opts.Modules` must hold the host modules the program uses again: a `.kkc` file names their functions but does not contain them |
 | `p.Encode()` | The program as `.kkc` bytes, to store and load later without compiling |
 
 An **`Interp`** runs a program: it has its own global variables, output and
@@ -43,16 +43,18 @@ state, which last between calls.
 | Method | |
 |---|---|
 | `New(p, opts)` | A new interpreter. `Options`: `Stdout`, `Stderr` (nil: discarded), `Stdin` (nil: empty), `StepLimit` |
-| `in.Run(args...)` | Runs `main` (with `args` as its vector of strings if it has a parameter) and gives the exit code |
-| `in.Call(name, args...)` | Calls a top-level function (`"discount"`) or a module's (`"util::f"`, also `"json::encode"` of a module the program uses) and gives its result |
+| `in.Run(args...)` | Runs `main` (with `args` as its vector of strings if it has a parameter) and gives the exit code (1 together with the error if the program fails) |
+| `in.Call(name, args...)` | Calls a top-level function (`"discount"`) or a module's (`"util::f"`, also private names such as `"util::_g"`, and `"json::encode"` of any Go module the program may use) and gives its result |
 | `in.CallValue(fn, args...)` | Calls a function value, such as a callback a Go function received |
 | `in.Global(name)` | The value of a global variable, function or class |
 | `in.RunContext(ctx, ...)`, `in.CallContext(ctx, ...)` | The same, stopped when `ctx` ends (section 5) |
 | `in.Close()` | Ends the interpreter: cancels the workers it started that still run and drops their later output; calls afterwards give an error |
 
 The global initializers run once, before the first `Run`, `Call` or
-`Global` (and count against that call's step budget). If they fail, every
-call gives that error: the globals are not usable. A program needs a
+`Global` (and count against that call's step budget). If they throw an
+exception, every call gives that error: the globals are not usable. If the
+step limit or a cancellation stops them, the next call runs them again
+from the start. A program needs a
 `main` (it may be empty) even when the Go program only calls other
 functions.
 
@@ -74,7 +76,7 @@ functions and of the standard modules (`events`, `json`, `strings`, `time`,
 | `Bool(b)`, `Int(i)`, `Float(f)`, `String(s)` | `v.AsBool()`, `v.AsInt()`, `v.AsFloat()` (also of an int), `v.AsString()`, each with an `ok` |
 | `Vector(elems...)`, `NewMap()`, `MapOf(map[string]Value)` | `v.Len()`, `v.Index(i)`, `v.Get(key)`, `v.Keys()` |
 | `v.Push(e)`, `v.SetKey(k, val)` | `v.Kind()` (as `typeof`), `v.IsNil()`, `v.Truthy()`, `v.String()` (as `print`) |
-| `FromGo(x)`: nil, bools, integers, floats, strings and `[]byte` (a string), slices, maps with string keys, nested | `v.ToGo()`: nil, `bool`, `int64`, `float64`, `string`, `[]any`, `map[string]any`; functions, classes and objects stay a `Value` |
+| `FromGo(x)`: nil, bools, integers, floats and strings (also named types such as `type S string`), `[]byte` (a string), slices and arrays, maps with string keys, nested | `v.ToGo()`: nil, `bool`, `int64`, `float64`, `string`, `[]any`, `map[string]any`; functions, classes and objects stay a `Value`. A map with keys that give the same Go key (`1` and `"1"`), or a value that contains itself, is an error |
 
 Vectors, maps and objects are shared, not copied: a `Value` from an
 interpreter refers to its data, and changing it (`Push`, `SetKey`) changes
@@ -112,6 +114,10 @@ main() { app::notify("started " + app::version); }
   constant expressions.
 - Add everything before compiling: a module cannot change once a program
   uses it. The same module may serve several programs.
+- `NewModule`, `Func` and `Const` panic on a programming mistake: a name
+  that is not an identifier (or is a keyword), a nil function, a name used
+  twice, a constant that is not nil, a boolean, a number or a string, or an
+  addition after the module is in use.
 - A host module hides a standard module with the same name.
 - A program's workers (`worker::start`) can use its host modules too: the
   function then gets the worker's interpreter, on the worker's goroutine.
@@ -125,11 +131,12 @@ main() { app::notify("started " + app::version); }
 |---|---|
 | `*CompileError` | An error in the source: `File`, `Line`, `Col`, `Message` (a missing file is the `os` error) |
 | `*Error` | An exception nothing in the program caught: `Kind` (`"RangeError"`, ...), `Message`, `Value` (the thrown `Error` object), `Trace` (innermost call first). Also the step limit (`"StepLimitError"`) and cancellation (`"CancelledError"`), which the program cannot catch |
-| `*ExitError` | The program called `exit(code)` during a `Call`, `CallValue` or `Global` (in an initializer); `Run` gives the code as its result |
+| `*ExitError` | The program called `exit(code)` during a `Call`, `CallContext`, `CallValue` or `Global` (in an initializer); `Run` gives the code as its result |
 
-`(*Error).Error()` gives `Kind: Message`, followed for an exception of the
-program by its trace, one `  at f (file:line)` line per call; use `Kind`
-and `Message` for a single line.
+`(*Error).Error()` gives `Kind: Message`, followed by the trace when there
+is one (`Trace` is not empty: an exception of the program, also the step
+limit and a cancellation during the call), one `  at f (file:line)` line per
+call; use `Kind` and `Message` for a single line.
 
 A Go function reports a failure by returning an error; the Kukel program
 sees an exception it can catch:

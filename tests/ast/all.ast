@@ -252,7 +252,8 @@ File all.kkl
       Try
         Block
           Throw
-            String "multi\nline"
+            New Error
+              String "multi\nline"
         Catch e
           Block
             ExprStmt

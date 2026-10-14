@@ -437,11 +437,40 @@ func (p *parser) parseIf() *ast.IfStmt {
 	s.Then = p.parseStmt()
 	if p.accept(token.ELSE) {
 		s.Else = p.parseStmt()
-	} else if p.at(token.IDENT) && p.tok.Text == "elseif" && p.peek(1).Kind == token.LPAREN {
-		// "elseif (c)" was a keyword up to syntax version 4.
+	} else if p.at(token.IDENT) && p.tok.Text == "elseif" && p.oldElseif() {
 		p.errorf(p.tok.Pos, "elseif was removed in syntax version 5: write 'else if'")
 	}
 	return s
+}
+
+// oldElseif reports whether "elseif (...)" at the current token is the
+// elseif of syntax version 4 rather than a call of a function named
+// elseif: after the ")" a statement starts (a name, a literal, a keyword or
+// "{"), which cannot follow a call. ("elseif (c) ;" parses as a call; the
+// compiler then gives the same advice for the undefined name.)
+func (p *parser) oldElseif() bool {
+	if p.peek(1).Kind != token.LPAREN {
+		return false
+	}
+	depth := 0
+	for i := p.i + 1; i < len(p.toks); i++ {
+		switch p.toks[i].Kind {
+		case token.LPAREN:
+			depth++
+		case token.RPAREN:
+			if depth--; depth == 0 {
+				switch next := p.toks[min(i+1, len(p.toks)-1)].Kind; {
+				case next == token.IDENT, next == token.LBRACE, next.IsKeyword(),
+					next == token.INT, next == token.FLOAT, next == token.CHAR, next == token.STRING:
+					return true
+				}
+				return false
+			}
+		case token.EOF:
+			return false
+		}
+	}
+	return false
 }
 
 func (p *parser) parseFor() ast.Stmt {

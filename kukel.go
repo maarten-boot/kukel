@@ -158,10 +158,7 @@ func compile(files []*ast.File, config *native.Config) (*Program, error) {
 // kukel build). opts say what it may use; New refuses a program that uses
 // more.
 func LoadProgram(data []byte, opts CompileOptions) (*Program, error) {
-	prog, err := bytecode.Decode(data)
-	if err == nil {
-		err = bytecode.Verify(prog)
-	}
+	prog, err := bytecode.Decode(data) // Decode also verifies
 	if err != nil {
 		return nil, fmt.Errorf("kukel: %w", err)
 	}

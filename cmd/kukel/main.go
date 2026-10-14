@@ -32,13 +32,13 @@ const usage = `usage: kukel <command> [arguments]
 
 commands:
   run a.kkl b.kkl [-- args]       compile in memory and run
-  check a.kkl ...                 compile only: report errors, run nothing
+  check a.kkl ...                 compile only: report the first error, run nothing
   build [-o prog.kkc] a.kkl ...   compile to a bytecode file (default: a.kkc)
-  exec prog.kkc [args]            run a bytecode file
+  exec prog.kkc [--] [args]       run a bytecode file
   disasm a.kkl ... | prog.kkc     show the bytecode in readable form
   tokens a.kkl ...                show the tokens of source files
   ast [-pos] a.kkl ...            show the syntax tree of source files
-  version                         show the version of kukel
+  version                         show the version, bytecode format and Go modules
   help                            show this text
 
 Modules ("use name;") are name.kkl files in the directory of the file that

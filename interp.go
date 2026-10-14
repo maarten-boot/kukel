@@ -90,10 +90,11 @@ func interpOf(env value.Env) *Interp {
 
 // Run runs the program's main, with args as its parameter (a vector of
 // strings) if it has one, and gives the exit code: main's result if that
-// is an int, else 0; or the code of exit(code). The global initializers
-// run first, the first time anything is called; if they fail, every call
-// gives their error. Run does not wait for workers the program started
-// (see Close).
+// is an int, else 0; or the code of exit(code). If the program fails, Run
+// gives 1 and the error. The global initializers run first, the first time
+// anything is called; if they throw an exception, every call gives it (a
+// step limit or cancellation lets the next call run them again). Run does
+// not wait for workers the program started (see Close).
 func (in *Interp) Run(args ...string) (int, error) {
 	return in.RunContext(context.Background(), args...)
 }
@@ -120,7 +121,8 @@ func (in *Interp) RunContext(ctx context.Context, args ...string) (int, error) {
 }
 
 // Call calls the program's function name ("discount", or a module's:
-// "util::f") with args and gives its result. A Kukel exception that
+// "util::f", also a private "util::_g", or "json::encode" of a Go module the
+// program may use) with args and gives its result. A Kukel exception that
 // nothing catches is an *Error; exit(code) gives an *ExitError.
 func (in *Interp) Call(name string, args ...Value) (Value, error) {
 	return in.CallContext(context.Background(), name, args...)

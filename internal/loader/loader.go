@@ -161,6 +161,9 @@ func (l *loader) find(name, dir string) (string, error) {
 			return "", err
 		}
 	}
+	if len(dirs) == 0 {
+		return "", errors.New("module " + name + " not found: there is no directory to look for " + name + Ext + " in (no search path)")
+	}
 	return "", errors.New("module " + name + " not found: no " + name + Ext + " in " + strings.Join(dirs, ", "))
 }
 

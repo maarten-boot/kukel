@@ -124,3 +124,23 @@ func TestParseChecks(t *testing.T) {
 		}
 	}
 }
+
+// Fixes from the third cross-check.
+func TestParseChecks3(t *testing.T) {
+	bad := []struct{ text, format, msg string }{
+		{"2026-10-14 001", "%Y-%m-%d %j", "the day of the year does not match the date (it is 287)"},
+		{"13", "%I", "%I needs %p"},
+		{"PM", "%p", "%p needs the hour as %I"},
+		{"10 03 PM", "%H %I %p", "%H and %I both give the hour"},
+		{"+02:", "%z", "the minutes of a zone offset"},
+	}
+	for _, tc := range bad {
+		_, err := parseFormat(tc.text, tc.format, time.UTC)
+		if err == nil || !strings.Contains(err.Error(), tc.msg) {
+			t.Errorf("parse(%q, %q): got %v, want %q", tc.text, tc.format, err, tc.msg)
+		}
+	}
+	if got, err := parseFormat("2026-10-14 287", "%Y-%m-%d %j", time.UTC); err != nil || got.Day() != 14 {
+		t.Errorf("a matching day of the year: %v, %v", got, err)
+	}
+}

@@ -5,7 +5,7 @@ values, the program image, the execution model of the stack machine, every
 instruction, how the compiler translates the language's constructs, the
 `.kkc` file format and what the loader guarantees.
 
-It describes bytecode format version **3** (kukel v0.2). The language
+It describes bytecode format version **4** (kukel v0.4). The language
 itself is described in [reference.md](reference.md), its grammar in
 [syntax.ebnf](../syntax.ebnf).
 
@@ -33,6 +33,7 @@ source files ──loader (lexer, parser)──▶ syntax trees ──compiler�
 
 | Package | Role |
 |---|---|
+| `cmd/kukel` | the command: `run`, `check`, `build`, `exec`, `disasm`, ... (uses `VM.Run`) |
 | `internal/lexer`, `internal/parser`, `internal/ast` | source text to syntax trees |
 | `internal/loader` | reads the program's files and the modules they use (`use`), in compile order |
 | `kukel` (repository root) | the public Go API for embedding ([embedding.md](embedding.md)) |
@@ -102,7 +103,7 @@ A **function** (`bytecode.Function`) has:
 |---|---|
 | `FuncName`, `File`, `Line` | for traces: `main`, `Shape::area`, `main/fn@12` |
 | `NumParams`, `NumOptional`, `HasRest` | required parameters, optional ones (with defaults), a rest parameter |
-| `NumSlots` | parameters + temporaries + locals + hidden slots (slot numbers are reused by sibling blocks) |
+| `NumSlots` | parameters + locals + hidden slots (slot numbers are reused by sibling blocks) |
 | `MaxStack` | the deepest the operand stack gets above the slots |
 | `Code` | the instructions (section 5) |
 | `Consts` | constants: nil, booleans, ints, floats, strings |
@@ -146,7 +147,7 @@ in the VM.
                       │ operands ... │  ← sp (top)
                       ├──────────────┤
  base + NumSlots      │              │
-                      │ slots        │  parameters, temporaries, locals, hidden slots
+                      │ slots        │  parameters, locals, hidden slots
  base                 ├──────────────┤
  base − 1             │ callee       │  the function (or class, or receiver) being called
                       ├──────────────┤
@@ -309,7 +310,7 @@ built-in):
    `THROW` of anything but an `Error` object (of class `Error` or derived)
    throws a `TypeError` instead, so every thrown value is an `Error` object.
    When an `Error` object is thrown for the first time, its `trace` is set (a vector of strings `"f (file:line)"`,
-   innermost first) and, if its `kind` is nil, `kind` becomes its class's
+   innermost first) and, if its `kind` is nil or empty, `kind` becomes its class's
    name. Throwing it again keeps the original trace.
 2. The innermost handler is taken out. The frames above its frame are
    dropped, the stack depth is restored, and execution continues at the
@@ -350,7 +351,8 @@ is not cached.) The caches belong to the VM, not to the image.
 | nesting of expressions and statements in the source | 1000 levels (compile error beyond) |
 | arguments of one call | 65535 |
 | optional parameters of one function | 255 |
-| code per function, `MaxStack` | 16 MiB, 2<sup>20</sup> in `.kkc` files |
+| code per function, `MaxStack` | 16 MiB and 2<sup>20</sup> (what a `.kkc` file holds; the compiler refuses bigger functions) |
+| slots per function (also hidden ones) | 65536 (compile error beyond) |
 | step limit | off; when set (tests, or a Go program that embeds Kukel: per call from Go), backward jumps, calls of Kukel functions and thrown exceptions are counted, and exceeding it is fatal |
 | cancellation | off; `VM.Cancellable` gives a `Canceller` that any goroutine can use to stop the program at its next step (a fatal `CancelledError`); waiting Go functions watch `Env.Done()` |
 
@@ -697,7 +699,7 @@ noted; `str` is a `uv` length followed by that many bytes.
 
 ```
 "KUKL"                       4 bytes: magic
-uv   format version          3
+uv   format version          4
 uv   flags                   0
 uv   main                    global index of main
 uv   n, then n globals       str name, byte kind (0 variable, 1 function, 2 built-in, 3 class, 4 native),
@@ -726,7 +728,8 @@ uv   n + line entries        uv pc, uv line
 
 **Versions**: the format version changes whenever the instruction set or the
 layout changes (version 2: milestone 12's superinstructions and inline
-cache slots; version 3: native globals). A reader refuses any version other
+cache slots; version 3: native globals; version 4: `THROW` takes only
+`Error` objects). A reader refuses any version other
 than its own, telling the user to compile the program again. Built-ins and
 the names of native modules are referred to by name, so a program that uses
 one the running `kukel` does not have is refused when the VM is set up to

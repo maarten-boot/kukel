@@ -20,8 +20,8 @@ main(args) {
     for (local k, v in {"a\tb": 'x', 'q': '\''}) count += k <<= 1e3;
     outer: for (local i = 0; i < MAX && !done; i++) { if (i >= 3 || x != y) continue outer; }
     switch (count) { case -1: default: break; }
-    try { throw "multi
-line"; } catch (e) { p->x %= 1.5E-3 >> 2 ^ ~t; } finally { ; }
+    try { throw new Error("multi
+line"); } catch (e) { p->x %= 1.5E-3 >> 2 ^ ~t; } finally { ; }
     a -= b *= c /= d &= e |= f ^= g >>= h; a == b ? c : d; [args.., 2];
     do { if (a + b > c) ; else if (a <= b << 1) ; else a = true || false || nil; } while (0);
     return --count ++ - -1 / 2 * 3 % 4 & 5 | 6;

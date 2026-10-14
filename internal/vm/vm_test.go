@@ -77,7 +77,7 @@ func TestPrograms(t *testing.T) {
 		{"recursion", `
 			fib(n) { if (n < 2) return n; return fib(n - 1) + fib(n - 2); }
 			main() { println(fib(20)); }`, "6765\n"},
-		{"temporaries", `
+		{"locals at the start of the body", `
 			f(a) { local t, u; t = a * 2; println(u); return t; }
 			main() { println(f(21)); }`, "nil\n42\n"},
 		{"scopes and slot reuse", `main() {

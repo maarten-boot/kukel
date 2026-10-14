@@ -21,9 +21,10 @@ import (
 // Parsing takes the same directives except %Z (zone abbreviations are
 // ambiguous; use %z). Numbers may have fewer digits than shown (%Y at most
 // 4); %f reads 1 to 9 digits as a fraction of a second; %z also reads "Z",
-// "+02" and "+02:00"; %y reads 69-99 as 1969-1999 and 00-68 as 2000-2068; a
-// weekday (%a, %A) must match the date. Parts the format leaves out are
-// those of 1970-01-01 00:00:00.
+// "+02" and "+02:00"; %y reads 69-99 as 1969-1999 and 00-68 as 2000-2068;
+// %Y may have a sign. %I and %p come together (%H for 00-23). A weekday
+// (%a, %A) and a day of the year (%j, next to a date) must match the date.
+// Parts the format leaves out are those of 1970-01-01 00:00:00.
 
 func format(t stdtime.Time, f string) (string, error) {
 	var b strings.Builder
@@ -151,7 +152,7 @@ func init() {
 func parseFormat(text, f string, loc *stdtime.Location) (stdtime.Time, error) {
 	p := &parser{text: text}
 	year, month, day, hour, minute, second, nsec, yday := 1970, 1, 1, 0, 0, 0, 0, 0
-	pm, hasPM, hasDate, hasYday := false, false, false, false
+	pm, hasPM, hasDate, hasYday, hasI, hasH := false, false, false, false, false, false
 	weekday := -1 // from %a or %A, checked against the date
 	var err error
 	for i := 0; i < len(f) && err == nil; i++ {
@@ -185,6 +186,11 @@ func parseFormat(text, f string, loc *stdtime.Location) (stdtime.Time, error) {
 			hasDate = true
 		case 'H', 'I':
 			hour, err = p.number(2, false, "an hour")
+			if f[i] == 'I' {
+				hasI = true
+			} else {
+				hasH = true
+			}
 		case 'M':
 			minute, err = p.number(2, false, "a minute")
 		case 'S':
@@ -232,6 +238,14 @@ func parseFormat(text, f string, loc *stdtime.Location) (stdtime.Time, error) {
 	if p.pos < len(text) {
 		return stdtime.Time{}, fmt.Errorf("%q: text left over at %q", text, text[p.pos:])
 	}
+	switch {
+	case hasPM && !hasI:
+		return stdtime.Time{}, fmt.Errorf("%q: %%p needs the hour as %%I (01-12)", text)
+	case hasI && !hasPM:
+		return stdtime.Time{}, fmt.Errorf("%q: %%I needs %%p (AM or PM); use %%H for 00-23", text)
+	case hasH && hasI:
+		return stdtime.Time{}, fmt.Errorf("%q: %%H and %%I both give the hour", text)
+	}
 	if hasPM {
 		if hour < 1 || hour > 12 {
 			return stdtime.Time{}, fmt.Errorf("%q: hour %d out of range 1..12 for %%I", text, hour)
@@ -265,6 +279,9 @@ func parseFormat(text, f string, loc *stdtime.Location) (stdtime.Time, error) {
 			return stdtime.Time{}, fmt.Errorf("%q: day %d out of range for that month", text, day)
 		}
 	}
+	if hasYday && hasDate && t.YearDay() != yday {
+		return stdtime.Time{}, fmt.Errorf("%q: the day of the year does not match the date (it is %d)", text, t.YearDay())
+	}
 	if weekday >= 0 && int(t.Weekday()) != weekday {
 		return stdtime.Time{}, fmt.Errorf("%q: the weekday does not match the date (it is a %s)", text, t.Weekday())
 	}
@@ -291,9 +308,11 @@ func (p *parser) offset() (*stdtime.Location, error) {
 	}
 	m := 0
 	if p.pos < len(p.text) && p.text[p.pos] == ':' {
-		p.pos++
-	}
-	if p.pos < len(p.text) && p.text[p.pos] >= '0' && p.text[p.pos] <= '9' {
+		p.pos++ // "+02:00": the minutes must follow
+		if m, err = p.number(2, false, "the minutes of a zone offset"); err != nil {
+			return nil, err
+		}
+	} else if p.pos < len(p.text) && p.text[p.pos] >= '0' && p.text[p.pos] <= '9' {
 		if m, err = p.number(2, false, "the minutes of a zone offset"); err != nil {
 			return nil, err
 		}

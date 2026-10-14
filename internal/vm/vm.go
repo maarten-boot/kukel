@@ -35,9 +35,9 @@ type TraceEntry struct {
 // RuntimeError is a thrown exception: the thrown value and the stack trace
 // at the throw. It is what Run returns for an exception nobody caught.
 type RuntimeError struct {
-	Value value.Value  // the thrown value (an Error object for runtime errors)
-	Kind  string       // the kind of an Error object; "" for other values
-	Msg   string       // the message of an Error object, or the value as text
+	Value value.Value  // the thrown Error object (nil for the step limit, cancellation, exit)
+	Kind  string       // its kind (never "": an empty kind becomes the class name)
+	Msg   string       // its message ("" without one)
 	Trace []TraceEntry // innermost call first
 	Fatal bool         // try cannot catch it (exit, the step limit, cancellation)
 	Exit  *int         // set by exit(code): not an error, the program ends
@@ -49,8 +49,6 @@ func (e *RuntimeError) Error() string {
 	const traceEnds = 10
 	var b strings.Builder
 	switch {
-	case e.Kind == "":
-		fmt.Fprintf(&b, "uncaught exception: %s", e.Msg)
 	case e.Msg == "":
 		b.WriteString(e.Kind)
 	default:
@@ -165,7 +163,7 @@ func NewWith(prog *bytecode.Program, builtins Builtins, config *native.Config, s
 				return nil, fmt.Errorf("module %s is not available in this program", mod)
 			}
 			if !ok {
-				return nil, fmt.Errorf("%s is not part of this kukel (the native module is missing)", g.Name)
+				return nil, fmt.Errorf("%s is not available: its module written in Go is missing (a module of the Go program that runs Kukel must be given again)", g.Name)
 			}
 			vm.globals[i] = v
 		}
@@ -330,12 +328,19 @@ func (vm *VM) Start(fn value.Value, args []value.Value) (value.Value, error) {
 	return vm.call(fn, args)
 }
 
-// Init runs the global initializers, the first time only. If they fail,
-// every later Init gives the same error: the globals are not usable.
+// Init runs the global initializers, the first time only. If they throw an
+// exception, every later Init gives the same error: the globals are not
+// usable. If the step limit or a cancellation stopped them, the next Init
+// runs them again from the start.
 func (vm *VM) Init() error {
 	if !vm.inited {
 		vm.inited = true
 		_, vm.initErr = vm.call(value.MakeFunction(vm.prog.Init), nil)
+		if re, ok := vm.initErr.(*RuntimeError); ok && re.Fatal && re.Exit == nil {
+			err := vm.initErr
+			vm.inited, vm.initErr = false, nil
+			return err
+		}
 	}
 	return vm.initErr
 }
@@ -903,13 +908,10 @@ func (vm *VM) field(obj value.Value, name string) value.Value {
 // Error or a class derived from it) gets its trace, and its kind if it has
 // none (the name of its class), the first time it is thrown; throwing it
 // again keeps the original trace.
+// v is an Error object: THROW refuses anything else, and runtime errors
+// are made into Error objects (wrap).
 func (vm *VM) throwValue(v value.Value) *RuntimeError {
 	re := &RuntimeError{Value: v}
-	if v.Kind() != value.Object || !v.AsObject().Class.IsSubclassOf(vm.errorClass) {
-		re.Msg = v.Repr()
-		re.Trace = vm.trace()
-		return re
-	}
 	o := v.AsObject()
 	if t, ok := o.Native.([]TraceEntry); ok {
 		re.Trace = t
@@ -922,7 +924,7 @@ func (vm *VM) throwValue(v value.Value) *RuntimeError {
 		}
 		vm.setField(v, "trace", value.MakeVector(lines))
 	}
-	if vm.field(v, "kind").IsNil() {
+	if k := vm.field(v, "kind"); k.IsNil() || (k.Kind() == value.String && k.AsString() == "") {
 		vm.setField(v, "kind", value.MakeString(o.Class.Name))
 	}
 	re.Kind = vm.field(v, "kind").String()

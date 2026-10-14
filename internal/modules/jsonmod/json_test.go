@@ -62,6 +62,7 @@ func TestErrors(t *testing.T) {
 	}{
 		{encode, nil, "json::encode expects 1 to 2 arguments, got 0"},
 		{encode, []value.Value{value.NilValue, value.MakeInt(2)}, "argument 2 must be a string"},
+		{encode, []value.Value{value.NilValue, value.MakeString("x")}, `the indent must be spaces and tabs, not "x"`},
 		{encode, []value.Value{deep}, "nested more than 10000 deep"},
 		{encode, []value.Value{value.MakeMap(m)}, "the value contains itself"},
 		{encode, []value.Value{value.MakeFloat(-1 / zero())}, "-inf has no JSON form"},

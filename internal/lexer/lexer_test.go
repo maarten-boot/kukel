@@ -250,7 +250,7 @@ func TestErrors(t *testing.T) {
 		{"0b" + strings.Repeat("1", 65), "t.kkl:1:1", "more than 64 digits"},
 		{"9223372036854775809", "t.kkl:1:1", "too large"},
 		{"99999999999999999999999", "t.kkl:1:1", "too large"},
-		{"1e999", "t.kkl:1:1", "Number too large"},
+		{"1e999", "t.kkl:1:1", "number too large"},
 		{strings.Repeat("a", 256), "t.kkl:1:1", "identifier longer than 255"},
 		{"1." + strings.Repeat("0", 254), "t.kkl:1:1", "number longer than 255"},
 		{"a @ b", "t.kkl:1:3", "unexpected character '@'"},

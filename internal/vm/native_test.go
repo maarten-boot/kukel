@@ -53,7 +53,7 @@ func TestMissingNative(t *testing.T) {
 		}
 	}
 	_, err = vm.New(prog, builtins.Lookup, &bytes.Buffer{}, strings.NewReader(""))
-	if err == nil || err.Error() != "nosuch::Thing is not part of this kukel (the native module is missing)" {
+	if err == nil || !strings.HasPrefix(err.Error(), "nosuch::Thing is not available: its module written in Go is missing") {
 		t.Errorf("got %v", err)
 	}
 }
