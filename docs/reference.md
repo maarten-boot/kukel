@@ -46,6 +46,7 @@ hello, Kukel
 | `kukel build [-o prog.kkc] a.kkl ...` | Compile to a bytecode file (default name: the first file with `.kkc`) |
 | `kukel exec prog.kkc [--] [args]` | Run a bytecode file (a first `--` is skipped) |
 | `kukel disasm prog.kkc` or `kukel disasm a.kkl ...` | Show the bytecode in readable form |
+| `kukel repl [a.kkl ...]` | Read declarations and statements and run them as they come (see [The REPL](#the-repl)); with files, their declarations come first (`main` is not called) |
 | `kukel fmt [-w \| -l] a.kkl ...` | Format source files: indentation (4 spaces) and the spaces between tokens; line breaks and comments stay, at most one blank line in a row. Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`). A file with a syntax error is left alone |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | Show the tokens or the syntax tree of each file (for debugging; `-pos` adds positions) |
 | `kukel version` | Show the version, the bytecode format and the modules written in Go |
@@ -67,6 +68,42 @@ keeps only the low 8 bits of an exit code: `return 263` exits with 7,
 
 Files used as modules (`use name;`) are found next to the file that uses
 them or through `KUKEL_PATH`; see [Modules](#modules).
+
+### The REPL
+
+`kukel repl` reads the program piece by piece. A piece is either
+declarations (functions, member function definitions, classes, `global`,
+`const`, `use`) or statements, as in a function body; it ends when it parses
+completely, so a piece can span several lines. A blank line ends a piece
+that is still incomplete (and shows its error); the end of the input ends
+the session. A piece runs as soon as it is read: the initializers of its
+global variables, or its statements. Every piece shares the program and its
+state with the pieces before it:
+
+```
+> local n = 10
+> sq(x) {
+...     return x * x;
+... }
+> sq(n) + 1
+101
+```
+
+- A statement without its final `;` gets one when it is one line, or the
+  last line of the piece.
+- A `local` variable declared at the top level of a piece lives as long as
+  the session: it is a global variable of the program (declared again, it
+  is the same variable). Locals inside blocks are local as usual.
+- When the last statement of a piece is an expression (not an assignment or
+  `++`/`--`), its value is shown, unless it is `nil`; strings are quoted.
+- A member function declared in a class can be defined in a later piece;
+  until then, calling it is an error.
+- A piece with a compile error adds nothing; a runtime error stops the piece
+  but not the session. `exit(code)` ends the session with that code.
+- `use name;` finds a module file in the current directory or through
+  `KUKEL_PATH`. Positions in messages name the piece: `<input 3>:1:5`.
+- A worker sees the global variables of the session with their initial
+  values, as a worker of a program does; session `local`s are `nil` there.
 
 A `.kkc` file starts with a format version; a file written by another
 version of the format is refused (compile the program again). Files are

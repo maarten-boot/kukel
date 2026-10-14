@@ -89,6 +89,7 @@ make install    # install kukel into $(go env GOPATH)/bin
 | `kukel exec prog.kkc [--] [args]` | run a bytecode file |
 | `kukel disasm prog.kkc` (or `a.kkl ...`) | show the bytecode |
 | `kukel fmt [-w \| -l] a.kkl ...` | format source files (indentation and spacing) |
+| `kukel repl [a.kkl ...]` | read declarations and statements and run them as they come |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | show the tokens or the syntax tree |
 | `kukel version` | show the version and the modules written in Go |
 | `kukel help` | show the commands |
@@ -140,7 +141,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/value`, `internal/builtins` | values with their operators, built-in functions |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q47). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q48). Ideas for later are in [docs/future.md](docs/future.md).
 
 ## Development
 

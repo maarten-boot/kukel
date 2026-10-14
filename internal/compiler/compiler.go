@@ -138,59 +138,8 @@ func CompileWith(files []*ast.File, builtins []string, config *native.Config) (p
 	files = append([]*ast.File{preludeFile()}, files...)
 
 	// Pass 1: define all top-level names and classes, evaluate constants in
-	// order. Every function and member function definition becomes a job;
-	// its index is its index in Program.Funcs.
-	var jobs []funcJob
-	var methodDefs []funcJob
-	var globals []globalInit
-	var scopes []*fileScope
-	for i, f := range files {
-		c.file = c.fileScope(f, i == 0)
-		scopes = append(scopes, c.file)
-		for _, d := range f.Decls {
-			c.attempt(func() {
-				switch d := d.(type) {
-				case *ast.UseDecl:
-					c.use(d)
-				case *ast.FuncDecl:
-					if d.Class != nil {
-						methodDefs = append(methodDefs, funcJob{decl: d, file: c.file}) // after all classes are known
-						return
-					}
-					c.checkFuncCount(len(jobs), d.Name.NamePos)
-					g := c.define(d.Name, symFunc)
-					c.prog.Globals[g.index].Func = len(jobs)
-					g.params = shapeOf(c.qualify(d.Name.Name), d.Params)
-					jobs = append(jobs, funcJob{decl: d, file: c.file})
-				case *ast.GlobalDecl:
-					for _, v := range d.Vars {
-						g := c.define(v.Name, symVar)
-						globals = append(globals, globalInit{v, g, c.file})
-					}
-				case *ast.ConstDecl:
-					for _, v := range d.Vars {
-						val := c.constValue(v.Value)
-						c.define(v.Name, symConst).value = val
-					}
-				case *ast.ClassDecl:
-					c.declareClass(d)
-				}
-			})
-		}
-	}
-	for _, job := range methodDefs {
-		c.attempt(func() {
-			c.file = job.file
-			job.class, job.member = c.methodDefinition(job.decl)
-			c.checkFuncCount(len(jobs), job.decl.Name.NamePos)
-			job.member.fn = len(jobs)
-			job.class.bc.Methods[job.member.method].Func = job.member.fn
-			jobs = append(jobs, job)
-		})
-	}
-	for _, s := range scopes {
-		c.attempt(func() { c.checkUses(s) })
-	}
+	// order.
+	jobs, globals := c.declarations(files, func(i int, f *ast.File) *fileScope { return c.fileScope(f, i == 0) })
 
 	// The entry point.
 	pos := token.Pos{Line: 1, Col: 1}
@@ -220,32 +169,7 @@ func CompileWith(files []*ast.File, builtins []string, config *native.Config) (p
 
 	// Pass 2: the global initializers, then the functions; each reports its
 	// first error.
-	c.prog.Funcs = make([]*bytecode.Function, len(jobs)) // function literals are added after these
-	c.attempt(func() {
-		c.prog.Init = c.function("<init>", pos, &ast.ParamList{}, nil, false, nil, initializers(globals), func() {
-			for _, v := range globals {
-				if v.spec.Value != nil {
-					c.file = v.file
-					c.mark(v.spec.Pos())
-					c.expr(v.spec.Value)
-					c.emit(bytecode.OpStoreGlobal, v.g.index)
-				}
-			}
-		})
-	})
-	for i, job := range jobs {
-		c.attempt(func() {
-			c.file = job.file
-			fd := job.decl
-			name, static := c.qualify(fd.Name.Name), false
-			if job.class != nil {
-				name, static = job.class.name+"::"+fd.Name.Name, job.member.static
-			}
-			c.prog.Funcs[i] = c.function(name, fd.Pos(), fd.Params, job.class, static, nil, fd, func() {
-				c.block(fd.Body)
-			})
-		})
-	}
+	c.prog.Init = c.functions(jobs, globals, pos)
 	if len(c.errs) > 0 {
 		return nil, diag.Join(c.errs)
 	}
@@ -254,6 +178,104 @@ func CompileWith(files []*ast.File, builtins []string, config *native.Config) (p
 		f.Index = i
 	}
 	return c.prog, nil
+}
+
+// initFunction compiles the function that runs the initializers of
+// globals, in order.
+func (c *compiler) initFunction(globals []globalInit, pos token.Pos) *bytecode.Function {
+	return c.function("<init>", pos, &ast.ParamList{}, nil, false, nil, initializers(globals), func() {
+		for _, v := range globals {
+			if v.spec.Value != nil {
+				c.file = v.file
+				c.mark(v.spec.Pos())
+				c.expr(v.spec.Value)
+				c.emit(bytecode.OpStoreGlobal, v.g.index)
+			}
+		}
+	})
+}
+
+// declarations is pass 1 for files, each with the scope that scope makes
+// when its turn comes: it defines their top-level names and classes and
+// evaluates their constants, in order.
+// Every function and member function definition becomes a job; its index
+// in Program.Funcs is the number of functions before it plus its index in
+// jobs.
+func (c *compiler) declarations(files []*ast.File, scope func(i int, f *ast.File) *fileScope) (jobs []funcJob, globals []globalInit) {
+	base := len(c.prog.Funcs)
+	var methodDefs []funcJob
+	var scopes []*fileScope
+	for i, f := range files {
+		c.file = scope(i, f)
+		scopes = append(scopes, c.file)
+		for _, d := range f.Decls {
+			c.attempt(func() {
+				switch d := d.(type) {
+				case *ast.UseDecl:
+					c.use(d)
+				case *ast.FuncDecl:
+					if d.Class != nil {
+						methodDefs = append(methodDefs, funcJob{decl: d, file: c.file}) // after all classes are known
+						return
+					}
+					c.checkFuncCount(base+len(jobs), d.Name.NamePos)
+					g := c.define(d.Name, symFunc)
+					c.prog.Globals[g.index].Func = base + len(jobs)
+					g.params = shapeOf(c.qualify(d.Name.Name), d.Params)
+					jobs = append(jobs, funcJob{decl: d, file: c.file})
+				case *ast.GlobalDecl:
+					for _, v := range d.Vars {
+						g := c.define(v.Name, symVar)
+						globals = append(globals, globalInit{v, g, c.file})
+					}
+				case *ast.ConstDecl:
+					for _, v := range d.Vars {
+						val := c.constValue(v.Value)
+						c.define(v.Name, symConst).value = val
+					}
+				case *ast.ClassDecl:
+					c.declareClass(d)
+				}
+			})
+		}
+	}
+	for _, job := range methodDefs {
+		c.attempt(func() {
+			c.file = job.file
+			job.class, job.member = c.methodDefinition(job.decl)
+			c.checkFuncCount(base+len(jobs), job.decl.Name.NamePos)
+			job.member.fn = base + len(jobs)
+			job.class.bc.Methods[job.member.method].Func = job.member.fn
+			jobs = append(jobs, job)
+		})
+	}
+	for _, s := range scopes {
+		c.attempt(func() { c.checkUses(s) })
+	}
+	return jobs, globals
+}
+
+// functions is pass 2: it compiles the jobs of declarations into
+// Program.Funcs, each reporting its first error, and gives the function
+// that runs the initializers of globals (pos is its position).
+func (c *compiler) functions(jobs []funcJob, globals []globalInit, pos token.Pos) (init *bytecode.Function) {
+	base := len(c.prog.Funcs)
+	c.prog.Funcs = append(c.prog.Funcs, make([]*bytecode.Function, len(jobs))...) // function literals are added after these
+	c.attempt(func() { init = c.initFunction(globals, pos) })
+	for i, job := range jobs {
+		c.attempt(func() {
+			c.file = job.file
+			fd := job.decl
+			name, static := c.qualify(fd.Name.Name), false
+			if job.class != nil {
+				name, static = job.class.name+"::"+fd.Name.Name, job.member.static
+			}
+			c.prog.Funcs[base+i] = c.function(name, fd.Pos(), fd.Params, job.class, static, nil, fd, func() {
+				c.block(fd.Body)
+			})
+		})
+	}
+	return init
 }
 
 // checkFuncCount refuses a program with more functions than instructions

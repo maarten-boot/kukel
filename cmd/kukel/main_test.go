@@ -395,3 +395,52 @@ func TestFmt(t *testing.T) {
 		t.Errorf("-w with -l: exit %d", code)
 	}
 }
+
+func TestRepl(t *testing.T) {
+	in := `local n = 10;
+n * 2
+sq(x) {
+    return x * x;
+}
+sq(n)
+class A { v; A(v); get(); }
+A::A(v) { this->v = v; }
+local a = new A(4);
+h() { return 1; } g() { return nope; }
+h()
+A::get() { return v * n; }
+a->get()
+local k = fn(x) { return x + n; };
+local n = 30;
+k(1)
+"two
+lines";
+[1,
+ 2]
+
+throw new Error("boom");
+println("still here");
+exit(3);
+println("not run");
+`
+	var out, errOut bytes.Buffer
+	code := run([]string{"repl"}, strings.NewReader(in), &out, &errOut)
+	want := "20\n100\n40\n31\n\"two\\nlines\"\n[1, 2]\nstill here\n"
+	if code != 3 || out.String() != want {
+		t.Errorf("exit %d, output:\n%s\nwant:\n%s", code, out.String(), want)
+	}
+	wantErr := "<input 8>:1:32: undefined name nope\n<input 9>:1:1: undefined name h\nError: boom\n  at <input> (<input 17>:1)\n"
+	if errOut.String() != wantErr {
+		t.Errorf("errors:\n%s\nwant:\n%s", errOut.String(), wantErr)
+	}
+
+	// The declarations of files first; the end of the input ends the session.
+	dir := t.TempDir()
+	file := filepath.Join(dir, "lib.kkl")
+	os.WriteFile(file, []byte("global base = 40;\nadd(x) { return base + x; }\nmain() { println(\"not run\"); }\n"), 0o644)
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"repl", file}, strings.NewReader("add(2)"), &out, &errOut); code != 0 || out.String() != "42\n" || errOut.Len() > 0 {
+		t.Errorf("repl with a file: exit %d, %q %q", code, out.String(), errOut.String())
+	}
+}

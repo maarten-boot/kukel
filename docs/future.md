@@ -537,7 +537,7 @@ ideas above make useful:
 - jump tables for `switch` over dense int cases;
 - a peephole pass over the generated code;
 - a REPL (`kukel repl`): handy for trying the GUI, messaging and database
-  libraries interactively;
+  libraries interactively (*done*, TODO.md Q48);
 - reporting several compile errors at once (*done*, TODO.md Q46);
 - strings without an extra allocation per value (a different `Value`
   layout);

@@ -34,6 +34,19 @@ func ParseFile(name string, src []byte) (f *ast.File, err error) {
 	return f, nil
 }
 
+// ParseStmts parses a sequence of statements (what kukel repl reads).
+func ParseStmts(name string, src []byte) (stmts []ast.Stmt, err error) {
+	p, err := newParser(name, src)
+	if err != nil {
+		return nil, err
+	}
+	defer p.recover(&err)
+	for !p.at(token.EOF) {
+		stmts = append(stmts, p.parseStmt())
+	}
+	return stmts, nil
+}
+
 // ParseExpr parses a single expression (used by tests and tools).
 func ParseExpr(src string) (x ast.Expr, err error) {
 	p, err := newParser("", []byte(src))

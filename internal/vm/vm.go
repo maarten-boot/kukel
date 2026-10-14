@@ -141,39 +141,8 @@ func NewWith(prog *bytecode.Program, builtins Builtins, config *native.Config, s
 		started:  time.Now(),
 		stderr:   os.Stderr,
 	}
-	for i, g := range prog.Globals {
-		switch g.Kind {
-		case bytecode.GlobalFunc:
-			if g.Func < 0 || g.Func >= len(prog.Funcs) {
-				return nil, fmt.Errorf("global %s: bad function index %d", g.Name, g.Func)
-			}
-			vm.globals[i] = value.MakeFunction(prog.Funcs[g.Func])
-		case bytecode.GlobalBuiltin:
-			if config.BuiltinDenied(g.Name) {
-				return nil, fmt.Errorf("built-in function %s is not available in this program", g.Name)
-			}
-			b, ok := builtins(g.Name)
-			if !ok {
-				return nil, fmt.Errorf("unknown built-in function %s", g.Name)
-			}
-			vm.globals[i] = value.MakeBuiltin(b)
-		case bytecode.GlobalNative:
-			v, ok := config.Global(g.Name)
-			if mod, _, _ := strings.Cut(g.Name, "::"); !ok && config.Disallowed(mod) {
-				return nil, fmt.Errorf("module %s is not available in this program", mod)
-			}
-			if !ok {
-				return nil, fmt.Errorf("%s is not available: its module written in Go is missing (a module of the Go program that runs Kukel must be given again)", g.Name)
-			}
-			vm.globals[i] = v
-		}
-	}
-	if err := vm.makeClasses(); err != nil {
+	if err := vm.link(0, 0); err != nil {
 		return nil, err
-	}
-	vm.caches = make([][]icEntry, len(prog.Funcs))
-	for i, f := range prog.Funcs {
-		vm.caches[i] = make([]icEntry, f.NumCaches)
 	}
 	vm.initCache = make([]icEntry, prog.Init.NumCaches)
 	for _, c := range vm.classes {
@@ -190,22 +159,83 @@ func NewWith(prog *bytecode.Program, builtins Builtins, config *native.Config, s
 			return nil, fmt.Errorf("class Error has no data member %s", field)
 		}
 	}
-	for i, g := range prog.Globals {
-		if g.Kind == bytecode.GlobalClass {
+	return vm, nil
+}
+
+// link binds the globals of the program from index globals on, makes its
+// classes from index classes on, and sets up the inline caches of the
+// functions it does not have yet.
+func (vm *VM) link(globals, classes int) error {
+	prog := vm.prog
+	vm.globals = append(vm.globals, make([]value.Value, len(prog.Globals)-len(vm.globals))...)
+	for i := globals; i < len(prog.Globals); i++ {
+		g := prog.Globals[i]
+		switch g.Kind {
+		case bytecode.GlobalFunc:
+			if g.Func < 0 || g.Func >= len(prog.Funcs) {
+				return fmt.Errorf("global %s: bad function index %d", g.Name, g.Func)
+			}
+			vm.globals[i] = value.MakeFunction(prog.Funcs[g.Func])
+		case bytecode.GlobalBuiltin:
+			if vm.config.BuiltinDenied(g.Name) {
+				return fmt.Errorf("built-in function %s is not available in this program", g.Name)
+			}
+			b, ok := vm.builtins(g.Name)
+			if !ok {
+				return fmt.Errorf("unknown built-in function %s", g.Name)
+			}
+			vm.globals[i] = value.MakeBuiltin(b)
+		case bytecode.GlobalNative:
+			v, ok := vm.config.Global(g.Name)
+			if mod, _, _ := strings.Cut(g.Name, "::"); !ok && vm.config.Disallowed(mod) {
+				return fmt.Errorf("module %s is not available in this program", mod)
+			}
+			if !ok {
+				return fmt.Errorf("%s is not available: its module written in Go is missing (a module of the Go program that runs Kukel must be given again)", g.Name)
+			}
+			vm.globals[i] = v
+		}
+	}
+	if err := vm.makeClasses(classes); err != nil {
+		return err
+	}
+	for i := globals; i < len(prog.Globals); i++ {
+		if g := prog.Globals[i]; g.Kind == bytecode.GlobalClass {
 			if g.Class < 0 || g.Class >= len(vm.classes) {
-				return nil, fmt.Errorf("global %s: bad class index %d", g.Name, g.Class)
+				return fmt.Errorf("global %s: bad class index %d", g.Name, g.Class)
 			}
 			vm.globals[i] = value.MakeClass(vm.classes[g.Class])
 		}
 	}
-	return vm, nil
+	for i := len(vm.caches); i < len(prog.Funcs); i++ {
+		vm.caches = append(vm.caches, make([]icEntry, prog.Funcs[i].NumCaches))
+	}
+	return nil
 }
 
-// makeClasses builds the run-time classes: an object's data members are the
+// Extend continues with prog, a program that adds to the VM's program
+// (compiler.Session): globals, classes and functions after the ones the VM
+// has, and member functions defined since for the classes it has. The
+// values of the globals stay.
+func (vm *VM) Extend(prog *bytecode.Program) error {
+	globals, classes := len(vm.globals), len(vm.classes)
+	vm.prog = prog
+	for i, k := range vm.classes {
+		for _, m := range prog.Classes[i].Methods {
+			if mo := k.Methods[m.Name]; m.Func >= 0 && mo != nil && mo.Class == k && mo.Fn == nil {
+				mo.Fn = prog.Funcs[m.Func]
+			}
+		}
+	}
+	return vm.link(globals, classes)
+}
+
+// makeClasses builds the run-time classes from index from on: an object's data members are the
 // base class's followed by the class's own; the method table holds the
 // inherited member functions with the class's own ones overriding them.
-func (vm *VM) makeClasses() error {
-	for i, c := range vm.prog.Classes {
+func (vm *VM) makeClasses(from int) error {
+	for i := from; i < len(vm.prog.Classes); i++ {
+		c := vm.prog.Classes[i]
 		k := &value.ClassObj{
 			Name:       c.Name,
 			FieldIndex: map[string]int{},
