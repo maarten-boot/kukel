@@ -860,7 +860,8 @@ the file's path for `startfile`).
 ### zmq
 
 ZeroMQ sockets, to talk with other programs (in any language that has a
-ZeroMQ library) and other machines. `kukel` carries a ZeroMQ implementation
+ZeroMQ library) and other machines. (Not available: the STREAM, XPUB and
+XSUB socket types, and security; see below.) `kukel` carries a ZeroMQ implementation
 written in Go, so no C library is needed.
 
 ```
@@ -892,6 +893,8 @@ main() {
 | `"REQ"`, `"REP"` | request and reply: a REQ socket sends a request and receives its reply, in turn; a REP socket receives a request and sends its reply |
 | `"PUB"`, `"SUB"` | publish and subscribe: a PUB socket sends to every SUB socket connected to it whose subscriptions match the start of the message |
 | `"PUSH"`, `"PULL"` | a pipeline: each message pushed goes to one of the PULL sockets |
+| `"DEALER"`, `"ROUTER"` | many peers without the strict turn-taking of REQ/REP: a ROUTER receives each message with the identity of the peer it came from as its first part (and the empty separator part of a REQ peer), and sends a message to the peer named in its first part; a DEALER sends and receives freely |
+| `"PAIR"` | exactly two sockets, talking both ways |
 
 A message is a string (bytes), or a vector of strings for a message of
 several parts; `receive` gives a vector only for a message of more than one
@@ -902,7 +905,7 @@ on every interface), `"ipc://path"` (a Unix socket file) or `"inproc://name"`
 
 | Function or member function | Description |
 |---|---|
-| `new zmq::Socket(type)` | A socket of that type (`ValueError` for another type) |
+| `new zmq::Socket(type [, identity])` | A socket of that type (`ValueError` for another type). The identity (1 to 255 bytes) is how a ROUTER the socket connects to names it; without one the ROUTER makes one up |
 | `s->bind(endpoint)` | Listens on `endpoint`. Port 0 (`"tcp://127.0.0.1:0"`) picks a free port, which `endpoint()` then shows. A busy or forbidden address is a `NetError` |
 | `s->connect(endpoint)` | Connects to a socket bound at `endpoint`. Unlike C ZeroMQ, it waits for the other side: it retries for about 3 seconds, then gives a `NetError`, so bind first |
 | `s->send(message)` | Sends a string, or a vector of strings as one message of several parts (`TypeError` for other values, `ValueError` for an empty vector) |
@@ -910,10 +913,15 @@ on every interface), `"ipc://path"` (a Unix socket file) or `"inproc://name"`
 | `s->onmessage(f)` | The event loop (`events`) calls `f(message)` for each message, and `events::run()` keeps going until the socket is closed. Afterwards `receive()` is a `ValueError`, as is a second `onmessage`; `f` must be a function (`TypeError`) |
 | `s->subscribe(prefix)`, `s->unsubscribe(prefix)` | A SUB socket receives the messages that start with one of its prefixes (`""`: all of them); other socket types give a `ValueError`. Subscriptions take a moment to reach the PUB socket: messages published right after `subscribe` may be missed |
 | `s->type()`, `s->endpoint()` | The type, and the last endpoint bound to or connected to (`""` if none) |
+| `zmq::poll(sockets [, timeout])` | Waits until one of the sockets (a vector) has a message and gives that socket, whose `receive()` then gives the message at once; `nil` after `timeout` seconds. When several have one, the earliest in the vector wins. No message is lost: the others stay with their sockets. A closed socket, or one with an `onmessage` handler, is a `ValueError` |
 | `s->close()` | Closes the socket (closing again has no effect). If the socket sent a message less than 0.1 seconds before, `close` waits until 0.1 seconds have passed, so that the message still leaves. Using a closed socket is a `ValueError` |
 
 A socket prints as `zmq::Socket(REQ, tcp://localhost:5555)` (or without an
 endpoint, or `closed`). Close sockets when done; a program that ends closes
 nothing for you. A Go program that embeds Kukel can keep the network away
 from a program by leaving `zmq` out of `StandardModules`.
+
+There is no security (ZeroMQ's PLAIN or CURVE): the messages are not
+encrypted or authenticated. Use `zmq` on a trusted network, or carry it
+over an encrypted channel such as an SSH tunnel or a VPN.
 

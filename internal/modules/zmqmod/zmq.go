@@ -10,11 +10,13 @@
 //	s->close();
 //
 // Messages are strings (bytes); a message of several parts is a vector of
-// strings. Sockets of type REQ/REP, PUB/SUB and PUSH/PULL are supported.
+// strings. Sockets of type REQ/REP, PUB/SUB, PUSH/PULL, DEALER/ROUTER and
+// PAIR are supported; zmq::poll waits for the first of several sockets.
 package zmqmod
 
 import (
 	"context"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -35,6 +37,8 @@ var socketTypes = map[string]func(context.Context, ...zmq4.Option) zmq4.Socket{
 	"REQ": zmq4.NewReq, "REP": zmq4.NewRep,
 	"PUB": zmq4.NewPub, "SUB": zmq4.NewSub,
 	"PUSH": zmq4.NewPush, "PULL": zmq4.NewPull,
+	"DEALER": zmq4.NewDealer, "ROUTER": zmq4.NewRouter,
+	"PAIR": zmq4.NewPair,
 }
 
 // socket is the state of a zmq::Socket object. Only the interpreter's
@@ -47,6 +51,7 @@ type socket struct {
 	endpoint  string // the last endpoint bound to or connected to
 	closed    bool
 	pending   chan result // the result of a Recv still running, or nil
+	got       *result     // a result poll took from pending, for the next receive
 	callbacks bool        // onmessage took over the messages
 	lastSend  time.Time   // for the linger of close
 }
@@ -93,7 +98,8 @@ func init() {
 	}
 	native.Register(&native.Module{
 		Name:    "zmq",
-		Doc:     "ZeroMQ sockets (REQ/REP, PUB/SUB, PUSH/PULL)",
+		Doc:     "ZeroMQ sockets (REQ/REP, PUB/SUB, PUSH/PULL, DEALER/ROUTER, PAIR)",
+		Funcs:   map[string]native.Func{"poll": poll},
 		Classes: []*native.Class{Socket},
 	})
 }
@@ -116,10 +122,11 @@ func method(name string, min, max int, fn func(a native.Args, env value.Env, s *
 	}
 }
 
-// new zmq::Socket(type): type is "REQ", "REP", "PUB", "SUB", "PUSH" or
-// "PULL".
+// new zmq::Socket(type [, identity]): type is one of socketTypes; the
+// identity names the socket for a ROUTER it connects to (else the ROUTER
+// makes one up).
 func newSocket(env value.Env, this *value.ObjectObj, args []value.Value) (value.Value, error) {
-	a, err := native.Check("zmq::Socket::Socket", args, 1, 1)
+	a, err := native.Check("zmq::Socket::Socket", args, 1, 2)
 	if err != nil {
 		return value.NilValue, err
 	}
@@ -127,12 +134,23 @@ func newSocket(env value.Env, this *value.ObjectObj, args []value.Value) (value.
 	if err != nil {
 		return value.NilValue, err
 	}
+	var opts []zmq4.Option
+	if a.Has(1) {
+		id, err := a.String(1)
+		if err != nil {
+			return value.NilValue, err
+		}
+		if id == "" || len(id) > 255 {
+			return value.NilValue, a.Errorf(value.ValueError, "an identity is 1 to 255 bytes long")
+		}
+		opts = append(opts, zmq4.WithID(zmq4.SocketIdentity(id)))
+	}
 	newSock, ok := socketTypes[kind]
 	if !ok {
 		return value.NilValue, a.Errorf(value.ValueError, "unknown socket type %q (one of %s)", kind, strings.Join(typeNames(), ", "))
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	this.State = &socket{kind: kind, s: newSock(ctx), cancel: cancel}
+	this.State = &socket{kind: kind, s: newSock(ctx, opts...), cancel: cancel}
 	return value.NilValue, nil
 }
 
@@ -271,18 +289,27 @@ func receive(a native.Args, env value.Env, s *socket) (value.Value, error) {
 		defer t.Stop()
 		expired = t.C
 	}
+	if r := s.got; r != nil { // poll already took it
+		s.got = nil
+		return received(a, *r)
+	}
 	select {
 	case r := <-s.startRecv():
 		s.pending = nil
-		if r.err != nil {
-			return value.NilValue, a.Errorf(NetError, "%v", r.err)
-		}
-		return message(r.msg), nil
+		return received(a, r)
 	case <-expired:
 		return value.NilValue, nil
 	case <-env.Done(): // the program was cancelled
 		return value.NilValue, env.Err()
 	}
+}
+
+// received gives the message of a finished Recv, or its error.
+func received(a native.Args, r result) (value.Value, error) {
+	if r.err != nil {
+		return value.NilValue, a.Errorf(NetError, "%v", r.err)
+	}
+	return message(r.msg), nil
 }
 
 // s->onmessage(f): the event loop calls f(message) for every message, and
@@ -298,7 +325,14 @@ func onmessage(a native.Args, env value.Env, s *socket) (value.Value, error) {
 		return value.NilValue, a.Errorf(value.ValueError, "an onmessage handler is already set")
 	}
 	s.callbacks = true
-	first := s.startRecv() // a Recv may already be running
+	var first chan result
+	if s.got != nil { // poll took a result: it is the first message
+		first = make(chan result, 1)
+		first <- *s.got
+		s.got = nil
+	} else {
+		first = s.startRecv() // a Recv may already be running
+	}
 	s.pending = nil
 	loop := eventsmod.For(env)
 	release := loop.Hold()
@@ -351,4 +385,76 @@ func closeSocket(a native.Args, env value.Env, s *socket) (value.Value, error) {
 		s.cancel()
 	}
 	return value.NilValue, nil
+}
+
+// zmq::poll(sockets [, timeout]): waits until one of the sockets (a vector)
+// has a message, and gives that socket, whose receive() then gives the
+// message at once; nil after timeout seconds. The first socket in the
+// vector wins when several have one. No message is lost: reads that are
+// still running stay with their sockets.
+func poll(env value.Env, args []value.Value) (value.Value, error) {
+	a, err := native.Check("zmq::poll", args, 1, 2)
+	if err != nil {
+		return value.NilValue, err
+	}
+	if args[0].Kind() != value.Vector || len(args[0].AsVector().Elems) == 0 {
+		return value.NilValue, a.TypeError(0, "a vector of sockets")
+	}
+	elems := args[0].AsVector().Elems
+	socks := make([]*socket, len(elems))
+	for i, v := range elems {
+		if v.Kind() != value.Object || v.AsObject().Class != Socket.ClassObj() {
+			return value.NilValue, a.Errorf(value.TypeError, "element %d of argument 1 must be a zmq::Socket, not %s", i+1, v.Kind())
+		}
+		s := v.AsObject().State.(*socket)
+		switch {
+		case s.closed:
+			return value.NilValue, a.Errorf(value.ValueError, "socket %d is closed", i+1)
+		case s.callbacks:
+			return value.NilValue, a.Errorf(value.ValueError, "socket %d gives its messages to onmessage", i+1)
+		}
+		socks[i] = s
+	}
+	for i, s := range socks { // a message poll found earlier, not yet received
+		if s.got != nil {
+			return elems[i], nil
+		}
+	}
+	cases := make([]reflect.SelectCase, 0, len(socks)+2)
+	for _, s := range socks {
+		cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(s.startRecv())})
+	}
+	cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(env.Done())})
+	if a.Has(1) {
+		secs, err := a.Number(1)
+		if err != nil {
+			return value.NilValue, err
+		}
+		if secs != secs || secs < 0 {
+			return value.NilValue, a.Errorf(value.ValueError, "%s seconds is not a usable timeout", value.FormatFloat(secs))
+		}
+		t := time.NewTimer(time.Duration(secs * float64(time.Second)))
+		defer t.Stop()
+		cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.C)})
+	}
+	chosen, recv, _ := reflect.Select(cases)
+	switch {
+	case chosen < len(socks):
+		r := recv.Interface().(result)
+		socks[chosen].got, socks[chosen].pending = &r, nil
+		// Select picks at random among sockets that are ready together:
+		// an earlier one that has a message too wins.
+		for j := 0; j < chosen; j++ {
+			select {
+			case r := <-socks[j].pending:
+				socks[j].got, socks[j].pending = &r, nil
+				return elems[j], nil
+			default:
+			}
+		}
+		return elems[chosen], nil
+	case chosen == len(socks): // the program was cancelled
+		return value.NilValue, env.Err()
+	}
+	return value.NilValue, nil // the time is up
 }

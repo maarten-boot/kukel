@@ -7,4 +7,7 @@ job 1
 job 2
 job 3
 zmq::Socket(PULL, closed)
-ValueError: zmq::Socket::Socket: unknown socket type "DEALER" (one of PUB, PULL, PUSH, REP, REQ, SUB)
+welcome, alice | welcome, bob
+nil
+true storm warning
+ValueError: zmq::Socket::Socket: unknown socket type "STREAM" (one of DEALER, PAIR, PUB, PULL, PUSH, REP, REQ, ROUTER, SUB)

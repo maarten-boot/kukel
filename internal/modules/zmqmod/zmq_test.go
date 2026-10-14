@@ -127,7 +127,7 @@ main() {
     local s = new zmq::Socket("PULL");
     s->close();
     s->close();                            // no effect
-    local bad = [fn() { new zmq::Socket("DEALER"); },
+    local bad = [fn() { new zmq::Socket("STREAM"); },
                  fn() { s->receive(); },
                  fn() { new zmq::Socket("PUSH")->subscribe(""); },
                  fn() { new zmq::Socket("PUSH")->bind("localhost:5555"); },
@@ -137,7 +137,7 @@ main() {
                  fn() { new zmq::Socket("PULL")->onmessage(5); }];
     for (local f in bad) try { f(); } catch (e) { println(e->kind + ":", e->message); }
 }`)
-	want := `ValueError: zmq::Socket::Socket: unknown socket type "DEALER" (one of PUB, PULL, PUSH, REP, REQ, SUB)
+	want := `ValueError: zmq::Socket::Socket: unknown socket type "STREAM" (one of DEALER, PAIR, PUB, PULL, PUSH, REP, REQ, ROUTER, SUB)
 ValueError: zmq::Socket::receive: the socket is closed
 ValueError: zmq::Socket::subscribe: only a SUB socket subscribes, not a PUSH socket
 ValueError: zmq::Socket::bind: "localhost:5555" is not an endpoint such as "tcp://localhost:5555"
@@ -145,6 +145,92 @@ TypeError: zmq::Socket::send: argument 1 must be a string or a vector of strings
 ValueError: zmq::Socket::send: a message needs at least one part
 ValueError: zmq::Socket::receive: -1.0 seconds is not a usable timeout
 TypeError: zmq::Socket::onmessage: argument 1 must be a function, not int
+`
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// A ROUTER gets the sender's identity as the first part (and the empty
+// separator part of a REQ) and replies by putting it first again.
+func TestRouterDealer(t *testing.T) {
+	got := run(t, `use zmq; use time;
+main() {
+    local router = new zmq::Socket("ROUTER");
+    router->bind("inproc://r");
+    local dealer = new zmq::Socket("DEALER", "dealer-1"), req = new zmq::Socket("REQ", "req-1");
+    dealer->connect("inproc://r");
+    req->connect("inproc://r");
+    time::sleep(0.05);
+    dealer->send("from dealer");
+    local m = router->receive(5);
+    println(m);
+    router->send([m[0], "reply 1"]);
+    println(dealer->receive(5));
+    req->send("from req");
+    m = router->receive(5);
+    println(m);
+    router->send([m[0], "", "reply 2"]);
+    println(req->receive(5));
+    for (local s in [router, dealer, req]) s->close();
+}`)
+	want := "[\"dealer-1\", \"from dealer\"]\nreply 1\n[\"req-1\", \"\", \"from req\"]\nreply 2\n"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestPair(t *testing.T) {
+	got := run(t, `use zmq;
+main() {
+    local a = new zmq::Socket("PAIR"), b = new zmq::Socket("PAIR");
+    a->bind("inproc://pair");
+    b->connect("inproc://pair");
+    b->send("ping"); println(a->receive(5));
+    a->send("pong"); println(b->receive(5));
+    a->close(); b->close();
+}`)
+	if got != "ping\npong\n" {
+		t.Errorf("got %q", got)
+	}
+}
+
+// poll gives the socket that has a message; the first one wins when
+// several have one; a timeout gives nil; no message is lost.
+func TestPoll(t *testing.T) {
+	got := run(t, `use zmq; use events; use time;
+main() {
+    local a = new zmq::Socket("PULL"), b = new zmq::Socket("PULL");
+    local pa = new zmq::Socket("PUSH"), pb = new zmq::Socket("PUSH");
+    a->bind("inproc://a"); b->bind("inproc://b");
+    pa->connect("inproc://a"); pb->connect("inproc://b");
+    println(zmq::poll([a, b], 0.05));                 // nothing yet
+    pb->send("for b");
+    local s = zmq::poll([a, b], 5);
+    println(s == b, s->receive(0));                   // the message is already there
+    pa->send("a1"); pb->send("b1");
+    time::sleep(0.05);                                // both arrive
+    local first = zmq::poll([a, b], 5);
+    println(first == a);                              // a comes first in the vector
+    println(a->receive(5), b->receive(5));            // nothing lost on either
+    pa->send("a2");
+    zmq::poll([a], 5);                                // a's message waits in a ...
+    a->onmessage(fn(m) { println("handler", m); a->close(); });
+    events::run();                                    // ... and onmessage gets it
+    local errs = [fn() { zmq::poll([]); }, fn() { zmq::poll([1]); }, fn() { zmq::poll([a]); },
+                  fn() { zmq::poll([b], -1); }];
+    for (local f in errs) try { f(); } catch (e) { println(e->kind + ":", e->message); }
+    for (local x in [b, pa, pb]) x->close();
+}`)
+	want := `nil
+true for b
+true
+a1 b1
+handler a2
+TypeError: zmq::poll: argument 1 must be a vector of sockets, not vector
+TypeError: zmq::poll: element 1 of argument 1 must be a zmq::Socket, not int
+ValueError: zmq::poll: socket 1 is closed
+ValueError: zmq::poll: -1.0 seconds is not a usable timeout
 `
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)

@@ -4,6 +4,7 @@
 use zmq;
 use worker;
 use events;
+use time;
 
 // Answers requests until it gets "stop".
 server() {
@@ -50,8 +51,37 @@ main() {
     push->close();
     println(pull);
 
+    // A ROUTER talks to many peers: each message starts with the identity
+    // of the peer it comes from, and a reply starting with it goes back there.
+    local router = new zmq::Socket("ROUTER");
+    router->bind("inproc://hub");
+    local alice = new zmq::Socket("DEALER", "alice"), bob = new zmq::Socket("DEALER", "bob");
+    alice->connect("inproc://hub");
+    bob->connect("inproc://hub");
+    time::sleep(0.05);                                // let both connect
+    alice->send("hi from alice");
+    bob->send("hi from bob");
+    for (local i = 0; i < 2; i++) {
+        local m = router->receive(5);                 // [identity, text]
+        router->send([m[0], "welcome, " + m[0]]);
+    }
+    println(alice->receive(5), "|", bob->receive(5));
+
+    // poll waits for whichever socket has a message first.
+    local news = new zmq::Socket("PULL"), alerts = new zmq::Socket("PULL");
+    news->bind("inproc://news");
+    alerts->bind("inproc://alerts");
+    local feed = new zmq::Socket("PUSH");
+    feed->connect("inproc://alerts");
+    println(zmq::poll([news, alerts], 0.05));        // nothing yet: nil
+    feed->send("storm warning");
+    local s = zmq::poll([news, alerts], 5);
+    println(s == alerts, s->receive());               // the message is already there
+
+    for (local x in [router, alice, bob, news, alerts, feed]) x->close();
+
     try {
-        new zmq::Socket("DEALER");
+        new zmq::Socket("STREAM");
     } catch (e) {
         println(e->kind + ":", e->message);
     }
