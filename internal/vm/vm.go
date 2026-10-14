@@ -1502,6 +1502,25 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			}
 			ip += 2
 
+		case bytecode.OpSwitchTable:
+			sp--
+			x, t := stack[sp], &f.fn.Tables[bytecode.ReadU16(code, ip)]
+			target := -1
+			if n, ok := x.IntValue(); ok {
+				if i := uint64(n) - uint64(t.Min); i < uint64(len(t.Targets)) {
+					target = t.Targets[i]
+				}
+			}
+			if target < 0 {
+				target = bytecode.ReadU32(code, ip+2)
+			}
+			if target < ip {
+				if e := vm.step(); e != nil {
+					return vm.fail(f, start, sp, e)
+				}
+			}
+			ip = target
+
 		case bytecode.OpTryPush:
 			vm.handlers = append(vm.handlers, handler{
 				frame:   len(vm.frames) - 1,

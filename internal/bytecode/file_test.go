@@ -180,6 +180,20 @@ func TestVerifyRejects(t *testing.T) {
 			t.Errorf("%s: got %v, want ...%s...", tt.name, err, tt.msg)
 		}
 	}
+	// SWITCH_TABLE: a table that does not exist, a target that is not an instruction.
+	sw := program(code(op(bytecode.OpNil), op(bytecode.OpSwitchTable, 0, 8), ret)) // 0, 1, 8
+	if err := bytecode.Verify(sw); err == nil || !strings.Contains(err.Error(), "refers to jump table 0 of 0") {
+		t.Errorf("missing jump table: %v", err)
+	}
+	sw.Funcs[0].Tables = []bytecode.JumpTable{{Min: 1, Targets: []int{8, -1, 3}}}
+	if err := bytecode.Verify(sw); err == nil || !strings.Contains(err.Error(), "jump to 3, which is not an instruction") {
+		t.Errorf("bad jump table target: %v", err)
+	}
+	sw.Funcs[0].Tables[0].Targets[2] = 8
+	if err := bytecode.Verify(sw); err != nil {
+		t.Errorf("a good jump table: %v", err)
+	}
+
 	bad := program(ret)
 	bad.Main = 5
 	if err := bytecode.Verify(bad); err == nil || !strings.Contains(err.Error(), "main is not a function") {

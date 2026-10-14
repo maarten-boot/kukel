@@ -29,7 +29,8 @@ import (
 // byte rest, uv slots, uv max stack, uv caches, uv n + str slot names,
 // uv n + upvalues (str name, byte from-local, uv index), uv n + code bytes,
 // uv n + constants (byte tag, then: int zigzag uv, float 8 bytes, string str),
-// uv n + line entries (uv pc, uv line).
+// uv n + line entries (uv pc, uv line), uv n + jump tables (int zigzag uv
+// min, uv n + targets as uv target+1, 0 for none).
 
 // MaxCodeSize and MaxStackDepth are the largest code size (bytes) and
 // MaxStack of one function a .kkc file can hold; the compiler refuses
@@ -40,7 +41,7 @@ const (
 )
 
 // FormatVersion is the version of the .kkc format written by Encode.
-const FormatVersion = 4 // 2: milestone 12 superinstructions; 3: native modules (GlobalNative); 4: THROW takes only Error objects (Kukel v0.4)
+const FormatVersion = 5 // 2: milestone 12 superinstructions; 3: native modules (GlobalNative); 4: THROW takes only Error objects (Kukel v0.4); 5: jump tables (Kukel v0.8)
 
 const magic = "KUKL"
 
@@ -164,6 +165,14 @@ func (e *encoder) function(f *Function) error {
 	for _, l := range f.Lines {
 		e.uv(l.PC)
 		e.uv(l.Line)
+	}
+	e.uv(len(f.Tables))
+	for _, t := range f.Tables {
+		e.buf = binary.AppendVarint(e.buf, t.Min)
+		e.uv(len(t.Targets))
+		for _, x := range t.Targets {
+			e.uv(x + 1)
+		}
 	}
 	return nil
 }
@@ -369,6 +378,19 @@ func (d *decoder) function() *Function {
 	f.Lines = make([]LineInfo, d.count())
 	for i := range f.Lines {
 		f.Lines[i] = LineInfo{PC: d.uv(), Line: d.uv()}
+	}
+	f.Tables = make([]JumpTable, d.count())
+	for i := range f.Tables {
+		x, k := binary.Varint(d.buf[min(d.off, len(d.buf)):])
+		if k <= 0 {
+			d.fail("bad jump table at offset %d", d.off)
+		}
+		d.off += max(k, 0)
+		t := JumpTable{Min: x, Targets: make([]int, d.count())}
+		for j := range t.Targets {
+			t.Targets[j] = d.uv() - 1
+		}
+		f.Tables[i] = t
 	}
 	return f
 }

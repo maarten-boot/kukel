@@ -16,7 +16,7 @@ func StackUse(op Op, operands []int) (pops, pushes int) {
 		OpLoadMember, OpLoadFunc, OpLoadStatic, OpLoadCell, OpLoadUpvalue, OpClosure:
 		return 0, 1
 	case OpPop, OpStoreLocal, OpStoreGlobal, OpStoreMember, OpStoreStatic, OpStoreCell,
-		OpStoreUpvalue, OpNewCell, OpJumpIfFalse, OpJumpIfTrue, OpReturn, OpThrow, OpRethrow:
+		OpStoreUpvalue, OpNewCell, OpJumpIfFalse, OpJumpIfTrue, OpReturn, OpThrow, OpRethrow, OpSwitchTable:
 		return 1, 0
 	case OpCmpJump:
 		return 2, 0

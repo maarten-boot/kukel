@@ -1,0 +1,25 @@
+// Switches with dense int case values dispatch through a jump table:
+// the same results as comparing case by case (floats with an integral
+// value match, other values go to default).
+f(x) {
+    switch (x) {
+        case 1: return "one";
+        case 2: return "two";
+        case 4: return "four";
+        case 5:
+        case 6: return "five-six";
+        default: return "other";
+    }
+}
+g(x) {
+    local r = [];
+    switch (x) { case -2: push(r, "m2"); case -1: push(r, "m1"); break; case 0: push(r, "z"); case 1: push(r, "o"); }
+    return r;
+}
+main() {
+    for (local x in [0, 1, 2, 3, 4, 5, 6, 7, 1.0, 2.5, "1", nil, -9223372036854775807 - 1, 9223372036854775807])
+        print(f(x), " ");
+    println();
+    for (local x in [-3, -2, -1, 0, 1, 2, 0.0, -0.0]) print(g(x), " ");
+    println();
+}

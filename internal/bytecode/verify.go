@@ -206,6 +206,13 @@ func (v *verifier) function(f *Function) error {
 			if err = visit(in.operands[1], after, it.pc); err == nil {
 				err = visit(next, after, it.pc)
 			}
+		case OpSwitchTable: // always jumps
+			err = visit(in.operands[1], after, it.pc)
+			for _, t := range f.Tables[in.operands[0]].Targets {
+				if err == nil && t >= 0 {
+					err = visit(t, after, it.pc)
+				}
+			}
 		case OpIterNext: // continues with n values pushed, or ends with none
 			if err = visit(in.operands[2], it.depth, it.pc); err == nil {
 				err = visit(next, after, it.pc)
@@ -290,6 +297,10 @@ func (v *verifier) operands(f *Function, pc int, op Op, x []int) error {
 	case OpTryPush:
 		if x[0] > 1 {
 			return fail("has unknown handler kind %d", x[0])
+		}
+	case OpSwitchTable:
+		if x[0] >= len(f.Tables) {
+			return fail("refers to jump table %d of %d", x[0], len(f.Tables))
 		}
 	}
 	return nil

@@ -3,6 +3,7 @@ package bytecode
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/maarten-boot/kukel/internal/value"
 )
@@ -192,6 +193,19 @@ func (d *disasm) operand(f *Function, op Op, pc int) string {
 		return fmt.Sprintf("%s %s -> %d", when, name, ReadU32(f.Code, pc+3))
 	case OpJumpIfArg:
 		return fmt.Sprintf("%d -> %d", ReadU16(f.Code, pc+1), ReadU32(f.Code, pc+3))
+	case OpSwitchTable:
+		t := ReadU16(f.Code, pc+1)
+		s := fmt.Sprintf("%d, miss -> %d", t, ReadU32(f.Code, pc+3))
+		if t < len(f.Tables) {
+			var cases []string
+			for i, x := range f.Tables[t].Targets {
+				if x >= 0 {
+					cases = append(cases, fmt.Sprintf("%d -> %d", f.Tables[t].Min+int64(i), x))
+				}
+			}
+			s += "  ; " + strings.Join(cases, ", ")
+		}
+		return s
 	case OpJump, OpJumpIfFalse, OpJumpIfTrue:
 		return fmt.Sprintf("-> %d", ReadU32(f.Code, pc+1))
 	}

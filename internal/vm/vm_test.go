@@ -966,3 +966,38 @@ func BenchmarkMapsAndVectors(b *testing.B) {
 		for (local x in v) sum += x;
 	}`)
 }
+
+func BenchmarkSwitchDense1M(b *testing.B) {
+	benchmarkSource(b, `main() {
+		local n = 0;
+		for (local i = 0; i < 1000000; i++) {
+			switch (i % 10) {
+				case 0: n += 1; break;
+				case 1: n += 2; break;
+				case 2: n += 3; break;
+				case 3: n += 4; break;
+				case 4: n += 5; break;
+				case 5: n += 6; break;
+				case 6: n += 7; break;
+				case 7: n += 8; break;
+				case 8: n += 9; break;
+				default: n += 10;
+			}
+		}
+	}`)
+}
+
+func BenchmarkStringConcat(b *testing.B) {
+	benchmarkSource(b, `main() { local s = ""; for (local i = 0; i < 20000; i++) s += "x"; local n = 0; for (local i = 0; i < 20000; i++) if (s[i] == "x") n++; }`)
+}
+
+func BenchmarkStringCompare1M(b *testing.B) {
+	benchmarkSource(b, `main() { local a = "alpha", n = 0; for (local i = 0; i < 1000000; i++) if (a == "alpha" && a < "beta") n++; }`)
+}
+
+func BenchmarkFieldAccess1M(b *testing.B) {
+	benchmarkSource(b, `
+		class P { x, y; P(x, y); }
+		P::P(x, y) { this->x = x; this->y = y; }
+		main() { local p = new P(1, 2), s = 0; for (local i = 0; i < 1000000; i++) { s += p->x + p->y; p->x = i; } }`)
+}

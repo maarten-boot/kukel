@@ -141,6 +141,21 @@ type BuiltinObj struct {
 
 func MakeBuiltin(b *BuiltinObj) Value { return Value{kind: Builtin, obj: b} }
 
+// IntValue gives the int that v equals (Equal): an int, or a float with an
+// integral value in the int range.
+func (v Value) IntValue() (int64, bool) {
+	switch v.kind {
+	case Int:
+		return int64(v.num), true
+	case Float:
+		f := v.AsFloat()
+		if f >= -(1<<63) && f < 1<<63 && f == math.Trunc(f) {
+			return int64(f), true
+		}
+	}
+	return 0, false
+}
+
 func (v Value) Kind() Kind           { return v.kind }
 func (v Value) IsNil() bool          { return v.kind == Nil }
 func (v Value) AsBool() bool         { return v.num != 0 }

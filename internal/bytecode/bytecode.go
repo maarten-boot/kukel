@@ -117,6 +117,9 @@ const (
 	OpIncLocal // slot u16: slot++ (a statement: no value is pushed)
 	OpDecLocal // slot u16: slot--
 
+	// Jump tables (Kukel v0.8): a switch whose case values are dense ints.
+	OpSwitchTable // table u16, miss u32: pop x; jump to Tables[table]'s target for x, else to miss
+
 	numOps
 )
 
@@ -205,6 +208,7 @@ var opInfo = [numOps]OpInfo{
 	OpCmpJump:      {"CMP_JUMP", []int{2, 4}},
 	OpIncLocal:     {"INC_LOCAL", u16},
 	OpDecLocal:     {"DEC_LOCAL", u16},
+	OpSwitchTable:  {"SWITCH_TABLE", []int{2, 4}},
 }
 
 // The comparison operand of CMP_JUMP: one of these, plus CmpJumpIfTrue to
@@ -277,14 +281,22 @@ type Function struct {
 	MaxStack    int    // operand stack depth needed above the slots
 	Code        []byte
 	Consts      []value.Value
-	Lines       []LineInfo // sorted by PC
-	SlotNames   []string   // for the disassembler
-	Upvalues    []Upvalue  // a function literal's captured variables
-	NumCaches   int        // inline cache slots of member instructions (the VM keeps the caches)
+	Lines       []LineInfo  // sorted by PC
+	SlotNames   []string    // for the disassembler
+	Upvalues    []Upvalue   // a function literal's captured variables
+	NumCaches   int         // inline cache slots of member instructions (the VM keeps the caches)
+	Tables      []JumpTable // of SWITCH_TABLE instructions
 
 	// Index is the function's position in Program.Funcs (-1 for Init). It is
 	// not stored in files: the compiler and Decode set it.
 	Index int
+}
+
+// JumpTable maps the ints Min, Min+1, ... to code offsets (-1: none, the
+// instruction's miss target).
+type JumpTable struct {
+	Min     int64
+	Targets []int
 }
 
 // Upvalue says where a closure gets a captured cell when it is made: from a

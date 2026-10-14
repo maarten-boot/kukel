@@ -447,11 +447,18 @@ code: the numbers, names, operands and stack effects.
 | 72 | `CMP_JUMP` | cmp:u16, target:u32 | 2 | 0 | `a b`: compare; jump if the result equals the wanted one (below) |
 | 73 | `INC_LOCAL` | slot:u16 | 0 | 0 | `slot = slot + 1` (statement `i++`) |
 | 74 | `DEC_LOCAL` | slot:u16 | 0 | 0 | `slot = slot - 1` |
+| 75 | `SWITCH_TABLE` | table:u16, miss:u32 | 1 | 0 | `x`: jump to the target of `x` in the function's jump table `table`, else to `miss` (below) |
 
 `CMP_JUMP`'s `cmp` operand is the comparison in its low byte (0 `<`,
 1 `<=`, 2 `>`, 3 `>=`, 4 `==`, 5 `!=`), plus 0x100 to jump when the
 comparison holds (without it: jump when it does not). It is `LT` (and the
 others) followed by `JUMP_IF_TRUE` or `JUMP_IF_FALSE` in one instruction.
+
+`SWITCH_TABLE`'s table (`Function.Tables`) maps the ints `min`, `min+1`,
+... to code offsets, or to none. An int `x` in that range with a target
+jumps there; any other value jumps to `miss`. A float with an integral
+value counts as that int, as `==` would have it (`2.0 == 2`). A backward
+jump counts as a step, as for `JUMP`.
 
 **Errors**: arithmetic, comparison and indexing raise the errors described
 in the reference (`TypeError`, `ZeroDivisionError`, `RangeError`); member
@@ -637,6 +644,15 @@ switch (x) {                     LOAD_LOCAL x; STORE_LOCAL (switch); JUMP dispat
                             end:
 ```
 
+When there are at least 4 cases, all with int values, spread over fewer
+than twice as many values as there are cases, the dispatch is one jump
+through a table instead (Kukel v0.8):
+
+```
+                       dispatch: LOAD_LOCAL (switch); SWITCH_TABLE t, miss -> L3
+                                 (table t: 1 -> L1, 2 -> L2, 3 -> L2; none for the other values)
+```
+
 ### 6.9 Try, catch and finally
 
 A `finally` block is copied onto every way out of the try: the normal end,
@@ -699,7 +715,7 @@ noted; `str` is a `uv` length followed by that many bytes.
 
 ```
 "KUKL"                       4 bytes: magic
-uv   format version          4
+uv   format version          5
 uv   flags                   0 (1: a module, below)
 uv   main                    global index of main
 uv   n, then n globals       str name, byte kind (0 variable, 1 function, 2 built-in, 3 class, 4 native),
@@ -724,12 +740,13 @@ uv   n + bytes               code
 uv   n + constants           byte tag: 0 nil, 1 false, 2 true,
                                3 int (a zigzag varint), 4 float (8 bytes, IEEE bits), 5 string (str)
 uv   n + line entries        uv pc, uv line
+uv   n + jump tables         min (a zigzag varint), uv n + targets (uv target+1, 0: none)
 ```
 
 **Versions**: the format version changes whenever the instruction set or the
 layout changes (version 2: milestone 12's superinstructions and inline
 cache slots; version 3: native globals; version 4: `THROW` takes only
-`Error` objects). A reader refuses any version other
+`Error` objects; version 5: jump tables, `SWITCH_TABLE`). A reader refuses any version other
 than its own, telling the user to compile the program again. Built-ins and
 the names of native modules are referred to by name, so a program that uses
 one the running `kukel` does not have is refused when the VM is set up to

@@ -996,6 +996,24 @@ func (c *compiler) switchStmt(s *ast.SwitchStmt, labels []*ast.Ident) {
 
 	c.patch([]int{toDispatch}, c.here())
 	c.mark(s.Switch)
+	if jt, ok := jumpTable(sw.cases); ok {
+		// Dense int case values: one jump through a table.
+		fn := c.fs.fn
+		if len(fn.Tables) > maxIndex {
+			c.errorf(s.Switch, "too many switch statements in one function (more than %d)", maxIndex+1)
+		}
+		fn.Tables = append(fn.Tables, jt)
+		c.emit(bytecode.OpLoadLocal, tag)
+		miss := c.emit(bytecode.OpSwitchTable, len(fn.Tables)-1, 0) + 2
+		if sw.dflt >= 0 {
+			c.patch([]int{miss}, sw.dflt)
+		} else {
+			t.breaks = append(t.breaks, miss)
+		}
+		c.patch(append(t.breaks, end), c.here())
+		c.popScope()
+		return
+	}
 	for _, cs := range sw.cases {
 		c.emit(bytecode.OpLoadLocal, tag)
 		c.pushValue(cs.value, cs.pos)
@@ -1007,6 +1025,32 @@ func (c *compiler) switchStmt(s *ast.SwitchStmt, labels []*ast.Ident) {
 	}
 	c.patch(append(t.breaks, end), c.here())
 	c.popScope()
+}
+
+// jumpTable gives the jump table of a switch whose case values are at least
+// 4 ints, spread over at most twice as many values as there are cases.
+func jumpTable(cases []switchCase) (bytecode.JumpTable, bool) {
+	if len(cases) < 4 {
+		return bytecode.JumpTable{}, false
+	}
+	lo, hi := int64(math.MaxInt64), int64(math.MinInt64)
+	for _, cs := range cases {
+		if cs.value.Kind() != value.Int {
+			return bytecode.JumpTable{}, false
+		}
+		lo, hi = min(lo, cs.value.AsInt()), max(hi, cs.value.AsInt())
+	}
+	if span := uint64(hi) - uint64(lo); span >= 2*uint64(len(cases)) {
+		return bytecode.JumpTable{}, false
+	}
+	t := bytecode.JumpTable{Min: lo, Targets: make([]int, hi-lo+1)}
+	for i := range t.Targets {
+		t.Targets[i] = -1
+	}
+	for _, cs := range cases {
+		t.Targets[cs.value.AsInt()-lo] = cs.addr
+	}
+	return t, true
 }
 
 // innermostSwitch returns the switch whose body holds a case or default
