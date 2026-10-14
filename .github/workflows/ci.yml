@@ -8,7 +8,7 @@ jobs:
   test:
     strategy:
       matrix:
-        go: ["1.22.x", "stable"]   # the go.mod minimum and the current release
+        go: ["1.25.x", "stable"]   # the go.mod minimum and the current release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

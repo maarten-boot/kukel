@@ -63,8 +63,8 @@ and write output, after it returns. Call `Close` when the interpreter is no
 longer needed.
 
 `Builtins()` and `StandardModules()` list the names of the built-in
-functions and of the standard modules (`events`, `json`, `strings`, `time`,
-`worker`, `zmq`).
+functions and of the standard modules (`db`, `events`, `json`, `strings`,
+`time`, `worker`, `zmq`).
 
 ## 2. Values
 
@@ -165,7 +165,7 @@ more does not compile, so it never runs half-way):
 ```go
 opts := kukel.CompileOptions{
     DenyBuiltins:    kukel.SystemBuiltins,          // readfile, writefile, appendfile, readline, getenv, exit
-    StandardModules: []string{"json", "strings"},   // no time, events, worker
+    StandardModules: []string{"json", "strings"},   // no db, time, events, worker, zmq
     NoFileModules:   true,                          // no program files: "use" finds only Go modules, no worker::startfile
 }
 ```

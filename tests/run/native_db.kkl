@@ -1,0 +1,41 @@
+// Native module db: SQL with SQLite. ":memory:" keeps the database in
+// memory; "sqlite:shop.db" would use (and create) a file.
+use db;
+use time;
+
+main() {
+    local conn = db::open("sqlite::memory:");
+    conn->exec("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE,
+                price REAL, instock BOOLEAN, added DATETIME)");
+
+    // Values always go in as parameters (?), never glued into the SQL text.
+    local added = new time::Time(2026, 10, 14);
+    for (local item in [["pen", 1.5, true], ["ink", 12, false], ["it's; DROP TABLE items", nil, true]])
+        conn->exec("INSERT INTO items (name, price, instock, added) VALUES (?, ?, ?, ?)", item.., added);
+    println("last id:", conn->lastid());
+
+    // query gives all rows as maps; first gives one row, or nil.
+    for (local row in conn->query("SELECT id, name, price, instock FROM items ORDER BY id"))
+        println(row);
+    println(conn->first("SELECT added FROM items WHERE name = ?", "pen")["added"]);
+    println(conn->first("SELECT * FROM items WHERE price > ?", 100));
+
+    // A transaction: all or nothing.
+    try {
+        conn->begin();
+        println("changed:", conn->exec("UPDATE items SET price = price * 2 WHERE price IS NOT NULL"));
+        conn->exec("INSERT INTO items (name) VALUES (?)", "pen");     // UNIQUE: fails
+        conn->commit();
+    } catch (e) {
+        conn->rollback();
+        println(e->kind + ":", e->message);
+    }
+    println(conn->first("SELECT price FROM items WHERE name = 'pen'"));   // still 1.5
+
+    // A cursor reads one row at a time.
+    local c = conn->cursor("SELECT name FROM items WHERE instock ORDER BY name");
+    for (local row = c->next(); row != nil; row = c->next()) println("in stock:", row["name"]);
+
+    conn->close();
+    println(conn);
+}

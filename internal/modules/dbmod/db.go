@@ -1,0 +1,481 @@
+// Package dbmod is the native module "db": SQL databases through Go's
+// database/sql. The first database is SQLite (modernc.org/sqlite, pure Go,
+// so no C library is needed).
+//
+//	use db;
+//	local conn = db::open("sqlite:shop.db");
+//	conn->exec("CREATE TABLE IF NOT EXISTS items (name TEXT, price REAL)");
+//	conn->exec("INSERT INTO items VALUES (?, ?)", "pen", 1.5);
+//	for (local row in conn->query("SELECT * FROM items WHERE price < ?", 10))
+//	    println(row["name"], row["price"]);
+//	conn->close();
+//
+// Values always travel as parameters (?), never glued into the SQL text.
+package dbmod
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
+	stdtime "time"
+
+	_ "modernc.org/sqlite" // the driver "sqlite"
+
+	"github.com/maarten-boot/kukel/internal/modules/timemod"
+	"github.com/maarten-boot/kukel/internal/native"
+	"github.com/maarten-boot/kukel/internal/value"
+)
+
+// DBError is the kind of the exceptions the database reports: an SQL
+// error, a broken constraint, a database file that cannot be opened.
+const DBError = "DBError"
+
+// conn is the state of a db::Conn object. One connection (database/sql
+// with at most one open connection), so that a transaction and an
+// in-memory database behave as one session.
+type conn struct {
+	url    string
+	db     *sql.DB
+	tx     *sql.Tx // the open transaction, or nil
+	cursor *cursor // the open cursor, or nil: it holds the connection
+	lastID value.Value
+	closed bool
+}
+
+// cursor is the state of a db::Cursor object.
+type cursor struct {
+	conn  *conn
+	rows  *sql.Rows
+	cols  []string
+	bools []bool // columns declared BOOLEAN
+	done  bool
+	stop  func() // ends the query's context (the rows close when it ends)
+}
+
+// Conn and Cursor are the classes db::Conn and db::Cursor.
+var (
+	Conn   = &native.Class{Name: "Conn"}
+	Cursor = &native.Class{Name: "Cursor"}
+)
+
+func init() {
+	Conn.Methods = map[string]value.NativeMethod{
+		"exec":   connMethod("exec", 1, -1, exec),
+		"lastid": connMethod("lastid", 0, 0, func(a native.Args, env value.Env, c *conn) (value.Value, error) { return c.lastID, nil }),
+		"query":  connMethod("query", 1, -1, query),
+		"first":  connMethod("first", 1, -1, first),
+		"cursor": connMethod("cursor", 1, -1, openCursor),
+		"begin":  connMethod("begin", 0, 0, begin),
+		"commit": connMethod("commit", 0, 0, func(a native.Args, env value.Env, c *conn) (value.Value, error) {
+			return value.NilValue, c.finish(a, true)
+		}),
+		"rollback": connMethod("rollback", 0, 0, func(a native.Args, env value.Env, c *conn) (value.Value, error) {
+			return value.NilValue, c.finish(a, false)
+		}),
+		"intransaction": connMethod("intransaction", 0, 0, func(a native.Args, env value.Env, c *conn) (value.Value, error) {
+			return value.MakeBool(c.tx != nil), nil
+		}),
+		"close": connMethod("close", 0, 0, closeConn),
+	}
+	Conn.Show = func(o *value.ObjectObj) string {
+		c := o.State.(*conn)
+		if c.closed {
+			return "db::Conn(" + c.url + ", closed)"
+		}
+		return "db::Conn(" + c.url + ")"
+	}
+	Cursor.Methods = map[string]value.NativeMethod{
+		"next": cursorMethod("next", next),
+		"close": cursorMethod("close", func(a native.Args, env value.Env, cu *cursor) (value.Value, error) {
+			cu.finish()
+			return value.NilValue, nil
+		}),
+	}
+	Cursor.Show = func(o *value.ObjectObj) string {
+		if o.State.(*cursor).done {
+			return "db::Cursor(done)"
+		}
+		return "db::Cursor(open)"
+	}
+	native.Register(&native.Module{
+		Name:    "db",
+		Doc:     "SQL databases (SQLite)",
+		Funcs:   map[string]native.Func{"open": open},
+		Classes: []*native.Class{Conn, Cursor},
+	})
+}
+
+// ----------------------------------------------------------------------
+// Opening and closing
+
+// db::open(url): "sqlite:path" (a file, created if it does not exist) or
+// "sqlite::memory:" (a database in memory, gone when it is closed).
+func open(env value.Env, args []value.Value) (value.Value, error) {
+	a, err := native.Check("db::open", args, 1, 1)
+	if err != nil {
+		return value.NilValue, err
+	}
+	url, err := a.String(0)
+	if err != nil {
+		return value.NilValue, err
+	}
+	path, ok := strings.CutPrefix(url, "sqlite:")
+	if !ok || path == "" {
+		return value.NilValue, a.Errorf(value.ValueError, "%q is not a database URL: use \"sqlite:file.db\" or \"sqlite::memory:\"", url)
+	}
+	// Foreign keys are checked, and a database another program is writing
+	// is waited for up to 5 seconds instead of failing at once.
+	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"
+	if path == ":memory:" {
+		dsn = ":memory:?_pragma=foreign_keys(1)"
+	}
+	d, err := sql.Open("sqlite", dsn)
+	if err == nil {
+		d.SetMaxOpenConns(1)
+		d.SetConnMaxIdleTime(0)
+		ctx, done := contextOf(env)
+		err = d.PingContext(ctx) // open the file now, so that a bad path fails here
+		done()
+	}
+	if err != nil {
+		return value.NilValue, a.Errorf(DBError, "%v", err)
+	}
+	return Conn.Object(&conn{url: url, db: d, lastID: value.NilValue}), nil
+}
+
+func closeConn(a native.Args, env value.Env, c *conn) (value.Value, error) {
+	if !c.closed {
+		if c.cursor != nil {
+			c.cursor.finish()
+		}
+		if c.tx != nil {
+			c.tx.Rollback() // an unfinished transaction is undone
+			c.tx = nil
+		}
+		c.closed = true
+		c.db.Close()
+	}
+	return value.NilValue, nil
+}
+
+// connMethod makes a member function of db::Conn that checks its
+// arguments and the state of the connection.
+func connMethod(name string, min, max int, fn func(a native.Args, env value.Env, c *conn) (value.Value, error)) value.NativeMethod {
+	full := "db::Conn::" + name
+	return func(env value.Env, this *value.ObjectObj, args []value.Value) (value.Value, error) {
+		a, err := native.Check(full, args, min, max)
+		if err != nil {
+			return value.NilValue, err
+		}
+		c := this.State.(*conn)
+		switch {
+		case name == "close":
+		case c.closed:
+			return value.NilValue, a.Errorf(value.ValueError, "the connection is closed")
+		case c.cursor != nil && name != "intransaction" && name != "lastid":
+			return value.NilValue, a.Errorf(value.ValueError, "a cursor is open on this connection: read it to the end or close it first")
+		}
+		return fn(a, env, c)
+	}
+}
+
+// contextOf gives a context that ends when the program is cancelled (a Go
+// program that embeds Kukel stops a call), and a function to call when
+// the database call is done.
+func contextOf(env value.Env) (context.Context, func()) {
+	done := env.Done()
+	if done == nil {
+		return context.Background(), func() {}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	stop := make(chan struct{})
+	go func() {
+		select {
+		case <-done:
+			cancel()
+		case <-stop:
+		}
+	}()
+	return ctx, func() { close(stop); cancel() }
+}
+
+// dbError turns an error of the database into a Kukel exception, or into
+// the cancellation of the program.
+func dbError(a native.Args, env value.Env, err error) error {
+	if e := env.Err(); e != nil && errors.Is(err, context.Canceled) {
+		return e
+	}
+	return a.Errorf(DBError, "%v", err)
+}
+
+// ----------------------------------------------------------------------
+// Statements
+
+// querier is what runs SQL: the database, or the open transaction.
+type querier interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+func (c *conn) q() querier {
+	if c.tx != nil {
+		return c.tx
+	}
+	return c.db
+}
+
+// params turns the arguments after the SQL text into values for the
+// database: nil (NULL), booleans, ints, floats, strings and time::Time.
+func params(a native.Args) (string, []any, error) {
+	text, err := a.String(0)
+	if err != nil {
+		return "", nil, err
+	}
+	ps := make([]any, len(a.V)-1)
+	for i, v := range a.V[1:] {
+		switch v.Kind() {
+		case value.Nil:
+			ps[i] = nil
+		case value.Bool:
+			ps[i] = v.AsBool()
+		case value.Int:
+			ps[i] = v.AsInt()
+		case value.Float:
+			ps[i] = v.AsFloat()
+		case value.String:
+			ps[i] = v.AsString()
+		default:
+			t, err := a.Object(i+1, timemod.Time)
+			if err != nil {
+				return "", nil, a.Errorf(value.TypeError, "argument %d cannot be stored in a database: %s (nil, booleans, numbers, strings and time::Time can)", i+2, v.Kind())
+			}
+			ps[i] = t.(stdtime.Time)
+		}
+	}
+	return text, ps, nil
+}
+
+// conn->exec(sql, args...): runs a statement that gives no rows (INSERT,
+// UPDATE, CREATE, ...) and gives the number of rows it changed.
+func exec(a native.Args, env value.Env, c *conn) (value.Value, error) {
+	text, ps, err := params(a)
+	if err != nil {
+		return value.NilValue, err
+	}
+	ctx, done := contextOf(env)
+	defer done()
+	res, err := c.q().ExecContext(ctx, text, ps...)
+	if err != nil {
+		return value.NilValue, dbError(a, env, err)
+	}
+	c.lastID = value.NilValue
+	if id, err := res.LastInsertId(); err == nil && id != 0 {
+		c.lastID = value.MakeInt(id)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return value.NilValue, nil
+	}
+	return value.MakeInt(n), nil
+}
+
+// rowsOf starts a query and reads its columns.
+func (c *conn) rowsOf(a native.Args, env value.Env) (*cursor, error) {
+	text, ps, err := params(a)
+	if err != nil {
+		return nil, err
+	}
+	ctx, stop := contextOf(env)
+	rows, err := c.q().QueryContext(ctx, text, ps...)
+	if err != nil {
+		stop()
+		return nil, dbError(a, env, err)
+	}
+	cols, err := rows.ColumnTypes()
+	if err != nil {
+		rows.Close()
+		stop()
+		return nil, dbError(a, env, err)
+	}
+	cu := &cursor{conn: c, rows: rows, stop: stop}
+	for _, col := range cols {
+		cu.cols = append(cu.cols, col.Name())
+		t := strings.ToUpper(col.DatabaseTypeName())
+		cu.bools = append(cu.bools, t == "BOOLEAN" || t == "BOOL")
+	}
+	return cu, nil
+}
+
+// row reads the current row as a map from column names to values.
+func (cu *cursor) row(a native.Args) (value.Value, error) {
+	vals := make([]any, len(cu.cols))
+	ptrs := make([]any, len(cu.cols))
+	for i := range vals {
+		ptrs[i] = &vals[i]
+	}
+	if err := cu.rows.Scan(ptrs...); err != nil {
+		return value.NilValue, a.Errorf(DBError, "%v", err)
+	}
+	m := value.NewMap()
+	for i, name := range cu.cols {
+		m.Set(value.MakeString(name), cu.value(i, vals[i])) // a string key cannot fail
+	}
+	return value.MakeMap(m), nil
+}
+
+// value turns a value of the database into a Kukel value.
+func (cu *cursor) value(i int, v any) value.Value {
+	switch v := v.(type) {
+	case nil:
+		return value.NilValue
+	case int64:
+		if cu.bools[i] {
+			return value.MakeBool(v != 0)
+		}
+		return value.MakeInt(v)
+	case float64:
+		return value.MakeFloat(v)
+	case bool:
+		return value.MakeBool(v)
+	case string:
+		return value.MakeString(v)
+	case []byte:
+		return value.MakeString(string(v))
+	case stdtime.Time:
+		return timemod.Time.Object(v)
+	}
+	return value.MakeString(fmt.Sprint(v))
+}
+
+// finish closes the rows; the connection is free again.
+func (cu *cursor) finish() {
+	if !cu.done {
+		cu.done = true
+		cu.rows.Close()
+		cu.stop()
+		if cu.conn.cursor == cu {
+			cu.conn.cursor = nil
+		}
+	}
+}
+
+// conn->query(sql, args...): all rows of a query, as a vector of maps from
+// column names to values.
+func query(a native.Args, env value.Env, c *conn) (value.Value, error) {
+	cu, err := c.rowsOf(a, env)
+	if err != nil {
+		return value.NilValue, err
+	}
+	defer cu.finish()
+	var rows []value.Value
+	for cu.rows.Next() {
+		if env.Err() != nil {
+			return value.NilValue, env.Err()
+		}
+		r, err := cu.row(a)
+		if err != nil {
+			return value.NilValue, err
+		}
+		rows = append(rows, r)
+	}
+	if err := cu.rows.Err(); err != nil {
+		return value.NilValue, dbError(a, env, err)
+	}
+	return value.MakeVector(append([]value.Value{}, rows...)), nil
+}
+
+// conn->first(sql, args...): the first row of a query, or nil.
+func first(a native.Args, env value.Env, c *conn) (value.Value, error) {
+	cu, err := c.rowsOf(a, env)
+	if err != nil {
+		return value.NilValue, err
+	}
+	defer cu.finish()
+	if !cu.rows.Next() {
+		if err := cu.rows.Err(); err != nil {
+			return value.NilValue, dbError(a, env, err)
+		}
+		return value.NilValue, nil
+	}
+	return cu.row(a)
+}
+
+// conn->cursor(sql, args...): a db::Cursor that reads the rows one at a
+// time (for results too large to hold at once). While it is open, the
+// connection does nothing else.
+func openCursor(a native.Args, env value.Env, c *conn) (value.Value, error) {
+	cu, err := c.rowsOf(a, env)
+	if err != nil {
+		return value.NilValue, err
+	}
+	c.cursor = cu
+	return Cursor.Object(cu), nil
+}
+
+func cursorMethod(name string, fn func(a native.Args, env value.Env, cu *cursor) (value.Value, error)) value.NativeMethod {
+	full := "db::Cursor::" + name
+	return func(env value.Env, this *value.ObjectObj, args []value.Value) (value.Value, error) {
+		a, err := native.Check(full, args, 0, 0)
+		if err != nil {
+			return value.NilValue, err
+		}
+		return fn(a, env, this.State.(*cursor))
+	}
+}
+
+// cursor->next(): the next row (a map), or nil at the end, which also
+// closes the cursor.
+func next(a native.Args, env value.Env, cu *cursor) (value.Value, error) {
+	if cu.done {
+		return value.NilValue, nil
+	}
+	if !cu.rows.Next() {
+		err := cu.rows.Err()
+		cu.finish()
+		if err != nil {
+			return value.NilValue, dbError(a, env, err)
+		}
+		return value.NilValue, nil
+	}
+	return cu.row(a)
+}
+
+// ----------------------------------------------------------------------
+// Transactions
+
+// conn->begin(): starts a transaction; the statements until commit() or
+// rollback() count together, or not at all.
+func begin(a native.Args, env value.Env, c *conn) (value.Value, error) {
+	if c.tx != nil {
+		return value.NilValue, a.Errorf(value.ValueError, "a transaction is already open (transactions do not nest)")
+	}
+	ctx, done := contextOf(env)
+	defer done()
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return value.NilValue, dbError(a, env, err)
+	}
+	c.tx = tx
+	return value.NilValue, nil
+}
+
+// finish commits or rolls back the open transaction.
+func (c *conn) finish(a native.Args, commit bool) error {
+	if c.tx == nil {
+		return a.Errorf(value.ValueError, "there is no open transaction (begin() starts one)")
+	}
+	tx := c.tx
+	c.tx = nil
+	var err error
+	if commit {
+		err = tx.Commit()
+	} else {
+		err = tx.Rollback()
+	}
+	if err != nil {
+		return a.Errorf(DBError, "%v", err)
+	}
+	return nil
+}

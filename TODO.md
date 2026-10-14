@@ -16,7 +16,7 @@ source files ──lexer──▶ tokens ──parser──▶ AST
 
 | Topic | Decision |
 |---|---|
-| Implementation language | Go (module; the standard library, and since Q43 the pure Go ZeroMQ library `github.com/go-zeromq/zmq4`) |
+| Implementation language | Go ≥ 1.25 (module; the standard library, and pure Go libraries: `github.com/go-zeromq/zmq4` since Q43, `modernc.org/sqlite` since Q44) |
 | Syntax | `syntax.ebnf` **version 2** (see §1b for the changes from version 1); version 3 added modules (Q35), version 4 removed temporaries (Q40), version 5 removed `elseif` and the comma operator outside `for` (Q41). No compatibility with older versions is kept |
 | Parser | Hand-written lexer and recursive-descent parser (`syntax.lark` is a tested reference only) |
 | "Stored tokenized code" | Compile to a stack-machine bytecode image, saved as a binary `.kkc` file that runs without the source |
@@ -81,6 +81,7 @@ source files ──lexer──▶ tokens ──parser──▶ AST
 - Q41 (decided 2026-10-14) One way for each thing (Kukel v0.4, syntax version 5): `elseif` is removed (write `else if`; no longer a keyword); the comma operator only in the first and last part of a `for` loop; the built-ins `isnil` (write `x == nil`) and `substr` (write `slice`) are removed; only `Error` objects can be thrown (this replaces Q29's "any value": a literal that is not one is a compile error, another value a `TypeError`), so a caught `e` always has `kind` and `message`. The old forms get error messages that name the replacement. Bytecode format 4 (old `.kkc` files are refused, since `THROW` changed meaning). Kept on purpose: `++`/`--` next to `+=`, `#` comments, the `time()` built-in, and static member functions called through objects (`p->f()` picks the static of the object's class, which `C::f()` cannot)
 - Q42 (decided 2026-10-14) Member functions stay declared in the class and defined outside it (`class C { m(a); }` and `C::m(a) { ... }`), not written inside the class body. Allowing bodies in the class as well would be two ways to define a member function (against Q41), and having only inline bodies would lose the class block as a compact interface overview and the splitting of a class's definitions over several files. The parameter lists written twice stay, checked by the compiler (Q19)
 - Q43 (decided 2026-10-14, F-14/F-15 of docs/future.md) Communication: the native module `zmq` on the pure Go library `github.com/go-zeromq/zmq4` v0.17.0 (no C library; `go install` and cross-compiling keep working; the first dependency outside the standard library). `zmq::Socket` of type REQ/REP, PUB/SUB, PUSH/PULL, DEALER/ROUTER, PAIR (optional identity); `zmq::poll(sockets [, timeout])` (built on the pending reads: no message is lost; the earliest socket wins); `bind`, `connect`, `send` (a string, or a vector of strings for several parts), `receive([timeout])` (a timed-out read stays pending, so no message is lost), `onmessage(f)` through the event loop, `subscribe`/`unsubscribe`, `close`; network problems are `NetError`. Differences from C ZeroMQ: `connect` waits (about 3 seconds) for the other side, and `close` lingers 0.1 s after a send because the library only queues messages. Not done: PLAIN and CURVE security (CURVE would mean implementing the ZMTP-CURVE cryptography ourselves, since zmq4 only has NULL and PLAIN; encryption comes from an SSH tunnel or VPN instead)
+- Q44 (decided 2026-10-14, F-16/F-18 of docs/future.md) SQL, plain first and SQLite first: the native module `db` on Go's `database/sql` with the pure Go driver `modernc.org/sqlite` v1.59.0 (about 6.5 MB more binary). This raises Kukel's minimum Go to 1.25 (the driver's releases need it; Go 1.22-1.24 are out of support; the last driver for 1.22 is from March 2025). `db::open("sqlite:file" | "sqlite::memory:")` gives a `db::Conn` with one database connection (so a transaction and a memory database are one session): `exec` (rows changed), `lastid`, `query` (a vector of maps), `first`, `cursor` (`db::Cursor` with `next`/`close`; while open, the connection does nothing else), `begin`/`commit`/`rollback`/`intransaction`, `close` (rolls back an open transaction). Parameters only (`?`); nil, bool, int, float, string and `time::Time` go in; BOOLEAN columns come back as booleans, DATE/DATETIME/TIMESTAMP as `time::Time`. Foreign keys on, a 5 s busy timeout. Database errors are the new kind `DBError`. Cancellation from an embedding program stops a running query. Later: PostgreSQL and MySQL drivers, then the ORM (§5.2)
 
 ## 1b. Syntax changes in version 2 (all adopted)
 
@@ -105,7 +106,7 @@ source files ──lexer──▶ tokens ──parser──▶ AST
 
 ## 2. Project setup (approved)
 
-- [x] `go mod init` (module name `github.com/maarten-boot/kukel`), Go ≥ 1.22
+- [x] `go mod init` (module name `github.com/maarten-boot/kukel`), Go ≥ 1.22 (≥ 1.25 since Q44)
 - [x] Layout (packages are created by the milestone that needs them):
   ```
   cmd/kukel/          CLI
@@ -121,7 +122,7 @@ source files ──lexer──▶ tokens ──parser──▶ AST
   internal/builtins/
   internal/loader/    finds and reads the modules a program uses (Q35)
   internal/native/    modules written in Go, native classes, per-program limits (Q36, Q39)
-  internal/modules/   eventsmod, jsonmod, stringsmod, timemod, workermod, zmqmod (Q36-Q38, Q43)
+  internal/modules/   dbmod, eventsmod, jsonmod, stringsmod, timemod, workermod, zmqmod (Q36-Q38, Q43, Q44)
   *.go (root)         the public package for embedding (Q39)
   tests/              .kkl programs + expected output
   docs/               reference.md (language), vm.md (VM and bytecode), embedding.md, future.md
@@ -326,4 +327,5 @@ All the "Rule:" comments in syntax.ebnf. The checks run while the compiler resol
 19. [x] Remove temporaries (Q40; branch `remove-temporaries`): syntax version 4
 20. [x] One way for each thing (Q41; branch `simplify`): no `elseif`, comma only in `for`, no `isnil`/`substr`, throw only `Error` objects; syntax version 5
 21. [x] ZeroMQ (Q43; branch `zmq`): the native module `zmq`
-22. [ ] Later/optional (see also [docs/future.md](docs/future.md): native classes in host modules, precompiled `.kkc` modules, deriving from native classes, multiple interpreters, events and Tk, ZeroMQ, SQL/ORM): jump tables for dense int switches, a peephole pass, a REPL, reporting several compile errors at once, a string representation that does not box (each new string costs one allocation for its value)
+22. [x] SQL with SQLite (Q44; branch `sql`): the native module `db`; Go ≥ 1.25
+23. [ ] Later/optional (see also [docs/future.md](docs/future.md): native classes in host modules, precompiled `.kkc` modules, deriving from native classes, multiple interpreters, events and Tk, ZeroMQ, SQL/ORM): jump tables for dense int switches, a peephole pass, a REPL, reporting several compile errors at once, a string representation that does not box (each new string costs one allocation for its value)

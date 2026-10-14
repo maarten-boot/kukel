@@ -515,10 +515,16 @@ main() {
 - Relations (`has many`, `belongs to`), lazy loading and migrations of
   existing tables are each a project of their own: later, if needed.
 
+*Plain SQL is done for SQLite (TODO.md Q44): the module `db` with `exec`,
+`query`, `first`, cursors and transactions. Still to come: PostgreSQL and
+MySQL, and the ORM.*
+
 **F-16** Which databases first (SQLite only, to start)?
+*Answered: SQLite first.*
 **F-17** How a class describes its table: conventions only, static data
 members, a `db::model(...)` call, or a new syntax?
 **F-18** Plain SQL only at first, with the ORM later on top?
+*Answered: yes; plain SQL is done, the ORM comes later on top.*
 
 ---
 
@@ -550,7 +556,7 @@ Each step is usable on its own and prepares the next:
 | 2 | Public embedding API; several interpreters in one process | 1 | done (Q39) |
 | 3 | Event loop, timers; workers with messages | 1 | done (Q37, Q38) |
 | 4 | ZeroMQ (blocking first, then events) | 1, 3 | done (Q43), without security |
-| 5 | SQL: plain queries, transactions (SQLite first) | 1 | |
+| 5 | SQL: plain queries, transactions (SQLite first) | 1 | done for SQLite (Q44) |
 | 6 | Time type; then the ORM on top of SQL | 5 | time type done (Q36) |
 | 7 | Tk GUI (after a proof of concept for the threading) | 1, 3 | |
 

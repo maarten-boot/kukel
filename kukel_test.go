@@ -201,14 +201,15 @@ main() {}`, kukel.CompileOptions{}), kukel.Options{StepLimit: 1000})
 }
 
 func TestCancel(t *testing.T) {
-	in := interp(t, compile(t, `use time; use worker; use zmq;
+	in := interp(t, compile(t, `use time; use worker; use zmq; use db;
+slowsql() { db::open("sqlite::memory:")->first("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n) SELECT count(*) FROM n"); }
 loop() { while (true) {} }
 nap() { time::sleep(60); }
 listen() { local s = new zmq::Socket("PULL"); s->bind("inproc://nobody"); s->receive(); }
 waitFor() { worker::start(loop)->wait(); }
 quick() { return 1; }
 main() {}`, kukel.CompileOptions{}), kukel.Options{})
-	for _, name := range []string{"loop", "nap", "waitFor", "listen"} {
+	for _, name := range []string{"loop", "nap", "waitFor", "listen", "slowsql"} {
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		start := time.Now()
 		_, err := in.CallContext(ctx, name)

@@ -33,7 +33,7 @@ hello, Kukel
 8. [Classes and objects](#8-classes-and-objects)
 9. [Exceptions](#9-exceptions)
 10. [Built-in functions](#10-built-in-functions)
-11. [Modules written in Go](#11-modules-written-in-go): events, json, strings, time, worker, zmq
+11. [Modules written in Go](#11-modules-written-in-go): db, events, json, strings, time, worker, zmq
 
 ---
 
@@ -519,6 +519,7 @@ Kinds of runtime errors:
 | `StackOverflowError` | more than 10000 nested calls |
 | `CompileError` | `worker::startfile` of a program with a compile error |
 | `WorkerError` | `w->wait()` of a worker that failed (the message holds the worker's error) |
+| `DBError` | an error the database reports: SQL that is not valid, a broken constraint (UNIQUE, CHECK, FOREIGN KEY), a database that cannot be opened |
 | `NetError` | a network problem in `zmq`: an address that cannot be bound or reached, a message that cannot be sent or received |
 | `HostError` | a function of a Go program that embeds Kukel failed ([embedding.md](embedding.md)) |
 | `CancelledError` | the Go program that runs Kukel stopped it (a time limit); cannot be caught |
@@ -627,6 +628,60 @@ data and have member functions but no data members. `typeof` gives
 compares whether two values are the same object. A native class cannot
 (yet) be used as a base class, and a native class without a constructor
 has no `new`: its objects come from the module's functions.
+
+### db
+
+SQL databases. The first one is SQLite: a whole database in one file (or
+in memory), nothing to install; `kukel` carries it.
+
+```
+use db;
+
+main() {
+    local conn = db::open("sqlite::memory:");      // or "sqlite:shop.db"
+    conn->exec("CREATE TABLE items (name TEXT, price REAL)");
+    conn->exec("INSERT INTO items VALUES (?, ?)", "pen", 1.5);
+    for (local row in conn->query("SELECT * FROM items WHERE price < ?", 10))
+        println(row["name"], row["price"]);         // pen 1.5
+    conn->close();
+}
+```
+
+Values always go into SQL as parameters: each `?` takes the next argument.
+They are never glued into the SQL text, so text from a user cannot change
+the statement (SQL injection).
+
+| Kukel | SQL | back in Kukel |
+|---|---|---|
+| `nil` | NULL | `nil` |
+| int, float | INTEGER, REAL | int, float (an int in a REAL column comes back as a float) |
+| string | TEXT | string (bytes; also for BLOB columns) |
+| bool | stored as 1 or 0 | `true`/`false` for a column declared `BOOLEAN` or `BOOL`, else 1 or 0 |
+| `time::Time` | a timestamp | `time::Time` for a column declared `DATETIME`, `DATE` or `TIMESTAMP` (a value there that is not a date comes back as a string); store times in such columns, as a TEXT column keeps a text form only |
+
+Other values (vectors, maps, objects) are a `TypeError`. A row is a map
+from column names to values, in the order of the columns; columns with the
+same name (from a join) keep the last value, so name them with `AS`.
+
+| Function or member function | Description |
+|---|---|
+| `db::open(url)` | A `db::Conn`: `"sqlite:path"` opens the file `path` (relative to the current directory), creating it if needed; `"sqlite::memory:"` is a database in memory, gone when closed. A file that cannot be opened is a `DBError`, another URL a `ValueError`. Foreign keys are enforced, and a database another program is writing is waited for up to 5 seconds |
+| `conn->exec(sql, args...)` | Runs a statement that gives no rows (`CREATE`, `INSERT`, `UPDATE`, `DELETE`, ...) and gives the number of rows it changed |
+| `conn->lastid()` | The row id of the last row an `INSERT` added (SQLite's `last_insert_rowid`), or `nil` |
+| `conn->query(sql, args...)` | All rows of a query, as a vector of maps |
+| `conn->first(sql, args...)` | The first row of a query, or `nil` |
+| `conn->cursor(sql, args...)` | A `db::Cursor` for results too large to hold at once: `cursor->next()` gives the next row, or `nil` at the end (which closes it); `cursor->close()` stops early. While a cursor is open, other calls on the connection are a `ValueError` |
+| `conn->begin()` | Starts a transaction: the statements until `commit()` or `rollback()` count together, or not at all. Transactions do not nest (`ValueError`) |
+| `conn->commit()`, `conn->rollback()` | Ends the transaction, keeping or undoing its changes (`ValueError` without one) |
+| `conn->intransaction()` | Whether a transaction is open |
+| `conn->close()` | Closes the connection; an open transaction is rolled back. Closing again has no effect; any other call afterwards is a `ValueError` |
+
+Errors the database reports are a `DBError` with its message (`"UNIQUE
+constraint failed: items.name"`). A connection prints as
+`db::Conn(sqlite:shop.db)` (or `closed`), a cursor as `db::Cursor(open)` or
+`db::Cursor(done)`. A Go program that embeds Kukel can keep a program away
+from databases (and the files they are stored in) by leaving `db` out of
+`StandardModules`.
 
 ### events
 

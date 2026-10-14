@@ -1,0 +1,12 @@
+last id: 3
+{"id": 1, "name": "pen", "price": 1.5, "instock": true}
+{"id": 2, "name": "ink", "price": 12.0, "instock": false}
+{"id": 3, "name": "it's; DROP TABLE items", "price": nil, "instock": true}
+time::Time(2026-10-14T00:00:00Z)
+nil
+changed: 2
+DBError: db::Conn::exec: constraint failed: UNIQUE constraint failed: items.name (2067)
+{"price": 1.5}
+in stock: it's; DROP TABLE items
+in stock: pen
+db::Conn(sqlite::memory:, closed)
