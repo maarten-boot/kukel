@@ -1,0 +1,188 @@
+package dbmod
+
+import (
+	"fmt"
+	"net"
+	"net/url"
+	"regexp"
+	"strconv"
+	"strings"
+
+	"github.com/go-sql-driver/mysql"
+	_ "github.com/jackc/pgx/v5/stdlib" // the driver "pgx"
+)
+
+// The databases db::open reaches (TODO.md Q54): SQLite in a file or in
+// memory, and PostgreSQL and MySQL (or MariaDB) servers. Programs write ?
+// for parameters everywhere; for PostgreSQL they become $1, $2, ...
+
+// dialect is the kind of database of a connection.
+type dialect int
+
+const (
+	sqlite dialect = iota
+	postgres
+	mysqlDB
+)
+
+// source is how to open a database: the driver, its data source name, the
+// dialect, and the URL as a connection prints it (without a password).
+type source struct {
+	driver, dsn string
+	dialect     dialect
+	shown       string
+}
+
+// sourceOf reads a database URL: "sqlite:path", "sqlite::memory:",
+// "postgres://user:password@host:port/database?options" (also
+// "postgresql://"), "mysql://user:password@host:port/database?options".
+func sourceOf(u string) (source, error) {
+	if path, ok := strings.CutPrefix(u, "sqlite:"); ok && path != "" {
+		// Foreign keys are checked, and a database another program is
+		// writing is waited for up to 5 seconds instead of failing at
+		// once. The path is part of a URI: %, ? and # in it are escaped.
+		dsn := "file:" + uriEscape.Replace(path) + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"
+		if path == ":memory:" {
+			dsn = ":memory:?_pragma=foreign_keys(1)"
+		}
+		return source{"sqlite", dsn, sqlite, u}, nil
+	}
+	shown := password.ReplaceAllString(u, "${1}***@")
+	p, err := url.Parse(u)
+	if err != nil || p.Host == "" {
+		return source{}, fmt.Errorf("%q is not a database URL: use \"sqlite:file.db\", \"sqlite::memory:\", \"postgres://user:password@host/database\" or \"mysql://user:password@host/database\"", shown)
+	}
+	switch p.Scheme {
+	case "postgres", "postgresql":
+		return source{"pgx", u, postgres, shown}, nil
+	case "mysql":
+		c := mysql.NewConfig()
+		c.User = p.User.Username()
+		c.Passwd, _ = p.User.Password()
+		c.Net, c.Addr = "tcp", p.Host
+		if p.Port() == "" {
+			c.Addr = net.JoinHostPort(p.Hostname(), "3306")
+		}
+		c.DBName = strings.TrimPrefix(p.Path, "/")
+		c.ParseTime = true // DATETIME and TIMESTAMP give times
+		dsn := c.FormatDSN()
+		if p.RawQuery != "" { // options such as tls=true: the driver reads them
+			sep := "?"
+			if strings.Contains(dsn, "?") {
+				sep = "&"
+			}
+			dsn += sep + p.RawQuery
+		}
+		return source{"mysql", dsn, mysqlDB, shown}, nil
+	}
+	return source{}, fmt.Errorf("%q is not a database URL: the kinds are sqlite:, postgres:// and mysql://", shown)
+}
+
+// password finds the password of a URL ("//user:password@"), which
+// messages and printed connections leave out.
+var password = regexp.MustCompile(`(//[^/:@]*:)[^@/]*@`)
+
+// sqlFor gives the SQL text for the database: for PostgreSQL each ? that
+// is a parameter (not inside a quoted string or name, or a comment)
+// becomes $1, $2, ...
+func (c *conn) sqlFor(text string) string {
+	if c.dialect != postgres || !strings.Contains(text, "?") {
+		return text
+	}
+	var b strings.Builder
+	n := 0
+	for i := 0; i < len(text); i++ {
+		ch := text[i]
+		switch {
+		case ch == '\'' || ch == '"': // a string, or a quoted name: up to the closing quote ('' and "" are inside)
+			j := i + 1
+			for j < len(text) {
+				if text[j] == ch {
+					if j+1 < len(text) && text[j+1] == ch {
+						j += 2
+						continue
+					}
+					break
+				}
+				j++
+			}
+			b.WriteString(text[i:min(j+1, len(text))])
+			i = j
+		case ch == '-' && i+1 < len(text) && text[i+1] == '-': // a comment to the end of the line
+			j := strings.IndexByte(text[i:], '\n')
+			if j < 0 {
+				j = len(text) - i - 1
+			}
+			b.WriteString(text[i : i+j+1])
+			i += j
+		case ch == '/' && i+1 < len(text) && text[i+1] == '*':
+			j := strings.Index(text[i+2:], "*/")
+			end := len(text)
+			if j >= 0 {
+				end = i + 2 + j + 2
+			}
+			b.WriteString(text[i:end])
+			i = end - 1
+		case ch == '$' && dollarTag(text[i:]) != "": // $tag$ ... $tag$
+			tag := dollarTag(text[i:])
+			j := strings.Index(text[i+len(tag):], tag)
+			end := len(text)
+			if j >= 0 {
+				end = i + len(tag) + j + len(tag)
+			}
+			b.WriteString(text[i:end])
+			i = end - 1
+		case ch == '?':
+			n++
+			b.WriteString("$" + strconv.Itoa(n))
+		default:
+			b.WriteByte(ch)
+		}
+	}
+	return b.String()
+}
+
+// dollarTag gives the $tag$ (or $$) that starts s, or "".
+func dollarTag(s string) string {
+	for i := 1; i < len(s); i++ {
+		switch c := s[i]; {
+		case c == '$':
+			return s[:i+1]
+		case !(c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || i > 1 && c >= '0' && c <= '9'):
+			return ""
+		}
+	}
+	return ""
+}
+
+// quote quotes an SQL name (tables and columns are Kukel names: no quotes
+// inside): "name", or `name` for MySQL.
+func (c *conn) quote(name string) string {
+	if c.dialect == mysqlDB {
+		return "`" + name + "`"
+	}
+	return `"` + name + `"`
+}
+
+// keyType is the column type of id that the database fills in.
+func (c *conn) keyType() string {
+	switch c.dialect {
+	case postgres:
+		return "BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY"
+	case mysqlDB:
+		return "BIGINT AUTO_INCREMENT PRIMARY KEY"
+	}
+	return "INTEGER PRIMARY KEY"
+}
+
+// columnsSQL is a query for the names of the columns of a table (the
+// parameter), or no rows if there is no such table.
+func (c *conn) columnsSQL() string {
+	switch c.dialect {
+	case postgres:
+		return "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ?"
+	case mysqlDB:
+		return "SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ?"
+	}
+	return "SELECT name FROM pragma_table_info(?)"
+}

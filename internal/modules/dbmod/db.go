@@ -1,6 +1,7 @@
 // Package dbmod is the native module "db": SQL databases through Go's
-// database/sql. The first database is SQLite (modernc.org/sqlite, pure Go,
-// so no C library is needed).
+// database/sql: SQLite (modernc.org/sqlite), PostgreSQL (jackc/pgx) and
+// MySQL or MariaDB (go-sql-driver/mysql), all pure Go, so no C library is
+// needed.
 //
 //	use db;
 //	local conn = db::open("sqlite:shop.db");
@@ -18,6 +19,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	stdtime "time"
 
@@ -36,12 +38,13 @@ const DBError = "DBError"
 // with at most one open connection), so that a transaction and an
 // in-memory database behave as one session.
 type conn struct {
-	url    string
-	db     *sql.DB
-	tx     *sql.Tx // the open transaction, or nil
-	cursor *cursor // the open cursor, or nil: it holds the connection
-	lastID value.Value
-	closed bool
+	url     string // as it prints (without a password)
+	dialect dialect
+	db      *sql.DB
+	tx      *sql.Tx // the open transaction, or nil
+	cursor  *cursor // the open cursor, or nil: it holds the connection
+	lastID  value.Value
+	closed  bool
 }
 
 // cursor is the state of a db::Cursor object.
@@ -49,7 +52,7 @@ type cursor struct {
 	conn  *conn
 	rows  *sql.Rows
 	cols  []string
-	bools []bool // columns declared BOOLEAN
+	types []string // the columns' declared types, in upper case
 	done  bool
 	stop  func() // ends the query's context (the rows close when it ends)
 }
@@ -120,33 +123,28 @@ func open(env value.Env, args []value.Value) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, err
 	}
-	url, err := a.String(0)
+	u, err := a.String(0)
 	if err != nil {
 		return value.NilValue, err
 	}
-	path, ok := strings.CutPrefix(url, "sqlite:")
-	if !ok || path == "" {
-		return value.NilValue, a.Errorf(value.ValueError, "%q is not a database URL: use \"sqlite:file.db\" or \"sqlite::memory:\"", url)
+	src, err := sourceOf(u)
+	if err != nil {
+		return value.NilValue, a.Errorf(value.ValueError, "%v", err)
 	}
-	// Foreign keys are checked, and a database another program is writing
-	// is waited for up to 5 seconds instead of failing at once.
-	// The path is part of a URI: %, ? and # in it are escaped.
-	dsn := "file:" + uriEscape.Replace(path) + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"
-	if path == ":memory:" {
-		dsn = ":memory:?_pragma=foreign_keys(1)"
-	}
-	d, err := sql.Open("sqlite", dsn)
+	// One connection: a transaction, lastid() and an in-memory database
+	// belong to one session.
+	d, err := sql.Open(src.driver, src.dsn)
 	if err == nil {
 		d.SetMaxOpenConns(1)
 		d.SetConnMaxIdleTime(0)
 		ctx, done := contextOf(env)
-		err = d.PingContext(ctx) // open the file now, so that a bad path fails here
+		err = d.PingContext(ctx) // open the file or reach the server now, so that a bad URL fails here
 		done()
 	}
 	if err != nil {
 		return value.NilValue, a.Errorf(DBError, "%v", err)
 	}
-	return Conn.Object(&conn{url: url, db: d, lastID: value.NilValue}), nil
+	return Conn.Object(&conn{url: src.shown, dialect: src.dialect, db: d, lastID: value.NilValue}), nil
 }
 
 func closeConn(a native.Args, env value.Env, c *conn) (value.Value, error) {
@@ -286,7 +284,7 @@ func exec(a native.Args, env value.Env, c *conn) (value.Value, error) {
 	}
 	ctx, done := contextOf(env)
 	defer done()
-	res, err := c.q().ExecContext(ctx, text, ps...)
+	res, err := c.q().ExecContext(ctx, c.sqlFor(text), ps...)
 	if err != nil {
 		return value.NilValue, dbError(a, env, err)
 	}
@@ -308,7 +306,7 @@ func (c *conn) rowsOf(a native.Args, env value.Env) (*cursor, error) {
 		return nil, err
 	}
 	ctx, stop := contextOf(env)
-	rows, err := c.q().QueryContext(ctx, text, ps...)
+	rows, err := c.q().QueryContext(ctx, c.sqlFor(text), ps...)
 	if err != nil {
 		stop()
 		return nil, dbError(a, env, err)
@@ -322,8 +320,7 @@ func (c *conn) rowsOf(a native.Args, env value.Env) (*cursor, error) {
 	cu := &cursor{conn: c, rows: rows, stop: stop}
 	for _, col := range cols {
 		cu.cols = append(cu.cols, col.Name())
-		t := strings.ToUpper(col.DatabaseTypeName())
-		cu.bools = append(cu.bools, t == "BOOLEAN" || t == "BOOL")
+		cu.types = append(cu.types, strings.ToUpper(col.DatabaseTypeName()))
 	}
 	return cu, nil
 }
@@ -345,28 +342,47 @@ func (cu *cursor) row(a native.Args) (value.Value, error) {
 	return value.MakeMap(m), nil
 }
 
-// value turns a value of the database into a Kukel value.
+// value turns a value of the database into a Kukel value. Numbers that a
+// driver gives as text (MySQL without parameters, PostgreSQL NUMERIC) are
+// numbers again.
 func (cu *cursor) value(i int, v any) value.Value {
 	switch v := v.(type) {
 	case nil:
 		return value.NilValue
 	case int64:
-		if cu.bools[i] {
+		if t := cu.types[i]; t == "BOOLEAN" || t == "BOOL" {
 			return value.MakeBool(v != 0)
 		}
 		return value.MakeInt(v)
+	case []byte:
+		return cu.text(i, string(v))
+	case string:
+		return cu.text(i, v)
 	case float64:
 		return value.MakeFloat(v)
 	case bool:
 		return value.MakeBool(v)
-	case string:
-		return value.MakeString(v)
-	case []byte:
-		return value.MakeString(string(v))
 	case stdtime.Time:
 		return timemod.Time.Object(v)
 	}
 	return value.MakeString(fmt.Sprint(v))
+}
+
+// text turns a value the driver gives as text into a number for a column of
+// a number type, else into a string.
+func (cu *cursor) text(i int, s string) value.Value {
+	switch cu.types[i] {
+	case "TINYINT", "SMALLINT", "MEDIUMINT", "INT", "INTEGER", "BIGINT", "YEAR",
+		"UNSIGNED TINYINT", "UNSIGNED SMALLINT", "UNSIGNED MEDIUMINT", "UNSIGNED INT", "UNSIGNED BIGINT":
+		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+			return value.MakeInt(n)
+		}
+	case "FLOAT", "DOUBLE", "REAL", "DECIMAL", "NUMERIC", "FLOAT4", "FLOAT8":
+		if f, err := strconv.ParseFloat(s, 64); err == nil {
+			return value.MakeFloat(f)
+		}
+	}
+	return value.MakeString(s)
 }
 
 // finish closes the rows; the connection is free again.

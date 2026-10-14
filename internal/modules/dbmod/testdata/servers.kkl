@@ -1,0 +1,70 @@
+// Run by TestServers on SQLite and on the servers KUKEL_TEST_POSTGRES and
+// KUKEL_TEST_MYSQL name: every database must print the same.
+use db;
+use time;
+
+class Item {
+    id, name, price, instock, added;
+    static columns();
+}
+
+Item::columns() {
+    return {"name": "VARCHAR(100) NOT NULL", "price": "DOUBLE PRECISION", "instock": "BOOLEAN", "added": "TIMESTAMP"};
+}
+
+class Tag { id, label; static columns(); }
+Tag::columns() { return {"id": "VARCHAR(40) PRIMARY KEY", "label": "TEXT"}; }
+
+main(args) {
+    local conn = db::open(args[0]);
+    for (local t in ["item", "tag", "plain"]) conn->exec("DROP TABLE IF EXISTS " + t);
+
+    // plain SQL: parameters, types, a ? inside a string, transactions
+    conn->exec("CREATE TABLE plain (id INTEGER PRIMARY KEY, word VARCHAR(20) UNIQUE, n INTEGER, x DOUBLE PRECISION, ok BOOLEAN)");
+    println(conn->exec("INSERT INTO plain (id, word, n, x, ok) VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)", 1, "one?", 1, 1.5, true, 2, "two", 2, 2.5, false));
+    println(conn->query("SELECT word, n, x FROM plain WHERE word <> '?' AND n >= ? ORDER BY id", 1));
+    println(conn->first("SELECT COUNT(*) AS c, SUM(x) AS s FROM plain"));
+    println(conn->first("SELECT 7 AS seven, 'a?b' AS text"));
+    try { conn->exec("INSERT INTO plain (id, word) VALUES (?, ?)", 3, "one?"); } catch (e) { println(e->kind); }
+    conn->begin();
+    conn->exec("DELETE FROM plain");
+    conn->rollback();
+    println(conn->first("SELECT COUNT(*) AS c FROM plain"));
+    local cu = conn->cursor("SELECT word FROM plain ORDER BY id");
+    for (local r = cu->next(); r != nil; r = cu->next()) print(r["word"], "");
+    println();
+
+    // objects
+    conn->migrate(Item);
+    conn->migrate(Item);
+    conn->migrate(Tag);
+    local pen = new Item();
+    pen->name = "pen"; pen->price = 1.5; pen->instock = true;
+    pen->added = new time::Time(2026, 10, 15, 9, 30, 0);
+    conn->save(pen);
+    println("saved", pen->id);
+    pen->price = 1.75;
+    conn->save(pen);
+    for (local n in ["ink", "paper", "clip"]) {
+        local i = new Item();
+        i->name = n; i->price = len(n) * 1.0; i->instock = n != "ink";
+        conn->save(i);
+    }
+
+    local q = conn->find(Item)->where("price < ?", 5)->orderby("name");
+    println(q->count());
+
+    for (local i in q->all()) println(i->id, i->name, i->price, i->instock);
+    local g = conn->get(Item, pen->id);
+    println(g->name, g->price, g->instock, g->added);
+    println(conn->find(Item)->orderby("price DESC")->limit(2, 1)->all());
+    println(conn->delete(pen), conn->delete(pen), conn->find(Item)->count());
+    println(conn->find(Item)->where("price > ?", 4)->delete(), conn->find(Item)->count());
+    local t = new Tag();
+    t->id = "urgent"; t->label = "Urgent!";
+    conn->save(t);
+    t->label = "URGENT";
+    conn->save(t);
+    println(conn->find(Tag)->all());
+    conn->close();
+}

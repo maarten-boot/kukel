@@ -84,7 +84,7 @@ func ormInit() {
 			return objs[0], nil
 		}),
 		"count": queryMethod("count", 0, 0, func(a native.Args, env value.Env, q *finder) (value.Value, error) {
-			text := "SELECT COUNT(*) FROM (" + q.selectSQL() + ")"
+			text := "SELECT COUNT(*) FROM (" + q.selectSQL() + ") AS q"
 			row, err := first(sqlArgs(a, text, q.args), env, q.conn)
 			if err != nil {
 				return value.NilValue, err
@@ -95,7 +95,7 @@ func ormInit() {
 			if q.limit >= 0 || q.order != "" {
 				return value.NilValue, a.Errorf(value.ValueError, "delete() takes the rows where() selects: orderby() and limit() do not apply")
 			}
-			return exec(sqlArgs(a, "DELETE FROM "+quote(q.model.table)+q.whereSQL(), q.args), env, q.conn)
+			return exec(sqlArgs(a, "DELETE FROM "+q.model.quote(q.model.table)+q.whereSQL(), q.args), env, q.conn)
 		}),
 	}
 	Query.Show = func(o *value.ObjectObj) string {
@@ -109,14 +109,15 @@ func ormInit() {
 
 // model is how a class maps to a table.
 type model struct {
+	conn    *conn
 	class   *value.ClassObj
 	table   string
 	types   map[string]string // the SQL type of each column ("" for none)
-	autoKey bool              // id is an INTEGER PRIMARY KEY: the database fills it in
+	autoKey bool              // the database fills in id (an INTEGER PRIMARY KEY, AUTO_INCREMENT, IDENTITY, ...)
 }
 
 // modelOf finds the mapping of class k, asking its table() and columns().
-func modelOf(a native.Args, env value.Env, k *value.ClassObj) (*model, error) {
+func modelOf(a native.Args, env value.Env, c *conn, k *value.ClassObj) (*model, error) {
 	if k.Native {
 		return nil, a.Errorf(value.TypeError, "%s is a class written in Go: only Kukel classes can be stored", k.Name)
 	}
@@ -124,7 +125,7 @@ func modelOf(a native.Args, env value.Env, k *value.ClassObj) (*model, error) {
 		return nil, a.Errorf(value.ValueError, "class %s has no data member id (the primary key)", k.Name)
 	}
 	name := k.Name[strings.LastIndex(k.Name, ":")+1:]
-	m := &model{class: k, table: strings.ToLower(name), types: map[string]string{"id": "INTEGER PRIMARY KEY"}}
+	m := &model{conn: c, class: k, table: strings.ToLower(name), types: map[string]string{"id": c.keyType()}}
 	if v, ok, err := static(a, env, k, "table"); err != nil {
 		return nil, err
 	} else if ok {
@@ -156,7 +157,10 @@ func modelOf(a native.Args, env value.Env, k *value.ClassObj) (*model, error) {
 			return nil, bad
 		}
 	}
-	m.autoKey = strings.HasPrefix(strings.ToUpper(strings.Join(strings.Fields(m.types["id"]), " ")), "INTEGER PRIMARY KEY")
+	key := strings.ToUpper(strings.Join(strings.Fields(m.types["id"]), " "))
+	m.autoKey = key == strings.ToUpper(c.keyType()) || strings.Contains(key, "AUTO_INCREMENT") ||
+		strings.Contains(key, "IDENTITY") || strings.Contains(key, "SERIAL") ||
+		c.dialect == sqlite && strings.HasPrefix(key, "INTEGER PRIMARY KEY")
 	return m, nil
 }
 
@@ -181,10 +185,6 @@ func isName(s string) bool {
 	}
 	return s != ""
 }
-
-// quote quotes an SQL name (tables and columns are Kukel names: no quotes
-// inside).
-func quote(name string) string { return `"` + name + `"` }
 
 // classArg gives argument i, a class (also the class of an object when
 // object is set).
@@ -236,11 +236,11 @@ func migrate(a native.Args, env value.Env, c *conn) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, err
 	}
-	m, err := modelOf(a, env, k)
+	m, err := modelOf(a, env, c, k)
 	if err != nil {
 		return value.NilValue, err
 	}
-	rows, err := query(sqlArgs(a, "SELECT name FROM pragma_table_info(?)", []value.Value{value.MakeString(m.table)}), env, c)
+	rows, err := query(sqlArgs(a, c.columnsSQL(), []value.Value{value.MakeString(m.table)}), env, c)
 	if err != nil {
 		return value.NilValue, err
 	}
@@ -248,7 +248,7 @@ func migrate(a native.Args, env value.Env, c *conn) (value.Value, error) {
 	for _, r := range rows.AsVector().Elems {
 		have[firstValue(r).AsString()] = true
 	}
-	column := func(f string) string { return strings.TrimSpace(quote(f) + " " + m.types[f]) }
+	column := func(f string) string { return strings.TrimSpace(m.quote(f) + " " + m.types[f]) }
 	if len(have) == 0 {
 		defs := []string{column("id")}
 		for _, f := range m.class.FieldNames {
@@ -256,12 +256,12 @@ func migrate(a native.Args, env value.Env, c *conn) (value.Value, error) {
 				defs = append(defs, column(f))
 			}
 		}
-		_, err := exec(sqlArgs(a, "CREATE TABLE "+quote(m.table)+" ("+strings.Join(defs, ", ")+")", nil), env, c)
+		_, err := exec(sqlArgs(a, "CREATE TABLE "+m.quote(m.table)+" ("+strings.Join(defs, ", ")+")", nil), env, c)
 		return value.NilValue, err
 	}
 	for _, f := range m.class.FieldNames {
 		if !have[f] {
-			if _, err := exec(sqlArgs(a, "ALTER TABLE "+quote(m.table)+" ADD COLUMN "+column(f), nil), env, c); err != nil {
+			if _, err := exec(sqlArgs(a, "ALTER TABLE "+m.quote(m.table)+" ADD COLUMN "+column(f), nil), env, c); err != nil {
 				return value.NilValue, err
 			}
 		}
@@ -277,7 +277,7 @@ func save(a native.Args, env value.Env, c *conn) (value.Value, error) {
 		return value.NilValue, a.TypeError(0, "an object")
 	}
 	obj := a.V[0].AsObject()
-	m, err := modelOf(a, env, obj.Class)
+	m, err := modelOf(a, env, c, obj.Class)
 	if err != nil {
 		return value.NilValue, err
 	}
@@ -291,11 +291,20 @@ func save(a native.Args, env value.Env, c *conn) (value.Value, error) {
 		if !m.autoKey {
 			return value.NilValue, a.Errorf(value.ValueError, "%s->id is nil: set it before saving (the key is %s, which the database does not fill in)", m.class.Name, m.types["id"])
 		}
-		text := "INSERT INTO " + quote(m.table) + " DEFAULT VALUES"
-		if len(cols) > 0 {
-			text = "INSERT INTO " + quote(m.table) + " (" + names(cols) + ") VALUES (" + marks(len(cols)) + ")"
+		text := "INSERT INTO " + m.quote(m.table) + " (" + m.names(cols) + ") VALUES (" + marks(len(cols)) + ")"
+		if len(cols) == 0 {
+			text = "INSERT INTO " + m.quote(m.table) + " DEFAULT VALUES"
+			if c.dialect == mysqlDB {
+				text = "INSERT INTO " + m.quote(m.table) + " () VALUES ()"
+			}
 		}
-		if _, err := exec(sqlArgs(a, text, vals), env, c); err != nil {
+		if c.dialect == postgres { // no last insert id: the row says it
+			row, err := first(sqlArgs(a, text+" RETURNING "+m.quote("id"), vals), env, c)
+			if err != nil {
+				return value.NilValue, err
+			}
+			c.lastID = firstValue(row)
+		} else if _, err := exec(sqlArgs(a, text, vals), env, c); err != nil {
 			return value.NilValue, err
 		}
 		obj.Fields[idSlot] = c.lastID
@@ -304,15 +313,24 @@ func save(a native.Args, env value.Env, c *conn) (value.Value, error) {
 	if _, ok := dbValue(id); !ok {
 		return value.NilValue, a.Errorf(value.TypeError, "%s->id cannot be stored in a database: %s", m.class.Name, kindOf(id))
 	}
-	text := "INSERT INTO " + quote(m.table) + " (" + names(append([]string{"id"}, cols...)) + ") VALUES (" + marks(len(cols)+1) + ") ON CONFLICT(\"id\") DO "
-	if len(cols) == 0 {
-		text += "NOTHING"
-	} else {
-		var sets []string
-		for _, col := range cols {
-			sets = append(sets, quote(col)+" = excluded."+quote(col))
+	text := "INSERT INTO " + m.quote(m.table) + " (" + m.names(append([]string{"id"}, cols...)) + ") VALUES (" + marks(len(cols)+1) + ")"
+	var sets []string
+	for _, col := range cols {
+		if c.dialect == mysqlDB {
+			sets = append(sets, m.quote(col)+" = VALUES("+m.quote(col)+")")
+		} else {
+			sets = append(sets, m.quote(col)+" = excluded."+m.quote(col))
 		}
-		text += "UPDATE SET " + strings.Join(sets, ", ")
+	}
+	switch {
+	case c.dialect == mysqlDB && len(cols) == 0:
+		text += " ON DUPLICATE KEY UPDATE " + m.quote("id") + " = " + m.quote("id")
+	case c.dialect == mysqlDB:
+		text += " ON DUPLICATE KEY UPDATE " + strings.Join(sets, ", ")
+	case len(cols) == 0:
+		text += " ON CONFLICT (" + m.quote("id") + ") DO NOTHING"
+	default:
+		text += " ON CONFLICT (" + m.quote("id") + ") DO UPDATE SET " + strings.Join(sets, ", ")
 	}
 	if _, err := exec(sqlArgs(a, text, append([]value.Value{id}, vals...)), env, c); err != nil {
 		return value.NilValue, err
@@ -327,7 +345,7 @@ func deleteObject(a native.Args, env value.Env, c *conn) (value.Value, error) {
 		return value.NilValue, a.TypeError(0, "an object")
 	}
 	obj := a.V[0].AsObject()
-	m, err := modelOf(a, env, obj.Class)
+	m, err := modelOf(a, env, c, obj.Class)
 	if err != nil {
 		return value.NilValue, err
 	}
@@ -335,7 +353,7 @@ func deleteObject(a native.Args, env value.Env, c *conn) (value.Value, error) {
 	if id.IsNil() {
 		return value.False, nil
 	}
-	n, err := exec(sqlArgs(a, "DELETE FROM "+quote(m.table)+" WHERE \"id\" = ?", []value.Value{id}), env, c)
+	n, err := exec(sqlArgs(a, "DELETE FROM "+m.quote(m.table)+" WHERE "+m.quote("id")+" = ?", []value.Value{id}), env, c)
 	if err != nil {
 		return value.NilValue, err
 	}
@@ -348,11 +366,11 @@ func get(a native.Args, env value.Env, c *conn) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, err
 	}
-	m, err := modelOf(a, env, k)
+	m, err := modelOf(a, env, c, k)
 	if err != nil {
 		return value.NilValue, err
 	}
-	q := &finder{conn: c, model: m, limit: 1, wheres: []string{`"id" = ?`}, args: []value.Value{a.V[1]}}
+	q := &finder{conn: c, model: m, limit: 1, wheres: []string{m.quote("id") + " = ?"}, args: []value.Value{a.V[1]}}
 	objs, err := q.objects(a, env, q.selectSQL())
 	if err != nil || len(objs) == 0 {
 		return value.NilValue, err
@@ -367,20 +385,22 @@ func find(a native.Args, env value.Env, c *conn) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, err
 	}
-	m, err := modelOf(a, env, k)
+	m, err := modelOf(a, env, c, k)
 	if err != nil {
 		return value.NilValue, err
 	}
 	return Query.Object(&finder{conn: c, model: m, limit: -1}), nil
 }
 
-func names(cols []string) string {
+func (m *model) names(cols []string) string {
 	q := make([]string, len(cols))
 	for i, c := range cols {
-		q[i] = quote(c)
+		q[i] = m.quote(c)
 	}
 	return strings.Join(q, ", ")
 }
+
+func (m *model) quote(name string) string { return m.conn.quote(name) }
 
 func marks(n int) string { return strings.TrimSuffix(strings.Repeat("?, ", n), ", ") }
 
@@ -413,7 +433,7 @@ func (q *finder) whereSQL() string {
 }
 
 func (q *finder) selectSQL() string {
-	text := "SELECT * FROM " + quote(q.model.table) + q.whereSQL()
+	text := "SELECT * FROM " + q.model.quote(q.model.table) + q.whereSQL()
 	if q.order != "" {
 		text += " ORDER BY " + q.order
 	}
@@ -452,7 +472,14 @@ func (q *finder) objects(a native.Args, env value.Env, text string) ([]value.Val
 		o := obj.AsObject()
 		for i, col := range cu.cols {
 			if slot, ok := q.model.class.FieldIndex[col]; ok {
-				o.Fields[slot] = cu.value(i, vals[i])
+				v := cu.value(i, vals[i])
+				// A column declared BOOLEAN in columns() gives booleans also
+				// where the database stores 1 and 0 (MySQL's BOOLEAN is a
+				// TINYINT).
+				if t := strings.ToUpper(q.model.types[col]); v.Kind() == value.Int && (strings.HasPrefix(t, "BOOL")) {
+					v = value.MakeBool(v.AsInt() != 0)
+				}
+				o.Fields[slot] = v
 			}
 		}
 		objs = append(objs, obj)

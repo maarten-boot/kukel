@@ -793,8 +793,10 @@ main() {
 
 ### db
 
-SQL databases. The first one is SQLite: a whole database in one file (or
-in memory), nothing to install; `kukel` carries it.
+SQL databases: SQLite, a whole database in one file (or in memory) with
+nothing to install, and PostgreSQL and MySQL (or MariaDB) servers. `kukel`
+carries all three drivers. A program works the same on each: the same
+member functions, `?` for parameters everywhere, and the same values back.
 
 ```
 use db;
@@ -811,7 +813,12 @@ main() {
 ```
 
 Values always go into SQL as parameters: each `?` takes the next argument
-(too few arguments are a `DBError`; extra ones are ignored).
+(too few arguments are a `DBError`; extra ones are ignored). PostgreSQL
+numbers its parameters (`$1`, `$2`); the module turns each `?` into the
+next one, except a `?` inside a quoted string or name, a comment or `$$`
+text (`$1` written directly works too). PostgreSQL's JSON operators that
+are written with `?` must use their function form there
+(`jsonb_exists(doc, 'key')`).
 They are never glued into the SQL text, so text from a user cannot change
 the statement (SQL injection).
 
@@ -820,8 +827,13 @@ the statement (SQL injection).
 | `nil` | NULL | `nil` |
 | int, float | INTEGER, REAL | int, float (an int in a REAL column comes back as a float) |
 | string | TEXT | string (bytes; also for BLOB columns) |
-| bool | stored as 1 or 0 | `true`/`false` for a column declared `BOOLEAN` or `BOOL`, else 1 or 0 |
-| `time::Time` | a timestamp | `time::Time` for a column declared `DATETIME`, `DATE` or `TIMESTAMP` (a value there that is not a date comes back as a string); store times in such columns, as a TEXT column keeps a text form only |
+| bool | BOOLEAN (SQLite and MySQL store 1 or 0) | `true`/`false` for a column declared `BOOLEAN` or `BOOL`; from MySQL, whose BOOLEAN is a TINYINT, 1 or 0 (objects get booleans, see below) |
+| `time::Time` | a timestamp | `time::Time` for a column declared `DATETIME`, `DATE` or `TIMESTAMP` (PostgreSQL: `TIMESTAMP`, `TIMESTAMPTZ`, `DATE`; a value there that is not a date comes back as a string, in SQLite); store times in such columns, as a TEXT column keeps a text form only |
+
+Numbers that a server sends as text (MySQL, PostgreSQL's `NUMERIC`) come
+back as ints or floats by the column's type. For floats that mean the same
+everywhere, declare columns `DOUBLE PRECISION` (PostgreSQL's `REAL` has only
+about 7 digits).
 
 Other values (vectors, maps, objects) are a `TypeError`. A row is a map
 from column names to values, in the order of the columns; columns with the
@@ -829,9 +841,9 @@ same name (from a join) keep the last value, so name them with `AS`.
 
 | Function or member function | Description |
 |---|---|
-| `db::open(url)` | A `db::Conn`: `"sqlite:path"` opens the file `path` (relative to the current directory; any characters, also `?`, `#` and `%`), creating it if needed; `"sqlite::memory:"` is a database in memory, gone when closed. A file that cannot be opened is a `DBError`, another URL a `ValueError`. Foreign keys are enforced, and a database another program is writing is waited for up to 5 seconds |
+| `db::open(url)` | A `db::Conn`: `"sqlite:path"` opens the file `path` (relative to the current directory; any characters, also `?`, `#` and `%`), creating it if needed; `"sqlite::memory:"` is a database in memory, gone when closed. `"postgres://user:password@host:5432/database?sslmode=disable"` (also `postgresql://`; the options are PostgreSQL's) and `"mysql://user:password@host:3306/database"` (options such as `?tls=true` are the MySQL driver's) connect to a server. A database that cannot be opened or reached is a `DBError`, another URL a `ValueError`. In SQLite, foreign keys are enforced and a database another program is writing is waited for up to 5 seconds |
 | `conn->exec(sql, args...)` | Runs a statement that gives no rows (`CREATE`, `INSERT`, `UPDATE`, `DELETE`, ...) and gives the number of rows it changed |
-| `conn->lastid()` | The row id of the last row an `INSERT` added (SQLite's `last_insert_rowid`), or `nil` |
+| `conn->lastid()` | The id of the last row an `INSERT` added (SQLite's `last_insert_rowid`, MySQL's `LAST_INSERT_ID`), or `nil`. PostgreSQL has none: write `INSERT ... RETURNING id` and use `first` |
 | `conn->query(sql, args...)` | All rows of a query, as a vector of maps |
 | `conn->first(sql, args...)` | The first row of a query, or `nil` |
 | `conn->cursor(sql, args...)` | A `db::Cursor` for results too large to hold at once: `cursor->next()` gives the next row, or `nil` at the end (which closes it); `cursor->close()` stops early. While a cursor is open, the other calls that run SQL (`exec`, `query`, `first`, `cursor`, `begin`, `commit`, `rollback`) are a `ValueError`; `lastid`, `intransaction` and `close` still work |
@@ -844,7 +856,8 @@ Errors the database reports are a `DBError` with its message, after the
 member function's name and with SQLite's error code
 (`"db::Conn::exec: constraint failed: UNIQUE constraint failed:
 items.name (2067)"`). A connection prints as `db::Conn(sqlite:shop.db)`, or
-`db::Conn(sqlite:shop.db, closed)` once closed; a cursor as
+`db::Conn(sqlite:shop.db, closed)` once closed (the password of a server's
+URL shows as `***`, also in messages); a cursor as
 `db::Cursor(open)` or `db::Cursor(done)`. A Go program that embeds Kukel can keep a program away
 from databases (and the files they are stored in) by leaving `db` out of
 `StandardModules`.
@@ -887,7 +900,7 @@ main() {
 
 | Member function | Description |
 |---|---|
-| `conn->migrate(C)` | Creates the table of class `C` if there is none: `id` (an `INTEGER PRIMARY KEY` unless `columns()` says otherwise), then the other data members, in order, with the types `columns()` gives (none for the others). For an existing table it adds a column for each data member the table lacks. It never drops or changes a column |
+| `conn->migrate(C)` | Creates the table of class `C` if there is none: `id` (unless `columns()` says otherwise, a key the database fills in: `INTEGER PRIMARY KEY` in SQLite, `BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY` in PostgreSQL, `BIGINT AUTO_INCREMENT PRIMARY KEY` in MySQL), then the other data members, in order, with the types `columns()` gives (none for the others). For an existing table it adds a column for each data member the table lacks. It never drops or changes a column |
 | `conn->save(p)` | Stores object `p` and gives it. With `p->id` nil it inserts a row, and `p->id` gets the id the database chose; with an id it inserts the row, or updates the row that has that id. Each data member must be a value the database can store (`TypeError`) |
 | `conn->get(C, id)` | The object of class `C` stored with that id, or `nil` |
 | `conn->delete(p)` | Deletes the row of `p`; gives whether there was one |
@@ -903,10 +916,14 @@ main() {
   its data members get the columns of the same names (columns the class
   does not have are left out, data members the table lacks stay `nil`).
   Values come back as for `query`: a column declared `BOOLEAN` gives
-  booleans, one declared `DATETIME` (or `DATE`, `TIMESTAMP`) gives
+  booleans (also from MySQL when `columns()` declares it `BOOLEAN`), one declared `DATETIME` (or `DATE`, `TIMESTAMP`) gives
   `time::Time` values; `columns()` is where to declare them.
+- The types in `columns()` are the database's own (`DATETIME` exists in
+  SQLite and MySQL, PostgreSQL has `TIMESTAMP`); types that all three
+  understand (`VARCHAR(100)`, `DOUBLE PRECISION`, `BOOLEAN`, `TIMESTAMP`)
+  keep a class usable with each.
 - A key of another type: `columns()` returning `{"id": "TEXT PRIMARY
-  KEY"}` makes the program choose the keys (a name, a UUID it makes):
+  KEY"}` (in MySQL a `VARCHAR(n)`) makes the program choose the keys (a name, a UUID it makes):
   `p->id` must be set before the first `save` (`ValueError` otherwise).
 - `save` and the others take part in a transaction (`begin`). An insert
   that is rolled back leaves `p->id` set: saving `p` again stores it under

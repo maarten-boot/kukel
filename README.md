@@ -51,8 +51,8 @@ caught RangeError: index 5 out of range for vector of length 3
 - `try`/`catch`/`finally`, `throw`, and runtime errors as `Error` objects
 - `switch` with fall-through, labelled `break`/`continue`
 - modules: `use geometry;` loads `geometry.kkl`, reached as `geometry::name`;
-  modules written in Go: `db` (SQL with SQLite), `events` (an event loop
-  with timers), `json`,
+  modules written in Go: `db` (SQL with SQLite, PostgreSQL and MySQL, and
+  objects in tables), `events` (an event loop with timers), `json`,
   `strings` (a string builder), `time`, `worker` (interpreters that run in
   parallel and exchange messages) and `zmq` (ZeroMQ sockets, to talk with
   other programs and machines)
@@ -143,7 +143,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/value`, `internal/builtins` | values with their operators, built-in functions |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q53). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q54). Ideas for later are in [docs/future.md](docs/future.md).
 
 ## Development
 
@@ -154,6 +154,17 @@ design decisions (Q1–Q53). Ideas for later are in [docs/future.md](docs/future
 | `make fuzz FUZZTIME=1m` | fuzz the lexer, parser, compiler, bytecode loader and verifier (what they accept runs in the VM with a step limit), `json::decode`, time parsing and `kukel fmt` |
 | `make bench` | benchmarks |
 | `make golden` | rewrite the expected outputs in `tests/` after an intended change |
+
+The tests of `db` also run on database servers when `KUKEL_TEST_POSTGRES`
+and `KUKEL_TEST_MYSQL` name one (a URL as `db::open` takes it; the tables
+`item`, `tag` and `plain` there are dropped), for example with Docker:
+
+```
+docker run -d --rm --name pg -e POSTGRES_PASSWORD=pw -p 5432:5432 postgres:16
+docker run -d --rm --name maria -e MARIADB_ROOT_PASSWORD=pw -e MARIADB_DATABASE=test -p 3306:3306 mariadb:11
+KUKEL_TEST_POSTGRES="postgres://postgres:pw@127.0.0.1:5432/postgres?sslmode=disable" \
+KUKEL_TEST_MYSQL="mysql://root:pw@127.0.0.1:3306/test" go test ./internal/modules/dbmod
+```
 
 ## License
 

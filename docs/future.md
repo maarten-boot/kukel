@@ -534,11 +534,11 @@ main() {
 data mapper rather than the sketch above: any class, no `db::Model` base;
 `conn->migrate(C)`, `save`, `get`, `delete`, and `conn->find(C)->where(...)
 ->orderby(...)->limit(...)->all()`; see the language reference. Still to
-come: PostgreSQL and MySQL; relations; keys that the database or `kukel`
-generates other than integers (UUIDs).*
+come: relations; keys that the database or `kukel` generates other than
+integers (UUIDs). PostgreSQL and MySQL/MariaDB are done (Q54).*
 
 **F-16** Which databases first (SQLite only, to start)?
-*Answered: SQLite first.*
+*Answered: SQLite first; PostgreSQL and MySQL/MariaDB followed (Q54).*
 **F-17** How a class describes its table: conventions only, static data
 members, a `db::model(...)` call, or a new syntax?
 *Answered: conventions (data members are columns, `id` the key, the class

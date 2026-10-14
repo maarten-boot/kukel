@@ -135,7 +135,8 @@ main() {
                  fn() { c->exec("SELECT ?", {"a": 1}); },
                  fn() { c->exec(5); },
                  fn() { c->rollback(); },
-                 fn() { db::open("mysql://x"); },
+                 fn() { db::open("oracle://x/db"); },
+                 fn() { db::open("shop.db"); },
                  fn() { c->close(); c->query("SELECT 1"); }];
     for (local f in bad) try { f(); } catch (e) { println(e->kind + ":", e->message); }
     println(cur, c);
@@ -146,7 +147,8 @@ DBError: db::Conn::query: SQL logic error: no such table: nosuch (1)
 TypeError: db::Conn::exec: argument 2 cannot be stored in a database: map (nil, booleans, numbers, strings and time::Time can)
 TypeError: db::Conn::exec: argument 1 must be a string, not int
 ValueError: db::Conn::rollback: there is no open transaction (begin() starts one)
-ValueError: db::open: "mysql://x" is not a database URL: use "sqlite:file.db" or "sqlite::memory:"
+ValueError: db::open: "oracle://x/db" is not a database URL: the kinds are sqlite:, postgres:// and mysql://
+ValueError: db::open: "shop.db" is not a database URL: use "sqlite:file.db", "sqlite::memory:", "postgres://user:password@host/database" or "mysql://user:password@host/database"
 ValueError: db::Conn::query: the connection is closed
 db::Cursor(done) db::Conn(sqlite::memory:, closed)
 `
