@@ -444,3 +444,32 @@ println("not run");
 		t.Errorf("repl with a file: exit %d, %q %q", code, out.String(), errOut.String())
 	}
 }
+
+func TestBuildModule(t *testing.T) {
+	dir := t.TempDir()
+	util := filepath.Join(dir, "util.kkl")
+	prog := filepath.Join(dir, "main.kkl")
+	os.WriteFile(util, []byte("global n = 40;\nadd(x) { return fn(y) { return n + x + y; }; }\n"), 0o644)
+	os.WriteFile(prog, []byte("use util;\nmain() { println(util::add(1)(1)); }\n"), 0o644)
+	var out, errOut bytes.Buffer
+	if code := run([]string{"build", "-module", util}, nil, &out, &errOut); code != 0 {
+		t.Fatalf("build -module: exit %d, %s", code, errOut.String())
+	}
+	os.Rename(util, util+".hidden") // the program uses util.kkc now
+	if code := run([]string{"run", prog}, nil, &out, &errOut); code != 0 || out.String() != "42\n" {
+		t.Errorf("run with util.kkc: exit %d, %q %q", code, out.String(), errOut.String())
+	}
+	errOut.Reset()
+	if code := run([]string{"exec", filepath.Join(dir, "util.kkc")}, nil, &out, &errOut); code != 1 || !strings.Contains(errOut.String(), "this is a compiled module") {
+		t.Errorf("exec of a module: exit %d, %q", code, errOut.String())
+	}
+	if code := run([]string{"build", "-module", prog, util}, nil, &out, &errOut); code != 2 {
+		t.Errorf("build -module of two files: exit %d", code)
+	}
+	errOut.Reset()
+	bad := filepath.Join(dir, "my-util.kkl")
+	os.WriteFile(bad, []byte("f() {}\n"), 0o644)
+	if code := run([]string{"build", "-module", bad}, nil, &out, &errOut); code != 1 || !strings.Contains(errOut.String(), "a module's file name must be its name") {
+		t.Errorf("a module file whose name is not a name: exit %d, %q", code, errOut.String())
+	}
+}

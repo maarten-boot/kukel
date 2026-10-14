@@ -32,7 +32,7 @@ A **`Program`** is compiled code. It never changes while it runs, so one
 
 | Function | |
 |---|---|
-| `CompileFiles(files, opts)` | Compiles `.kkl` files as one program, with the modules they use (next to the files, then in `opts.Path`) |
+| `CompileFiles(files, opts)` | Compiles `.kkl` files as one program, with the modules they use (next to the files, then in `opts.Path`; a module compiled on its own, `name.kkc`, is linked in) |
 | `CompileSource(name, src, opts)` | Compiles a program given as text; `name` appears in messages. Modules written in Kukel come from `opts.Path` only |
 | `LoadProgram(data, opts)` | Reads a program from the bytes of a `.kkc` file (`kukel build`, or `Program.Encode`). `opts.Modules` must hold the host modules the program uses again: a `.kkc` file names their functions but does not contain them |
 | `p.Encode()` | The program as `.kkc` bytes, to store and load later without compiling |

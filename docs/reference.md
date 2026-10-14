@@ -44,6 +44,7 @@ hello, Kukel
 | `kukel run a.kkl b.kkl [-- args]` | Compile the files as one program and run it; the arguments after `--` go to `main` |
 | `kukel check a.kkl ...` | Compile only and report the errors; prints nothing when the program is fine |
 | `kukel build [-o prog.kkc] a.kkl ...` | Compile to a bytecode file (default name: the first file with `.kkc`) |
+| `kukel build -module [-o m.kkc] m.kkl` | Compile module `m` on its own into `m.kkc`, which programs can use instead of `m.kkl` (see [Modules](#modules)) |
 | `kukel exec prog.kkc [--] [args]` | Run a bytecode file (a first `--` is skipped) |
 | `kukel disasm prog.kkc` or `kukel disasm a.kkl ...` | Show the bytecode in readable form |
 | `kukel repl [a.kkl ...]` | Read declarations and statements and run them as they come (see [The REPL](#the-repl)); with files, their declarations come first (`main` is not called) |
@@ -259,7 +260,8 @@ geometry::Circle{r: 1}
   `name`: the file `name.kkl` in the directory of the file with the `use`,
   else in one of the directories listed in the environment variable
   `KUKEL_PATH` (separated by `:`, or `;` on Windows; empty entries are
-  skipped, not taken as the current directory).
+  skipped, not taken as the current directory). In each directory a
+  compiled `name.kkc` counts when there is no `name.kkl`.
 - A module is an ordinary source file with its own name space. Its
   top-level names are reached as `name::x`: functions (`geometry::hypot(3,
   4)`), constants (also in constant expressions), globals (which can be
@@ -282,6 +284,16 @@ geometry::Circle{r: 1}
   `geometry::Circle`. Its constructor is still `Circle`.
 - `kukel build` stores the program and all its modules in one `.kkc` file;
   `kukel exec` does not need the module files.
+- `kukel build -module util.kkl` compiles a module on its own into
+  `util.kkc` (the modules it uses must be there when it is compiled). A
+  program that uses `util` can then be compiled without `util.kkl`: the
+  compiler links the module's code into the program. The `.kkc` file holds
+  the module's declarations without function bodies and initializers (its
+  "header", which the compiler reads as it reads a source module) and the
+  compiled code. When the modules it was compiled against have changed in
+  a way its code depends on (a class's data members, a function it calls
+  that is gone), linking it is an error that says to compile the module
+  again. A `.kkc` module is not a program: `kukel exec` refuses it.
 
 ---
 

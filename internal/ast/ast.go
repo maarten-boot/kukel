@@ -2,7 +2,10 @@
 // sections 1-3).
 package ast
 
-import "github.com/maarten-boot/kukel/internal/token"
+import (
+	"github.com/maarten-boot/kukel/internal/bytecode"
+	"github.com/maarten-boot/kukel/internal/token"
+)
 
 // Node is any node of the tree. Pos is the position of its first token.
 type Node interface {
@@ -32,6 +35,11 @@ type File struct {
 	Name   string
 	Module string // the module the file is, "" for the program's own files (set by the loader)
 	Decls  []Decl // the use declarations come first
+
+	// Compiled is set for a module loaded from a .kkc file (kukel build
+	// -module): the file holds the module's header, the compiler links
+	// this code instead of compiling function bodies.
+	Compiled *bytecode.Module
 }
 
 // ----------------------------------------------------------------------

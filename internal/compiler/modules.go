@@ -19,7 +19,7 @@ func (c *compiler) fileScope(f *ast.File, prelude bool) *fileScope {
 		m = &module{name: f.Module, names: make(map[string]*global)}
 		c.modules[f.Module] = m
 	}
-	return &fileScope{mod: m, uses: map[string]*module{}}
+	return &fileScope{mod: m, uses: map[string]*module{}, compiled: f.Compiled, name: f.Name}
 }
 
 // use makes module d.Name visible in the current file as name::x.

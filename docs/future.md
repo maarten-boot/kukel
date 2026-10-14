@@ -54,8 +54,8 @@ main() {
 
 *Done for Kukel source files (TODO.md Q35): `use name;` loads `name.kkl`
 from the using file's directory or `KUKEL_PATH`; see the language
-reference. Modules written in Go are done too (1.2, 1.6); still to come:
-`.kkc` modules.*
+reference. Modules written in Go are done too (1.2, 1.6), and modules
+compiled on their own into `.kkc` files (TODO.md Q49).*
 
 **F-1** Syntax: `use gui;` or `import gui;`? Also for `.kkl` files?
 *Answered: `use name;`, also for `.kkl` files.*
@@ -163,14 +163,16 @@ Kukel's own compiler and VM; Go plays no part.
 
 - `use util;` looks for `util.kkl` or `util.kkc` on a search path (the
   program's directory, then `KUKEL_PATH`), and loads each module once.
-  *(Built for `util.kkl`, looked for next to the file that uses it; `.kkc`
-  modules are still to come.)*
+  *(Built: looked for next to the file that uses it, then on `KUKEL_PATH`;
+  `util.kkc` counts when there is no `util.kkl` (TODO.md Q49).)*
 - The compiler gives the module's top-level names the prefix `util::`.
   Names starting with `_` could stay private to the module (**F-19**).
 - A `.kkc` module carries a table of the names it exports (functions,
   classes, constants and globals, with parameter counts), so a program can
   be compiled against it without its source. The loader checks the table
   against what the program uses, like the current check of built-ins.
+  *(Built as a header: the module's declarations without bodies, which the
+  compiler reads like source; the code is linked by name.)*
 - Open points: cycles between modules (refuse them at first), and whether
   `kukel build` writes one `.kkc` per module or links them all into one
   file (**F-20**).
@@ -235,8 +237,9 @@ every idea here), `ffi` later and only if a library needs it.
 **F-19** Private names in modules: by a `_` prefix, an `export` list, or
 everything public? *Answered: a `_` prefix.*
 **F-20** `kukel build`: one `.kkc` per module, or one linked file?
-*Answered for now: one file holding the program and its modules;
-precompiled `.kkc` modules are a later step.*
+*Answered: one file holding the program and its modules; a module can
+also be compiled on its own (`kukel build -module`) and is then linked
+into the program when the program is compiled (TODO.md Q49).*
 **F-21** Is `ffi` wanted at all, and with structs and callbacks?
 
 ---
@@ -555,7 +558,7 @@ Each step is usable on its own and prepares the next:
 
 | Step | What | Needs | Status |
 |---|---|---|---|
-| 1 | Modules (`use`) from Kukel files and Go, native classes, `json` | — | done (Q35, Q36), except `.kkc` modules |
+| 1 | Modules (`use`) from Kukel files and Go, native classes, `json` | — | done (Q35, Q36, Q49) |
 | 2 | Public embedding API; several interpreters in one process | 1 | done (Q39) |
 | 3 | Event loop, timers; workers with messages | 1 | done (Q37, Q38) |
 | 4 | ZeroMQ (blocking first, then events) | 1, 3 | done (Q43), without security |

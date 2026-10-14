@@ -41,6 +41,9 @@ commands:
   run a.kkl b.kkl [-- args]       compile in memory and run
   check a.kkl ...                 compile only: report the errors, run nothing
   build [-o prog.kkc] a.kkl ...   compile to a bytecode file (default: a.kkc)
+  build -module [-o m.kkc] m.kkl  compile module m on its own, for programs
+                                  that use it ('use m;' finds m.kkc when
+                                  there is no m.kkl)
   exec prog.kkc [--] [args]       run a bytecode file
   repl [a.kkl ...]                read declarations and statements and run
                                   them as they come (after the declarations
@@ -169,11 +172,16 @@ func cmdCheck(files []string, stderr io.Writer) int {
 	return 0
 }
 
-// cmdBuild compiles source files into a bytecode file.
+// cmdBuild compiles source files into a bytecode file, or a module on
+// its own (-module).
 func cmdBuild(args []string, stderr io.Writer) int {
-	out := ""
+	out, module := "", false
 	var files []string
 	for i := 0; i < len(args); i++ {
+		if args[i] == "-module" || args[i] == "--module" {
+			module = true
+			continue
+		}
 		if args[i] == "-o" {
 			if i+1 == len(args) {
 				fmt.Fprintln(stderr, "kukel build: -o needs a file name\nusage: kukel build [-o prog.kkc] a.kkl ...")
@@ -192,12 +200,33 @@ func cmdBuild(args []string, stderr io.Writer) int {
 	if out == "" {
 		out = strings.TrimSuffix(files[0], ".kkl") + ".kkc"
 	}
+	var data []byte
+	if module {
+		if len(files) != 1 {
+			fmt.Fprintln(stderr, "usage: kukel build -module [-o m.kkc] m.kkl")
+			return 2
+		}
+		mod, err := compileModule(files[0])
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		data, err = bytecode.EncodeModule(mod)
+		if err == nil {
+			err = os.WriteFile(out, data, 0o644)
+		}
+		if err != nil {
+			fmt.Fprintln(stderr, "kukel:", err)
+			return 1
+		}
+		return 0
+	}
 	prog, err := compileFiles(files)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	data, err := bytecode.Encode(prog)
+	data, err = bytecode.Encode(prog)
 	if err == nil {
 		err = os.WriteFile(out, data, 0o644)
 	}
@@ -206,6 +235,29 @@ func cmdBuild(args []string, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// compileModule compiles module file on its own: its name is the file's
+// name without .kkl.
+func compileModule(file string) (*bytecode.Module, error) {
+	name := strings.TrimSuffix(filepath.Base(file), ".kkl")
+	if toks, err := lexer.Tokenize("", []byte(name)); err != nil || len(toks) != 2 || toks[0].Kind != token.IDENT || toks[0].Text != name {
+		return nil, fmt.Errorf("kukel: %s: a module's file name must be its name, a name such as util.kkl", file)
+	}
+	src, err := os.ReadFile(file)
+	if err != nil {
+		return nil, fmt.Errorf("kukel: %v", err)
+	}
+	f, err := parser.ParseFile(file, src)
+	if err != nil {
+		return nil, err
+	}
+	f.Module = name
+	files, err := loader.Resolve([]*ast.File{f}, cliConfig(), true)
+	if err != nil {
+		return nil, err
+	}
+	return compiler.CompileModule(files, src, builtins.Names(), cliConfig())
 }
 
 // loadKKC reads and verifies a bytecode file.

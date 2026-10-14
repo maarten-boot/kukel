@@ -68,6 +68,11 @@ type fileScope struct {
 	mod     *module
 	uses    map[string]*module
 	useDecl []*ast.UseDecl // in order, for checkUses
+
+	// A module compiled on its own (precompiled.go).
+	compiled *bytecode.Module
+	name     string // its file
+	initFn   int    // its init function in Program.Funcs, once linked
 }
 
 type compiler struct {
@@ -78,6 +83,7 @@ type compiler struct {
 	fs        *funcState         // the function being compiled
 	config    *native.Config     // modules and built-ins the program may use (nil: all)
 	errs      []*diag.Error      // the errors so far (see attempt)
+	linked    bool               // code of a module compiled on its own was linked
 }
 
 // attempt runs f, one definition or function, and records a compile
@@ -177,7 +183,22 @@ func CompileWith(files []*ast.File, builtins []string, config *native.Config) (p
 	for i, f := range c.prog.Funcs {
 		f.Index = i
 	}
+	if c.linked {
+		if err := bytecode.Verify(c.prog); err != nil {
+			return nil, err
+		}
+	}
 	return c.prog, nil
+}
+
+// jobName gives the name of the function of job, and whether it is a
+// static member function.
+func (c *compiler) jobName(job funcJob) (string, bool) {
+	if job.class != nil {
+		return job.class.name + "::" + job.decl.Name.Name, job.member.static
+	}
+	c.file = job.file
+	return c.qualify(job.decl.Name.Name), false
 }
 
 // initFunction compiles the function that runs the initializers of
@@ -185,7 +206,11 @@ func CompileWith(files []*ast.File, builtins []string, config *native.Config) (p
 func (c *compiler) initFunction(globals []globalInit, pos token.Pos) *bytecode.Function {
 	return c.function("<init>", pos, &ast.ParamList{}, nil, false, nil, initializers(globals), func() {
 		for _, v := range globals {
-			if v.spec.Value != nil {
+			if v.spec == nil {
+				c.emit(bytecode.OpLoadFunc, v.file.initFn)
+				c.emit(bytecode.OpCall, 0)
+				c.emit(bytecode.OpPop)
+			} else if v.spec.Value != nil {
 				c.file = v.file
 				c.mark(v.spec.Pos())
 				c.expr(v.spec.Value)
@@ -208,6 +233,9 @@ func (c *compiler) declarations(files []*ast.File, scope func(i int, f *ast.File
 	for i, f := range files {
 		c.file = scope(i, f)
 		scopes = append(scopes, c.file)
+		if c.file.compiled != nil {
+			globals = append(globals, globalInit{file: c.file}) // its init runs here
+		}
 		for _, d := range f.Decls {
 			c.attempt(func() {
 				switch d := d.(type) {
@@ -261,15 +289,20 @@ func (c *compiler) declarations(files []*ast.File, scope func(i int, f *ast.File
 func (c *compiler) functions(jobs []funcJob, globals []globalInit, pos token.Pos) (init *bytecode.Function) {
 	base := len(c.prog.Funcs)
 	c.prog.Funcs = append(c.prog.Funcs, make([]*bytecode.Function, len(jobs))...) // function literals are added after these
+	for _, v := range globals {
+		if v.spec == nil {
+			c.attempt(func() { c.link(v.file, jobs, base) })
+		}
+	}
 	c.attempt(func() { init = c.initFunction(globals, pos) })
 	for i, job := range jobs {
+		if job.file.compiled != nil {
+			continue // linked
+		}
 		c.attempt(func() {
 			c.file = job.file
 			fd := job.decl
-			name, static := c.qualify(fd.Name.Name), false
-			if job.class != nil {
-				name, static = job.class.name+"::"+fd.Name.Name, job.member.static
-			}
+			name, static := c.jobName(job)
 			c.prog.Funcs[base+i] = c.function(name, fd.Pos(), fd.Params, job.class, static, nil, fd, func() {
 				c.block(fd.Body)
 			})
@@ -301,7 +334,7 @@ func (c *compiler) cache(pos token.Pos) int {
 func initializers(vars []globalInit) ast.Node {
 	var exprs []ast.Expr
 	for _, v := range vars {
-		if v.spec.Value != nil {
+		if v.spec != nil && v.spec.Value != nil {
 			exprs = append(exprs, v.spec.Value)
 		}
 	}
@@ -316,7 +349,8 @@ type funcJob struct {
 	member *memberInfo // for a member function
 }
 
-// globalInit is a global variable whose initializer <init> runs.
+// globalInit is a global variable whose initializer <init> runs; or, with
+// spec nil, a module compiled on its own whose init function <init> calls.
 type globalInit struct {
 	spec *ast.VarSpec
 	g    *global

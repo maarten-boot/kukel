@@ -15,7 +15,7 @@ import (
 //
 //	"KUKL"                 magic
 //	uv  format version     FormatVersion; other versions are refused (Q12)
-//	uv  flags              0
+//	uv  flags              0 (1: a module, see EncodeModule)
 //	uv  main               global index of main
 //	uv  n, globals         str name, byte kind, uv func or class index
 //	uv  n, classes         str name, uv base+1 (0: none), uv n + str fields,
@@ -182,21 +182,13 @@ const (
 // Decode reads a program written by Encode and verifies it (see Verify),
 // so that running it cannot crash the VM.
 func Decode(data []byte) (*Program, error) {
-	if len(data) < len(magic) || string(data[:len(magic)]) != magic {
-		return nil, errors.New("not a kukel bytecode file")
+	d, body, err := open(data)
+	if err != nil {
+		return nil, err
 	}
-	if len(data) < len(magic)+4 {
-		return nil, errors.New("truncated bytecode file")
-	}
-	body, sum := data[:len(data)-4], binary.LittleEndian.Uint32(data[len(data)-4:])
-	d := &decoder{buf: body, off: len(magic)}
-	if v := d.uv(); d.err == nil && v != FormatVersion {
-		return nil, fmt.Errorf("bytecode format version %d is not supported (this kukel reads version %d); compile the program again", v, FormatVersion)
-	}
-	if crc32.ChecksumIEEE(body) != sum {
-		return nil, errors.New("corrupted bytecode file (checksum mismatch)")
-	}
-	if flags := d.uv(); d.err == nil && flags != 0 {
+	if flags := d.uv(); d.err == nil && flags == flagModule {
+		return nil, errors.New("this is a compiled module (kukel build -module), not a program: a program uses it with 'use'")
+	} else if d.err == nil && flags != 0 {
 		return nil, fmt.Errorf("unknown bytecode flags %#x", flags)
 	}
 	p := &Program{Main: d.uv()}
@@ -240,6 +232,26 @@ func Decode(data []byte) (*Program, error) {
 		return nil, err
 	}
 	return p, nil
+}
+
+// open checks the magic, format version and checksum of a .kkc file and
+// gives a decoder at its flags, and the data without the checksum.
+func open(data []byte) (*decoder, []byte, error) {
+	if len(data) < len(magic) || string(data[:len(magic)]) != magic {
+		return nil, nil, errors.New("not a kukel bytecode file")
+	}
+	if len(data) < len(magic)+4 {
+		return nil, nil, errors.New("truncated bytecode file")
+	}
+	body, sum := data[:len(data)-4], binary.LittleEndian.Uint32(data[len(data)-4:])
+	d := &decoder{buf: body, off: len(magic)}
+	if v := d.uv(); d.err == nil && v != FormatVersion {
+		return nil, nil, fmt.Errorf("bytecode format version %d is not supported (this kukel reads version %d); compile the program again", v, FormatVersion)
+	}
+	if crc32.ChecksumIEEE(body) != sum {
+		return nil, nil, errors.New("corrupted bytecode file (checksum mismatch)")
+	}
+	return d, body, nil
 }
 
 type decoder struct {

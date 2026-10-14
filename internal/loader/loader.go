@@ -10,13 +10,18 @@ import (
 	"strings"
 
 	"github.com/maarten-boot/kukel/internal/ast"
+	"github.com/maarten-boot/kukel/internal/bytecode"
 	"github.com/maarten-boot/kukel/internal/diag"
 	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/parser"
 )
 
-// Ext is the extension of Kukel source files.
-const Ext = ".kkl"
+// Ext is the extension of Kukel source files, CompiledExt of bytecode
+// files (a module compiled on its own, kukel build -module).
+const (
+	Ext         = ".kkl"
+	CompiledExt = ".kkc"
+)
 
 // Load parses the program's files and every module they use, and returns
 // them in compile order: each module before the files that use it, then
@@ -25,7 +30,8 @@ const Ext = ".kkl"
 // Module name is a module written in Go (package native) if one is
 // registered under that name; else the file name.kkl, looked up first in
 // the directory of the file that uses it, then in the directories of path
-// (KUKEL_PATH). A name
+// (KUKEL_PATH); in each directory, name.kkc (compiled on its own) if there
+// is no name.kkl. A name
 // stands for one file in the whole program; modules may not use each other
 // in a cycle.
 func Load(files []string, path []string) ([]*ast.File, error) {
@@ -144,8 +150,8 @@ func (l *loader) uses(f *ast.File, chain []string) error {
 	return nil
 }
 
-// find returns the file of module name: name.kkl in dir, else in the
-// directories of the search path.
+// find returns the file of module name: name.kkl (or else name.kkc) in
+// dir, else in the directories of the search path.
 func (l *loader) find(name, dir string) (string, error) {
 	if l.config != nil && l.config.NoFileModules {
 		return "", errors.New("module " + name + " not found (this program can only use modules written in Go)")
@@ -160,13 +166,15 @@ func (l *loader) find(name, dir string) (string, error) {
 		}
 	}
 	for _, d := range dirs {
-		file := filepath.Join(d, name+Ext)
-		info, err := os.Stat(file)
-		if err == nil && info.Mode().IsRegular() {
-			return file, nil
-		}
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return "", err
+		for _, ext := range []string{Ext, CompiledExt} {
+			file := filepath.Join(d, name+ext)
+			info, err := os.Stat(file)
+			if err == nil && info.Mode().IsRegular() {
+				return file, nil
+			}
+			if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return "", err
+			}
 		}
 	}
 	if len(dirs) == 0 {
@@ -180,11 +188,18 @@ func parse(file, module string) (*ast.File, error) {
 	if err != nil {
 		return nil, err
 	}
+	var compiled *bytecode.Module
+	if module != "" && filepath.Ext(file) == CompiledExt {
+		if compiled, err = bytecode.DecodeModule(src); err != nil {
+			return nil, errors.New(file + ": " + err.Error())
+		}
+		src = []byte(compiled.Header)
+	}
 	f, err := parser.ParseFile(file, src)
 	if err != nil {
 		return nil, err
 	}
-	f.Module = module
+	f.Module, f.Compiled = module, compiled
 	return f, nil
 }
 

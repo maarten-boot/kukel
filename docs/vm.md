@@ -700,7 +700,7 @@ noted; `str` is a `uv` length followed by that many bytes.
 ```
 "KUKL"                       4 bytes: magic
 uv   format version          4
-uv   flags                   0
+uv   flags                   0 (1: a module, below)
 uv   main                    global index of main
 uv   n, then n globals       str name, byte kind (0 variable, 1 function, 2 built-in, 3 class, 4 native),
                              uv function or class index (0 for the others)
@@ -736,6 +736,38 @@ one the running `kukel` does not have is refused when the VM is set up to
 run it (`kukel exec`), as is a program without the prelude's `Error` class;
 `Decode` and `kukel disasm` accept such files. A program's modules written
 in Kukel are inside the file (section 6.1).
+
+**Modules compiled on their own** (`kukel build -module`) use the same
+format with flags 1, and a different body:
+
+```
+str  name                    the module's name
+str  header                  its declarations as Kukel source: function bodies and the
+                             initializers of globals blanked out (their lines kept)
+uv   n, then n globals       str name, byte kind: what global indexes in the code stand for
+uv   n, then n classes       str name, uv n + str (data members, inherited ones first),
+                             uv n + str (static data members)
+uv   n, then n names         functions of other modules (and of the prelude) the code
+                             refers to: index len(code)+i
+uv   init                    the function (in the code) that initializes its globals
+uv   n, then n functions     the module's own functions (definitions, literals, init)
+u32  CRC-32 (IEEE)
+```
+
+A program that uses the module is compiled with the header in place of the
+module's source: pass 1 gives the module's names, classes and member
+functions their indexes as for a source module. Pass 2 then *links* the
+code instead of compiling bodies: a definition goes into the slot of its
+function, function literals and the init function after the others, and
+every global, class and function index operand (`LOAD_GLOBAL`,
+`STORE_GLOBAL`, `LOAD_STATIC`, `STORE_STATIC`, `CALL_DIRECT`, `LOAD_FUNC`,
+`CLOSURE`) is rewritten by name. The program's init function calls the
+module's init function (`LOAD_FUNC`, `CALL 0`, `POP`) where the module's
+initializers would run. Data member indexes are not names: the data
+members of the module's own classes, and of the classes whose static data
+members its code reads, must be what they were when it was compiled, or
+linking fails. A program with linked code is verified (section 5) like a
+loaded one.
 
 ---
 

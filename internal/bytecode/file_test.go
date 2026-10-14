@@ -201,6 +201,12 @@ func FuzzDecode(f *testing.F) {
 		if len(data) > 8 {
 			data = reseal(data) // get past the checksum to reach the decoder
 		}
+		if m, err := bytecode.DecodeModule(data); err == nil { // a module's code is checked when it is linked
+			same := func(i int) (int, error) { return i, nil }
+			for _, f := range m.Code {
+				bytecode.Relocate(f, same, same, same)
+			}
+		}
 		p, err := bytecode.Decode(data)
 		if err != nil {
 			return
