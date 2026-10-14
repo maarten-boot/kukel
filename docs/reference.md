@@ -46,6 +46,7 @@ hello, Kukel
 | `kukel build [-o prog.kkc] a.kkl ...` | Compile to a bytecode file (default name: the first file with `.kkc`) |
 | `kukel exec prog.kkc [--] [args]` | Run a bytecode file (a first `--` is skipped) |
 | `kukel disasm prog.kkc` or `kukel disasm a.kkl ...` | Show the bytecode in readable form |
+| `kukel fmt [-w \| -l] a.kkl ...` | Format source files: indentation (4 spaces) and the spaces between tokens; line breaks and comments stay, at most one blank line in a row. Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`). A file with a syntax error is left alone |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | Show the tokens or the syntax tree of each file (for debugging; `-pos` adds positions) |
 | `kukel version` | Show the version, the bytecode format and the modules written in Go |
 | `kukel help` | Show the commands |

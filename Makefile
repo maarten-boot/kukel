@@ -34,6 +34,7 @@ fuzz:
 	$(GO) test -run '^$$' -fuzz '^FuzzDecode$$' -fuzztime $(FUZZTIME) ./internal/bytecode
 	$(GO) test -run '^$$' -fuzz '^FuzzVerifyCode$$' -fuzztime $(FUZZTIME) ./internal/bytecode
 	$(GO) test -run '^$$' -fuzz '^FuzzJSON$$' -fuzztime $(FUZZTIME) ./internal/modules/jsonmod
+	$(GO) test -run '^$$' -fuzz '^FuzzFormat$$' -fuzztime $(FUZZTIME) ./internal/format
 	$(GO) test -run '^$$' -fuzz '^FuzzParseFormat$$' -fuzztime $(FUZZTIME) ./internal/modules/timemod
 
 bench:

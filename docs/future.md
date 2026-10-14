@@ -543,7 +543,9 @@ ideas above make useful:
   layout);
 - a debugger hook (breakpoints, stepping) on the VM, which the
   disassembler and line tables already prepare for;
-- a code formatter (`kukel fmt`), using the parser.
+- a code formatter (`kukel fmt`): *done* for indentation and spacing
+  (TODO.md Q47); more breathing space (blank lines around if/while/for/...)
+  could follow.
 
 ---
 

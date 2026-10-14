@@ -361,3 +361,37 @@ func TestBuildMissingOutputName(t *testing.T) {
 		t.Errorf("exit %d, stderr %q", code, stderr.String())
 	}
 }
+
+func TestFmt(t *testing.T) {
+	dir := t.TempDir()
+	messy := filepath.Join(dir, "messy.kkl")
+	tidy := filepath.Join(dir, "tidy.kkl")
+	bad := filepath.Join(dir, "bad.kkl")
+	os.WriteFile(messy, []byte("main(){\nprintln( 1+2 );\n}\n"), 0o644)
+	os.WriteFile(tidy, []byte("main() {\n    println(1 + 2);\n}\n"), 0o644)
+	os.WriteFile(bad, []byte("main( {"), 0o644)
+	var out, errOut bytes.Buffer
+	if code := run([]string{"fmt", "-l", messy, tidy}, nil, &out, &errOut); code != 0 || out.String() != messy+"\n" {
+		t.Errorf("-l: exit %d, %q %q", code, out.String(), errOut.String())
+	}
+	out.Reset()
+	if code := run([]string{"fmt", messy}, nil, &out, &errOut); code != 0 || out.String() != "main() {\n    println(1 + 2);\n}\n" {
+		t.Errorf("print: exit %d, %q", code, out.String())
+	}
+	if code := run([]string{"fmt", "-w", messy}, nil, &out, &errOut); code != 0 {
+		t.Errorf("-w: exit %d", code)
+	}
+	if got, _ := os.ReadFile(messy); string(got) != "main() {\n    println(1 + 2);\n}\n" {
+		t.Errorf("-w wrote %q", got)
+	}
+	errOut.Reset()
+	if code := run([]string{"fmt", "-w", bad}, nil, &out, &errOut); code != 1 || !strings.Contains(errOut.String(), "bad.kkl:1:") {
+		t.Errorf("a syntax error: exit %d, %q", code, errOut.String())
+	}
+	if got, _ := os.ReadFile(bad); string(got) != "main( {" {
+		t.Errorf("a file with a syntax error was changed: %q", got)
+	}
+	if code := run([]string{"fmt", "-w", "-l", messy}, nil, &out, &errOut); code != 2 {
+		t.Errorf("-w with -l: exit %d", code)
+	}
+}

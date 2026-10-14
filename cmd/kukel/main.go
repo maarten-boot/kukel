@@ -3,6 +3,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/maarten-boot/kukel/internal/builtins"
 	"github.com/maarten-boot/kukel/internal/bytecode"
 	"github.com/maarten-boot/kukel/internal/compiler"
+	"github.com/maarten-boot/kukel/internal/format"
 	"github.com/maarten-boot/kukel/internal/lexer"
 	"github.com/maarten-boot/kukel/internal/loader"
 	_ "github.com/maarten-boot/kukel/internal/modules/dbmod"
@@ -40,6 +42,9 @@ commands:
   disasm a.kkl ... | prog.kkc     show the bytecode in readable form
   tokens a.kkl ...                show the tokens of source files
   ast [-pos] a.kkl ...            show the syntax tree of source files
+  fmt [-w | -l] a.kkl ...         format source files (indentation, spacing):
+                                  print them, -w rewrite them, -l list
+                                  the files whose formatting differs
   version                         show the version, bytecode format and Go modules
   help                            show this text
 
@@ -68,6 +73,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return cmdTokens(args, stdout, stderr)
 	case "ast":
 		return cmdAST(args, stdout, stderr)
+	case "fmt":
+		return cmdFmt(args, stdout, stderr)
 	case "run":
 		return cmdRun(args, stdin, stdout, stderr)
 	case "check":
@@ -356,4 +363,57 @@ func showText(text string) string {
 		}
 	}
 	return b.String()
+}
+
+// cmdFmt formats source files: printed (default), rewritten (-w), or only
+// listed when their formatting differs (-l). A file that does not parse is
+// left alone and reported.
+func cmdFmt(args []string, stdout, stderr io.Writer) int {
+	write, list := false, false
+	var files []string
+	for _, a := range args {
+		switch a {
+		case "-w":
+			write = true
+		case "-l":
+			list = true
+		default:
+			files = append(files, a)
+		}
+	}
+	if len(files) == 0 || write && list {
+		fmt.Fprintln(stderr, "usage: kukel fmt [-w | -l] a.kkl ...")
+		return 2
+	}
+	code := 0
+	for _, file := range files {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			code = 1
+			continue
+		}
+		out, err := format.Source(file, src)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			code = 1
+			continue
+		}
+		switch {
+		case list:
+			if !bytes.Equal(src, out) {
+				fmt.Fprintln(stdout, file)
+			}
+		case write:
+			if !bytes.Equal(src, out) {
+				if err := os.WriteFile(file, out, 0o644); err != nil {
+					fmt.Fprintln(stderr, err)
+					code = 1
+				}
+			}
+		default:
+			stdout.Write(out)
+		}
+	}
+	return code
 }

@@ -9,6 +9,7 @@ type Kind int
 const (
 	ILLEGAL Kind = iota
 	EOF
+	COMMENT // only from a lexer with KeepComments (kukel fmt)
 
 	// Literals and names.
 	IDENT  // main
@@ -104,6 +105,7 @@ const (
 var names = [...]string{
 	ILLEGAL: "ILLEGAL",
 	EOF:     "EOF",
+	COMMENT: "COMMENT",
 
 	IDENT:  "IDENT",
 	INT:    "INT",

@@ -25,6 +25,10 @@ type Lexer struct {
 	off  int // current byte offset
 	line int // line of src[off]
 	col  int // column of src[off]
+
+	// KeepComments makes Next return comments as COMMENT tokens (with the
+	// "//", "#" or "/* */" in their text) instead of skipping them.
+	KeepComments bool
 }
 
 // New returns a lexer for src. A raw NUL byte ends its source line: the bytes
@@ -109,6 +113,8 @@ func (l *Lexer) Next() (token.Token, error) {
 	switch {
 	case l.off >= len(l.src):
 		return token.Token{Kind: token.EOF, Pos: start}, nil
+	case l.KeepComments && (c == '#' || c == '/' && (l.peek(1) == '/' || l.peek(1) == '*')):
+		return l.comment(start)
 	case isLetter(c):
 		return l.name(start)
 	case isDigit(c), c == '.' && isDigit(l.peek(1)):
@@ -128,10 +134,16 @@ func (l *Lexer) skip() error {
 		case c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v':
 			l.advance()
 		case c == '#', c == '/' && l.peek(1) == '/':
+			if l.KeepComments {
+				return nil
+			}
 			for l.off < len(l.src) && l.peek(0) != '\n' {
 				l.advance()
 			}
 		case c == '/' && l.peek(1) == '*':
+			if l.KeepComments {
+				return nil
+			}
 			start := l.pos()
 			l.advance()
 			l.advance()
@@ -151,6 +163,30 @@ func (l *Lexer) skip() error {
 		}
 	}
 	return nil
+}
+
+// comment scans a comment (only with KeepComments).
+func (l *Lexer) comment(start token.Pos) (token.Token, error) {
+	if l.peek(0) == '/' && l.peek(1) == '*' {
+		l.advance()
+		l.advance()
+		for {
+			if l.off >= len(l.src) {
+				return token.Token{}, l.errorf(start, "unterminated comment")
+			}
+			if l.peek(0) == '*' && l.peek(1) == '/' {
+				l.advance()
+				l.advance()
+				break
+			}
+			l.advance()
+		}
+	} else {
+		for l.off < len(l.src) && l.peek(0) != '\n' {
+			l.advance()
+		}
+	}
+	return token.Token{Kind: token.COMMENT, Pos: start, Text: l.text(start)}, nil
 }
 
 func (l *Lexer) text(start token.Pos) string { return string(l.src[start.Offset:l.off]) }
