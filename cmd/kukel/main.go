@@ -51,14 +51,16 @@ commands:
   disasm a.kkl ... | prog.kkc     show the bytecode in readable form
   tokens a.kkl ...                show the tokens of source files
   ast [-pos] a.kkl ...            show the syntax tree of source files
-  fmt [-w | -l] a.kkl ...         format source files (indentation, spacing):
-                                  print them, -w rewrite them, -l list
-                                  the files whose formatting differs
+  fmt [-w | -l] a.kkl ...         format source files (indentation, spacing,
+                                  blank lines): print them, -w rewrite
+                                  them, -l list the files whose
+                                  formatting differs
   version                         show the version, bytecode format and Go modules
   help                            show this text
 
-Modules ("use name;") are name.kkl files in the directory of the file that
-uses them, or in the directories of KUKEL_PATH.
+Modules ("use name;") are name.kkl files (or name.kkc, compiled on their
+own) in the directory of the file that uses them, or in the directories of
+KUKEL_PATH.
 `
 
 func main() {

@@ -1,6 +1,7 @@
 // The object mapping of module db: classes stored as tables by convention
 // (data members are columns, id the primary key), with columns() for SQL
-// types and table() for another table name; save, get, find and delete.
+// types and table() for another table name; migrate, save, get, find and
+// delete; relations (relations(), db::many, db::one) with load and include.
 use db;
 use time;
 
@@ -55,4 +56,43 @@ main() {
     t->label = "URGENT";
     conn->save(t);                         // the same key: an update
     println(conn->find(Tag)->all(), conn->query("SELECT * FROM tags"));
+
+    // relations: an order has a customer and lines
+    for (local c in [Customer, Order, Line]) conn->migrate(c);
+
+    local ann = new Customer();
+    ann->name = "Ann";
+    conn->save(ann);
+
+    for (local day in ["mon", "tue"]) {
+        local o = new Order();
+        o->customerid = ann->id; o->day = day;
+        conn->save(o);
+
+        for (local p in day == "mon" ? ["pen", "ink"] : ["paper"]) {
+            local l = new Line();
+            l->orderid = o->id; l->product = p;
+            conn->save(l);
+        }
+    }
+
+    local o = conn->get(Order, 1);
+    println(o->customer, o->lines);              // not loaded yet
+    conn->load(o, "customer", "lines");
+    println(o->customer->name, o->lines);
+
+    for (local x in conn->find(Order)->include("customer", "lines")->orderby("day")->all())
+        println(x->day, x->customer->name, len(x->lines));
+    println(conn->find(Customer)->include("orders")->first()->orders);
 }
+
+class Customer { id, name, orders; static relations(); }
+Customer::relations() { return {"orders": db::many(Order, "customerid")}; }
+
+class Order { id, customerid, day, customer, lines; static relations(); }
+
+Order::relations() {
+    return {"customer": db::one(Customer, "customerid"), "lines": db::many(Line, "orderid")};
+}
+
+class Line { id, orderid, product; }

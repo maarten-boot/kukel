@@ -10,3 +10,8 @@ true false 3
 1 2
 ValueError: db::Conn::save: Tag->id is nil: set it before saving (the key is TEXT PRIMARY KEY, which the database does not fill in)
 [Tag{id: "urgent", label: "URGENT"}] [{"id": "urgent", "label": "URGENT"}]
+nil nil
+Ann [Line{id: 1, orderid: 1, product: "pen"}, Line{id: 2, orderid: 1, product: "ink"}]
+mon Ann 2
+tue Ann 1
+[Order{id: 1, customerid: 1, day: "mon", customer: nil, lines: nil}, Order{id: 2, customerid: 1, day: "tue", customer: nil, lines: nil}]

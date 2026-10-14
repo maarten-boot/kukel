@@ -1,5 +1,5 @@
-// Native module db: SQL with SQLite. ":memory:" keeps the database in
-// memory; "sqlite:shop.db" would use (and create) a file.
+// Native module db: SQL with SQLite. "sqlite::memory:" keeps the database
+// in memory; "sqlite:shop.db" would use (and create) a file.
 use db;
 use time;
 

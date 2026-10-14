@@ -77,7 +77,7 @@ or from a clone:
 
 ```
 make            # vet, test and build bin/kukel
-make install    # install kukel into $(go env GOPATH)/bin
+make install    # install kukel into $GOBIN, else $(go env GOPATH)/bin
 ```
 
 `kukel` holds everything (about 22 MB). Build tags leave parts out for a
@@ -156,22 +156,24 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/value`, `internal/builtins` | values with their operators, built-in functions |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q56). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q57). Ideas for later are in [docs/future.md](docs/future.md).
 
 ## Development
 
 | Make target | |
 |---|---|
-| `make` | gofmt check, `go vet`, tests, build |
-| `make install` | install `kukel` into `$(go env GOPATH)/bin` |
-| `make small`, `make test-small` | build `bin/kukel-small`, or run the tests, without the optional parts (`make vet` also vets that build) |
-| `make fuzz FUZZTIME=1m` | fuzz the lexer, parser, compiler, bytecode loader and verifier (what they accept runs in the VM with a step limit), `json::decode`, time parsing and `kukel fmt` |
+| `make` | gofmt check, `go vet`, tests, build (each also on its own: `make vet`, `make test`, `make build`) |
+| `make install` | install `kukel` into `$GOBIN`, else `$(go env GOPATH)/bin` |
+| `make fmt`, `make clean` | `gofmt -w` the sources; remove `bin/` |
+| `make small`, `make test-small` | build `bin/kukel-small`, or run the tests, without the optional parts (`TAGS=...` picks other tags for `small`; `make vet` also vets the smallest build) |
+| `make fuzz FUZZTIME=1m` | fuzz the lexer, parser, compiler, bytecode loader and verifier (what they accept runs in the VM with a step limit), `json::decode`, time parsing and `kukel fmt` (each for 30s by default) |
 | `make bench` | benchmarks |
 | `make golden` | rewrite the expected outputs in `tests/` after an intended change |
 
 The tests of `db` also run on database servers when `KUKEL_TEST_POSTGRES`
 and `KUKEL_TEST_MYSQL` name one (a URL as `db::open` takes it; the tables
-`item`, `tag` and `plain` there are dropped), for example with Docker:
+`item`, `tag`, `plain`, `customer`, `order` and `line` there are dropped:
+use a database for tests only), for example with Docker:
 
 ```
 docker run -d --rm --name pg -e POSTGRES_PASSWORD=pw -p 5432:5432 postgres:16

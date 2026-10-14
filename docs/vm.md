@@ -72,7 +72,7 @@ made from existing bytes never allocate a box.
 | closure | `*ClosureObj` | function + captured cells + `this` |
 | builtin | `*BuiltinObj` | a Go function (a built-in, or a function of a native module) |
 | class | `*ClassObj` | run-time class (section 4.7) |
-| object | `*ObjectObj` | class + data member slots; an object of a native class holds a Go value instead (`State`) |
+| object | `*ObjectObj` | class + data member slots; an object of a native class holds a Go value instead (`State`), one of a Kukel class derived from a native class both |
 | bound method | object + method | the value of `p->m` |
 | *iterator* | internal | state of a for-each loop, only in hidden slots |
 | *cell* | internal | a captured variable, only in slots (section 4.8) |
@@ -286,7 +286,11 @@ member function written in Go raises a `ValueError` ("the ... part of this
 ... object is not set up") instead of finding no Go value. Only a native
 class with a constructor can be a base class. Go code that takes an object
 of a native class (`native.Args.Object`, `Class.Is`) also takes objects of
-classes derived from it.
+classes derived from it, once their Go part is set up: before that,
+`Args.Object` raises the same `ValueError` and `Class.Is` reports false.
+If the program's native base class is not available when the VM is set
+up, it refuses the program ("class X: its base class Y is not available
+(a module written in Go is missing)").
 
 Go code reaches the interpreter through `value.Env` (the VM): output and
 input, `Call` to call a Kukel function (a nested execution, section 4.3),
@@ -379,7 +383,10 @@ is not cached.) The caches belong to the VM, not to the image.
 | arguments of one call | 65535 (compile error; with spread arguments, an `ArgumentError` at run time) |
 | elements of a vector literal, entries of a map literal | 65535 (compile error beyond) |
 | captured variables of one function literal | 65536 (compile error beyond) |
-| data members, and static data members, of a class (inherited ones included) | 65535 (compile error beyond) |
+| data members of a class (inherited ones included), and static data members of a class | 65535 (compile error beyond) |
+| classes of a program | 65536 (compile error beyond) |
+| lines with code in one function (line table entries) | 65536 (compile error beyond) |
+| values of a jump table | 65536 (a switch that would need more compares case by case) |
 | `switch` statements with a jump table in one function | 65536 (compile error beyond) |
 | optional parameters of one function | 255 |
 | code per function, `MaxStack` | 16 MiB and 2<sup>20</sup> (what a `.kkc` file holds; the compiler refuses bigger functions) |
@@ -497,7 +504,9 @@ jump counts as a step, as for `JUMP`.
 in the reference (`TypeError`, `ZeroDivisionError`, `RangeError`); member
 instructions raise `TypeError` for a value that is not an object and
 `MemberError` for an unknown member; call instructions raise
-`ArgumentError`, `TypeError` and `StackOverflowError`. Every error becomes
+`ArgumentError`, `TypeError` and `StackOverflowError`, and `CALL_NATIVE`
+also `MemberError` for a name its native class has no member function
+for. Every error becomes
 an exception (section 4.9).
 
 **Fast paths**: arithmetic and comparisons on two ints, `CMP_JUMP`,
@@ -736,7 +745,7 @@ b->m();          LOAD_LOCAL b; CALL_METHOD m, 0 (cache 0)          virtual call
 A::m() + 1       LOAD_THIS; CALL_DIRECT A::m, 0; CONST 1; ADD      Base::m(...) on this
 strings::Builder::add(x)
                  LOAD_THIS; LOAD_LOCAL x;                          the same for a native base
-                 CALL_NATIVE strings::Builder, add, 1               (the Go function by name)
+                 CALL_NATIVE 3, add, 1  ; strings::Builder          (global 3 is the class; the Go function by name)
 new B()          LOAD_GLOBAL B; NEW 0
 this->x, x       LOAD_MEMBER 0                                     a known data member: its slot
 p->x = 2         LOAD_LOCAL p; CONST 2; SET_MEMBER x (cache 1)     by name, cached
@@ -843,13 +852,15 @@ loaded one.
 ## 8. Loading: the verifier and run-time guards
 
 `Decode` checks the magic, version and checksum, refuses counts larger than
-the file or the limits, and then runs `Verify`. A program that passes cannot
+the file or the limits (65536 items of any one kind), numbers above
+2<sup>31</sup>−1 and flag bytes other than 0 and 1, and then runs `Verify`. A program that passes cannot
 make the VM crash or read outside its data.
 
 **The verifier checks:**
 
 - globals, classes and methods refer to functions and classes that exist; a
-  base class comes before its derived class; `main` is a function;
+  base class comes before its derived class, and a class with a native
+  base has no other; `main` is a function;
   functions have their own index;
 - per function: parameter, slot, stack and cache counts are in range;
 - every instruction is known and complete, and its operands are in range:

@@ -1,4 +1,4 @@
-// Lark grammar for Kukel (syntax.ebnf, syntax version 6; kukel v0.7).
+// Lark grammar for Kukel (syntax.ebnf, syntax version 6; kukel v0.7 and later).
 //
 // Intended for:  Lark(grammar, parser="lalr", lexer="contextual")
 // (the default lexer for LALR; the start rule is "start"). The contextual

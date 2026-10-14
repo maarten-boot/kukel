@@ -11,12 +11,20 @@ f(x) {
         default: return "other";
     }
 }
+
+// Falls through from case to case, up to a break.
 g(x) {
     local r = [];
 
-    switch (x) { case -2: push(r, "m2"); case -1: push(r, "m1"); break; case 0: push(r, "z"); case 1: push(r, "o"); }
+    switch (x) {
+        case -2: push(r, "m2");
+        case -1: push(r, "m1"); break;
+        case 0: push(r, "z");
+        case 1: push(r, "o");
+    }
     return r;
 }
+
 main() {
     local out = [];
 

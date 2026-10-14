@@ -1,6 +1,6 @@
 # Kukel: ideas for the future
 
-Ideas for after v0.1.0. Parts marked *Done* are built (as of v0.4, see the
+Ideas for after v0.1.0. Parts marked *Done* are built (as of v0.11, see the
 language reference and docs/embedding.md); for the rest, the Kukel code below
 shows how things *could* look and is not meant to run. Each idea lists open
 questions (**F-n**) to settle before it is built, in the same way the Q-list
@@ -69,7 +69,7 @@ Kukel needs a way for Go code to define classes whose objects carry Go state:
 
 ```
 local sock = new zmq::Socket("REQ");    // a native class
-sock->connect("tcp://localhost:5555");  // native methods
+sock->connect("tcp://localhost:5555");  // native methods (a REP socket must be bound there)
 sock->close();
 ```
 
@@ -201,8 +201,8 @@ each, so no C compiler is needed:
 Windows. Build tags can leave out the large modules (`go build -tags
 nogui`), and `kukel version` lists the modules a binary contains.
 
-*Done for `json`, `strings` and `time` (TODO.md Q36), and `kukel version`
-lists them. Build tags are done for the large ones (Q55): `nopostgres`,
+*Done for `json`, `strings`, `time` (TODO.md Q36), `events`, `worker`, `zmq`
+and `db`, and `kukel version` lists them. Build tags are done for the large ones (Q55): `nopostgres`,
 `nomysql`, `nosqlite` and `nozmq`; a GUI module would get `nogui`.*
 
 **Foreign libraries (`.so` on Linux, `.dll` on Windows, `.dylib` on
@@ -309,8 +309,10 @@ use worker;
 main(args) {
     while (true) {
         local msg = worker::receive();        // from the parent
+
         if (msg == nil) break;                // the parent stopped us
         local total = 0;
+
         for (local x in msg["data"]) total += x;
         worker::send(total);
     }
@@ -411,6 +413,7 @@ use json;
 main() {
     local server = new zmq::Socket("REP");
     server->bind("tcp://*:5555");
+
     while (true) {
         local request = json::decode(server->receive());
         server->send(json::encode({"echo": request, "at": time()}));
@@ -472,8 +475,10 @@ main() {
     local conn = db::open("sqlite:shop.db");     // or "postgres://...", "mysql://..."
     conn->exec("CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY, name TEXT, price REAL)");
     conn->exec("INSERT INTO items (name, price) VALUES (?, ?)", "pen", 1.5);
+
     for (local row in conn->query("SELECT * FROM items WHERE price < ?", 10))
         println(row["id"], row["name"], row["price"]);   // a row is a map
+
     try {
         conn->begin();
         conn->exec("UPDATE items SET price = price * 1.1");
@@ -550,7 +555,7 @@ members, a `db::model(...)` call, or a new syntax?
 name in lower case the table), with optional static member functions
 `columns()` and `table()`.*
 **F-18** Plain SQL only at first, with the ORM later on top?
-*Answered: yes; plain SQL is done, the ORM comes later on top.*
+*Answered: yes; plain SQL came first, then the ORM on top (Q52, Q56).*
 
 ---
 
@@ -584,8 +589,8 @@ Each step is usable on its own and prepares the next:
 | 2 | Public embedding API; several interpreters in one process | 1 | done (Q39) |
 | 3 | Event loop, timers; workers with messages | 1 | done (Q37, Q38) |
 | 4 | ZeroMQ (blocking first, then events) | 1, 3 | done (Q43), without security |
-| 5 | SQL: plain queries, transactions (SQLite first) | 1 | done for SQLite (Q44) |
-| 6 | Time type; then the ORM on top of SQL | 5 | time type done (Q36) |
+| 5 | SQL: plain queries, transactions (SQLite first) | 1 | done: SQLite (Q44), PostgreSQL and MySQL (Q54) |
+| 6 | Time type; then the ORM on top of SQL | 5 | done: time type (Q36), ORM (Q52), relations (Q56) |
 | 7 | Tk GUI (after a proof of concept for the threading) | 1, 3 | |
 
 Steps 4, 5 and 7 are independent of each other once 1 and 3 exist. A

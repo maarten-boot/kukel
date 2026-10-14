@@ -1,4 +1,4 @@
-// FizzBuzz: the goal of milestone 3.
+// FizzBuzz: numbers, with Fizz for multiples of 3, Buzz for 5, FizzBuzz for both.
 
 fizzbuzz(n) {
     if (n % 15 == 0) return "FizzBuzz";

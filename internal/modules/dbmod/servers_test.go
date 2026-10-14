@@ -10,8 +10,9 @@ import (
 // TestServers runs testdata/servers.kkl on SQLite and on the database
 // servers that KUKEL_TEST_POSTGRES and KUKEL_TEST_MYSQL name (a URL such as
 // "postgres://postgres:secret@127.0.0.1:5432/test?sslmode=disable" or
-// "mysql://root:secret@127.0.0.1:3306/test"; its tables item, tag and plain
-// are dropped): each must print what SQLite prints.
+// "mysql://root:secret@127.0.0.1:3306/test"; its tables item, tag, plain,
+// customer, order and line are dropped): each must print what SQLite
+// prints.
 func TestServers(t *testing.T) {
 	src, err := os.ReadFile("testdata/servers.kkl")
 	if err != nil {

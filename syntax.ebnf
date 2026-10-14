@@ -1,5 +1,5 @@
 (*
-   Kukel syntax, as implemented by kukel v0.7 (syntax version 6).
+   Kukel syntax, as implemented by kukel v0.7 and later (syntax version 6).
 
    Notation: ISO/IEC 14977 EBNF.
        =  definition        ;  end of rule        |  alternative

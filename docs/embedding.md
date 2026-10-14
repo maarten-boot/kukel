@@ -118,7 +118,8 @@ main() { app::notify("started " + app::version); }
 ```
 
 - A function gets the calling interpreter and the arguments; it checks the
-  arguments itself (count and types). It may call back into Kukel with
+  arguments itself (count and types). The arguments are valid during the
+  call only: keep copies (`ToGo`) of what is needed later. It may call back into Kukel with
   `in.CallValue(fn, ...)`, for example to call a function the program passed
   in. A panic in the function becomes a `"HostError"` exception; the
   interpreter stays usable.
@@ -187,13 +188,13 @@ main() {
 | `c.New(m)` | The constructor, for `new app::C(...)`: `m` gets the new object and sets its state (`this.SetState`); its result is not used. Without one, objects come from the module's functions (`c.Object`) and Kukel classes cannot derive from the class |
 | `c.Method(name, m)` | An instance member function: `m(in, this, args)` |
 | `c.Static(name, f)` | A static member function (`app::C::f(...)`), a `Func` |
-| `c.Show(f)` | How `str` and `println` show an object (default `app::C{}`) |
+| `c.Show(f)` | How `str` and `println` show an object (default `app::C{}`); an object of a Kukel class derived from it shows as Kukel objects do |
 | `c.Object(state)` | A new object holding `state`, for a function to return (once a program that uses the module is compiled) |
 | `c.StateOf(v)` | The state of `v` if it is an object of the class, or of a Kukel class derived from it that has set it up |
 | `m.Class(c)` | Adds the class to module `m` |
 | `this.State()`, `this.SetState(s)` | The object's Go value |
-| `this.Call(in, name, args...)` | Calls a member function on the object as `p->name(...)` does: an override in a derived Kukel class runs |
-| `this.Value()`, `v.Object()`, `this.ClassName()` | The object as a `Value` and back, and the name of its class (a derived class's own) |
+| `this.Call(in, name, args...)` | Calls a member function on the object as `p->name(...)` does: an override in a derived Kukel class runs. A name the object has no member function for is an `*Error` (`"MemberError"`, without a trace); an exception in the call comes back as for `CallValue` |
+| `this.Value()`, `v.Object()`, `this.ClassName()` | The object as a `Value` and back, and the name of its class (a derived class's own). `v.Object()` also gives the objects of Kukel classes, whose state is `nil` |
 
 - A member function gets `this` also for an object of a Kukel class
   derived from the Go class, whose state the Go constructor has set (the
@@ -204,7 +205,10 @@ main() {
   class override a step, call it with `this.Call`.
 - As for functions, a panic becomes a `"HostError"` exception, and the same
   rules about names, nil functions and additions after use apply (they
-  panic). A class belongs to one module.
+  panic). A class belongs to one module (adding it to a second panics), a
+  `Method` or `Static` cannot have the class's name (that is `New`), and
+  `c.Object` panics until a program that uses the module is compiled
+  (`c.StateOf` then gives `nil, false`).
 - Workers may run the member functions in parallel, each on its own
   objects.
 
@@ -215,7 +219,7 @@ main() {
 | `*CompileError` | An error in the source: `File`, `Line`, `Col`, `Message`; when the compile found several, the others are in `More` and `Error()` gives them all, one per line (a missing file is the `os` error) |
 | `*Error` | An exception nothing in the program caught: `Kind` (`"RangeError"`, ...), `Message`, `Value` (the thrown `Error` object), `Trace` (innermost call first). Also the step limit (`"StepLimitError"`) and cancellation (`"CancelledError"`), which the program cannot catch |
 | `*ExitError` | The program called `exit(code)` during a `Call`, `CallContext`, `CallValue` or `Global` (in an initializer); `Run` gives the code as its result |
-| other errors (`kukel: ...`) | Mistakes of the Go program: `Call` of a name the program does not have, or that is not a function; `Global` of a name it does not have; any call after `Close`; `New` of a program that uses a built-in or module the options do not allow, or a host module that is missing |
+| other errors (`kukel: ...`) | Mistakes of the Go program: `Call` of a name the program does not have ("has no function", also for a module's constant), or of a global variable that holds no function ("is not a function"); `Global` of a name it does not have; any call after `Close`; `New` of a program that uses a built-in or module the options do not allow, or a host module that is missing |
 
 `(*Error).Error()` gives `Kind: Message`, followed by the trace when there
 is one (`Trace` is not empty: an exception of the program, also the step
@@ -259,7 +263,9 @@ opts := kukel.CompileOptions{
   one is a compile error ("built-in function readfile is not available in
   this program"). The names stay reserved.
 - `StandardModules` lists the standard modules allowed (nil: all;
-  `[]string{}`: none). `worker` in particular starts interpreters and reads
+  `[]string{}`: none). A name the build does not have is an error, so a
+  Go program built with build tags (`nozmq`, ...) must not list those
+  modules; `kukel.StandardModules()` gives the ones it has. `worker` in particular starts interpreters and reads
   program files (`startfile`); its workers follow the same limits.
 - An unknown name in either list is an error, so that a misspelt name does
   not leave something allowed.
@@ -290,7 +296,9 @@ opts := kukel.CompileOptions{
 ## 6. Goroutines
 
 - An `Interp` is used by one goroutine at a time. Make one per goroutine:
-  they can share a `Program`, and do not share any state.
+  they can share a `Program`, and do not share any state. `Close` belongs
+  to that goroutine too, after the last call; to stop a call from another
+  goroutine, end its context (`RunContext`, `CallContext`).
 - A Go function called by Kukel runs on the goroutine of the interpreter
   that calls it, and may call back into that interpreter.
 - Kukel workers run on goroutines of their own; host functions they call

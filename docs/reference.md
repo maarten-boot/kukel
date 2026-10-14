@@ -48,10 +48,10 @@ hello, Kukel
 | `kukel exec prog.kkc [--] [args]` | Run a bytecode file (a first `--` is skipped). A module compiled on its own is not a program: `exec` and `disasm` refuse it |
 | `kukel disasm prog.kkc` or `kukel disasm a.kkl ...` | Show the bytecode in readable form |
 | `kukel repl [a.kkl ...]` | Read declarations and statements and run them as they come (see [The REPL](#the-repl)); with files, their declarations come first (`main` is not called) |
-| `kukel fmt [-w \| -l] a.kkl ...` | Format source files: indentation (4 spaces) and the spaces between tokens; line breaks and comments stay, at most one blank line in a row. A statement that starts with `if`, `while`, `do`, `for`, `switch`, `try` or `with` gets a blank line before it (above the comments right above it), except as the first statement of a block, after a label, as the statement of `else` or a header without braces, or as the `while` of a `do`. Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`; `-w` and `-l` together are a usage error). A file with a syntax error or a NUL byte is left alone, and the exit code is 1 |
-| `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | Show the tokens or the syntax tree of each file (for debugging; `-pos` adds positions) |
-| `kukel version` (also `-version`, `--version`) | Show the version, the bytecode format and the modules written in Go, with the databases `db` can open (`db (SQLite, PostgreSQL, MySQL)`): a `kukel` built with tags may lack some (see the README) |
-| `kukel help` (also `-h`, `-help`, `--help`) | Show the commands |
+| `kukel fmt [-w \| -l] a.kkl ...` | Format source files: indentation (4 spaces; `case` labels one level into the switch, their statements two) and the spaces between tokens (`{ }` becomes `{}`; a comment at the end of a line keeps its distance); line breaks and comments stay, at most one blank line in a row. A statement that starts a line with `if`, `while`, `do`, `for`, `switch`, `try` or `with` (also after a label: `outer: for`) gets a blank line before it (above the comments right above it), except as the first statement of a block, after a label on its own line or a `case`, as the statement of `else` or a header without braces, or as the `while` of a `do`. The output is checked to give the same tokens and comments as the input; a file it cannot format safely is refused with an "internal error".  Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`; `-w` and `-l` together are a usage error). A file with a syntax error or a NUL byte is left alone, and the exit code is 1 |
+| `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | Show the tokens or the syntax tree of each file (for debugging; `-pos`, before the files, adds positions) |
+| `kukel version` (also `-version`, `--version`) | Show the version (with the commit and the Go version), the bytecode format and the modules written in Go, with the databases `db` can open (`db (SQLite, PostgreSQL, MySQL)`): a `kukel` built with tags may lack some (see the README) |
+| `kukel help` (also `-h`, `-help`, `--help`) | Show the commands (`kukel` without a command shows them too, with exit code 2) |
 
 A compile reports several errors at once, in the order of the source: the
 first syntax error of each file, and otherwise the first error of each
@@ -77,7 +77,9 @@ declarations (functions, member function definitions, classes, `global`,
 `const`, `use`) or statements, as in a function body; it ends when it parses
 completely, so a piece can span several lines. A blank line ends a piece
 that is still incomplete (and shows its error); the end of the input ends
-the session. On a terminal it shows a banner and prompts (`>`, `...` for
+the session. `readline()` in a piece reads the next line of the same
+input. Files given to `kukel repl` that do not compile end it at once
+(exit code 1). On a terminal it shows a banner and prompts (`>`, `...` for
 more lines of a piece); with input from a pipe or file it shows neither.
 A piece runs as soon as it is read: the initializers of its
 global variables, or its statements. Every piece shares the program and its
@@ -190,8 +192,8 @@ in the shortest form that reads back as the same float: an exponent below
 1e-4 and from 1e6 on (`1.0`, `123456.0`, `1e+06`, `1.5e-05`, `inf`,
 `nan`). Objects print as `Point{x: 1, y: 2}`; a container inside itself
 prints as `[...]`, `{...}` or `Point{...}`. Functions print as
-`<function main>`, `<function P::m>` or `<function main/fn@4>` (a function
-literal on line 4), built-ins as `<builtin println>`, classes as
+`<function main>`, `<function P::f>` (a static member function) or
+`<function main/fn@4>` (a function literal on line 4), built-ins as `<builtin println>`, classes as
 `<class P>` and bound methods as `<method P::m>`.
 
 ---
@@ -281,7 +283,8 @@ geometry::Circle{r: 1}
   4)`), constants (also in constant expressions), globals (which can be
   assigned), and classes (`new geometry::Circle(1)`, `class Ring :
   geometry::Circle`, `geometry::Circle::x` for a static member).
-- `use` holds for the file that contains it. A module sees its own names,
+- `use` holds for the file that contains it; a file uses a module once, and
+  a module cannot use itself. A module sees its own names,
   the built-ins, `Error`, and the modules it uses itself; it does not see the
   program's names. A program and its modules may define the same names.
 - Top-level names that start with `_` are private: `geometry::_square` is a
@@ -291,6 +294,8 @@ geometry::Circle{r: 1}
   initializers run before those of the files that use it. A module name
   stands for one file in the whole program. Modules may not use each other
   in a cycle, and a file given on the command line cannot also be a module.
+- A standard module that a `kukel` was built without (build tags, see the
+  README) is not found; the message names the tags.
 - A module's name cannot be `Error`, nor a top-level name of the program or
   module whose file uses it. It may be a built-in's name: `time::now()` and
   `time()` do not mix up.
@@ -299,7 +304,9 @@ geometry::Circle{r: 1}
 - `kukel build` stores the program and all its modules in one `.kkc` file;
   `kukel exec` does not need the module files.
 - `kukel build -module util.kkl` compiles a module on its own into
-  `util.kkc` (the modules it uses must be there when it is compiled). A
+  `util.kkc` (the modules it uses must be there when it is compiled; the
+  file keeps the module's name, so a `util.kkc` renamed to `other.kkc` is
+  an error for `use other;`). A
   program that uses `util` can then be compiled without `util.kkl`: the
   compiler links the module's code into the program. The `.kkc` file holds
   the module's declarations without function bodies and initializers (its
@@ -351,7 +358,8 @@ A `local` directly in a switch body is not allowed: put it in a block.
 
 **Labels**: `name:` before a statement (on the same line as the name); a
 label may not reuse the name of a label around it. `break name` leaves that
-statement; `continue name` continues that loop.
+statement; `continue name` continues that loop (a label of a switch or a
+block is an error there).
 A plain `break` leaves the innermost loop or switch, a plain `continue`
 continues the innermost loop. Neither crosses a function literal.
 
@@ -460,7 +468,8 @@ main() {
 - Variables a function needs are `local` declarations in its body. (Up to
   syntax version 3, names after a `;` in the parameter list, `f(a; t)`,
   declared them; that form is now a compile error that says so.)
-- `f(a, v.., b)` passes the elements of vector `v` as separate arguments.
+- `f(a, v.., b)` passes the elements of vector `v` as separate arguments
+  (`v..` is allowed in argument lists and vector literals only).
 - A call with the wrong number of arguments is a compile error when the
   function is known when compiling (a function written in Kukel, also of a
   module; a static member function; `Base::m(...)`; `new C(...)`), and an
@@ -537,7 +546,9 @@ main() {
 
 - A class declares its members; member functions are defined outside as
   `Class::name(params) { ... }` with the same number of parameters (default
-  values go in the definition, never in the declaration). The base class
+  values go in the definition, never in the declaration). Each name is
+  declared once in a class (no overloading), and each member function is
+  defined once. The base class
   must be defined before the classes derived from it. It may also be a
   class written in Go ([section 11](#11-modules-written-in-go)).
 - `new C(args)` makes an object with all data members `nil` and runs the
@@ -554,7 +565,9 @@ main() {
   functions are virtual). `Base::m(...)` calls `Base`'s version on the
   current `this` (not virtual; spread arguments are not allowed there).
   `C::f(...)` calls a static member function; `C::x` is a static data
-  member.
+  member. `C::m(...)` of a member function that is not static is allowed
+  only in member functions of `C` and of classes derived from it, and not
+  in a static one.
 - A derived class may redeclare a member function of its base (overriding
   it) if both are static or both are not; the parameters may differ.
   Redeclaring a data member is an error, as is a data member named like a
@@ -640,8 +653,8 @@ Kinds of runtime errors:
 
 ## 10. Built-in functions
 
-`isnil` and `substr` were removed in v0.4 (the compiler says so): write
-`x == nil` and `slice(s, start, end)`.
+`isnil` and `substr` were removed in v0.4 (the compiler says so, as for
+the removed keyword `elseif`): write `x == nil` and `slice(s, start, end)`.
 
 Argument positions in error messages count from 1. Unless noted, a wrong
 type is a `TypeError`, a wrong count an `ArgumentError`, a number or index
@@ -652,7 +665,7 @@ work with an `ArgumentError`.
 
 | Function | Description |
 |---|---|
-| `print(x, ...)` | Writes the values separated by single spaces (strings as they are) |
+| `print(x, ...)` | Writes the values separated by single spaces (strings as they are); no values write nothing. Output that cannot be written is an `IOError` (also for the others below) |
 | `println(x, ...)` | Like `print`, then a newline |
 | `eprint(x, ...)` | Like `print`, to standard error |
 | `eprintln(x, ...)` | Like `println`, to standard error |
@@ -665,8 +678,8 @@ and the order of output and errors stays as written.
 | Function | Description |
 |---|---|
 | `readfile(path)` | The whole file as a string (`IOError` on failure) |
-| `writefile(path, s)` | Writes `s` to the file, replacing it |
-| `appendfile(path, s)` | Appends `s` to the file, creating it if needed |
+| `writefile(path, s)` | Writes `s` to the file, replacing it (`IOError` on failure) |
+| `appendfile(path, s)` | Appends `s` to the file, creating it if needed (`IOError` on failure) |
 
 ### Types and conversion
 
@@ -674,7 +687,7 @@ and the order of output and errors stays as written.
 |---|---|
 | `typeof(x)` | `"nil"`, `"bool"`, `"int"`, `"float"`, `"string"`, `"vector"`, `"map"`, `"function"`, `"class"` or `"object"` |
 | `str(x)` | `x` as text, as `print` writes it |
-| `int(x)` | An int: floats are truncated toward zero; strings in decimal, `0x` or `0b` form with an optional sign (`"42"`, `"-0x10"`, `"0b11"`), surrounding spaces allowed and every `_` ignored (`"1_000"`); `true` is 1, `false` 0. A string that is not a number is a `ValueError`, one too large a `RangeError` |
+| `int(x)` | An int: floats are truncated toward zero; strings in decimal, `0x` or `0b` form with an optional sign (`"42"`, `"-0x10"`, `"0b11"`), surrounding spaces allowed and every `_` ignored (`"1_000"`); `true` is 1, `false` 0. A string that is not a number is a `ValueError`, one too large a `RangeError`; hexadecimal and binary use all 64 bits, as literals do (`int("0xffffffffffffffff")` is -1) |
 | `float(x)` | A float from an int, float or string (`"2.5"`, `"1e3"`, `"inf"`, also Go's other forms such as `"0x1p3"`). A string beyond the float range is a `RangeError`; one too small gives 0.0 |
 | `classof(obj)` | The class of an object |
 | `instanceof(x, C)` | Whether `x` is an object of class `C` or of a class derived from it |
@@ -712,7 +725,7 @@ and the order of output and errors stays as written.
 | Function | Description |
 |---|---|
 | `abs(x)` | Absolute value |
-| `min(a, b, ...)`, `max(a, b, ...)` | Smallest or largest of numbers or of strings; also `min(vector)` (`ArgumentError` for no values); `min(x)` of one value that is not a vector is `x` |
+| `min(a, b, ...)`, `max(a, b, ...)` | Smallest or largest of numbers or of strings (mixing them is a `TypeError`; of equal values, the first); also `min(vector)` (`ArgumentError` for no values); `min(x)` of one number or string is `x` |
 | `pow(x, y)` | `x` to the power `y`: an int for ints with `y >= 0` (wrapping around), else a float |
 | `sqrt(x)`, `exp(x)`, `log(x)` | Square root, e<sup>x</sup>, natural logarithm (floats) |
 | `sin(x)`, `cos(x)`, `tan(x)`, `atan2(y, x)` | Trigonometry (radians) |
@@ -788,8 +801,18 @@ main() {
 - Where a module's function takes an object of the native class (`time`
   values for `sub`, sockets for `zmq::poll`, ...), it also takes objects of
   classes derived from it.
-- A data member may not have the name of a member function of the native
-  class. A derived object prints as Kukel objects do (`Lines{count: 2}`).
+- A member of the derived class may not have the name of a member function
+  of the native class, except a member function with the same static-ness
+  (an override). A derived object prints as Kukel objects do
+  (`Lines{count: 2}`), not as the native class prints its objects.
+- The number of arguments of a native constructor or member function is
+  checked when it runs (an `ArgumentError`), also for `new D(...)` with
+  the native constructor and for `strings::Builder::add(...)`.
+- Calling the native constructor again (`strings::Builder::Builder("x")`
+  from a member function) sets up a new Go part, dropping the old one.
+- Member functions and static member functions written in Go give objects
+  of the native class, not of the derived one: for `class T : time::Time`,
+  `t->add(60)` and `T::parse(...)` give `time::Time` objects.
 
 ### db
 
@@ -813,10 +836,11 @@ main() {
 ```
 
 Values always go into SQL as parameters: each `?` takes the next argument
-(too few arguments are a `DBError`; extra ones are ignored). PostgreSQL
+(too few arguments are a `DBError`; so are extra ones, except in SQLite,
+which ignores them). PostgreSQL
 numbers its parameters (`$1`, `$2`); the module turns each `?` into the
-next one, except a `?` inside a quoted string or name, a comment or `$$`
-text (`$1` written directly works too). PostgreSQL's JSON operators that
+next one, except a `?` inside a quoted string (also `E'...'`) or name, a
+comment or `$$` text (`$1` written directly works too). PostgreSQL's JSON operators that
 are written with `?` must use their function form there
 (`jsonb_exists(doc, 'key')`).
 They are never glued into the SQL text, so text from a user cannot change
@@ -841,9 +865,9 @@ same name (from a join) keep the last value, so name them with `AS`.
 
 | Function or member function | Description |
 |---|---|
-| `db::open(url)` | A `db::Conn`: `"sqlite:path"` opens the file `path` (relative to the current directory; any characters, also `?`, `#` and `%`), creating it if needed; `"sqlite::memory:"` is a database in memory, gone when closed. `"postgres://user:password@host:5432/database?sslmode=disable"` (also `postgresql://`; the options are PostgreSQL's) and `"mysql://user:password@host:3306/database"` (options such as `?tls=true` are the MySQL driver's) connect to a server. A database that cannot be opened or reached is a `DBError`, another URL a `ValueError`, as is a kind of database this `kukel` was built without (`kukel version` lists the ones it has). In SQLite, foreign keys are enforced and a database another program is writing is waited for up to 5 seconds |
-| `conn->exec(sql, args...)` | Runs a statement that gives no rows (`CREATE`, `INSERT`, `UPDATE`, `DELETE`, ...) and gives the number of rows it changed |
-| `conn->lastid()` | The id of the last row an `INSERT` added (SQLite's `last_insert_rowid`, MySQL's `LAST_INSERT_ID`), or `nil`. PostgreSQL has none: write `INSERT ... RETURNING id` and use `first` |
+| `db::open(url)` | A `db::Conn`: `"sqlite:path"` opens the file `path` (relative to the current directory; any characters, also `?`, `#` and `%`), creating it if needed; `"sqlite::memory:"` is a database in memory, gone when closed. `"postgres://user:password@host:5432/database?sslmode=disable"` (also `postgresql://`; the options are PostgreSQL's) and `"mysql://user:password@host:3306/database"` (the port defaults to 3306; options such as `?tls=true` are the MySQL driver's) connect to a server; such a URL needs a host. A database that cannot be opened or reached is a `DBError`, another URL a `ValueError`, as is a kind of database this `kukel` was built without ("this kukel was built without PostgreSQL (build tag nopostgres)"; `kukel version` lists the ones it has). A `kukel` built without any of the three has no module `db`: `use db;` says which build tags left it out. In SQLite, foreign keys are enforced and a database another program is writing is waited for up to 5 seconds |
+| `conn->exec(sql, args...)` | Runs a statement that gives no rows (`CREATE`, `INSERT`, `UPDATE`, `DELETE`, ...) and gives the number of rows it touched (for an `UPDATE`, the rows its `WHERE` found, also in MySQL) |
+| `conn->lastid()` | The id the database chose for the row the last `INSERT` (or `REPLACE`) added (SQLite's `last_insert_rowid`, MySQL's `LAST_INSERT_ID`), or `nil`: after other statements, and in MySQL for a row whose id the statement gave. PostgreSQL has none for `exec` (write `INSERT ... RETURNING id` and use `first`); after `save` it is the new row's id on every database |
 | `conn->query(sql, args...)` | All rows of a query, as a vector of maps |
 | `conn->first(sql, args...)` | The first row of a query, or `nil` |
 | `conn->cursor(sql, args...)` | A `db::Cursor` for results too large to hold at once: `cursor->next()` gives the next row, or `nil` at the end (which closes it); `cursor->close()` stops early. While a cursor is open, the other calls that run SQL (`exec`, `query`, `first`, `cursor`, `begin`, `commit`, `rollback`) are a `ValueError`; `lastid`, `intransaction` and `close` still work |
@@ -901,7 +925,7 @@ main() {
 | Member function | Description |
 |---|---|
 | `conn->migrate(C)` | Creates the table of class `C` if there is none: `id` (unless `columns()` says otherwise, a key the database fills in: `INTEGER PRIMARY KEY` in SQLite, `BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY` in PostgreSQL, `BIGINT AUTO_INCREMENT PRIMARY KEY` in MySQL), then the other data members, in order, with the types `columns()` gives (none for the others). For an existing table it adds a column for each data member the table lacks. It never drops or changes a column |
-| `conn->save(p)` | Stores object `p` and gives it. With `p->id` nil it inserts a row, and `p->id` gets the id the database chose; with an id it inserts the row, or updates the row that has that id. Each data member must be a value the database can store (`TypeError`) |
+| `conn->save(p)` | Stores object `p` and gives it. With `p->id` nil it inserts a row, and `p->id` gets the id the database chose; with an id it inserts the row, or updates the row that has that id (a row with another id that the new values clash with, on a `UNIQUE` column, is a `DBError`, never changed). Each data member must be a value the database can store (`TypeError`) |
 | `conn->get(C, id)` | The object of class `C` stored with that id, or `nil` |
 | `conn->delete(p)` | Deletes the row of `p`; gives whether there was one |
 | `conn->find(C)` | A `db::Query` for all objects of class `C` |
@@ -924,19 +948,34 @@ main() {
   SQLite and MySQL, PostgreSQL has `TIMESTAMP`); types that all three
   understand (`VARCHAR(100)`, `DOUBLE PRECISION`, `BOOLEAN`, `TIMESTAMP`)
   keep a class usable with each.
-- A key of another type: `columns()` returning `{"id": "TEXT PRIMARY
-  KEY"}` (in MySQL a `VARCHAR(n)`) makes the program choose the keys (a name, a UUID it makes):
-  `p->id` must be set before the first `save` (`ValueError` otherwise).
+- The database fills in `id` when its type (from `columns()`, else the
+  default above) is the default, or has `AUTO_INCREMENT`, `IDENTITY` or
+  `SERIAL` in it, or in SQLite starts with `INTEGER PRIMARY KEY`. Any other
+  type makes the program choose the keys (a name, a UUID it makes):
+  `columns()` returning `{"id": "TEXT PRIMARY KEY"}` (in MySQL a
+  `VARCHAR(n) PRIMARY KEY`); `p->id` must then be set before the first
+  `save` (`ValueError` otherwise). The type replaces the whole definition
+  of `id`, so it must say `PRIMARY KEY` itself.
 - `save` and the others take part in a transaction (`begin`). An insert
   that is rolled back leaves `p->id` set: saving `p` again stores it under
   that id.
 - `where` and `orderby` take SQL text: put values in with `?`, never by
   joining strings. A query is never changed by its member functions (they
-  give new queries), so it can be refined in several ways and reused.
+  give new queries), so it can be refined in several ways and reused. Its
+  values are checked when it runs (`all`, `first`, `count`, `delete`), not
+  by `where`. `first` reads one row whatever the `limit`; `count` counts
+  what `limit` and the offset leave. A negative limit or offset is a
+  `ValueError`.
+- `delete(p)` of an object without an id gives `false`; after a delete
+  `p->id` keeps its value, so saving `p` again stores it under that id.
 - A class needs a data member `id` (`ValueError`); `table()` must give a
-  name of letters, digits and `_`, and `columns()` a map from data members
-  to strings. A class derived from another maps to its own table, with
-  the inherited data members. Classes written in Go cannot be stored.
+  name of letters, digits and `_` (`ValueError`), and `columns()` a map from
+  data members to strings. A `table()`, `columns()` or `relations()` that
+  is not a static member function with a definition, or that gives a value
+  of the wrong kind, is a `TypeError`. A class derived from another maps to
+  its own table, with the inherited data members. Classes written in Go,
+  and Kukel classes derived from them (their Go part cannot be stored),
+  are a `TypeError`.
 - On PostgreSQL and MySQL every column needs a type: `migrate` names a
   data member that `columns()` gives none (SQLite takes any value in an
   untyped column).
@@ -1000,7 +1039,12 @@ main() {
   related objects of all the results of a query with one query per
   relation (`WHERE orderid IN (...)`, in parts of 500 values).
 - The key data member must exist on the right side, and a relation member
-  may not be named in `columns()` (`ValueError`). A foreign key constraint
+  may not be named in `columns()` (`ValueError`); an unknown name for
+  `load` or `include` is a `ValueError` too, and `db::many`/`db::one` of
+  something that is not a class a `TypeError`. Keys match by value (`"1"`
+  matches id 1), but give the key column the type of `id`: PostgreSQL
+  does not compare text with a number. `load` and `include` fill one level:
+  the lines of an order, not the products of its lines. A foreign key constraint
   is the program's choice, in `columns()`: `{"orderid": "BIGINT REFERENCES
   \"order\"(id) ON DELETE CASCADE"}`.
 - `db::many` and `db::one` give a `db::Relation`, which prints as
@@ -1123,10 +1167,10 @@ when it has one: `2026-10-14T09:30:01.5Z`).
 
 | Function | Description |
 |---|---|
-| `time::now()` | The current time, in the local time zone |
+| `time::now()` | The current time, in the local time zone (its `zone()` is `"Local"`, unless the environment variable `TZ` names a zone) |
 | `time::sleep(seconds)` | Waits that long (`ValueError` if negative or `nan`; beyond about 292 years it waits as long as the program runs) |
-| `new time::Time(year, month, day [, hour [, minute [, second [, zone]]]])` | That time in `zone` (default `"UTC"`; an unknown zone is a `ValueError`); `year` to `minute` are ints, `second` may have a fraction. Values out of range carry over (month 13 is January of the next year); a `second` of `nan` or `inf`, or a time beyond about 2.9e11 years from 1970, is a `ValueError` |
-| `time::Time::parse(text [, format [, zone]])` | The time `text` stands for: without `format` in RFC 3339 (`"2026-10-14T09:30:00+02:00"`), else by `format` (below). A text without an offset is in `zone` (default `"UTC"`). A text that does not match, or a date that does not exist (`"2026-02-30"`), is a `ValueError`. A local time that a daylight-saving change skips or repeats is not an error: it gets the offset of one of the two sides (02:30 on the day clocks jump from 02:00 to 03:00 becomes 03:30); which side is not specified |
+| `new time::Time(year, month, day [, hour [, minute [, second [, zone]]]])` | That time in `zone` (default `"UTC"`, as is `""`; an unknown zone is a `ValueError`); `year` to `minute` are ints, `second` may have a fraction. Values out of range carry over (month 13 is January of the next year); a `second` of `nan` or `inf`, or a time beyond about 2.9e11 years from 1970, is a `ValueError` |
+| `time::Time::parse(text [, format [, zone]])` | The time `text` stands for: without `format` in RFC 3339 (`"2026-10-14T09:30:00+02:00"`), else by `format` (below). A text without an offset is in `zone` (default `"UTC"`; `zone` needs a `format`, since RFC 3339 text has an offset; an offset in the text, `%z`, wins over `zone`). A text that does not match, or a date that does not exist (`"2026-02-30"`), is a `ValueError`. A local time that a daylight-saving change skips or repeats is not an error: it gets the offset of one of the two sides (in Europe/Amsterdam, 02:30 on the day clocks jump from 02:00 to 03:00 becomes 03:30); which side is not specified |
 | `time::Time::fromunix(seconds)` | The time that many seconds after 1970-01-01 00:00 UTC, in UTC (`nan`, `inf` and values beyond about 2.9e11 years are a `ValueError`, as for `add`) |
 
 | Member function | Description |
@@ -1294,9 +1338,9 @@ on every interface), `"ipc://path"` (a Unix socket file) or `"inproc://name"`
 | `s->receive([timeout])` | The next message; waits for it, at most `timeout` seconds if given, then gives `nil`. A message that arrives after the timeout is kept for the next `receive`. A negative or `nan` timeout is a `ValueError`, as is `receive` on a PUSH or PUB socket (they only send); a broken connection a `NetError` |
 | `s->onmessage(f)` | The event loop (`events`) calls `f(message)` for each message, and `events::run()` keeps going until the socket is closed. Afterwards `receive()` is a `ValueError`, as is a second `onmessage`, and `onmessage` on a PUSH or PUB socket; `f` must be a function (`TypeError`) |
 | `s->subscribe(prefix)`, `s->unsubscribe(prefix)` | A SUB socket receives the messages that start with one of its prefixes (`""`: all of them); other socket types give a `ValueError`. Subscriptions take a moment to reach the PUB socket: messages published right after `subscribe` may be missed |
-| `s->type()`, `s->endpoint()` | The type, and the last endpoint bound to or connected to (`""` if none) |
-| `zmq::poll(sockets [, timeout])` | Waits until one of the sockets (a vector) has a message and gives that socket, whose `receive()` then gives the message at once; `nil` after `timeout` seconds. When several have one, the earliest in the vector wins. No message is lost: the others stay with their sockets. A closed socket, one with an `onmessage` handler, or a PUSH or PUB socket is a `ValueError` |
-| `s->close()` | Closes the socket (closing again has no effect). If the socket sent a message less than 0.1 seconds before, `close` waits until 0.1 seconds have passed, so that the message still leaves. Using a closed socket is a `ValueError` |
+| `s->type()`, `s->endpoint()` | The type, and the last endpoint bound to or connected to (`""` if none; after a bind, the address as bound, with the port that port 0 picked) |
+| `zmq::poll(sockets [, timeout])` | Waits until one of the sockets (a vector) has a message and gives that socket, whose `receive()` then gives the message at once; `nil` after `timeout` seconds. When several have one, the earliest in the vector wins. No message is lost: the others stay with their sockets. An empty vector, a closed socket, one with an `onmessage` handler, or a PUSH or PUB socket is a `ValueError` |
+| `s->close()` | Closes the socket (closing again has no effect). If the socket sent a message less than 0.1 seconds before, `close` waits until 0.1 seconds have passed, so that the message still leaves. Using a closed socket is a `ValueError`, except `type()`, `endpoint()` and `close()` |
 
 A socket prints as `zmq::Socket(REQ, tcp://localhost:5555)`, without an
 endpoint as `zmq::Socket(REQ)`, and once closed as `zmq::Socket(REQ,
