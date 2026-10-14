@@ -71,7 +71,7 @@ var ruleCases = map[string]struct {
 		},
 	},
 	"parameter": {
-		ok: []string{"f(a, b = a, c = b + 1, d..; t) {} main() {}"},
+		ok: []string{"f(a, b = a, c = b + 1, d..) { local t;} main() {}"},
 		bad: [][2]string{
 			{"f(a = 1, b) {} main() {}", "parameter b needs a default value"},
 			{"f(a.., b) {} main() {}", "the rest parameter a must be the last parameter"},
@@ -123,7 +123,7 @@ var ruleCases = map[string]struct {
 	},
 	"assignment": {
 		ok: []string{`global g; class A { x; static s; m(); } A::m() { x = 1; this->x += 1; A::s = 2; s--; local f = fn() { x++; };
-			} main(; t) { local l, v = [0], m = {}; g = l = t = 1; v[0] += 1; m["k"] = 2; new A()->x = 3; local f = fn() { l = 4; }; }`},
+			} main() { local t; local l, v = [0], m = {}; g = l = t = 1; v[0] += 1; m["k"] = 2; new A()->x = 3; local f = fn() { l = 4; }; }`},
 		bad: [][2]string{
 			{"const C = 1; main() { C = 2; }", "cannot assign to constant C"},
 			{"f() {} main() { f = 1; }", "cannot assign to function f"},
@@ -137,11 +137,11 @@ var ruleCases = map[string]struct {
 		},
 	},
 	"unary": {
-		ok:  []string{"main(; x) { x = 1; ++x; --x; - -x; !!x; ~~x; }"},
+		ok:  []string{"main() { local x; x = 1; ++x; --x; - -x; !!x; ~~x; }"},
 		bad: [][2]string{{"main() { ++1; }", "cannot assign to this expression"}, {"class A { m(); } A::m() { --this; } main() {}", "cannot assign to this expression"}},
 	},
 	"postfix_operator": {
-		ok: []string{"main(; x) { x = [1]; x[0]++; x--; }", "f(a) {} main(; g) { g = f; g(); }"},
+		ok: []string{"main() { local x; x = [1]; x[0]++; x--; }", "f(a) {} main() { local g; g = f; g(); }"},
 		bad: [][2]string{
 			{"f() {} main() { f()++; }", "cannot assign to this expression"},
 			{"f(a) {} main() { f(); }", "f expects 1 argument(s), got 0"},

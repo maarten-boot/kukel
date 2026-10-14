@@ -5,7 +5,8 @@ const TOP = 5;
 
 isLetter(c) { return c >= 'a' && c <= 'z' || c == '\''; }
 
-words(line; out, word) {
+words(line) {
+    local out, word;
     out = [];
     word = "";
     for (local c in lower(line) + " ") {
@@ -19,7 +20,8 @@ words(line; out, word) {
     return out;
 }
 
-main(; line, counts, total) {
+main() {
+    local line, counts, total;
     counts = {};
     total = 0;
     while ((line = readline()) != nil) {

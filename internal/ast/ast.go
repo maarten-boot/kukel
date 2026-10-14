@@ -102,11 +102,10 @@ type VarSpec struct {
 	Value Expr // nil without an initializer
 }
 
-// ParamList is the "params ; temporaries" part of a function definition or
-// function literal.
+// ParamList is the parameter list of a function definition or function
+// literal.
 type ParamList struct {
 	Params []*Param
-	Temps  []*Ident
 }
 
 // Param is a parameter: "a", "a = default" or "a..".

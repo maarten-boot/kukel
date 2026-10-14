@@ -11,7 +11,8 @@ ConfigError::ConfigError(key, message) {
 
 global config = {"port": "8080", "debug": "yes", "retries": "x"};
 
-getInt(key; text, value, digit) {
+getInt(key) {
+    local text, value, digit;
     if (!haskey(config, key)) throw new ConfigError(key, "missing");
     text = config[key];
     value = 0;

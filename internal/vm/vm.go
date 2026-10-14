@@ -1,6 +1,6 @@
 // Package vm executes compiled Kukel programs on a stack machine.
 //
-// Each call has a frame. A frame's slots (parameters, temporaries, locals)
+// Each call has a frame. A frame's slots (parameters, locals, hidden slots)
 // sit on the value stack at frame.base, followed by its operand stack. The
 // callee value sits just below the slots.
 package vm

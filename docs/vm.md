@@ -217,8 +217,8 @@ top of the same stack (section 4.9 explains how exceptions cross it).
 
 ### 4.5 Globals, locals and constants
 
-Globals live in the VM's global array, addressed by index. Locals,
-parameters and temporaries live in slots. Constants (`const`) do not exist
+Globals live in the VM's global array, addressed by index. Locals and
+parameters live in slots. Constants (`const`) do not exist
 at run time: the compiler puts their values into the code.
 
 ### 4.6 Statics and member functions
@@ -471,7 +471,7 @@ The listings below are real compiler output (`kukel disasm`), shortened.
 ### 6.1 Names and slots
 
 The compiler resolves every name while it generates code. In order: a
-local (innermost block first), a parameter, a temporary, a captured
+local (innermost block first), a parameter, a captured
 variable of an enclosing function, a member of the current class
 (inherited ones too; not constructors), a top-level name of the file's
 program or module, a built-in. `m::x` is a top-level name of module `m`
@@ -480,7 +480,7 @@ decides the instruction:
 
 | Name is | Read | Write |
 |---|---|---|
-| local, parameter, temporary | `LOAD_LOCAL` | `STORE_LOCAL` |
+| local, parameter | `LOAD_LOCAL` | `STORE_LOCAL` |
 | the same, captured by a literal | `LOAD_CELL` | `STORE_CELL` |
 | a captured variable inside a literal | `LOAD_UPVALUE` | `STORE_UPVALUE` |
 | a data member of `this` | `LOAD_MEMBER` | `STORE_MEMBER` |
@@ -489,7 +489,7 @@ decides the instruction:
 | a global variable, function, class or built-in (also `m::x` of a module) | `LOAD_GLOBAL` | `STORE_GLOBAL` (variables only) |
 | a constant | `CONST`/`NIL`/`TRUE`/`FALSE` with its value | error |
 
-Parameters take slots 0, 1, ... in order, then temporaries, then locals.
+Parameters take slots 0, 1, ... in order, then locals.
 A block's locals get the next free slots and give them back at the end of
 the block, so sibling blocks share slots. Hidden slots (named in
 parentheses by the disassembler) hold a switch value, a for-each iterator,
@@ -555,8 +555,8 @@ needs nothing extra.
 A function's code starts with its **prologue**, one parameter after the
 other: for an optional parameter `i`, `JUMP_IF_ARG i` over the code of its
 default value; for a captured parameter, `LOAD_LOCAL i; NEW_CELL i` to put
-it in a cell (so a later default sees the cell). Captured temporaries get
-`NIL; NEW_CELL`. Every function ends with `RETURN_NIL`.
+it in a cell (so a later default sees the cell). Every function ends with
+`RETURN_NIL`.
 
 ```
 defs(a, b = a * 2, rest..) {     0  JUMP_IF_ARG   1 -> 17
@@ -674,8 +674,8 @@ p->x = 2         LOAD_LOCAL p; CONST 2; SET_MEMBER x (cache 1)     by name, cach
 ```
 
 ```
-counter(; n) {                   NIL; NEW_CELL n                    (the temporary n is captured)
-    n = 0;                       CONST 0; STORE_CELL n
+counter() {
+    local n = 0;                 CONST 0; NEW_CELL n                (n is captured: it lives in a cell)
     return fn() { return ++n; }; CLOSURE counter/fn@8; RETURN
 }
 counter/fn@8:                    LOAD_UPVALUE n; INC; DUP; STORE_UPVALUE n; RETURN

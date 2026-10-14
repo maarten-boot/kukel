@@ -3,7 +3,8 @@
 const LIMIT = 50;
 global found = 0;
 
-isPrime(n; d) {
+isPrime(n) {
+    local d;
     if (n < 2) return false;
     for (d = 2; d * d <= n; d++)
         if (n % d == 0) return false;

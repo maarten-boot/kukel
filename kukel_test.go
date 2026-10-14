@@ -37,7 +37,7 @@ func TestCallAndRun(t *testing.T) {
 	p := compile(t, `
 global calls = 0, greeting = "hi";
 add(a, b) { calls++; return a + b; }
-sum(v; s) { s = 0; for (local x in v) s += x; return s; }
+sum(v) { local s; s = 0; for (local x in v) s += x; return s; }
 main(args) { println(greeting, args); return len(args); }`, kukel.CompileOptions{})
 	var out bytes.Buffer
 	in := interp(t, p, kukel.Options{Stdout: &out})

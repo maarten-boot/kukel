@@ -145,7 +145,7 @@ func TestExpressions(t *testing.T) {
 		{"[]", "[]"},
 		{"{}", "{}"},
 		{`{a: 1, "k": [2], 1 ? 2 : 3: x = 4}`, `{a:1 "k":[2] (? 1 2 3):(= x 4)}`},
-		{"fn(a; t) { return a; }(1)", "(call fn 1)"},
+		{"fn(a) { local t; return a; }(1)", "(call fn 1)"},
 		{"true && false || nil", "(|| (&& true false) nil)"},
 		{`"a" + 'b'`, `(+ "a" 'b')`},
 		{"0xFF | 0b1010_0101", "(| 0xFF 0b1010_0101)"},
@@ -258,6 +258,11 @@ main() {
 func TestErrors(t *testing.T) {
 	tests := []struct{ src, pos, msg string }{
 		{"main() { x = 1 }", "1:16", "expected ';' after expression, found '}'"},
+		// temporaries (syntax version 3 and before), in all three places
+		{"f(a; t, u) {} main() {}", "1:4", "temporaries after ';' were removed in syntax version 4: declare them at the start of the body instead (local t, u;)"},
+		{"class C { m(); } C::m(; total) {} main() {}", "1:23", "declare them at the start of the body instead (local total;)"},
+		{"main() { local f = fn(x; y) { }; }", "1:24", "temporaries after ';' were removed"},
+		{"main(;) {}", "1:6", "declare them at the start of the body instead (local name;)"},
 		{"main() { x = ; }", "1:14", "expected expression, found ';'"},
 		{"main() {", "1:9", "expected '}' to close the block opened at t.kkl:1:8, found end of file"},
 		{"main() { x\n: 1; }", "2:1", "expected ';' after expression, found ':'"},
@@ -326,7 +331,7 @@ func TestErrors(t *testing.T) {
 func FuzzParser(f *testing.F) {
 	for _, s := range []string{
 		"", "main(args) { return 0; }", "class A : B { x; static f(a..); }",
-		"A::f(a, b = 1, c..; t) { for (local k, v in m) { lbl: x = -5 ? y : z; } }",
+		"A::f(a, b = 1, c..) { local t; for (local k, v in m) { lbl: x = -5 ? y : z; } }",
 		"main() { switch (x) { case 1: { local y; case 2: ; } default: break; } }",
 		"main() { try { throw new E(1)->m(); } catch (e) { } finally { } }",
 		"global g = [1, v.., {a: fn() { return this->x; }}]; const C = 1 << 2;",

@@ -335,8 +335,8 @@ is a block, never a map.
 ```
 area(w, h = w) { return w * h; }               // h is optional, its default may use w
 report(level, parts..) { println(level, parts..); } // parts: a vector of the rest
-sum(v; total) {                                 // total: a temporary (a local that starts as nil)
-    total = 0;
+sum(v) {
+    local total = 0;
     for (local x in v) total += x;
     return total;
 }
@@ -351,6 +351,9 @@ main() {
   argument is missing (an explicit `nil` stays `nil`) and may use the
   parameters before it.
 - A function without `return value` returns `nil`.
+- Variables a function needs are `local` declarations in its body. (Up to
+  syntax version 3, names after a `;` in the parameter list, `f(a; t)`,
+  declared them; that form is now a compile error that says so.)
 - `f(a, v.., b)` passes the elements of vector `v` as separate arguments.
 - A call with the wrong number of arguments is a compile error when the
   function is known when compiling (a function written in Kukel, also of a
@@ -364,8 +367,8 @@ main() {
 **Function literals** (closures):
 
 ```
-counter(; n) {
-    n = 0;
+counter() {
+    local n = 0;
     return fn() { return ++n; };   // captures n by reference
 }
 
@@ -435,7 +438,7 @@ main() {
   with a class in a variable: `local k = Rect; new k(1, 2)`.
 - Base constructors are not called automatically: call `Base::Base(...)`.
 - Inside a member function, a name is looked up as a local, parameter,
-  temporary, captured variable, then a member of the class (also inherited
+  captured variable, then a member of the class (also inherited
   ones), then a top-level name. `x` means `this->x`, `f()` means
   `this->f()`. A static member function has no `this`.
 - `p->m(...)` calls the member function of `p`'s class (all member

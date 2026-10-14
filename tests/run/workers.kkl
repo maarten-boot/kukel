@@ -4,7 +4,8 @@ use worker;
 use events;
 
 // Counts the primes in [from, to): one slice of the work.
-countPrimes(from, to; n) {
+countPrimes(from, to) {
+    local n;
     n = 0;
     for (local i = max(from, 2); i < to; i++) {
         local prime = true;

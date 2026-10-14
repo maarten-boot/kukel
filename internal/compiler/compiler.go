@@ -1,5 +1,5 @@
 // Package compiler translates syntax trees into bytecode for the stack
-// machine. It resolves names (locals, parameters, temporaries, captured
+// machine. It resolves names (locals, parameters, captured
 // variables, members, then top-level names), checks the language's rules
 // (the "Rule:" comments of syntax.ebnf), evaluates constants and generates
 // the code of every function, member function and function literal,
@@ -310,7 +310,7 @@ type funcState struct {
 	parent   *funcState            // the enclosing function of a function literal
 	captured map[string]bool       // names used inside nested function literals
 	upvalues map[string]int        // a function literal's captured variables
-	scopes   []map[string]localVar // innermost last; scopes[0] holds params and temporaries
+	scopes   []map[string]localVar // innermost last; scopes[0] holds the parameters
 	nslots   int                   // slots in use
 	depth    int                   // operand stack depth at the current instruction
 	maxDepth int
@@ -321,7 +321,7 @@ type funcState struct {
 	tries    []*tryCtx  // enclosing try, catch and finally blocks
 }
 
-// localVar is a local, parameter or temporary: its slot, and whether the
+// localVar is a local or parameter: its slot, and whether the
 // slot holds a cell (when a function literal may capture it).
 type localVar struct {
 	slot int
@@ -377,12 +377,6 @@ func (c *compiler) function(name string, pos token.Pos, params *ast.ParamList, c
 			c.emit(bytecode.OpNewCell, lv.slot)
 		}
 	}
-	for _, t := range params.Temps {
-		if lv := c.declare(t, "temporary"); lv.cell {
-			c.emit(bytecode.OpNil)
-			c.emit(bytecode.OpNewCell, lv.slot)
-		}
-	}
 
 	body()
 	c.emit(bytecode.OpReturnNil)
@@ -398,7 +392,7 @@ func (c *compiler) declare(id *ast.Ident, what string) localVar {
 	scope := fs.scopes[len(fs.scopes)-1]
 	if _, ok := scope[id.Name]; ok {
 		if len(fs.scopes) == 1 {
-			c.errorf(id.NamePos, "%s %s repeats a parameter or temporary name", what, id.Name)
+			c.errorf(id.NamePos, "%s %s repeats a parameter name", what, id.Name)
 		}
 		c.errorf(id.NamePos, "local %s is already declared in this block", id.Name)
 	}
@@ -543,7 +537,7 @@ func (c *compiler) pushValue(v value.Value, pos token.Pos) {
 // Statements
 
 // block compiles a block in a new scope. (A function body's block is a scope
-// of its own, inside the scope of the parameters and temporaries.)
+// of its own, inside the scope of the parameters.)
 func (c *compiler) block(b *ast.Block) {
 	c.pushScope()
 	for _, s := range b.Stmts {
@@ -1293,7 +1287,7 @@ func (v variable) store(c *compiler, keep bool) {
 	}
 }
 
-// lookupLocal finds a local, parameter or temporary of the current
+// lookupLocal finds a local or parameter of the current
 // function, innermost first.
 func (c *compiler) lookupLocal(name string) (localVar, bool) {
 	return c.fs.lookup(name)

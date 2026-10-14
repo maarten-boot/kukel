@@ -66,8 +66,7 @@ func TestCompileErrors(t *testing.T) {
 		// locals and parameters
 		{"main() { local x; local x; }", "1:25", "local x is already declared in this block"},
 		{"main() { local x, x; }", "1:19", "local x is already declared in this block"},
-		{"f(a, a) {} main() {}", "1:6", "parameter a repeats a parameter or temporary name"},
-		{"f(a; a) {} main() {}", "1:6", "temporary a repeats a parameter or temporary name"},
+		{"f(a, a) {} main() {}", "1:6", "parameter a repeats a parameter name"},
 		{"main() { if (1) local x; }", "1:17", "a local declaration must be a statement directly inside a block"},
 		{"main() { while (1) local x; }", "1:20", "a local declaration must be a statement directly inside a block"},
 		// break and continue
@@ -144,7 +143,7 @@ func TestCompileErrors(t *testing.T) {
 		{"main() { local f = fn() { return this; }; }", "1:34", "'this' is only available in member functions"},
 		{"class A { static s(); } A::s() { local f = fn() { this; }; } main() {}", "1:51", "'this' is not available in static member function A::s"},
 		{"main() { local f = fn() { return q; }; }", "1:34", "undefined name q"},
-		{"main() { local f = fn(a, a) { }; }", "1:26", "parameter a repeats a parameter or temporary name"},
+		{"main() { local f = fn(a, a) { }; }", "1:26", "parameter a repeats a parameter name"},
 		{"main() { local f = fn() { f(); }; }", "1:27", "undefined name f"}, // not visible in its own initializer
 		// argument counts of callees known at compile time (Q32)
 		{"f(a) {} main() { f(); }", "1:19", "f expects 1 argument(s), got 0"},
@@ -206,7 +205,7 @@ func TestJumpsInsideFinallyAreAllowed(t *testing.T) {
 }
 
 func TestOnlyCapturedLocalsGetCells(t *testing.T) {
-	f, err := parser.ParseFile("t.kkl", []byte(`g(p, q; t) { local a = 1, b = 2; local f = fn() { return a + p + t; }; } main() {}`))
+	f, err := parser.ParseFile("t.kkl", []byte(`g(p, q) { local t; local a = 1, b = 2; local f = fn() { return a + p + t; }; } main() {}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +267,7 @@ func TestMaxStack(t *testing.T) {
 func FuzzCompile(f *testing.F) {
 	for _, s := range []string{
 		"main() { }",
-		"global g = 1; const C = 2 * 3; f(a; t) { t = a; return t ? -a : !a; } main() { f(C); g++; }",
+		"global g = 1; const C = 2 * 3; f(a) { local t; t = a; return t ? -a : !a; } main() { f(C); g++; }",
 		"main() { for (local i = 0; i < 3; i++) { if (i && g || !i) continue; else break; } }",
 		"main() { local a, b = 1; a = b = (1, 2) ? a += 1 : b--; do { while (a) a--; } while (b); }",
 		"main(args) { println(args, 1 < 2 == 3 > 4, 1 << 2 >> 3 & 4 | 5 ^ ~6 % 7); }",
@@ -282,7 +281,7 @@ func FuzzCompile(f *testing.F) {
 		"f(x) { a: for (;;) { try { try { if (x) return x; break a; } catch (e) { continue; } finally { x++; } } finally { } } } main() { f(1); }",
 		"main() { switch (1) { case 1: try { throw 1; } catch (e) { try { } finally { while (1) break; } } default: } }",
 		"class E : Error { E(); } E::E() { Error::Error(\"m\"); } main() { try { throw new E(); } catch (e) { throw e; } finally { return; } }",
-		"main(a; t) { local f = fn(x = a, y..; z) { return fn() { a++; t = x; return z = y; }; }; for (local i = 0; i < 2; i++) f(i)(); }",
+		"main(a) { local t; local f = fn(x = a, y..) { local z; return fn() { a++; t = x; return z = y; }; }; for (local i = 0; i < 2; i++) f(i)(); }",
 		"class K { v; m(); } K::m() { return fn() { return fn() { v++; return this; }; }; } main() { try { new K()->m()()(); } catch (e) { local g = fn() { return e; }; } }",
 	} {
 		f.Add(s)

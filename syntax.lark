@@ -1,4 +1,4 @@
-// Lark grammar for Kukel (syntax.ebnf, syntax version 3; kukel v0.2).
+// Lark grammar for Kukel (syntax.ebnf, syntax version 4; kukel v0.3).
 //
 // Intended for:  Lark(grammar, parser="lalr", lexer="contextual")
 // (the default lexer for LALR; the start rule is "start"). The contextual
@@ -62,19 +62,15 @@ member_declaration: [STATIC] IDENTIFIER "(" [declared_parameters] ")" ";"   -> m
 
 declared_parameters: IDENTIFIER ("," IDENTIFIER)* [REST]
 
-function_definition: IDENTIFIER "(" parameter_part ")" block
+function_definition: IDENTIFIER "(" [parameters] ")" block
 
-member_function_definition: IDENTIFIER "::" IDENTIFIER "(" parameter_part ")" block
-
-parameter_part: [parameters] [";" [temporaries]]
+member_function_definition: IDENTIFIER "::" IDENTIFIER "(" [parameters] ")" block
 
 parameters: parameter ("," parameter)*
 
 parameter: IDENTIFIER                    -> required_parameter
          | IDENTIFIER "=" assignment     -> optional_parameter
          | IDENTIFIER ".."               -> rest_parameter
-
-temporaries: IDENTIFIER ("," IDENTIFIER)*
 
 
 // ======================================================================
@@ -224,7 +220,7 @@ arguments: argument ("," argument)*
 
 new_expression: "new" [IDENTIFIER "::"] IDENTIFIER "(" [arguments] ")"
 
-function_literal: "fn" "(" parameter_part ")" block
+function_literal: "fn" "(" [parameters] ")" block
 
 vector_literal: "[" [argument ("," argument)*] "]"
 

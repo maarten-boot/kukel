@@ -5,6 +5,8 @@
 package parser
 
 import (
+	"strings"
+
 	"github.com/maarten-boot/kukel/internal/ast"
 	"github.com/maarten-boot/kukel/internal/diag"
 	"github.com/maarten-boot/kukel/internal/lexer"
@@ -285,7 +287,7 @@ func (p *parser) parseFuncDecl() *ast.FuncDecl {
 	return f
 }
 
-// parseParamList parses "[params] [; [temporaries]]" up to the ")".
+// parseParamList parses the parameters up to the ")".
 func (p *parser) parseParamList() *ast.ParamList {
 	pl := &ast.ParamList{}
 	if p.at(token.IDENT) {
@@ -302,13 +304,20 @@ func (p *parser) parseParamList() *ast.ParamList {
 			}
 		}
 	}
-	if p.accept(token.SEMICOLON) && p.at(token.IDENT) {
-		for {
-			pl.Temps = append(pl.Temps, p.ident("temporary name"))
-			if !p.accept(token.COMMA) {
-				break
+	if p.at(token.SEMICOLON) {
+		// "f(a; t, u)" declared temporaries up to syntax version 3. The
+		// advice names them: "local t, u;".
+		var names []string
+		for i := p.i + 1; i < len(p.toks) && (p.toks[i].Kind == token.IDENT || p.toks[i].Kind == token.COMMA); i++ {
+			if p.toks[i].Kind == token.IDENT {
+				names = append(names, p.toks[i].Text)
 			}
 		}
+		decl := "local " + strings.Join(names, ", ") + ";"
+		if len(names) == 0 {
+			decl = "local name;"
+		}
+		p.errorf(p.tok.Pos, "temporaries after ';' were removed in syntax version 4: declare them at the start of the body instead (%s)", decl)
 	}
 	return pl
 }

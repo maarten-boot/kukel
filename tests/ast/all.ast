@@ -49,8 +49,9 @@ File all.kkl
         Postfix ++
           Static Point::total
   Func Point::len
-    Temp sq
     Block
+      Local
+        Var sq
       ExprStmt
         Assign =
           Name sq
@@ -77,8 +78,9 @@ File all.kkl
             Name args
   Func main
     Param args
-    Temp t
     Block
+      Local
+        Var t
       Local
         Var p
           MethodCall len
@@ -91,8 +93,9 @@ File all.kkl
             Param b =
               Float .5 = 0.5
             Param rest..
-            Temp tmp
             Block
+              Local
+                Var tmp
               Return
                 Binary +
                   Name a

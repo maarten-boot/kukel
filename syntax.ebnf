@@ -1,5 +1,5 @@
 (*
-   Kukel syntax, as implemented by kukel v0.2 (syntax version 3).
+   Kukel syntax, as implemented by kukel v0.3 (syntax version 4).
 
    Notation: ISO/IEC 14977 EBNF.
        =  definition        ;  end of rule        |  alternative
@@ -12,7 +12,12 @@
    What programs mean is described in docs/reference.md; how they are
    compiled and run in docs/vm.md.
 
-   History: syntax version 3 added modules: "use" declarations at the top
+   History: syntax version 4 removed temporaries, the names after ";" in
+   a parameter list ("f(a; t, u)"); a body declares them with "local"
+   instead ("f(a) { local t, u; ... }"). The parser reports the old form
+   with that advice.
+
+   Syntax version 3 added modules: "use" declarations at the top
    of a file ("use" is a new keyword), and module-qualified names
    (module::name, module::Class::name, new module::Class(...) and
    "class C : module::Base").
@@ -134,18 +139,16 @@ declared_parameters = Identifier , { "," , Identifier } , [ ".." ] ;
                       (* Names are documentation only. Rule: a default value
                          ("=") here is an error; it belongs in the definition. *)
 
-function_definition = Identifier , "(" , parameter_part , ")" , block ;
+function_definition = Identifier , "(" , [ parameters ] , ")" , block ;
 
 member_function_definition
                     = Identifier , "::" , Identifier ,
-                      "(" , parameter_part , ")" , block ;
+                      "(" , [ parameters ] , ")" , block ;
                       (* Rules: the class must be defined and declare the
                          function; the definition has the same shape as the
                          declaration (number of parameters, rest parameter
-                         or not; names may differ; temporaries do not count).
+                         or not; names may differ).
                          A function declared "static" has no 'this'. *)
-
-parameter_part      = [ parameters ] , [ ";" , [ temporaries ] ] ;
 
 parameters          = parameter , { "," , parameter } ;
 
@@ -156,8 +159,6 @@ parameter           = Identifier                          (* required *)
                        must have a default (or be the rest parameter); the
                        rest parameter is the last one; at most 255 optional
                        parameters. A default may use the parameters before it. *)
-
-temporaries         = Identifier , { "," , Identifier } ;
 
 
 (* ======================================================================
@@ -287,7 +288,7 @@ expression          = assignment , { "," , assignment } ;
 
 assignment          = conditional , [ assignment_operator , assignment ] ;
                       (* right associative. Rule: the left side must be an
-                         lvalue: a variable (global, parameter, temporary,
+                         lvalue: a variable (global, parameter,
                          local, captured variable, member, a module's global
                          m::x), a static member C::x, an indexed element e[i]
                          or a data member e->x.
@@ -367,7 +368,7 @@ primary             = "(" , expression , ")"
                                                              of a module *)
                     | Identifier ;
                     (* An identifier is, in order: a block local, a
-                       parameter, a temporary, a variable of an enclosing
+                       parameter, a variable of an enclosing
                        function (for a function literal), a member of the
                        method's class, a top-level name of the file's
                        program or module (global, constant, function,
@@ -389,7 +390,7 @@ new_expression      = "new" , [ Identifier , "::" ] , Identifier , "(" , [ argum
                          constructor. Without any constructor, new takes no
                          arguments. new C()->m() is (new C())->m(). *)
 
-function_literal    = "fn" , "(" , parameter_part , ")" , block ;
+function_literal    = "fn" , "(" , [ parameters ] , ")" , block ;
                       (* A closure. It captures variables of the enclosing
                          functions by reference (they are shared and outlive
                          the call that created them), and 'this' inside a

@@ -78,7 +78,7 @@ func TestPrograms(t *testing.T) {
 			fib(n) { if (n < 2) return n; return fib(n - 1) + fib(n - 2); }
 			main() { println(fib(20)); }`, "6765\n"},
 		{"temporaries", `
-			f(a; t, u) { t = a * 2; println(u); return t; }
+			f(a) { local t, u; t = a * 2; println(u); return t; }
 			main() { println(f(21)); }`, "nil\n42\n"},
 		{"scopes and slot reuse", `main() {
 			local x = 1;
@@ -231,7 +231,8 @@ func TestPrograms(t *testing.T) {
 			println();
 		}`, "23d2\n"},
 		{"Duff's device", `
-			count(n; out, rounds) {
+			count(n) {
+			    local out, rounds;
 				out = 0;
 				rounds = (n + 3) / 4;
 				switch (n % 4) {
@@ -496,7 +497,7 @@ func TestPrograms(t *testing.T) {
 			}`, "finally 0; returned; finally 1; caught thrown; body 2; finally 2; end; " +
 			"loop finally 0; loop 1; loop finally 1; loop finally 2\n"},
 		{"the return value is computed before finally runs", `
-			f(; x) { x = 1; try { return x; } finally { x = 2; println("x is", x); } }
+			f() { local x; x = 1; try { return x; } finally { x = 2; println("x is", x); } }
 			main() { println(f()); }`, "x is 2\n1\n"},
 		{"nested finally blocks run innermost first", `main() {
 			outer: for (local i = 0; i < 2; i++) {
@@ -566,7 +567,8 @@ func TestPrograms(t *testing.T) {
 			}`, "caught no nil\nA{}\n"},
 		// milestone 8
 		{"closures share captured variables", `
-			counter(start = 0; n) {
+			counter(start = 0) {
+			    local n;
 				n = start;
 				return [fn() { return ++n; }, fn() { return n; }, fn(v) { n = v; }];
 			}
@@ -608,7 +610,7 @@ func TestPrograms(t *testing.T) {
 			println(fact(10));
 		}`, "3628800\n"},
 		{"closures capture parameters, temporaries and catch variables", `
-			make(p; t) { t = p * 2; return fn() { return [p, t]; }; }
+			make(p) { local t; t = p * 2; return fn() { return [p, t]; }; }
 			catcher() { try { throw "e1"; } catch (e) { return fn() { return e; }; } }
 			main() { println(make(4)(), catcher()()); }`, "[4, 8] e1\n"},
 		{"closures in member functions see this and members", `
@@ -900,7 +902,8 @@ func BenchmarkClosureCalls1M(b *testing.B) {
 }
 
 func TestReadline(t *testing.T) {
-	out, _, _, err := runSourceIO(t, `main(; line, n) {
+	out, _, _, err := runSourceIO(t, `main() {
+	    local line, n;
 		n = 0;
 		print("name? ");
 		while ((line = readline()) != nil) { n++; println("[" + line + "]"); }
@@ -913,7 +916,8 @@ func TestReadline(t *testing.T) {
 
 func TestFiles(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "notes.txt")
-	out, _, err := runSource(t, `main(args; p) {
+	out, _, err := runSource(t, `main(args) {
+	    local p;
 		p = args[0];
 		writefile(p, "one\n");
 		appendfile(p, "two\n");
@@ -949,11 +953,12 @@ func TestStderrAndExit(t *testing.T) {
 }
 
 func BenchmarkStringBuilding(b *testing.B) {
-	benchmarkSource(b, `main(; parts) { parts = []; for (local i = 0; i < 100000; i++) push(parts, str(i)); join(parts, ","); }`)
+	benchmarkSource(b, `main() { local parts; parts = []; for (local i = 0; i < 100000; i++) push(parts, str(i)); join(parts, ","); }`)
 }
 
 func BenchmarkMapsAndVectors(b *testing.B) {
-	benchmarkSource(b, `main(; m, v) {
+	benchmarkSource(b, `main() {
+	    local m, v;
 		m = {}; v = [];
 		for (local i = 0; i < 100000; i++) { m[i % 1000] = i; push(v, i); }
 		local sum = 0;

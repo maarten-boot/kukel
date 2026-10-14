@@ -15,7 +15,8 @@ emit(event, args..) {
 
 // Functions that make functions.
 compose(f, g) { return fn(x) { return f(g(x)); }; }
-memoize(f; cache) {
+memoize(f) {
+    local cache;
     cache = {};
     return fn(n) {
         if (!haskey(cache, n)) cache[n] = f(n);
@@ -23,13 +24,15 @@ memoize(f; cache) {
     };
 }
 
-map(v, f; out) {
+map(v, f) {
+    local out;
     out = [];
     for (local x in v) push(out, f(x));
     return out;
 }
 
-filter(v, keep; out) {
+filter(v, keep) {
+    local out;
     out = [];
     for (local x in v) if (keep(x)) push(out, x);
     return out;

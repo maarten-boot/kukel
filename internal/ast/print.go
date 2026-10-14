@@ -99,9 +99,6 @@ func (p *printer) params(pl *ParamList) {
 			p.line(prm, "Param %s", prm.Name.Name)
 		}
 	}
-	for _, t := range pl.Temps {
-		p.line(t, "Temp %s", t.Name)
-	}
 }
 
 func (p *printer) vars(vs []*VarSpec) {

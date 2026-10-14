@@ -1,5 +1,5 @@
 #!/usr/bin/env kukel
-// Every syntax construct of Kukel syntax version 3.
+// Every syntax construct of Kukel syntax version 4.
 
 use util;
 use shapes;
@@ -30,7 +30,8 @@ Point::Point(a, b = a * 2) {
     Point::total++;
 }
 
-Point::len(; sq) {
+Point::len() {
+    local sq;
     sq = x * x + this->y * this->y;
     return sqrt(sq);
 }
@@ -39,8 +40,9 @@ Shape::make(kind, args..) {
     return new Point(args..);
 }
 
-main(args; t) {
-    local p = new Point(1, 2.5)->len(), f = fn(a, b = .5, rest..; tmp) { return a + count; };
+main(args) {
+    local t;
+    local p = new Point(1, 2.5)->len(), f = fn(a, b = .5, rest..) { local tmp; return a + count; };
     local bound = p->len, v = [1, args.., -2], m = {"k": 'x', 1: [], name: {}};
 
     if (p > 1) t = 1;

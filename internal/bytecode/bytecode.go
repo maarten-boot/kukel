@@ -273,7 +273,7 @@ type Function struct {
 	NumParams   int    // required parameters
 	NumOptional int    // optional parameters (with a default), after the required ones
 	HasRest     bool   // a rest parameter follows the optional ones
-	NumSlots    int    // parameters + temporaries + locals + hidden slots (iterators, saved values)
+	NumSlots    int    // parameters + locals + hidden slots (iterators, saved values)
 	MaxStack    int    // operand stack depth needed above the slots
 	Code        []byte
 	Consts      []value.Value

@@ -1,5 +1,5 @@
 #!/usr/bin/env kukel
-// Every kind of token in Kukel syntax version 3.
+// Every kind of token in Kukel syntax version 4.
 use util;
 
 global count = 0, names;
@@ -14,7 +14,8 @@ class Point : Base {
 
 Point::Point(a, b) { Base::Base(); this->x = a; y = b; }
 
-main(args; t) {
+main(args) {
+    local t;
     local p = new Point(1, 2.5)->len(), f = fn(a, b = .5, rest..) { return a; };
     for (local k, v in {"a\tb": 'x', 'q': '\''}) count += k <<= 1e3;
     outer: for (local i = 0; i < MAX && !done; i++) { if (i >= 3 || x != y) continue outer; }

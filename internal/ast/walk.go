@@ -28,9 +28,6 @@ func Inspect(n Node, f func(Node) bool) {
 				walk(p.Default)
 			}
 		}
-		for _, t := range pl.Temps {
-			walk(t)
-		}
 	}
 	vars := func(vs []*VarSpec) {
 		for _, v := range vs {

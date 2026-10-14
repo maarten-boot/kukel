@@ -52,7 +52,8 @@ func run(t *testing.T, src string, stepLimit int) (string, int) {
 func TestManyWorkersInParallel(t *testing.T) {
 	out, _ := run(t, `use worker;
 global calls = 0;
-sum(from, to; s) {
+sum(from, to) {
+    local s;
     calls++;
     s = 0;
     for (local i = from; i < to; i++) s += i;

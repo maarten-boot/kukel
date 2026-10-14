@@ -77,6 +77,7 @@ source files ──lexer──▶ tokens ──parser──▶ AST
 - Q37 (decided 2026-10-13, F-5/F-6 of docs/future.md) The event loop is the native module `events`, one loop per interpreter (kept through `value.Env.Local`): `after`/`every` timers (seconds; a deadline heap in the loop, no goroutine per timer; a late `every` skips missed calls), `post`, `run`, `stop`, `onerror`, `pending`; `run()` returns when nothing is left (no active timer, nothing posted, no hold) or on `stop()`; an exception a handler does not catch leaves `run()` unless `events::onerror(f)` takes it; handlers run one at a time on the interpreter's goroutine; Go modules feed the loop with `eventsmod.For(env).Post(fn)` and `Hold()` from any goroutine. Callbacks only; coroutines (`await`) are not planned now
 - Q38 (decided 2026-10-13, F-8/F-9/F-10 of docs/future.md) Workers first (embedding in Go later): the native module `worker`; `worker::start(f, args..)` runs a top-level or static member function in a new VM of the same program (own globals; works with `.kkc`), `worker::startfile(path, args..)` compiles a `.kkl` (with its modules) or loads a `.kkc` and runs its `main(vector of args)`; messages are copies of plain data (nil, bools, numbers, strings, vectors, maps; shape, sharing and cycles kept; `nil` cannot be sent, it marks the end), queued without limit; blocking `receive([timeout])` and `onmessage(f)` through the event loop, on both sides; `w->stop()`, `w->wait()` (result copy, or a `WorkerError`), `w->done()`; `exit` in a worker ends that worker; workers may start workers, no limit; when main returns (`kukel run`/`exec`; embedding: `Interp.Close`), running workers are abandoned and their output dropped. New error kinds `CompileError`, `WorkerError`
 - Q39 (decided 2026-10-13, §2.1 of docs/future.md) Embedding: the public package is the repository root (`import "github.com/maarten-boot/kukel"`): `CompileFiles`, `CompileSource`, `LoadProgram`, `Program.Encode`; `New(prog, Options{Stdout, Stderr, Stdin, StepLimit})`; `Interp.Run`, `Call`, `CallValue`, `Global`, and `RunContext`/`CallContext` (cancellation through a Go context: a `CancelledError` the program cannot catch; waiting Go functions return at once; workers are cancelled too); `Value` with constructors, accessors and `FromGo`/`ToGo`. Go functions come in host modules (`NewModule(name).Func(...).Const(...)`, per program, `use app; app::f()`), errors map to exceptions (`Errorf(kind, ...)`, other errors `HostError`). Limits for untrusted code: a step budget per call from Go, `CompileOptions.DenyBuiltins` (`SystemBuiltins`: files, stdin, getenv, exit), `StandardModules` allow-list, `NoFileModules`; enforced by the compiler and again when a `.kkc` is linked; workers inherit them. No memory limit (documented). Internally a `native.Config` per program replaces the process-wide registry lookups. After the second cross-check: `Interp.Close` (cancels workers, closes output), contexts also for calls made from Go functions, a panic in a Go function is a `HostError`, a failed initializer fails every call, unknown names in the allow-lists are errors, `NoFileModules` also refuses `worker::startfile`
+- Q40 (decided 2026-10-14) Temporaries (`f(a; t, u)`, from the first syntax) are removed: with `local` they are redundant (a local declared at the start of the body is exactly a temporary). Syntax version 4; the parser reports the old form with the advice to declare them with `local`
 
 ## 1b. Syntax changes in version 2 (all adopted)
 
@@ -160,7 +161,7 @@ source files ──lexer──▶ tokens ──parser──▶ AST
 - [x] Recursive descent for definitions and statements:
   - top level: class, function, member-function definitions, `global` and `const` declarations
   - class definition (no `;` after `}`), member declarations (`static`, data vs. function declarations, `..` in declared parameters, `=` in a declaration is an error)
-  - function / member-function definitions with `parameter_part` (`params ; temporaries`, both optional)
+  - function / member-function definitions with `parameter_part` (`params ; temporaries`, both optional; temporaries removed in syntax version 4, Q40)
   - all statements; `elseif` desugars to `else if`
   - a `{` at the start of a statement is always a block
   - labelled statement: IDENT followed by a `:` token **on the same line** (the lexer already separates `::`)
@@ -186,10 +187,10 @@ All the "Rule:" comments in syntax.ebnf. The checks run while the compiler resol
 - [x] One top-level name space: globals, constants, functions, classes and built-ins; each name defined once (Q18) — done in the compiler (milestone 3)
 - [x] Constants: evaluate in program order at compile time (literals, earlier constants, unary/binary/`?:`); result must be nil/bool/number/string; errors (e.g. division by zero) are compile errors
 - [x] The base class must already be defined (in file order, across files in command-line order)
-- [x] `C::m` definition: class C must exist and declare `m`; shape matches the declaration: same number of parameters (required + optional; temporaries not counted) and a rest `..` in both or neither; names may differ (Q19)
+- [x] `C::m` definition: class C must exist and declare `m`; shape matches the declaration: same number of parameters (required + optional) and a rest `..` in both or neither; names may differ (Q19)
 - [x] `this` only in non-static member functions and in function literals nested in them
 - [x] Parameters: once an optional parameter appears, all later ones need defaults (or are the rest parameter); the rest parameter is last; at most 255 optional parameters; a default may use earlier parameters (only those: a later name resolves as if the parameter did not exist) — milestone 4
-- [x] Lvalues: the target of an assignment or `++`/`--` must be a variable (global, local, parameter, temporary, captured, member), `C::x`, `e[i]` or `e->x`; not a constant, function, class, built-in or `this`
+- [x] Lvalues: the target of an assignment or `++`/`--` must be a variable (global, local, parameter, captured, member), `C::x`, `e[i]` or `e->x`; not a constant, function, class, built-in or `this`
 - [x] Argument counts of callees known at compile time (Q32)
 - [x] `kukel check a.kkl ...`: compile only, report the first error, run nothing (silent when fine)
 - [x] `local`: only directly inside a block or in a for initializer, not directly in a switch body, no duplicate in the same block; the name is visible *after* its initializer
@@ -200,8 +201,8 @@ All the "Rule:" comments in syntax.ebnf. The checks run while the compiler resol
 - [x] `break`/`continue`: a plain break needs a loop or switch, a plain continue a loop; a label must name an enclosing statement (a loop, for continue) in the same function (they never cross a `fn` literal); a label may not repeat the label of an enclosing statement
 - [x] `finally`: no `return`, and no break/continue to a target outside it
 - [x] `new X(...)`: X is a class name or a variable (checked at run time if it's a variable)
-- [x] Identifier resolution in order: block local → parameter → temporary → variable of an enclosing function (closure capture) → member of the method's class (incl. inherited) → top-level name. Unresolved = compile error. (Done by the compiler while generating code.)
-- [x] Closure analysis: mark every local/parameter/temporary that is captured by a `fn` literal (these live in heap cells; the others stay in plain slots). Done by name: a function's locals whose names occur anywhere inside its nested literals get cells (a safe over-approximation; exact resolution happens during code generation)
+- [x] Identifier resolution in order: block local → parameter → variable of an enclosing function (closure capture) → member of the method's class (incl. inherited) → top-level name. Unresolved = compile error. (Done by the compiler while generating code.)
+- [x] Closure analysis: mark every local/parameter that is captured by a `fn` literal (these live in heap cells; the others stay in plain slots). Done by name: a function's locals whose names occur anywhere inside its nested literals get cells (a safe over-approximation; exact resolution happens during code generation)
 
 ## 6. Runtime values (`internal/value`)
 
@@ -218,7 +219,7 @@ All the "Rule:" comments in syntax.ebnf. The checks run while the compiler resol
 
 ### Instruction set (1-byte opcode + fixed little-endian operands: u16 for indices and counts, u32 for absolute jump targets)
 - [x] Stack: `CONST k`, `NIL`, `TRUE`, `FALSE`, `POP`, `DUP`, `DUP2` (`e[i] op= x` uses `DUP2`, and `e[i]++` as a value keeps the old value in a hidden slot); `SWAP`/`ROT` turned out not to be needed
-- [x] Variables: `LOAD_LOCAL i`/`STORE_LOCAL i` (params, temporaries, locals and catch variables share frame slots), `LOAD_GLOBAL g`/`STORE_GLOBAL g`, `LOAD_MEMBER i`/`STORE_MEMBER i` (on `this`, slot known at compile time), `LOAD_STATIC c,i`/`STORE_STATIC c,i`, `LOAD_THIS`
+- [x] Variables: `LOAD_LOCAL i`/`STORE_LOCAL i` (params, locals and catch variables share frame slots), `LOAD_GLOBAL g`/`STORE_GLOBAL g`, `LOAD_MEMBER i`/`STORE_MEMBER i` (on `this`, slot known at compile time), `LOAD_STATIC c,i`/`STORE_STATIC c,i`, `LOAD_THIS`
 - [x] Fields on any object: `GET_MEMBER name` (data member, else bound method, else error), `SET_MEMBER name` (data member only); slot lookup by name per class, cached later. `this->x` and unqualified `x` of a known data member compile to `LOAD_MEMBER`/`STORE_MEMBER slot`
 - [x] Closures: `CLOSURE fn` (the capture list, local slot or enclosing upvalue, is in the function's `Upvalues`), `LOAD_UPVALUE i`/`STORE_UPVALUE i`, `LOAD_CELL i`/`STORE_CELL i` / `NEW_CELL i` for captured locals in the defining frame
 - [x] Arithmetic/logic: `ADD SUB MUL DIV MOD NEG NOT BITNOT BITAND BITOR BITXOR SHL SHR EQ NE LT LE GT GE INC DEC` (int fast paths in the VM)
@@ -319,4 +320,5 @@ All the "Rule:" comments in syntax.ebnf. The checks run while the compiler resol
 16. [x] Event loop (Q37; branch `event-loop`): the native module `events`, `value.Env` gains `Local` and `Thrown`
 17. [x] Workers (Q38; branch `workers`): the native module `worker`; `VM.Start`, `VM.ShareOutput`
 18. [x] Embedding (Q39; branch `embedding`): the public package at the repository root, docs/embedding.md
-19. [ ] Later/optional (see also [docs/future.md](docs/future.md): native classes in host modules, precompiled `.kkc` modules, deriving from native classes, multiple interpreters, events and Tk, ZeroMQ, SQL/ORM): jump tables for dense int switches, a peephole pass, a REPL, reporting several compile errors at once, a string representation that does not box (each new string costs one allocation for its value)
+19. [x] Remove temporaries (Q40; branch `remove-temporaries`): syntax version 4
+20. [ ] Later/optional (see also [docs/future.md](docs/future.md): native classes in host modules, precompiled `.kkc` modules, deriving from native classes, multiple interpreters, events and Tk, ZeroMQ, SQL/ORM): jump tables for dense int switches, a peephole pass, a REPL, reporting several compile errors at once, a string representation that does not box (each new string costs one allocation for its value)
