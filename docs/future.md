@@ -100,10 +100,13 @@ be queued and dispatched from one loop:
 
 ```
 use events;
+use zmq;
 
 main() {
+    local sock = new zmq::Socket("PULL");
+    sock->bind("tcp://*:5557");
     events::every(1, fn() { println("tick"); });   // seconds
-    sock->onMessage(fn(msg) { println("got", msg); });
+    sock->onmessage(fn(msg) { println("got", msg); });
     events::run();          // dispatches until events::stop()
 }
 ```
@@ -301,7 +304,9 @@ main(args) {
     while (true) {
         local msg = worker::receive();        // from the parent
         if (msg == nil) break;                // the parent stopped us
-        worker::send(sum(msg["data"]));
+        local total = 0;
+        for (local x in msg["data"]) total += x;
+        worker::send(total);
     }
 }
 ```
@@ -415,7 +420,7 @@ main() {
     local sub = new zmq::Socket("SUB");
     sub->connect("tcp://localhost:5556");
     sub->subscribe("prices.");
-    sub->onMessage(fn(msg) { println("update:", msg); });   // via the event loop
+    sub->onmessage(fn(msg) { println("update:", msg); });   // via the event loop
     events::run();
 }
 ```
@@ -430,7 +435,7 @@ Design notes:
 - **Payloads** are bytes (Kukel strings already are); structured data with
   `json::encode`/`decode` or the binary form (section 1.4).
 - **Blocking and events**: blocking `receive()` (with a timeout) for simple
-  programs; `onMessage` handlers through the event loop; a `zmq::poll` over
+  programs; `onmessage` handlers through the event loop; a `zmq::poll` over
   several sockets.
 - **Errors**: a `NetError` kind for connection and timeout problems.
 

@@ -1,0 +1,59 @@
+// exit: 3
+// Built-ins and statements no other program shows: seeded random numbers,
+// math, insert/remove/delete, getenv, eprint, # comments, labelled blocks,
+// a case label inside a nested statement, stack overflow, exit(code).
+
+deep(n) { return deep(n + 1); }
+
+kind(x) {
+    switch (typeof(x)) {
+        case "int":
+            if (x < 0) {
+        case "float":           # a label may sit inside a nested statement
+                return "a number";
+            }
+            return "a non-negative int";
+        default:
+            return "something else";
+    }
+}
+
+main() {
+    seed(42);
+    local a = [random(), randint(1, 6), randint(1, 6)];
+    seed(42);
+    local b = [random(), randint(1, 6), randint(1, 6)];
+    println(str(a) == str(b) ? "the same numbers after the same seed" : "different numbers");  // == on vectors compares identity
+    println(round(sin(3.14159265358979 / 2) * 1000), round(cos(0.0)), round(atan2(1, 1) * 4 * 1000), floor(-1.5), ceil(-1.5), round(-2.5));
+
+    local v = [1, 2, 3];
+    insert(v, 1, 9);
+    println(v);
+    println(remove(v, 0), v);
+    println(pop(v), v);
+    local m = {"a": 1, "b": 2};
+    println(delete(m, "a"), delete(m, "a"), m);
+
+    println(getenv("KUKEL_SURELY_NOT_SET"));
+    eprint("to standard", "error");
+    eprintln("", "(a line)");
+
+    found: {
+        for (local i = 0; i < 10; i++)
+            if (i * i > 20) {
+                println("first square over 20:", i * i);
+                break found;
+            }
+        println("never");
+    }
+
+    println(kind(5), "/", kind(-5), "/", kind(1.5), "/", kind("x"));
+
+    try {
+        deep(0);
+    } catch (e) {
+        println(e->kind + ":", e->message, "(" + str(len(e->trace)), "trace lines)");
+    }
+    exit(3);
+    println("never");
+}

@@ -72,8 +72,9 @@ type CompileOptions struct {
 	// DenyBuiltins lists built-in functions the program may not use
 	// (using one is a compile error); see SystemBuiltins.
 	DenyBuiltins []string
-	// Path lists directories where "use name;" looks for name.kkl, after
-	// the directory of the file that uses it (CompileFiles only).
+	// Path lists directories where "use name;" looks for name.kkl (or
+	// name.kkc, a module compiled on its own), after the directory of the
+	// file that uses it (CompileFiles only).
 	Path []string
 	// NoFileModules forbids reading program files: "use" finds only
 	// modules written in Go, and worker::startfile is refused.

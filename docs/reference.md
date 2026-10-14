@@ -44,14 +44,14 @@ hello, Kukel
 | `kukel run a.kkl b.kkl [-- args]` | Compile the files as one program and run it; the arguments after `--` go to `main` |
 | `kukel check a.kkl ...` | Compile only and report the errors; prints nothing when the program is fine |
 | `kukel build [-o prog.kkc] a.kkl ...` | Compile to a bytecode file (default name: the first file with `.kkc`) |
-| `kukel build -module [-o m.kkc] m.kkl` | Compile module `m` on its own into `m.kkc`, which programs can use instead of `m.kkl` (see [Modules](#modules)) |
-| `kukel exec prog.kkc [--] [args]` | Run a bytecode file (a first `--` is skipped) |
+| `kukel build -module [-o m.kkc] m.kkl` | Compile module `m` on its own into `m.kkc`, which programs can use instead of `m.kkl` (see [Modules](#modules)). The file name must be the module's name (`util.kkl`, not `my-util.kkl`); a file with a NUL byte is refused. `-o` and `-module` (also `--module`) may come anywhere among the arguments |
+| `kukel exec prog.kkc [--] [args]` | Run a bytecode file (a first `--` is skipped). A module compiled on its own is not a program: `exec` and `disasm` refuse it |
 | `kukel disasm prog.kkc` or `kukel disasm a.kkl ...` | Show the bytecode in readable form |
 | `kukel repl [a.kkl ...]` | Read declarations and statements and run them as they come (see [The REPL](#the-repl)); with files, their declarations come first (`main` is not called) |
-| `kukel fmt [-w \| -l] a.kkl ...` | Format source files: indentation (4 spaces) and the spaces between tokens; line breaks and comments stay, at most one blank line in a row. Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`). A file with a syntax error is left alone |
+| `kukel fmt [-w \| -l] a.kkl ...` | Format source files: indentation (4 spaces) and the spaces between tokens; line breaks and comments stay, at most one blank line in a row. Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`; `-w` and `-l` together are a usage error). A file with a syntax error or a NUL byte is left alone, and the exit code is 1 |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | Show the tokens or the syntax tree of each file (for debugging; `-pos` adds positions) |
-| `kukel version` | Show the version, the bytecode format and the modules written in Go |
-| `kukel help` | Show the commands |
+| `kukel version` (also `-version`, `--version`) | Show the version, the bytecode format and the modules written in Go |
+| `kukel help` (also `-h`, `-help`, `--help`) | Show the commands |
 
 A compile reports several errors at once, in the order of the source: the
 first syntax error of each file, and otherwise the first error of each
@@ -77,7 +77,9 @@ declarations (functions, member function definitions, classes, `global`,
 `const`, `use`) or statements, as in a function body; it ends when it parses
 completely, so a piece can span several lines. A blank line ends a piece
 that is still incomplete (and shows its error); the end of the input ends
-the session. A piece runs as soon as it is read: the initializers of its
+the session. On a terminal it shows a banner and prompts (`>`, `...` for
+more lines of a piece); with input from a pipe or file it shows neither.
+A piece runs as soon as it is read: the initializers of its
 global variables, or its statements. Every piece shares the program and its
 state with the pieces before it:
 
@@ -119,8 +121,12 @@ running.
 first line `#!/usr/bin/env ...` is allowed) and `/* ... */` (not nested; a
 `/*` without `*/` is an error).
 
-**Identifiers**: letters, digits and `_`, not starting with a digit, at most
-255 characters; case matters.
+**Identifiers**: ASCII letters, digits and `_`, not starting with a digit,
+at most 255 characters; case matters. (Other characters, also UTF-8
+letters, are an error outside strings and comments.)
+
+**White space**: spaces, tabs, newlines, carriage returns, form feeds and
+vertical tabs separate tokens.
 
 **Nesting**: expressions and statements may nest at most 1000 levels deep
 (parentheses, blocks, ...); deeper is a compile error.
@@ -130,13 +136,14 @@ false finally fn for global if in local new nil return static switch this
 throw true try use while with`.
 
 **Integers**: `42`, `1_000_000` (`_` only between digits), `0xFF_FF`,
-`0b1010`. A leading zero does not mean octal. Decimal literals go up to
+`0b1010` (also `0X`, `0B`). A leading zero does not mean octal. Decimal literals go up to
 9223372036854775807 (and `-9223372036854775808`); hexadecimal and binary
 literals may use all 64 bits (`0xFFFFFFFFFFFFFFFF` is -1): at most 16 hex
 or 64 binary digits, leading zeros included.
 
 **Floats**: `1.5`, `1.`, `.5`, `2e10`, `1.5E-3`. A value beyond the float
-range is an error. A number literal is at most 255 characters long.
+range is an error; one too small to represent is 0.0 (`1e-400`). A number
+literal is at most 255 characters long.
 
 **Characters**: `'a'`, `'\n'`, `'\''` — one byte, whose value is an int (its
 code): `'A'` is 65.
@@ -144,7 +151,8 @@ code): `'A'` is 65.
 **Strings**: `"text"`, which may span lines. Escapes: `\n \t \r \0 \\ \" \'`
 and `\x41` (one or two hex digits). Any other escape is an error.
 Strings are sequences of bytes; UTF-8 text passes through unchanged. (A raw
-NUL byte in the source ends its line, as if the rest were a comment.)
+NUL byte in the source ends its line, as if the rest were a comment;
+`kukel fmt` and `kukel build -module` refuse such a file.)
 
 ---
 
@@ -209,7 +217,9 @@ main(args) { println(square(MAX), HALF, count, names, new Point(1, 2)); }
   A local, parameter or member may reuse a built-in's name; it hides the
   built-in where it is visible.
 - Using a name that is not defined anywhere is a compile error. Assigning to
-  a constant, function, class or built-in is a compile error.
+  a constant, function, class, built-in or member function is a compile
+  error (assigning to `p->m` where `m` is a member function is a
+  `MemberError` when it runs).
 - A constant's value must be computable when compiling: literals, constants
   defined earlier, and the unary, binary and `?:` operators on them (not
   calls). Every part is checked, also the part that
@@ -218,7 +228,11 @@ main(args) { println(square(MAX), HALF, count, names, new Point(1, 2)); }
   before `main`. A global can be used anywhere, also above its declaration;
   an initializer that runs earlier sees `nil`.
 - The program starts at `main()` or `main(args)`, where `args` is a vector
-  of the command-line arguments (strings).
+  of the command-line arguments (strings). `main` has at most one
+  parameter, without a default and not a rest parameter.
+- Limits (the number of elements of a literal, of globals, of data
+  members, ...) are in [vm.md, section 4.11](vm.md#411-limits); going
+  beyond one is a compile error.
 
 ### Modules
 
@@ -437,7 +451,8 @@ main() {
 ```
 
 - Required parameters come first, then optional ones (with defaults), then
-  at most one rest parameter (`name..`). A default runs only when the
+  at most one rest parameter (`name..`). Parameter names must differ; a
+  `local` in the body may reuse one, and hides it from there on. A default runs only when the
   argument is missing (an explicit `nil` stays `nil`) and may use the
   parameters before it.
 - A function without `return value` returns `nil`.
@@ -539,10 +554,17 @@ main() {
   member.
 - A derived class may redeclare a member function of its base (overriding
   it) if both are static or both are not; the parameters may differ.
-  Redeclaring a data member is an error.
+  Redeclaring a data member is an error, as is a data member named like a
+  member function of a base class, or the reverse. A definition
+  `C::m(...)` needs a member function `m` declared in `C` itself (not a
+  data member, not one only declared in a base class).
+- Inside a member function, the class's own name means the class
+  (`return A;`, `new A()`); constructors are not found by an unqualified
+  name (call `Base::Base(...)`).
 - `p->x` reads or assigns a data member (all members are public). Static
   data members are reached as `C::x` only; a static member function can
-  also be called as `p->f(...)`.
+  also be called as `p->f(...)` (the static of `p`'s class), and `p->f`
+  without a call gives that function itself, not a bound method.
   `p->m` without a call is a *bound method*: a function value that calls
   `m` on `p` later (`sort(v, p->less)`). `(p->f)(x)` calls a function held
   in a data member.
@@ -632,6 +654,13 @@ work with an `ArgumentError`.
 | `eprint(x, ...)` | Like `print`, to standard error |
 | `eprintln(x, ...)` | Like `println`, to standard error |
 | `readline()` | The next line of standard input without its line ending, or `nil` at the end |
+
+`kukel` buffers standard output; `eprint`, `eprintln` and `readline` write
+out what is buffered first, so a prompt appears before the input is read
+and the order of output and errors stays as written.
+
+| Function | Description |
+|---|---|
 | `readfile(path)` | The whole file as a string (`IOError` on failure) |
 | `writefile(path, s)` | Writes `s` to the file, replacing it |
 | `appendfile(path, s)` | Appends `s` to the file, creating it if needed |
@@ -642,8 +671,8 @@ work with an `ArgumentError`.
 |---|---|
 | `typeof(x)` | `"nil"`, `"bool"`, `"int"`, `"float"`, `"string"`, `"vector"`, `"map"`, `"function"`, `"class"` or `"object"` |
 | `str(x)` | `x` as text, as `print` writes it |
-| `int(x)` | An int: floats are truncated toward zero; strings in decimal, `0x` or `0b` form with an optional sign (`"42"`, `"-0x10"`, `"0b11"`), surrounding spaces allowed and every `_` ignored (`"1_000"`); `true` is 1, `false` 0 |
-| `float(x)` | A float from an int, float or string (`"2.5"`, `"1e3"`, `"inf"`, also Go's other forms such as `"0x1p3"`) |
+| `int(x)` | An int: floats are truncated toward zero; strings in decimal, `0x` or `0b` form with an optional sign (`"42"`, `"-0x10"`, `"0b11"`), surrounding spaces allowed and every `_` ignored (`"1_000"`); `true` is 1, `false` 0. A string that is not a number is a `ValueError`, one too large a `RangeError` |
+| `float(x)` | A float from an int, float or string (`"2.5"`, `"1e3"`, `"inf"`, also Go's other forms such as `"0x1p3"`). A string beyond the float range is a `RangeError`; one too small gives 0.0 |
 | `classof(obj)` | The class of an object |
 | `instanceof(x, C)` | Whether `x` is an object of class `C` or of a class derived from it |
 
@@ -654,7 +683,7 @@ work with an `ArgumentError`.
 | `len(x)` | Length of a string (in bytes), vector or map |
 | `find(s, sub [, from])` | Index of the first `sub` at or after `from`, or -1 |
 | `split(s, sep)` | Vector of the parts between the `sep`s; with `""`, the single bytes |
-| `join(v [, sep])` | The elements joined with `sep`; non-strings as `str` gives them |
+| `join(v [, sep])` | The elements joined with `sep` (default `""`); non-strings as `str` gives them |
 | `upper(s)`, `lower(s)` | ASCII letters in upper or lower case |
 | `trim(s)` | `s` without white space at both ends |
 | `replace(s, old, new)` | Every `old` replaced by `new` (`ArgumentError` if `old` is `""`) |
@@ -665,12 +694,12 @@ work with an `ArgumentError`.
 
 | Function | Description |
 |---|---|
-| `push(v, x, ...)` | Appends the values; returns the new length |
+| `push(v, x, ...)` | Appends the values (at least one); returns the new length |
 | `pop(v)` | Removes and returns the last element |
-| `insert(v, i, x)` | Inserts `x` at index `i` (0..`len(v)`) |
+| `insert(v, i, x)` | Inserts `x` at index `i` (0..`len(v)`); returns `nil` |
 | `remove(v, i)` | Removes and returns the element at `i` |
 | `slice(x, start [, end])` | A new vector (or string) of the elements (bytes) from `start` up to, not including, `end` (to the end without it): `slice("hello", 1, 3)` is `"el"` |
-| `sort(v [, less])` | Sorts `v` in place (stable); `less(a, b)` says whether `a` goes before `b` (default `<`) |
+| `sort(v [, less])` | Sorts `v` in place (stable); `less(a, b)` says whether `a` goes before `b` (default `<`, so values that `<` cannot compare are a `TypeError`). An exception in `less` comes out of `sort`; after any error `v` is unchanged |
 | `keys(m)`, `values(m)` | Vectors of a map's keys or values, in insertion order |
 | `haskey(m, k)` | Whether `k` is a key of `m` |
 | `delete(m, k)` | Removes a key; returns whether it was there |
@@ -680,12 +709,12 @@ work with an `ArgumentError`.
 | Function | Description |
 |---|---|
 | `abs(x)` | Absolute value |
-| `min(a, b, ...)`, `max(a, b, ...)` | Smallest or largest of numbers or of strings; also `min(vector)` (`ArgumentError` for no values) |
+| `min(a, b, ...)`, `max(a, b, ...)` | Smallest or largest of numbers or of strings; also `min(vector)` (`ArgumentError` for no values); `min(x)` of one value that is not a vector is `x` |
 | `pow(x, y)` | `x` to the power `y`: an int for ints with `y >= 0` (wrapping around), else a float |
 | `sqrt(x)`, `exp(x)`, `log(x)` | Square root, e<sup>x</sup>, natural logarithm (floats) |
 | `sin(x)`, `cos(x)`, `tan(x)`, `atan2(y, x)` | Trigonometry (radians) |
 | `floor(x)`, `ceil(x)`, `round(x)` | Rounded to an int (`round`: halves away from zero); `RangeError` if it does not fit |
-| `random()` | A float from 0 up to (not including) 1 |
+| `random()` | A float from 0 up to (not including) 1; every run starts from a different seed |
 | `randint(a, b)` | An int from `a` to `b`, both included (`RangeError` if `a > b`) |
 | `seed(n)` | Restarts the random numbers from seed `n` (the same seed gives the same numbers) |
 
@@ -694,7 +723,7 @@ work with an `ArgumentError`.
 | Function | Description |
 |---|---|
 | `time()` | Seconds since 1970-01-01 UTC, as a float |
-| `clock()` | Seconds since the program started, as a float |
+| `clock()` | Seconds since the program started (for an embedded interpreter: since it was made), as a float |
 | `getenv(name)` | The environment variable, or `nil` |
 | `exit([code])` | Ends the program at once with `code` (default 0) |
 
@@ -732,7 +761,8 @@ main() {
 }
 ```
 
-Values always go into SQL as parameters: each `?` takes the next argument.
+Values always go into SQL as parameters: each `?` takes the next argument
+(too few arguments are a `DBError`; extra ones are ignored).
 They are never glued into the SQL text, so text from a user cannot change
 the statement (SQL injection).
 
@@ -750,21 +780,23 @@ same name (from a join) keep the last value, so name them with `AS`.
 
 | Function or member function | Description |
 |---|---|
-| `db::open(url)` | A `db::Conn`: `"sqlite:path"` opens the file `path` (relative to the current directory), creating it if needed; `"sqlite::memory:"` is a database in memory, gone when closed. A file that cannot be opened is a `DBError`, another URL a `ValueError`. Foreign keys are enforced, and a database another program is writing is waited for up to 5 seconds |
+| `db::open(url)` | A `db::Conn`: `"sqlite:path"` opens the file `path` (relative to the current directory; any characters, also `?`, `#` and `%`), creating it if needed; `"sqlite::memory:"` is a database in memory, gone when closed. A file that cannot be opened is a `DBError`, another URL a `ValueError`. Foreign keys are enforced, and a database another program is writing is waited for up to 5 seconds |
 | `conn->exec(sql, args...)` | Runs a statement that gives no rows (`CREATE`, `INSERT`, `UPDATE`, `DELETE`, ...) and gives the number of rows it changed |
 | `conn->lastid()` | The row id of the last row an `INSERT` added (SQLite's `last_insert_rowid`), or `nil` |
 | `conn->query(sql, args...)` | All rows of a query, as a vector of maps |
 | `conn->first(sql, args...)` | The first row of a query, or `nil` |
-| `conn->cursor(sql, args...)` | A `db::Cursor` for results too large to hold at once: `cursor->next()` gives the next row, or `nil` at the end (which closes it); `cursor->close()` stops early. While a cursor is open, other calls on the connection are a `ValueError` |
+| `conn->cursor(sql, args...)` | A `db::Cursor` for results too large to hold at once: `cursor->next()` gives the next row, or `nil` at the end (which closes it); `cursor->close()` stops early. While a cursor is open, the other calls that run SQL (`exec`, `query`, `first`, `cursor`, `begin`, `commit`, `rollback`) are a `ValueError`; `lastid`, `intransaction` and `close` still work |
 | `conn->begin()` | Starts a transaction: the statements until `commit()` or `rollback()` count together, or not at all. Transactions do not nest (`ValueError`) |
 | `conn->commit()`, `conn->rollback()` | Ends the transaction, keeping or undoing its changes (`ValueError` without one) |
 | `conn->intransaction()` | Whether a transaction is open |
 | `conn->close()` | Closes the connection; an open transaction is rolled back. Closing again has no effect; any other call afterwards is a `ValueError` |
 
-Errors the database reports are a `DBError` with its message (`"UNIQUE
-constraint failed: items.name"`). A connection prints as
-`db::Conn(sqlite:shop.db)` (or `closed`), a cursor as `db::Cursor(open)` or
-`db::Cursor(done)`. A Go program that embeds Kukel can keep a program away
+Errors the database reports are a `DBError` with its message, after the
+member function's name and with SQLite's error code
+(`"db::Conn::exec: constraint failed: UNIQUE constraint failed:
+items.name (2067)"`). A connection prints as `db::Conn(sqlite:shop.db)`, or
+`db::Conn(sqlite:shop.db, closed)` once closed; a cursor as
+`db::Cursor(open)` or `db::Cursor(done)`. A Go program that embeds Kukel can keep a program away
 from databases (and the files they are stored in) by leaving `db` out of
 `StandardModules`.
 
@@ -847,7 +879,8 @@ main() {
 }
 ```
 
-`s += x` copies `s` every time; a builder does not.
+A builder collects text from many parts. (`s += x` in a loop is fast too:
+it appends to `s` in place when nothing else was added after `s`.)
 
 | Member function | Description |
 |---|---|
@@ -877,13 +910,14 @@ A `time::Time` is an instant together with a time zone. Time zones are
 names from the IANA database (`"Europe/Amsterdam"`, `"UTC"`, `"Local"`
 for the system's zone); `kukel` carries the database, so they work on
 every system. Durations are seconds (ints or floats). A time prints as
-`time::Time(2026-10-14T09:30:00Z)` (RFC 3339).
+`time::Time(2026-10-14T09:30:00Z)` (RFC 3339, with a fraction of a second
+when it has one: `2026-10-14T09:30:01.5Z`).
 
 | Function | Description |
 |---|---|
 | `time::now()` | The current time, in the local time zone |
 | `time::sleep(seconds)` | Waits that long (`ValueError` if negative or `nan`; beyond about 292 years it waits as long as the program runs) |
-| `new time::Time(year, month, day [, hour [, minute [, second [, zone]]]])` | That time in `zone` (default `"UTC"`); `second` may have a fraction. Values out of range carry over (month 13 is January of the next year); a `second` of `nan` or `inf`, or a time beyond about 2.9e11 years from 1970, is a `ValueError` |
+| `new time::Time(year, month, day [, hour [, minute [, second [, zone]]]])` | That time in `zone` (default `"UTC"`; an unknown zone is a `ValueError`); `year` to `minute` are ints, `second` may have a fraction. Values out of range carry over (month 13 is January of the next year); a `second` of `nan` or `inf`, or a time beyond about 2.9e11 years from 1970, is a `ValueError` |
 | `time::Time::parse(text [, format [, zone]])` | The time `text` stands for: without `format` in RFC 3339 (`"2026-10-14T09:30:00+02:00"`), else by `format` (below). A text without an offset is in `zone` (default `"UTC"`). A text that does not match, or a date that does not exist (`"2026-02-30"`), is a `ValueError`. A local time that a daylight-saving change skips or repeats is not an error: it gets the offset of one of the two sides (02:30 on the day clocks jump from 02:00 to 03:00 becomes 03:30); which side is not specified |
 | `time::Time::fromunix(seconds)` | The time that many seconds after 1970-01-01 00:00 UTC, in UTC (`nan`, `inf` and values beyond about 2.9e11 years are a `ValueError`, as for `add`) |
 
@@ -976,7 +1010,7 @@ gives a `WorkerError`.
 | Function | Description |
 |---|---|
 | `worker::start(f, args...)` | Runs `f(args...)` in a new interpreter of this program; `f` is a top-level or static member function (not a function literal, bound method or built-in: `TypeError`). Gives a `worker::Worker` |
-| `worker::startfile(path, args...)` | Compiles the program in `path` (a `.kkl` file with the modules it uses, found as `kukel run` finds them; or a `.kkc` file) and runs its `main` with the vector of the arguments. `path` is relative to the current directory, as for `readfile`. A compile error (also a module not found) is a `CompileError`, a missing file an `IOError`, a damaged `.kkc` file a `ValueError`; so is `startfile` in a program run by a Go program that does not allow it to read program files ([embedding.md](embedding.md)) |
+| `worker::startfile(path, args...)` | Compiles the program in `path` (a `.kkl` file with the modules it uses, found as `kukel run` finds them; or a `.kkc` file) and runs its `main` with the vector of the arguments. `path` is relative to the current directory, as for `readfile`. A compile error (also a module not found) is a `CompileError`, a missing file an `IOError`, a damaged `.kkc` file or a module compiled on its own (`kukel build -module`) a `ValueError`; so is `startfile` in a program run by a Go program that does not allow it to read program files ([embedding.md](embedding.md)) |
 | `worker::send(v)` | In a worker: a copy of `v` goes to the parent |
 | `worker::receive([timeout])` | In a worker: the next message from the parent; waits for it, at most `timeout` seconds if given. `nil` after the parent's `stop()` (once the messages sent before are taken) or when the time is up. A negative or `nan` timeout is a `ValueError`, and so is `receive()` after `worker::onmessage` |
 | `worker::onmessage(f)` | In a worker: the event loop (`events`) calls `f(message)` for each message from the parent, and `events::run()` keeps going until the parent's `stop()`. `f` must be a function (`TypeError`); a second `onmessage` is a `ValueError` |
@@ -1056,8 +1090,10 @@ on every interface), `"ipc://path"` (a Unix socket file) or `"inproc://name"`
 | `zmq::poll(sockets [, timeout])` | Waits until one of the sockets (a vector) has a message and gives that socket, whose `receive()` then gives the message at once; `nil` after `timeout` seconds. When several have one, the earliest in the vector wins. No message is lost: the others stay with their sockets. A closed socket, or one with an `onmessage` handler, is a `ValueError` |
 | `s->close()` | Closes the socket (closing again has no effect). If the socket sent a message less than 0.1 seconds before, `close` waits until 0.1 seconds have passed, so that the message still leaves. Using a closed socket is a `ValueError` |
 
-A socket prints as `zmq::Socket(REQ, tcp://localhost:5555)` (or without an
-endpoint, or `closed`). Close sockets when done; a program that ends closes
+A socket prints as `zmq::Socket(REQ, tcp://localhost:5555)`, without an
+endpoint as `zmq::Socket(REQ)`, and once closed as `zmq::Socket(REQ,
+closed)`. An endpoint without `://` (`"localhost:5555"`) is a `ValueError`
+for `bind` and `connect`. Close sockets when done; a program that ends closes
 nothing for you. A Go program that embeds Kukel can keep the network away
 from a program by leaving `zmq` out of `StandardModules`.
 

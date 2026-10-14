@@ -1,0 +1,10 @@
+the same numbers after the same seed
+1000 1 3142 -2 -1 -3
+[1, 9, 2, 3]
+1 [9, 2, 3]
+3 [9, 2]
+true false {"b": 2}
+nil
+first square over 20: 25
+a non-negative int / a number / a number / something else
+StackOverflowError: stack overflow (more than 10000 nested calls) (10000 trace lines)

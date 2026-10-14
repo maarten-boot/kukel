@@ -1,0 +1,27 @@
+open a
+open b
+close b
+close a
+ab
+open loop0
+close loop0
+open loop1
+body 1
+close loop1
+open loop2
+close loop2
+open after nil
+nil is skipped
+close after nil
+open both
+close both
+Error: in the body
+open close only
+body ends normally
+close close only
+IOError: close of close only failed
+open before
+close before
+ValueError: no resource
+the body runs; closing 42 fails
+TypeError: cannot call method close on int

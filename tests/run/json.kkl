@@ -1,7 +1,8 @@
-// A JSON parser and pretty-printer written in Kukel: classes, recursion,
-// exceptions, strings, maps and vectors.
+// A small JSON parser and pretty-printer written in Kukel (a subset: no
+// \uXXXX escapes, and the printer does not escape control characters):
+// classes, recursion, exceptions, strings, maps and vectors.
 
-class JSONError : Error { }
+class JSONError : Error {}
 
 class Parser {
     text, pos;
@@ -22,8 +23,7 @@ class Parser {
 Parser::Parser(text) { this->text = text; pos = 0; }
 
 Parser::parse() {
-    local v;
-    v = value();
+    local v = value();
     skip();
     if (pos < len(text)) fail("unexpected text after the value");
     return v;
@@ -43,8 +43,7 @@ Parser::value() {
 }
 
 Parser::object() {
-    local m, key;
-    m = {};
+    local m = {}, key;
     expect('{');
     skip();
     if (peek() == '}') { pos++; return m; }
@@ -61,8 +60,7 @@ Parser::object() {
 }
 
 Parser::array() {
-    local v;
-    v = [];
+    local v = [];
     expect('[');
     skip();
     if (peek() == ']') { pos++; return v; }
@@ -75,8 +73,7 @@ Parser::array() {
 }
 
 Parser::string() {
-    local out, c;
-    out = "";
+    local out = "", c;
     expect('"');
     while (true) {
         if (pos >= len(text)) fail("unterminated string");
@@ -88,7 +85,7 @@ Parser::string() {
                 switch (c) {
                     case 'n': out += "\n"; break;
                     case 't': out += "\t"; break;
-                    default:  out += char(c);
+                    default: out += char(c);
                 }
                 break;
             default:
@@ -98,13 +95,16 @@ Parser::string() {
 }
 
 Parser::number() {
-    local start;
-    start = pos;
+    local start = pos;
     if (peek() == '-') pos++;
-    while (pos < len(text) && (text[pos] >= '0' && text[pos] <= '9' || text[pos] == '.' || text[pos] == 'e')) pos++;
+    while (pos < len(text) && (text[pos] >= '0' && text[pos] <= '9' || find(".eE+-", char(text[pos])) >= 0)) pos++;
     if (pos == start) fail("expected a value");
     local s = slice(text, start, pos);
-    return find(s, ".") >= 0 || find(s, "e") >= 0 ? float(s) : int(s);
+    try {
+        return find(s, ".") >= 0 || find(lower(s), "e") >= 0 ? float(s) : int(s);
+    } catch (e) {
+        fail("bad number " + s);
+    }
 }
 
 Parser::literal(word, result) {
@@ -148,7 +148,8 @@ main() {
     println(pretty(doc));
     println(doc["nested"]["pi"] * 2, len(doc["tags"]), doc["quote"]);
 
-    for (local bad in ["[1, 2", "{\"a\" 1}", "[1] x", "nope"]) {
+    println(new Parser("[1E5, 1e+5, -2.5e-1, -7]")->parse());
+    for (local bad in ["[1, 2", "{\"a\" 1}", "[1] x", "nope", "[-]", "[1.2.3]"]) {
         try { new Parser(bad)->parse(); }
         catch (e) { println(e->kind + ":", e->message); }
     }

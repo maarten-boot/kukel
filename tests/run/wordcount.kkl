@@ -1,4 +1,4 @@
-// Milestone 5: vectors, maps, strings, for-each and the collection built-ins.
+// Vectors, maps, strings, for-each and the collection built-ins.
 
 const TEXT = "the quick brown fox jumps over the lazy dog the fox barks";
 
@@ -19,7 +19,7 @@ main() {
     for (local i, w in slice(words, 0, 3))
         println(i + 1, w, counts[w]);
 
-    // letters per word length
+    // the words of each length
     local byLen = {};
     for (local w in words) {
         local n = len(w);

@@ -2,6 +2,7 @@ package dbmod_test
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -110,6 +111,14 @@ main(args) {
 	}
 	if got := run(t, read, file); got != "1 pen\n2 ink\n" {
 		t.Errorf("read: %q", got)
+	}
+	// %, ? and # are ordinary characters of a file name.
+	odd := filepath.Join(t.TempDir(), "a%25b?c#d.db")
+	if got := run(t, write, odd); got != "2 2\n" {
+		t.Errorf("write to %s: %q", odd, got)
+	}
+	if _, err := os.Stat(odd); err != nil {
+		t.Error(err)
 	}
 }
 

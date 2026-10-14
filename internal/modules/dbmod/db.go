@@ -112,6 +112,8 @@ func init() {
 
 // db::open(url): "sqlite:path" (a file, created if it does not exist) or
 // "sqlite::memory:" (a database in memory, gone when it is closed).
+var uriEscape = strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23")
+
 func open(env value.Env, args []value.Value) (value.Value, error) {
 	a, err := native.Check("db::open", args, 1, 1)
 	if err != nil {
@@ -127,7 +129,8 @@ func open(env value.Env, args []value.Value) (value.Value, error) {
 	}
 	// Foreign keys are checked, and a database another program is writing
 	// is waited for up to 5 seconds instead of failing at once.
-	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"
+	// The path is part of a URI: %, ? and # in it are escaped.
+	dsn := "file:" + uriEscape.Replace(path) + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"
 	if path == ":memory:" {
 		dsn = ":memory:?_pragma=foreign_keys(1)"
 	}

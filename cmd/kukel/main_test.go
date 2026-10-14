@@ -244,9 +244,24 @@ func TestReferenceExamples(t *testing.T) {
 		n++
 		src := filepath.Join(dir, "example.kkl")
 		os.WriteFile(src, []byte(code), 0o644)
+		// A block "$ kukel run x.kkl [-- args]" right after it shows the
+		// output.
+		args, want, shown := []string{"run", src}, "", false
+		if i+2 < len(blocks) {
+			var cmd string
+			if cmd, shown = strings.CutPrefix(strings.TrimPrefix(blocks[i+2], "\n"), "$ kukel run "); shown {
+				cmd, want, _ = strings.Cut(cmd, "\n")
+				if _, progArgs, ok := strings.Cut(cmd, " -- "); ok {
+					args = append(args, append([]string{"--"}, strings.Fields(progArgs)...)...)
+				}
+			}
+		}
 		var stdout, stderr bytes.Buffer
-		if code := run([]string{"run", src}, strings.NewReader(""), &stdout, &stderr); code != 0 {
+		if code := run(args, strings.NewReader(""), &stdout, &stderr); code != 0 {
 			t.Errorf("example %d fails (exit %d): %s\n%s", n, code, stderr.String(), blocks[i])
+		}
+		if shown && stdout.String() != want {
+			t.Errorf("example %d prints\n%s\nbut the documentation shows\n%s", n, stdout.String(), want)
 		}
 	}
 	if n < 4 {

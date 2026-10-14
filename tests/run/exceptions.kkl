@@ -1,4 +1,4 @@
-// Milestone 7: try/catch/finally, throw, Error objects and Error classes.
+// Try/catch/finally, throw, Error objects and Error classes.
 
 class ConfigError : Error {
     key;

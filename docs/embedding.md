@@ -34,6 +34,14 @@ A **`Program`** is compiled code. It never changes while it runs, so one
 |---|---|
 | `CompileFiles(files, opts)` | Compiles `.kkl` files as one program, with the modules they use (next to the files, then in `opts.Path`; a module compiled on its own, `name.kkc`, is linked in) |
 | `CompileSource(name, src, opts)` | Compiles a program given as text; `name` appears in messages. Modules written in Kukel come from `opts.Path` only |
+
+`CompileOptions` (all may be left zero): `Path`, the directories where
+`use` finds `name.kkl` or `name.kkc`; `Modules`, host modules (section 3);
+and the limits of section 5 (`DenyBuiltins`, `StandardModules`,
+`NoFileModules`).
+
+| Function | |
+|---|---|
 | `LoadProgram(data, opts)` | Reads a program from the bytes of a `.kkc` file (`kukel build`, or `Program.Encode`). `opts.Modules` must hold the host modules the program uses again: a `.kkc` file names their functions but does not contain them |
 | `p.Encode()` | The program as `.kkc` bytes, to store and load later without compiling |
 
@@ -74,9 +82,9 @@ functions and of the standard modules (`db`, `events`, `json`, `strings`,
 | Make | Read |
 |---|---|
 | `Bool(b)`, `Int(i)`, `Float(f)`, `String(s)` | `v.AsBool()`, `v.AsInt()`, `v.AsFloat()` (also of an int), `v.AsString()`, each with an `ok` |
-| `Vector(elems...)`, `NewMap()`, `MapOf(map[string]Value)` | `v.Len()`, `v.Index(i)`, `v.Get(key)`, `v.Keys()` |
+| `Vector(elems...)`, `NewMap()`, `MapOf(map[string]Value)` (keys in sorted order) | `v.Len()`, `v.Index(i)`, `v.Get(key)`, `v.Keys()` |
 | `v.Push(e)`, `v.SetKey(k, val)` | `v.Kind()` (as `typeof`), `v.IsNil()`, `v.Truthy()`, `v.String()` (as `print`) |
-| `FromGo(x)`: nil, bools, integers, floats and strings (also named types such as `type S string`), `[]byte` (a string), slices and arrays, maps with string keys, nested | `v.ToGo()`: nil, `bool`, `int64`, `float64`, `string`, `[]any`, `map[string]any`; functions, classes and objects stay a `Value`. A map with keys that give the same Go key (`1` and `"1"`), or a value that contains itself, is an error |
+| `FromGo(x)`: nil, bools, integers, floats and strings (also named types such as `type S string`), `[]byte` (a string), slices and arrays, maps with string keys, nested | `v.ToGo()`: nil, `bool`, `int64`, `float64`, `string`, `[]any`, `map[string]any`; functions, classes and objects stay a `Value`. A map with keys that give the same Go key (`1` and `"1"`), or a value that contains itself, is an error. `FromGo` refuses an unsigned integer above the int range, a map whose keys are not strings, and other Go types (functions, channels, structs, ...) |
 
 Vectors, maps and objects are shared, not copied: a `Value` from an
 interpreter refers to its data, and changing it (`Push`, `SetKey`) changes
@@ -132,11 +140,13 @@ main() { app::notify("started " + app::version); }
 | `*CompileError` | An error in the source: `File`, `Line`, `Col`, `Message`; when the compile found several, the others are in `More` and `Error()` gives them all, one per line (a missing file is the `os` error) |
 | `*Error` | An exception nothing in the program caught: `Kind` (`"RangeError"`, ...), `Message`, `Value` (the thrown `Error` object), `Trace` (innermost call first). Also the step limit (`"StepLimitError"`) and cancellation (`"CancelledError"`), which the program cannot catch |
 | `*ExitError` | The program called `exit(code)` during a `Call`, `CallContext`, `CallValue` or `Global` (in an initializer); `Run` gives the code as its result |
+| other errors (`kukel: ...`) | Mistakes of the Go program: `Call` of a name the program does not have, or that is not a function; `Global` of a name it does not have; any call after `Close`; `New` of a program that uses a built-in or module the options do not allow, or a host module that is missing |
 
 `(*Error).Error()` gives `Kind: Message`, followed by the trace when there
 is one (`Trace` is not empty: an exception of the program, also the step
 limit and a cancellation during the call), one `  at f (file:line)` line per
-call; use `Kind` and `Message` for a single line.
+call; use `Kind` and `Message` for a single line. Each `Trace` entry is a
+`Frame`: `Func` (the function's name, `Shape::area`), `File` and `Line`.
 
 A Go function reports a failure by returning an error; the Kukel program
 sees an exception it can catch:

@@ -1,0 +1,53 @@
+// The with statement: its variables are closed in reverse order however
+// the block ends (normally, return, break, continue, an exception); nil is
+// skipped; the block's exception wins over a failing close().
+
+class Res { name, fail; Res(name, fail); close(); }
+Res::Res(name, fail = false) { this->name = name; this->fail = fail; println("open", name); }
+Res::close() {
+    println("close", name);
+    if (fail) throw new Error("close of " + name + " failed", "IOError");
+}
+
+fail() { throw new Error("no resource", "ValueError"); }
+
+first() {
+    with (local a = new Res("a"), b = new Res("b")) {
+        return a->name + b->name;
+    }
+}
+
+main() {
+    println(first());
+
+    for (local i = 0; i < 3; i++) {
+        with (local r = new Res("loop" + str(i))) {
+            if (i == 0) continue;
+            if (i == 2) break;
+            println("body", i);
+        }
+    }
+
+    with (local none = nil, r = new Res("after nil")) println("nil is skipped");
+
+    try {
+        with (local r = new Res("both", true)) throw new Error("in the body");
+    } catch (e) {
+        println(e->kind + ":", e->message);       // the body's exception wins
+    }
+    try {
+        with (local r = new Res("close only", true)) println("body ends normally");
+    } catch (e) {
+        println(e->kind + ":", e->message);       // the close failure comes out
+    }
+    try {
+        with (local a = new Res("before"), b = fail()) println("never");
+    } catch (e) {
+        println(e->kind + ":", e->message);       // "before" was closed
+    }
+    try {
+        with (local x = 42) println("the body runs; closing 42 fails");
+    } catch (e) {
+        println(e->kind + ":", e->message);
+    }
+}

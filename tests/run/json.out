@@ -15,7 +15,10 @@
   "quote": "say \"hi\""
 }
 6.28 2 say "hi"
+[100000.0, 100000.0, -0.25, -7]
 JSONError: expected ',' at offset 5
 JSONError: expected ':' at offset 5
 JSONError: unexpected text after the value at offset 4
 JSONError: expected null at offset 0
+JSONError: bad number - at offset 2
+JSONError: bad number 1.2.3 at offset 6

@@ -19,10 +19,10 @@ main() {
     for (local w in wrong)
         try { json::decode(w); } catch (e) { println(e->kind + ":", e->message); }
     local v = [1]; push(v, v);
-    foreach_bad([v, float("inf"), new Error("x")]);
+    forEachBad([v, float("inf"), new Error("x")]);
 }
 
-foreach_bad(values) {
+forEachBad(values) {
     for (local v in values)
         try { json::encode(v); } catch (e) { println(e->kind + ":", e->message); }
 }

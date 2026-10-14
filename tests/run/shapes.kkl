@@ -1,4 +1,4 @@
-// Milestone 6: classes, inheritance, virtual and non-virtual calls, static
+// Classes, inheritance, virtual and non-virtual calls, static
 // members, bound methods.
 
 class Shape {

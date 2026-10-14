@@ -1,7 +1,7 @@
 // An Error nobody catches stops the program: message, kind and trace.
 
 // It inherits Error's constructor: new ValidationError("...") sets message.
-class ValidationError : Error { }
+class ValidationError : Error {}
 
 check(age) {
     if (age < 0) throw new ValidationError("age must not be negative");

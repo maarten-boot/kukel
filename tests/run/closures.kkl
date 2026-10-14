@@ -1,4 +1,4 @@
-// Milestone 8: function literals and closures.
+// Function literals and closures.
 
 // A tiny event system: handlers are closures over their own state.
 global handlers = {};
@@ -16,8 +16,7 @@ emit(event, args..) {
 // Functions that make functions.
 compose(f, g) { return fn(x) { return f(g(x)); }; }
 memoize(f) {
-    local cache;
-    cache = {};
+    local cache = {};
     return fn(n) {
         if (!haskey(cache, n)) cache[n] = f(n);
         return cache[n];
@@ -25,15 +24,13 @@ memoize(f) {
 }
 
 map(v, f) {
-    local out;
-    out = [];
+    local out = [];
     for (local x in v) push(out, f(x));
     return out;
 }
 
 filter(v, keep) {
-    local out;
-    out = [];
+    local out = [];
     for (local x in v) if (keep(x)) push(out, x);
     return out;
 }

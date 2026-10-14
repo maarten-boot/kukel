@@ -266,10 +266,10 @@ func (l *Lexer) number(start token.Pos) (token.Token, error) {
 
 	text := l.text(start)
 	clean := strings.ReplaceAll(text, "_", "")
+	if len(text) > maxNameLen {
+		return token.Token{}, l.errorf(start, "number longer than %d characters", maxNameLen)
+	}
 	if isFloat {
-		if len(text) > maxNameLen {
-			return token.Token{}, l.errorf(start, "number longer than %d characters", maxNameLen)
-		}
 		f, err := strconv.ParseFloat(clean, 64)
 		switch {
 		case err != nil && math.IsInf(f, 0):

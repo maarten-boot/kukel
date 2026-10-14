@@ -1,4 +1,4 @@
-// Milestone 4: default and rest parameters, spread, labels, switch.
+// Default and rest parameters, spread, labels, switch.
 
 const HELLO = "hello";
 
@@ -8,7 +8,7 @@ greet(name, greeting = HELLO, rest..) {
 
 classify(n) {
     switch (n % 3) {
-        case 0:  return "fizz-ish";
+        case 0: return "fizz-ish";
         case 1:
         case -1: return "one off";
         default: return "two off";

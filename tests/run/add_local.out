@@ -1,3 +1,3 @@
-6   ab6   2.5   11   10
-TypeError :  cannot apply + to vector and int
-TypeError :  cannot apply + to nil and int
+6 ab6 2.5 11 10
+TypeError: cannot apply + to vector and int
+TypeError: cannot apply + to nil and int

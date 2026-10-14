@@ -17,9 +17,11 @@ g(x) {
     return r;
 }
 main() {
+    local out = [];
     for (local x in [0, 1, 2, 3, 4, 5, 6, 7, 1.0, 2.5, "1", nil, -9223372036854775807 - 1, 9223372036854775807])
-        print(f(x), " ");
-    println();
-    for (local x in [-3, -2, -1, 0, 1, 2, 0.0, -0.0]) print(g(x), " ");
-    println();
+        push(out, f(x));
+    println(out..);
+    out = [];
+    for (local x in [-3, -2, -1, 0, 1, 2, 0.0, -0.0]) push(out, g(x));
+    println(out..);
 }

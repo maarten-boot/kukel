@@ -150,7 +150,7 @@ design decisions (Q1–Q50). Ideas for later are in [docs/future.md](docs/future
 |---|---|
 | `make` | gofmt check, `go vet`, tests, build |
 | `make install` | install `kukel` into `$(go env GOPATH)/bin` |
-| `make fuzz FUZZTIME=1m` | fuzz the lexer, parser, compiler, bytecode loader and VM, `json::decode`, time parsing and `kukel fmt` |
+| `make fuzz FUZZTIME=1m` | fuzz the lexer, parser, compiler, bytecode loader and verifier (what they accept runs in the VM with a step limit), `json::decode`, time parsing and `kukel fmt` |
 | `make bench` | benchmarks |
 | `make golden` | rewrite the expected outputs in `tests/` after an intended change |
 

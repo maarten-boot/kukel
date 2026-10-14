@@ -5,7 +5,7 @@ values, the program image, the execution model of the stack machine, every
 instruction, how the compiler translates the language's constructs, the
 `.kkc` file format and what the loader guarantees.
 
-It describes bytecode format version **4** (kukel v0.4). The language
+It describes bytecode format version **5** (kukel v0.8). The language
 itself is described in [reference.md](reference.md), its grammar in
 [syntax.ebnf](../syntax.ebnf).
 
@@ -55,8 +55,9 @@ passed the verifier, cannot crash the VM (section 8).
 ## 2. Values
 
 A value is a small struct: a kind, 64 bits of payload (the bits of a bool,
-int or float) and a reference to an object (a string, vector, map, ...; a
-Go interface value, two words). Numbers and booleans never allocate.
+int or float; a string's length) and a reference to an object (a vector,
+map, ...; a Go interface value, two words). Numbers, booleans and strings
+made from existing bytes never allocate a box.
 
 | Kind | Payload | Notes |
 |---|---|---|
@@ -64,7 +65,7 @@ Go interface value, two words). Numbers and booleans never allocate.
 | bool | 0 or 1 | |
 | int | int64 | arithmetic wraps around |
 | float | IEEE-754 bits | |
-| string | Go string | immutable bytes |
+| string | length; a `*byte` to its first byte, or the `*strBuf` of a concatenation | immutable bytes; see below |
 | vector | `*VectorObj` (a slice) | shared, mutable |
 | map | `*MapObj` | insertion-ordered; keys normalized so 1 and 1.0 are one key |
 | function | `*bytecode.Function` | a top-level or static member function |
@@ -77,7 +78,18 @@ Go interface value, two words). Numbers and booleans never allocate.
 | *cell* | internal | a captured variable, only in slots (section 4.8) |
 | *internal* | internal | a pending exception, only in hidden slots (section 4.9) |
 
-The last three never reach a Kukel program. The operators' semantics
+The last three never reach a Kukel program.
+
+**Strings** are immutable. A string made from Go (a literal, `str`, a
+built-in's result) points at its bytes, so making the value does not
+allocate. A concatenation result lives in a growable buffer (`strBuf`):
+concatenating onto the string that ends at the buffer's end appends to the
+buffer, so `s += x` in a loop does not copy `s` each time; other strings in
+the buffer are prefixes of it and never change. A string sent to a worker
+is copied out of the buffer (`value.Detached`), since the buffer belongs to
+its interpreter.
+
+The operators' semantics
 (arithmetic, comparison, equality, truthiness, conversion to text) are in
 `internal/value` and shared by the VM and the compiler's constant
 evaluation; [reference.md](reference.md) describes them.
@@ -111,6 +123,7 @@ A **function** (`bytecode.Function`) has:
 | `SlotNames` | names of the slots, for the disassembler |
 | `Upvalues` | for a function literal: where each captured cell comes from (section 4.8) |
 | `NumCaches` | the number of inline cache slots its member instructions use (section 4.10) |
+| `Tables` | the jump tables of its `SWITCH_TABLE` instructions: the first int and a target per int (section 6.8) |
 | `Index` | its position in `Funcs` (−1 for `Init`); not stored in files |
 
 The **prelude** is Kukel source compiled in front of every program. It
@@ -349,7 +362,11 @@ is not cached.) The caches belong to the VM, not to the image.
 | constants, slots, globals, cache slots per function | 65536 (u16 operands) |
 | functions of a program, member functions of a class | 65536 (compile error beyond) |
 | nesting of expressions and statements in the source | 1000 levels (compile error beyond) |
-| arguments of one call | 65535 |
+| arguments of one call | 65535 (compile error; with spread arguments, an `ArgumentError` at run time) |
+| elements of a vector literal, entries of a map literal | 65535 (compile error beyond) |
+| captured variables of one function literal | 65536 (compile error beyond) |
+| data members, and static data members, of a class (inherited ones included) | 65535 (compile error beyond) |
+| `switch` statements with a jump table in one function | 65536 (compile error beyond) |
 | optional parameters of one function | 255 |
 | code per function, `MaxStack` | 16 MiB and 2<sup>20</sup> (what a `.kkc` file holds; the compiler refuses bigger functions) |
 | slots per function (also hidden ones) | 65536 (compile error beyond) |
@@ -469,8 +486,8 @@ instructions raise `TypeError` for a value that is not an object and
 an exception (section 4.9).
 
 **Fast paths**: arithmetic and comparisons on two ints, `CMP_JUMP`,
-`INC_LOCAL`, and member instructions with a cache hit avoid the general
-code. They behave exactly like it.
+`INC_LOCAL`, `ADD_LOCAL` on two ints, and member instructions with a cache
+hit avoid the general code. They behave exactly like it.
 
 ---
 
@@ -659,13 +676,14 @@ switch (x) {                     LOAD_LOCAL x; STORE_LOCAL (switch); JUMP dispat
                             end:
 ```
 
-When there are at least 4 cases, all with int values, spread over fewer
-than twice as many values as there are cases, the dispatch is one jump
-through a table instead (Kukel v0.8):
+When there are at least 4 cases, all with int values, and the range from
+the smallest to the largest holds at most twice as many values as there are
+cases, the dispatch is one jump through a table instead (Kukel v0.8). With
+a fourth case, `case 5:` (`L4`), the switch above becomes:
 
 ```
                        dispatch: LOAD_LOCAL (switch); SWITCH_TABLE t, miss -> L3
-                                 (table t: 1 -> L1, 2 -> L2, 3 -> L2; none for the other values)
+                                 (table t: 1 -> L1, 2 -> L2, 3 -> L2, 5 -> L4; none for 4)
 ```
 
 ### 6.9 Try, catch and finally
@@ -709,9 +727,9 @@ p->x = 2         LOAD_LOCAL p; CONST 2; SET_MEMBER x (cache 1)     by name, cach
 ```
 counter() {
     local n = 0;                 CONST 0; NEW_CELL n                (n is captured: it lives in a cell)
-    return fn() { return ++n; }; CLOSURE counter/fn@8; RETURN
+    return fn() { return ++n; }; CLOSURE counter/fn@3; RETURN
 }
-counter/fn@8:                    LOAD_UPVALUE n; INC; DUP; STORE_UPVALUE n; RETURN
+counter/fn@3:                    LOAD_UPVALUE n; INC; DUP; STORE_UPVALUE n; RETURN
                                  (upvalue 0: n, from the enclosing function's slot 0)
 ```
 
@@ -817,11 +835,12 @@ make the VM crash or read outside its data.
 - per function: parameter, slot, stack and cache counts are in range;
 - every instruction is known and complete, and its operands are in range:
   constants, slots, globals, functions, classes and their statics, upvalues,
-  cache slots; member names are string constants; `CMP_JUMP` comparisons,
-  `TRY_PUSH` kinds and `ITER_NEXT` counts are valid;
+  cache slots, jump tables; member names are string constants; `CMP_JUMP`
+  comparisons, `TRY_PUSH` kinds and `ITER_NEXT` counts are valid;
 - each inline cache slot is used by one instruction only (as the compiler
   does), so one member name can never get the method found for another;
-- jump targets land on the start of an instruction;
+- jump targets, also those in jump tables, land on the start of an
+  instruction;
 - following every path from the start and from every handler:
   - the stack depth is the same at an instruction on all paths, never too
     low for what it pops, and never above `MaxStack`;

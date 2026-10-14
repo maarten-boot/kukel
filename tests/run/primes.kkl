@@ -14,7 +14,7 @@ isPrime(n) {
 main() {
     for (local n = 0; n <= LIMIT; n++) {
         if (!isPrime(n)) continue;
-        print(n, "");
+        print(n, "");          // "" after n: a space after each number
         found++;
     }
     println();

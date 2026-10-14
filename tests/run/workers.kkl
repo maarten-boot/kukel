@@ -5,8 +5,7 @@ use events;
 
 // Counts the primes in [from, to): one slice of the work.
 countPrimes(from, to) {
-    local n;
-    n = 0;
+    local n = 0;
     for (local i = max(from, 2); i < to; i++) {
         local prime = true;
         for (local d = 2; d * d <= i; d++)
