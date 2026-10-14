@@ -148,6 +148,7 @@ func (c *compiler) nativeModule(nm *native.Module) *module {
 		}
 		g := link(k.name)
 		g.kind, g.class = symClass, k
+		k.global = g
 		m.names[nc.Name] = g
 	}
 	return m

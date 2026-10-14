@@ -41,7 +41,7 @@ func Verify(p *Program) error {
 		return fmt.Errorf("invalid bytecode: main is not a function")
 	}
 	for i, c := range p.Classes {
-		if c.Base < -1 || c.Base >= i {
+		if c.Base < -1 || c.Base >= i || c.Native != "" && c.Base != -1 {
 			return fmt.Errorf("invalid bytecode: class %s: bad base class %d", c.Name, c.Base)
 		}
 		for _, m := range c.Methods {
@@ -286,6 +286,11 @@ func (v *verifier) operands(f *Function, pc int, op Op, x []int) error {
 		return name(x[0])
 	case OpCallDirect, OpLoadFunc, OpClosure:
 		return funcIndex(x[0])
+	case OpCallNative:
+		if x[0] >= len(p.Globals) {
+			return fail("refers to global %d of %d", x[0], len(p.Globals))
+		}
+		return name(x[1])
 	case OpLoadStatic, OpStoreStatic:
 		if x[0] >= len(p.Classes) || x[1] >= len(p.Classes[x[0]].Statics) {
 			return fail("refers to a static data member that does not exist")

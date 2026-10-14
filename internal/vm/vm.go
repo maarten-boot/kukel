@@ -242,6 +242,18 @@ func (vm *VM) makeClasses(from int) error {
 			Methods:    map[string]*value.MethodObj{},
 			Statics:    make([]value.Value, len(c.Statics)),
 		}
+		if c.Native != "" {
+			// A native base class, linked by name like the other names of
+			// modules written in Go.
+			v, ok := vm.config.Global(c.Native)
+			if !ok || v.Kind() != value.Class || !v.AsClass().Native {
+				return fmt.Errorf("class %s: its base class %s is not available (a module written in Go is missing)", c.Name, c.Native)
+			}
+			k.Base = v.AsClass()
+			for name, m := range k.Base.Methods {
+				k.Methods[name] = m
+			}
+		}
 		if c.Base >= 0 {
 			if c.Base >= i {
 				return fmt.Errorf("class %s: base class %d is not defined before it", c.Name, c.Base)
@@ -664,11 +676,25 @@ func (vm *VM) invokeGo(m *value.MethodObj, recv value.Value, argc int) error {
 	switch {
 	case m.Native != nil:
 		this := objectOf(recv)
+		if err := nativePart(m, this); err != nil {
+			return err
+		}
 		return vm.callGo(argc, func(args []value.Value) (value.Value, error) { return m.Native(vm, this, args) })
 	case m.Builtin != nil:
 		return vm.callGo(argc, func(args []value.Value) (value.Value, error) { return m.Builtin.Fn(vm, args) })
 	}
 	return value.Errorf(value.MemberError, "%s is declared but not defined", m.FullName())
+}
+
+// nativePart checks that an object of a class derived from a native class
+// has its Go part before a member function written in Go uses it: the
+// derived constructor must call the native one (Base::Base(...)).
+func nativePart(m *value.MethodObj, this *value.ObjectObj) error {
+	if this == nil || this.State != nil || this.Class.Native || m == m.Class.Ctor {
+		return nil
+	}
+	return value.Errorf(value.ValueError, "%s: the %s part of this %s object is not set up: its constructor must call %s(...)",
+		m.FullName(), m.Class.Name, this.Class.Name, m.Class.Ctor.FullName())
 }
 
 // newObject runs new: the class is below the argc arguments; it is replaced
@@ -717,6 +743,9 @@ func (vm *VM) callOp(op bytecode.Op, f *frame, ip, sp int) error {
 	case bytecode.OpCallDirect:
 		operand, argc = bytecode.ReadU16(code, ip), bytecode.ReadU16(code, ip+2)
 		ip += 4
+	case bytecode.OpCallNative:
+		operand, cache, argc = bytecode.ReadU16(code, ip), bytecode.ReadU16(code, ip+2), bytecode.ReadU16(code, ip+4)
+		ip += 6
 	case bytecode.OpCallMethod:
 		operand, argc, cache = bytecode.ReadU16(code, ip), bytecode.ReadU16(code, ip+2), bytecode.ReadU16(code, ip+4)
 		ip += 6
@@ -747,6 +776,21 @@ func (vm *VM) callOp(op bytecode.Op, f *frame, ip, sp int) error {
 		return vm.invoke(m, recv, argc)
 	case bytecode.OpCallDirect:
 		return vm.callFunction(vm.prog.Funcs[operand], objectOf(vm.stack[vm.sp-argc-1]), nil, argc, false)
+	case bytecode.OpCallNative: // cache holds the member function's name
+		k := vm.globals[operand]
+		name := f.fn.Consts[cache].AsString()
+		if k.Kind() != value.Class || !k.AsClass().Native {
+			return bad(f, "CALL_NATIVE of something that is not a native class")
+		}
+		m, ok := k.AsClass().Methods[name]
+		if !ok || m.Native == nil {
+			return value.Errorf(value.MemberError, "native class %s has no member function %s", k.AsClass().Name, name)
+		}
+		// The Go code expects its own kind of Go value in this.
+		if this := objectOf(vm.stack[vm.sp-argc-1]); this == nil || !this.Class.IsSubclassOf(k.AsClass()) {
+			return bad(f, "CALL_NATIVE on an object that is not a "+k.AsClass().Name)
+		}
+		return vm.invokeGo(m, vm.stack[vm.sp-argc-1], argc)
 	case bytecode.OpNew, bytecode.OpNewV:
 		return vm.newObject(argc)
 	}
@@ -1378,7 +1422,7 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			ip += 4
 
 		case bytecode.OpCall, bytecode.OpCallV, bytecode.OpCallMethod, bytecode.OpCallMethodV,
-			bytecode.OpCallDirect, bytecode.OpNew, bytecode.OpNewV:
+			bytecode.OpCallDirect, bytecode.OpCallNative, bytecode.OpNew, bytecode.OpNewV:
 			if e := vm.callOp(op, f, ip, sp); e != nil {
 				return vm.fail(f, start, sp, e)
 			}

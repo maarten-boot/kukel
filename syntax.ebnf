@@ -124,9 +124,10 @@ const_definition    = Identifier , "=" , conditional ;
 
 class_definition    = "class" , Identifier , [ ":" , [ Identifier , "::" ] , Identifier ] ,
                       "{" , { member_declaration } , "}" ;
-                      (* Rules: the base class must already be defined, and
-                         must not be a native class (a class of a module
-                         written in Go). No ";" after the closing brace. *)
+                      (* Rules: the base class must already be defined. A
+                         native base class (a class of a module written in
+                         Go) must have a constructor. No ";" after the
+                         closing brace. *)
 
 member_declaration  = [ "static" ] , Identifier ,
                       "(" , [ declared_parameters ] , ")" , ";"

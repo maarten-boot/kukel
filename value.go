@@ -290,3 +290,11 @@ func toGo(v value.Value, open map[any]bool) (any, error) {
 	}
 	return Value{v}, nil
 }
+
+// Object gives v as an object (of a class written in Kukel or in Go).
+func (v Value) Object() (*Object, bool) {
+	if v.v.Kind() != value.Object {
+		return nil, false
+	}
+	return &Object{v.v.AsObject()}, true
+}

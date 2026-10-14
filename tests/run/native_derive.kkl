@@ -1,0 +1,55 @@
+// Kukel classes derived from native classes (written in Go): the derived
+// constructor calls the native one, member functions written in Go are
+// inherited and can be overridden, and Go code takes derived objects where
+// it takes the native class.
+use strings;
+use time;
+
+// A builder that counts its lines and overrides add.
+class Lines : strings::Builder {
+    count;
+    Lines(first);
+    add(x);
+    line(a, b);
+}
+Lines::Lines(first) {
+    strings::Builder::Builder(first);
+    count = 0;
+}
+Lines::add(x) { return strings::Builder::add("[", x, "]"); }
+Lines::line(a, b = "") {
+    count++;
+    add(a);              // this->add: the override
+    add(b);
+    strings::Builder::add("\n");
+    return this;
+}
+
+class Plain : strings::Builder { }          // no constructor: the native one runs
+
+class Broken : strings::Builder { Broken(); }
+Broken::Broken() { }                        // forgets strings::Builder::Builder(...)
+
+class Stamp : time::Time { label; Stamp(label, y, m, d); describe(); }
+Stamp::Stamp(label, y, m, d) { time::Time::Time(y, m, d); this->label = label; }
+Stamp::describe() { return label + ": " + format("%Y-%m-%d") + " " + str(weekday()); }
+
+main() {
+    local l = new Lines("# log\n");
+    l->line("one", 1)->line("two");
+    print(l->str());
+    println(l->count, l->len(), instanceof(l, strings::Builder), typeof(l), classof(l));
+    println(l);
+
+    local p = new Plain("x");
+    p->add("y");
+    println(p->str(), p);
+
+    local b = new Broken();
+    try { b->add("z"); } catch (e) { println(e->kind + ":", e->message); }
+
+    local s = new Stamp("release", 2026, 10, 14);
+    println(s->describe(), s->year(), s->after(time::Time::parse("2026-01-01", "%Y-%m-%d")));
+    println(time::Time::parse("2026-10-15", "%Y-%m-%d")->sub(s));
+    println(Stamp::parse("2026-02-03", "%Y-%m-%d"));   // a static of the base, through the derived class
+}

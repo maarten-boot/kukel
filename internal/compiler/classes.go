@@ -12,9 +12,10 @@ import (
 
 // classInfo is what the compiler knows about a class.
 type classInfo struct {
-	native  bool   // a class of a native module: no bytecode class, index -1
-	name    string // module::Class for a class of a module
-	local   string // the name in the class's module (and its constructor's name)
+	native  bool    // a class of a native module: no bytecode class, index -1
+	global  *global // a native class: its global, linked by name
+	name    string  // module::Class for a class of a module
+	local   string  // the name in the class's module (and its constructor's name)
 	pos     token.Pos
 	index   int // in Program.Classes
 	base    *classInfo
@@ -111,12 +112,15 @@ func (c *compiler) declareClass(d *ast.ClassDecl) {
 		case g.kind != symClass:
 			c.errorf(d.Base.NamePos, "%s is not a class", d.Base.Name)
 		}
-		if g.class.native {
-			c.errorf(d.Base.NamePos, "class %s cannot derive from native class %s (native classes cannot be derived from yet)", d.Name.Name, g.class.name)
+		if g.class.native && g.class.constructor() == nil {
+			c.errorf(d.Base.NamePos, "class %s cannot derive from native class %s: it has no constructor (its objects come from the functions of its module)", d.Name.Name, g.class.name)
 		}
 		k.base = g.class
 		k.bc.Base = g.class.index
 		k.nfields = g.class.nfields
+		if g.class.native { // linked by name; its Go part has no data members
+			k.bc.Native = g.class.name
+		}
 	}
 	g := c.define(d.Name, symClass)
 	g.class = k
@@ -169,6 +173,9 @@ func (c *compiler) addMember(k *classInfo, m *memberInfo) {
 	if k.base != nil {
 		if inh := k.base.lookup(m.name); inh != nil &&
 			!(inh.kind == memberMethod && m.kind == memberMethod && inh.static == m.static) {
+			if inh.class.native {
+				c.errorf(m.pos, "member %s conflicts with member function %s of native base class %s", m.name, m.name, inh.class.name)
+			}
 			c.errorf(m.pos, "member %s conflicts with %s declared in base class %s at %s", m.name, m.name, inh.class.name, inh.pos)
 		}
 	}
@@ -443,7 +450,11 @@ func (c *compiler) memberCall(e *ast.CallExpr) bool {
 			return false
 		}
 		if m.static {
-			c.emit(bytecode.OpLoadFunc, c.funcIndex(m, fun.NamePos))
+			if m.native != nil { // a static of a native base class
+				c.emit(bytecode.OpLoadGlobal, c.globalIndex(m.native, fun.NamePos))
+			} else {
+				c.emit(bytecode.OpLoadFunc, c.funcIndex(m, fun.NamePos))
+			}
 			c.checkArgs(m.def, e.Args, e.Lparen)
 			c.callArgs(e.Args, e.Lparen, call, callV)
 			return true
@@ -472,6 +483,19 @@ func (c *compiler) memberCall(e *ast.CallExpr) bool {
 		}
 		if hasSpread(e.Args) {
 			c.errorf(e.Lparen, "spread arguments are not supported in a %s::%s(...) call", k.name, m.name)
+		}
+		if m.class.native {
+			// A member function written in Go, also a native constructor
+			// (Base::Base(...)): found by name in the native class.
+			g := c.globalIndex(m.class.global, fun.Name.NamePos)
+			name := c.constIndex(stringValue(m.name), fun.Name.NamePos)
+			c.emit(bytecode.OpLoadThis)
+			for _, a := range e.Args {
+				c.expr(a)
+			}
+			c.mark(e.Lparen)
+			c.emit(bytecode.OpCallNative, g, name, len(e.Args))
+			return true
 		}
 		fn := c.funcIndex(m, fun.Name.NamePos)
 		c.checkArgs(m.def, e.Args, e.Lparen)

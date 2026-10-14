@@ -1,0 +1,10 @@
+# log
+[one][1]
+[two][]
+2 23 true object <class Lines>
+Lines{count: 2}
+xy Plain{}
+ValueError: strings::Builder::add: the strings::Builder part of this Broken object is not set up: its constructor must call strings::Builder::Builder(...)
+release: 2026-10-14 3 2026 true
+86400.0
+time::Time(2026-02-03T00:00:00Z)

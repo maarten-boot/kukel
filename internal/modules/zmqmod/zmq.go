@@ -56,6 +56,10 @@ type socket struct {
 	lastSend  time.Time   // for the linger of close
 }
 
+// sendOnly are the socket types that cannot receive: reading one fails at
+// once, so receive, onmessage and poll refuse them.
+var sendOnly = map[string]bool{"PUSH": true, "PUB": true}
+
 // linger is how long close waits after the last send: zmq4's Send only
 // queues a message, and closing at once would drop it.
 const linger = 100 * time.Millisecond
@@ -273,6 +277,9 @@ func (s *socket) startRecv() chan result {
 // s->receive([timeout]): the next message: a string, or a vector of strings
 // for several parts; nil after timeout seconds.
 func receive(a native.Args, env value.Env, s *socket) (value.Value, error) {
+	if sendOnly[s.kind] {
+		return value.NilValue, a.Errorf(value.ValueError, "a %s socket cannot receive messages", s.kind)
+	}
 	if s.callbacks {
 		return value.NilValue, a.Errorf(value.ValueError, "messages go to the onmessage handler, receive() cannot take them")
 	}
@@ -320,6 +327,9 @@ func onmessage(a native.Args, env value.Env, s *socket) (value.Value, error) {
 	case value.Function, value.Closure, value.Builtin, value.BoundMethod:
 	default:
 		return value.NilValue, a.TypeError(0, "a function")
+	}
+	if sendOnly[s.kind] {
+		return value.NilValue, a.Errorf(value.ValueError, "a %s socket cannot receive messages", s.kind)
 	}
 	if s.callbacks {
 		return value.NilValue, a.Errorf(value.ValueError, "an onmessage handler is already set")
@@ -403,7 +413,7 @@ func poll(env value.Env, args []value.Value) (value.Value, error) {
 	elems := args[0].AsVector().Elems
 	socks := make([]*socket, len(elems))
 	for i, v := range elems {
-		if v.Kind() != value.Object || v.AsObject().Class != Socket.ClassObj() {
+		if !Socket.Is(v) {
 			return value.NilValue, a.Errorf(value.TypeError, "element %d of argument 1 must be a zmq::Socket, not %s", i+1, v.Kind())
 		}
 		s := v.AsObject().State.(*socket)
@@ -412,6 +422,8 @@ func poll(env value.Env, args []value.Value) (value.Value, error) {
 			return value.NilValue, a.Errorf(value.ValueError, "socket %d is closed", i+1)
 		case s.callbacks:
 			return value.NilValue, a.Errorf(value.ValueError, "socket %d gives its messages to onmessage", i+1)
+		case sendOnly[s.kind]:
+			return value.NilValue, a.Errorf(value.ValueError, "socket %d is a %s socket, which cannot receive messages", i+1, s.kind)
 		}
 		socks[i] = s
 	}

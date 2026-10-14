@@ -130,8 +130,79 @@ main() { app::notify("started " + app::version); }
 - A program's workers (`worker::start`) can use its host modules too: the
   function then gets the worker's interpreter, on the worker's goroutine.
   Make such functions safe for concurrent use.
-- Native classes in host modules (objects with Go state) are not part of
-  the public API yet.
+
+**Classes written in Go.** A host module can also hold classes whose
+objects carry a Go value (their *state*) and whose member functions are Go
+functions. Kukel code makes objects with `new`, calls their member
+functions, and may derive its own classes from them:
+
+```go
+type counter struct{ n int64 }
+
+counterClass := kukel.NewClass("Counter").
+    New(func(in *kukel.Interp, this *kukel.Object, args []kukel.Value) (kukel.Value, error) {
+        this.SetState(&counter{})              // the constructor sets the state
+        return kukel.Nil, nil
+    }).
+    Method("inc", func(in *kukel.Interp, this *kukel.Object, args []kukel.Value) (kukel.Value, error) {
+        c := this.State().(*counter)
+        c.n++
+        if _, err := this.Call(in, "changed", kukel.Int(c.n)); err != nil { // overridable
+            return kukel.Nil, err
+        }
+        return this.Value(), nil
+    }).
+    Method("changed", func(in *kukel.Interp, this *kukel.Object, args []kukel.Value) (kukel.Value, error) {
+        return kukel.Nil, nil
+    }).
+    Show(func(this *kukel.Object) string {
+        return fmt.Sprintf("app::Counter(%d)", this.State().(*counter).n)
+    })
+app := kukel.NewModule("app").Class(counterClass)
+```
+
+```
+// in Kukel
+use app;
+
+class Loud : app::Counter { Loud(); changed(n); }
+Loud::Loud() { app::Counter::Counter(); }        // sets up the Go state
+Loud::changed(n) { println("now", n); }
+
+main() {
+    local c = new app::Counter();
+    c->inc()->inc();
+    println(c);                                  // app::Counter(2)
+    new Loud()->inc();                           // now 1
+}
+```
+
+| Method | |
+|---|---|
+| `NewClass(name)` | An empty class |
+| `c.New(m)` | The constructor, for `new app::C(...)`: `m` gets the new object and sets its state (`this.SetState`); its result is not used. Without one, objects come from the module's functions (`c.Object`) and Kukel classes cannot derive from the class |
+| `c.Method(name, m)` | An instance member function: `m(in, this, args)` |
+| `c.Static(name, f)` | A static member function (`app::C::f(...)`), a `Func` |
+| `c.Show(f)` | How `str` and `println` show an object (default `app::C{}`) |
+| `c.Object(state)` | A new object holding `state`, for a function to return (once a program that uses the module is compiled) |
+| `c.StateOf(v)` | The state of `v` if it is an object of the class, or of a Kukel class derived from it that has set it up |
+| `m.Class(c)` | Adds the class to module `m` |
+| `this.State()`, `this.SetState(s)` | The object's Go value |
+| `this.Call(in, name, args...)` | Calls a member function on the object as `p->name(...)` does: an override in a derived Kukel class runs |
+| `this.Value()`, `v.Object()`, `this.ClassName()` | The object as a `Value` and back, and the name of its class (a derived class's own) |
+
+- A member function gets `this` also for an object of a Kukel class
+  derived from the Go class, whose state the Go constructor has set (the
+  derived constructor calls `app::Counter::Counter(...)`). Before that, Kukel
+  code that calls a Go member function gets a `ValueError`, not a call with
+  a nil state.
+- A Go member function calls other Go functions directly; to let a derived
+  class override a step, call it with `this.Call`.
+- As for functions, a panic becomes a `"HostError"` exception, and the same
+  rules about names, nil functions and additions after use apply (they
+  panic). A class belongs to one module.
+- Workers may run the member functions in parallel, each on its own
+  objects.
 
 ## 4. Errors
 

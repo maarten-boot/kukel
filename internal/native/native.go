@@ -5,8 +5,10 @@
 //
 // A module registers itself (Register, usually from an init function); the
 // loader, the compiler and the VM look modules up by name. Native classes
-// cannot be derived from (yet), and have no data members: everything goes
-// through member functions.
+// have no data members: everything goes through member functions. A Kukel
+// class can derive from a native class that has a constructor; its objects
+// then hold the Go value too, once the derived constructor has called the
+// native one.
 package native
 
 import (
@@ -256,12 +258,22 @@ func (a Args) Number(i int) (float64, error) {
 }
 
 // Object returns the Go value of argument i, which must be an object of
-// class c.
+// class c or of a class derived from it.
 func (a Args) Object(i int, c *Class) (any, error) {
-	if v := a.V[i]; v.Kind() == value.Object && v.AsObject().Class == c.obj {
-		return v.AsObject().State, nil
+	if v := a.V[i]; v.Kind() == value.Object && v.AsObject().Class.IsSubclassOf(c.obj) {
+		if s := v.AsObject().State; s != nil {
+			return s, nil
+		}
+		return nil, a.Errorf(value.ValueError, "argument %d: the %s part of this %s object is not set up (its constructor must call %s::%s(...))",
+			i+1, c.QualifiedName(), v.AsObject().Class.Name, c.QualifiedName(), c.Name)
 	}
 	return nil, a.TypeError(i, "a "+c.QualifiedName())
+}
+
+// Is reports whether v is an object of class c, or of a class derived from
+// it, with its Go value set up.
+func (c *Class) Is(v value.Value) bool {
+	return v.Kind() == value.Object && v.AsObject().Class.IsSubclassOf(c.obj) && v.AsObject().State != nil
 }
 
 // Errorf returns a Kukel exception of the given kind (value.ValueError,

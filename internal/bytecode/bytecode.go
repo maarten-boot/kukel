@@ -121,6 +121,9 @@ const (
 	OpSwitchTable // table u16, miss u32: pop x; jump to Tables[table]'s target for x, else to miss
 	OpAddLocal    // slot u16: pop x; slot = slot + x (statement "local += x")
 
+	// Native base classes (Kukel v0.9).
+	OpCallNative // class u16, name u16, argc u16: this args -> result of the member function name of the native class in global class, on this (Base::m(...))
+
 	numOps
 )
 
@@ -211,6 +214,7 @@ var opInfo = [numOps]OpInfo{
 	OpDecLocal:     {"DEC_LOCAL", u16},
 	OpSwitchTable:  {"SWITCH_TABLE", []int{2, 4}},
 	OpAddLocal:     {"ADD_LOCAL", u16},
+	OpCallNative:   {"CALL_NATIVE", []int{2, 2, 2}},
 }
 
 // The comparison operand of CMP_JUMP: one of these, plus CmpJumpIfTrue to
@@ -357,6 +361,7 @@ type Global struct {
 type Class struct {
 	Name    string
 	Base    int      // index in Program.Classes, or -1
+	Native  string   // a native base class (Base is -1): its qualified name ("strings::Builder")
 	Fields  []string // own instance data members (the base's come first in an object)
 	Statics []string // own static data members
 	Methods []Method // own member functions

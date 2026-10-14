@@ -128,7 +128,7 @@ func Relocate(f *Function, global, class, fn func(int) (int, error)) error {
 		var at int // the operand to rewrite, with m
 		var m func(int) (int, error)
 		switch op {
-		case OpLoadGlobal, OpStoreGlobal:
+		case OpLoadGlobal, OpStoreGlobal, OpCallNative:
 			at, m = pc+1, global
 		case OpLoadStatic, OpStoreStatic:
 			at, m = pc+1, class

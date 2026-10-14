@@ -536,7 +536,8 @@ main() {
 - A class declares its members; member functions are defined outside as
   `Class::name(params) { ... }` with the same number of parameters (default
   values go in the definition, never in the declaration). The base class
-  must be defined before the classes derived from it.
+  must be defined before the classes derived from it. It may also be a
+  class written in Go ([section 11](#11-modules-written-in-go)).
 - `new C(args)` makes an object with all data members `nil` and runs the
   constructor: `C::C`, or, when `C` declares none, the nearest base class's.
   A constructor cannot be static.
@@ -739,9 +740,54 @@ does not replace them.
 Their classes are *native classes*: written in Go, their objects hold Go
 data and have member functions but no data members. `typeof` gives
 `"object"`, `classof` and `instanceof` work as for other classes, and `==`
-compares whether two values are the same object. A native class cannot
-(yet) be used as a base class, and a native class without a constructor
-has no `new`: its objects come from the module's functions.
+compares whether two values are the same object. A native class without
+a constructor has no `new`: its objects come from the module's functions.
+
+A class written in Kukel may derive from a native class that has a
+constructor:
+
+```
+use strings;
+
+class Lines : strings::Builder {
+    count;
+    Lines(first);
+    line(s);
+}
+
+Lines::Lines(first) {
+    strings::Builder::Builder(first);       // sets up the Go part
+    count = 0;
+}
+
+Lines::line(s) {
+    count++;
+    return add(s, "\n");                    // a member function written in Go
+}
+
+main() {
+    local l = new Lines("# log\n");
+    l->line("one")->line("two");
+    print(l->str());                        // # log, one, two (one per line)
+    println(l->count, instanceof(l, strings::Builder));   // 2 true
+}
+```
+
+- The object holds the Go part of the native class next to its own data
+  members. The derived constructor sets the Go part up by calling the
+  native constructor, `strings::Builder::Builder(...)`, as for any base
+  class; a class without its own constructor uses the native one. Calling
+  a member function written in Go before that is a `ValueError` ("the
+  strings::Builder part of this Lines object is not set up").
+- The member functions of the native class are inherited, and the derived
+  class may override them; `strings::Builder::add(...)` calls the native
+  one (without spread arguments). The Go code itself calls its own member
+  functions, not the overrides.
+- Where a module's function takes an object of the native class (`time`
+  values for `sub`, sockets for `zmq::poll`, ...), it also takes objects of
+  classes derived from it.
+- A data member may not have the name of a member function of the native
+  class. A derived object prints as Kukel objects do (`Lines{count: 2}`).
 
 ### db
 
@@ -1083,11 +1129,11 @@ on every interface), `"ipc://path"` (a Unix socket file) or `"inproc://name"`
 | `s->bind(endpoint)` | Listens on `endpoint`. Port 0 (`"tcp://127.0.0.1:0"`) picks a free port, which `endpoint()` then shows. A busy or forbidden address is a `NetError` |
 | `s->connect(endpoint)` | Connects to a socket bound at `endpoint`. Unlike C ZeroMQ, it waits for the other side: it retries for about 3 seconds, then gives a `NetError`, so bind first |
 | `s->send(message)` | Sends a string, or a vector of strings as one message of several parts (`TypeError` for other values, `ValueError` for an empty vector) |
-| `s->receive([timeout])` | The next message; waits for it, at most `timeout` seconds if given, then gives `nil`. A message that arrives after the timeout is kept for the next `receive`. A negative or `nan` timeout is a `ValueError`; a broken connection a `NetError` |
-| `s->onmessage(f)` | The event loop (`events`) calls `f(message)` for each message, and `events::run()` keeps going until the socket is closed. Afterwards `receive()` is a `ValueError`, as is a second `onmessage`; `f` must be a function (`TypeError`) |
+| `s->receive([timeout])` | The next message; waits for it, at most `timeout` seconds if given, then gives `nil`. A message that arrives after the timeout is kept for the next `receive`. A negative or `nan` timeout is a `ValueError`, as is `receive` on a PUSH or PUB socket (they only send); a broken connection a `NetError` |
+| `s->onmessage(f)` | The event loop (`events`) calls `f(message)` for each message, and `events::run()` keeps going until the socket is closed. Afterwards `receive()` is a `ValueError`, as is a second `onmessage`, and `onmessage` on a PUSH or PUB socket; `f` must be a function (`TypeError`) |
 | `s->subscribe(prefix)`, `s->unsubscribe(prefix)` | A SUB socket receives the messages that start with one of its prefixes (`""`: all of them); other socket types give a `ValueError`. Subscriptions take a moment to reach the PUB socket: messages published right after `subscribe` may be missed |
 | `s->type()`, `s->endpoint()` | The type, and the last endpoint bound to or connected to (`""` if none) |
-| `zmq::poll(sockets [, timeout])` | Waits until one of the sockets (a vector) has a message and gives that socket, whose `receive()` then gives the message at once; `nil` after `timeout` seconds. When several have one, the earliest in the vector wins. No message is lost: the others stay with their sockets. A closed socket, or one with an `onmessage` handler, is a `ValueError` |
+| `zmq::poll(sockets [, timeout])` | Waits until one of the sockets (a vector) has a message and gives that socket, whose `receive()` then gives the message at once; `nil` after `timeout` seconds. When several have one, the earliest in the vector wins. No message is lost: the others stay with their sockets. A closed socket, one with an `onmessage` handler, or a PUSH or PUB socket is a `ValueError` |
 | `s->close()` | Closes the socket (closing again has no effect). If the socket sent a message less than 0.1 seconds before, `close` waits until 0.1 seconds have passed, so that the message still leaves. Using a closed socket is a `ValueError` |
 
 A socket prints as `zmq::Socket(REQ, tcp://localhost:5555)`, without an

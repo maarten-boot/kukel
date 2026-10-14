@@ -5,7 +5,7 @@ values, the program image, the execution model of the stack machine, every
 instruction, how the compiler translates the language's constructs, the
 `.kkc` file format and what the loader guarantees.
 
-It describes bytecode format version **5** (kukel v0.8). The language
+It describes bytecode format version **6** (kukel v0.9). The language
 itself is described in [reference.md](reference.md), its grammar in
 [syntax.ebnf](../syntax.ebnf).
 
@@ -104,7 +104,7 @@ and what the VM runs:
 | Part | Contents |
 |---|---|
 | `Globals` | the global slots: name and kind (variable, function, built-in, class, native) and, for functions and classes, an index into `Funcs` or `Classes`. A *native* global is a function, static member function or class of a module written in Go, named by its qualified name (`json::encode`, `time::Time::parse`, `time::Time`). Names of a module's top-level names are qualified (`geometry::hypot`) |
-| `Classes` | name (`module::Class` for a class of a module), base class index (a base always comes before its derived classes), own data members, own static data members, own member functions (name, static flag, function index or −1 if declared but not defined) |
+| `Classes` | name (`module::Class` for a class of a module), base class index (a base always comes before its derived classes) or the qualified name of a native base class (`Native`), own data members, own static data members, own member functions (name, static flag, function index or −1 if declared but not defined) |
 | `Funcs` | all functions: top-level functions, member functions, function literals |
 | `Init` | the function that runs the global initializers |
 | `Main` | the global index of `main` |
@@ -271,8 +271,22 @@ the object; a static one is a built-in (`p->parse` gives it). Its
 constructor is a Go function that `NEW` runs at once to fill in the
 object's Go value, after which `NEW` leaves the object (there is no
 constructor frame). A native class without a constructor cannot be used
-with `new`; its objects come from its module's functions. The compiler
-refuses a native class as a base class.
+with `new`; its objects come from its module's functions.
+
+**Deriving from a native class** (Kukel v0.9): a class of the image may
+name a native base class by its qualified name (`Class.Native`). The VM
+finds the run-time class as it finds native globals, and the derived class
+starts from its method table; it adds data members of its own (the native
+class has none). An object of the derived class has both its data member
+slots and the Go value, which the native constructor sets: when the class
+has no constructor of its own, `NEW` runs the native one; else the derived
+constructor calls it with `CALL_NATIVE` (`Base::Base(...)`), as it calls
+any member function written in Go of its base non-virtually. Before that, a
+member function written in Go raises a `ValueError` ("the ... part of this
+... object is not set up") instead of finding no Go value. Only a native
+class with a constructor can be a base class. Go code that takes an object
+of a native class (`native.Args.Object`, `Class.Is`) also takes objects of
+classes derived from it.
 
 Go code reaches the interpreter through `value.Env` (the VM): output and
 input, `Call` to call a Kukel function (a nested execution, section 4.3),
@@ -466,6 +480,7 @@ code: the numbers, names, operands and stack effects.
 | 74 | `DEC_LOCAL` | slot:u16 | 0 | 0 | `slot = slot - 1` |
 | 75 | `SWITCH_TABLE` | table:u16, miss:u32 | 1 | 0 | `x`: jump to the target of `x` in the function's jump table `table`, else to `miss` (below) |
 | 76 | `ADD_LOCAL` | slot:u16 | 1 | 0 | `x`: `slot = slot + x` (statement `local += x`) |
+| 77 | `CALL_NATIVE` | class:u16, name:u16, argc:u16 | argc+1 | 1 | `this args`: call the member function written in Go named by string constant `name` of the native class in global `class`, on `this` (`Base::m(...)` and `Base::Base(...)` for a native base) |
 
 `CMP_JUMP`'s `cmp` operand is the comparison in its low byte (0 `<`,
 1 `<=`, 2 `>`, 3 `>=`, 4 `==`, 5 `!=`), plus 0x100 to jump when the
@@ -719,6 +734,9 @@ runs their `finally` copies, innermost first.
 ```
 b->m();          LOAD_LOCAL b; CALL_METHOD m, 0 (cache 0)          virtual call
 A::m() + 1       LOAD_THIS; CALL_DIRECT A::m, 0; CONST 1; ADD      Base::m(...) on this
+strings::Builder::add(x)
+                 LOAD_THIS; LOAD_LOCAL x;                          the same for a native base
+                 CALL_NATIVE strings::Builder, add, 1               (the Go function by name)
 new B()          LOAD_GLOBAL B; NEW 0
 this->x, x       LOAD_MEMBER 0                                     a known data member: its slot
 p->x = 2         LOAD_LOCAL p; CONST 2; SET_MEMBER x (cache 1)     by name, cached
@@ -748,12 +766,12 @@ noted; `str` is a `uv` length followed by that many bytes.
 
 ```
 "KUKL"                       4 bytes: magic
-uv   format version          5
+uv   format version          6
 uv   flags                   0 (1: a module, below)
 uv   main                    global index of main
 uv   n, then n globals       str name, byte kind (0 variable, 1 function, 2 built-in, 3 class, 4 native),
                              uv function or class index (0 for the others)
-uv   n, then n classes       str name, uv base+1 (0: none),
+uv   n, then n classes       str name, uv base+1 (0: none), str native base ("": none),
                              uv n + str (own data members), uv n + str (own static data members),
                              uv n + methods: str name, byte static (0/1), uv function+1 (0: not defined)
 function                     the init function
@@ -779,7 +797,8 @@ uv   n + jump tables         min (a zigzag varint), uv n + targets (uv target+1,
 **Versions**: the format version changes whenever the instruction set or the
 layout changes (version 2: milestone 12's superinstructions and inline
 cache slots; version 3: native globals; version 4: `THROW` takes only
-`Error` objects; version 5: jump tables, `SWITCH_TABLE`, `ADD_LOCAL`). A reader refuses any version other
+`Error` objects; version 5: jump tables, `SWITCH_TABLE`, `ADD_LOCAL`;
+version 6: native base classes, `CALL_NATIVE`). A reader refuses any version other
 than its own, telling the user to compile the program again. Built-ins and
 the names of native modules are referred to by name, so a program that uses
 one the running `kukel` does not have is refused when the VM is set up to
@@ -810,8 +829,8 @@ functions their indexes as for a source module. Pass 2 then *links* the
 code instead of compiling bodies: a definition goes into the slot of its
 function, function literals and the init function after the others, and
 every global, class and function index operand (`LOAD_GLOBAL`,
-`STORE_GLOBAL`, `LOAD_STATIC`, `STORE_STATIC`, `CALL_DIRECT`, `LOAD_FUNC`,
-`CLOSURE`) is rewritten by name. The program's init function calls the
+`STORE_GLOBAL`, `LOAD_STATIC`, `STORE_STATIC`, `CALL_DIRECT`, `CALL_NATIVE`,
+`LOAD_FUNC`, `CLOSURE`) is rewritten by name. The program's init function calls the
 module's init function (`LOAD_FUNC`, `CALL 0`, `POP`) where the module's
 initializers would run. Data member indexes are not names: the data
 members of the module's own classes, and of the classes whose static data
@@ -857,8 +876,10 @@ an iterator, a vector being built or a pending exception; `LOAD_MEMBER` or
 `STORE_MEMBER` without `this` or beyond the object's data members;
 `LOAD_UPVALUE`/`STORE_UPVALUE` outside a closure or beyond its cells;
 `CLOSURE` capturing a slot that holds no cell, or an upvalue that is not
-there; `TRY_POP` whose innermost handler belongs to another frame; an
-unknown opcode. Inline caches cannot make the VM crash: an entry is only
+there; `TRY_POP` whose innermost handler belongs to another frame;
+`CALL_NATIVE` of a global that is not a native class, or on an object that
+is not of that class (the Go code would find a Go value of another type);
+an unknown opcode. Inline caches cannot make the VM crash: an entry is only
 trusted for the class and the kind of member it was filled for. A fatal
 exception (the step limit, cancellation, `exit`) drops the try handlers of
 the frames it leaves, so a VM can be used again afterwards (an embedded

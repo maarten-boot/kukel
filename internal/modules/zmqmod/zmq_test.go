@@ -134,7 +134,10 @@ main() {
                  fn() { new zmq::Socket("PUSH")->send(5); },
                  fn() { new zmq::Socket("PUSH")->send([]); },
                  fn() { new zmq::Socket("PULL")->receive(-1); },
-                 fn() { new zmq::Socket("PULL")->onmessage(5); }];
+                 fn() { new zmq::Socket("PULL")->onmessage(5); },
+                 fn() { new zmq::Socket("PUSH")->receive(); },
+                 fn() { new zmq::Socket("PUB")->onmessage(fn(m) {}); },
+                 fn() { zmq::poll([new zmq::Socket("PULL"), new zmq::Socket("PUSH")]); }];
     for (local f in bad) try { f(); } catch (e) { println(e->kind + ":", e->message); }
 }`)
 	want := `ValueError: zmq::Socket::Socket: unknown socket type "STREAM" (one of DEALER, PAIR, PUB, PULL, PUSH, REP, REQ, ROUTER, SUB)
@@ -145,6 +148,9 @@ TypeError: zmq::Socket::send: argument 1 must be a string or a vector of strings
 ValueError: zmq::Socket::send: a message needs at least one part
 ValueError: zmq::Socket::receive: -1.0 seconds is not a usable timeout
 TypeError: zmq::Socket::onmessage: argument 1 must be a function, not int
+ValueError: zmq::Socket::receive: a PUSH socket cannot receive messages
+ValueError: zmq::Socket::onmessage: a PUB socket cannot receive messages
+ValueError: zmq::poll: socket 2 is a PUSH socket, which cannot receive messages
 `
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)

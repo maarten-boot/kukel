@@ -106,6 +106,8 @@ func (c *compiler) checkNew(e *ast.NewExpr) {
 	}
 	ctor := k.constructor()
 	switch {
+	case ctor != nil && ctor.class.native:
+		return // a native base class's constructor: it checks its arguments when it runs
 	case ctor == nil:
 		if len(e.Args) > 0 && !hasSpread(e.Args) {
 			c.errorf(e.New, "class %s has no constructor, so new %s() takes no arguments (got %d)", k.name, k.name, len(e.Args))

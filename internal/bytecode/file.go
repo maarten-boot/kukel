@@ -18,7 +18,8 @@ import (
 //	uv  flags              0 (1: a module, see EncodeModule)
 //	uv  main               global index of main
 //	uv  n, globals         str name, byte kind, uv func or class index
-//	uv  n, classes         str name, uv base+1 (0: none), uv n + str fields,
+//	uv  n, classes         str name, uv base+1 (0: none), str native base
+//	                       ("" for none), uv n + str fields,
 //	                       uv n + str statics, uv n + methods
 //	                       (str name, byte static, uv func+1 (0: not defined))
 //	function               <init>
@@ -41,7 +42,7 @@ const (
 )
 
 // FormatVersion is the version of the .kkc format written by Encode.
-const FormatVersion = 5 // 2: milestone 12 superinstructions; 3: native modules (GlobalNative); 4: THROW takes only Error objects (Kukel v0.4); 5: jump tables and ADD_LOCAL (Kukel v0.8)
+const FormatVersion = 6 // 2: milestone 12 superinstructions; 3: native modules (GlobalNative); 4: THROW takes only Error objects (Kukel v0.4); 5: jump tables and ADD_LOCAL (Kukel v0.8); 6: native base classes, CALL_NATIVE (Kukel v0.9)
 
 const magic = "KUKL"
 
@@ -79,6 +80,7 @@ func Encode(p *Program) ([]byte, error) {
 	for _, c := range p.Classes {
 		e.str(c.Name)
 		e.uv(c.Base + 1)
+		e.str(c.Native)
 		e.strs(c.Fields)
 		e.strs(c.Statics)
 		e.uv(len(c.Methods))
@@ -215,7 +217,7 @@ func Decode(data []byte) (*Program, error) {
 	}
 	p.Classes = make([]*Class, d.count())
 	for i := range p.Classes {
-		c := &Class{Name: d.str(), Base: d.uv() - 1}
+		c := &Class{Name: d.str(), Base: d.uv() - 1, Native: d.str()}
 		c.Fields = d.strs()
 		c.Statics = d.strs()
 		c.Methods = make([]Method, d.count())

@@ -36,6 +36,8 @@ func StackUse(op Op, operands []int) (pops, pushes int) {
 		return arg(0) + 1, 1
 	case OpCallMethod, OpCallDirect:
 		return arg(1) + 1, 1
+	case OpCallNative:
+		return arg(2) + 1, 1
 	case OpMakeVector:
 		return arg(0), 1
 	case OpMakeMap:

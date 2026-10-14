@@ -111,3 +111,55 @@ func ExampleFromGo() {
 	// {"name": "Kukel", "tags": ["small", "fun"]} 2
 	// map[name:Kukel tags:[small fun]]
 }
+
+// A class written in Go: Kukel code uses it and derives a class from it
+// that overrides a step (changed).
+func ExampleNewClass() {
+	type counter struct{ n int64 }
+	counterClass := kukel.NewClass("Counter").
+		New(func(in *kukel.Interp, this *kukel.Object, args []kukel.Value) (kukel.Value, error) {
+			this.SetState(&counter{}) // the constructor sets the state
+			return kukel.Nil, nil
+		}).
+		Method("inc", func(in *kukel.Interp, this *kukel.Object, args []kukel.Value) (kukel.Value, error) {
+			c := this.State().(*counter)
+			c.n++
+			if _, err := this.Call(in, "changed", kukel.Int(c.n)); err != nil { // overridable
+				return kukel.Nil, err
+			}
+			return this.Value(), nil
+		}).
+		Method("changed", func(in *kukel.Interp, this *kukel.Object, args []kukel.Value) (kukel.Value, error) {
+			return kukel.Nil, nil
+		}).
+		Show(func(this *kukel.Object) string {
+			return fmt.Sprintf("app::Counter(%d)", this.State().(*counter).n)
+		})
+	app := kukel.NewModule("app").Class(counterClass)
+
+	prog, err := kukel.CompileSource("main.kkl", `use app;
+
+class Loud : app::Counter { Loud(); changed(n); }
+Loud::Loud() { app::Counter::Counter(); }        // sets up the Go state
+Loud::changed(n) { println("now", n); }
+
+main() {
+    local c = new app::Counter();
+    c->inc()->inc();
+    println(c);                                  // app::Counter(2)
+    new Loud()->inc();                           // now 1
+}`, kukel.CompileOptions{Modules: []*kukel.Module{app}})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	in, err := kukel.New(prog, kukel.Options{Stdout: os.Stdout})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	in.Run()
+	// Output:
+	// app::Counter(2)
+	// now 1
+}

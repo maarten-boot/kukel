@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -430,5 +431,150 @@ func TestSeveralCompileErrors(t *testing.T) {
 	var ce *kukel.CompileError
 	if !errors.As(err, &ce) || ce.Line != 1 || len(ce.More) != 1 || ce.More[0].Line != 2 || strings.Count(err.Error(), "\n") != 1 {
 		t.Errorf("got %#v", err)
+	}
+}
+
+// A class written in Go, used and derived from in Kukel.
+func TestHostClass(t *testing.T) {
+	type counter struct{ n int64 }
+	counterClass := kukel.NewClass("Counter").
+		New(func(in *kukel.Interp, this *kukel.Object, args []kukel.Value) (kukel.Value, error) {
+			start := int64(0)
+			if len(args) > 0 {
+				var ok bool
+				if start, ok = args[0].AsInt(); !ok {
+					return kukel.Nil, kukel.Errorf("TypeError", "Counter: the start must be an int")
+				}
+			}
+			this.SetState(&counter{n: start})
+			return kukel.Nil, nil
+		}).
+		Method("inc", func(in *kukel.Interp, this *kukel.Object, args []kukel.Value) (kukel.Value, error) {
+			c := this.State().(*counter)
+			c.n++
+			// Tell the object: a derived Kukel class may override changed.
+			if _, err := this.Call(in, "changed", kukel.Int(c.n)); err != nil {
+				return kukel.Nil, err
+			}
+			return this.Value(), nil
+		}).
+		Method("changed", func(in *kukel.Interp, this *kukel.Object, args []kukel.Value) (kukel.Value, error) {
+			return kukel.Nil, nil
+		}).
+		Method("value", func(in *kukel.Interp, this *kukel.Object, args []kukel.Value) (kukel.Value, error) {
+			return kukel.Int(this.State().(*counter).n), nil
+		}).
+		Static("zero", func(in *kukel.Interp, args []kukel.Value) (kukel.Value, error) {
+			return kukel.Int(0), nil
+		}).
+		Show(func(this *kukel.Object) string {
+			return fmt.Sprintf("app::Counter(%d)", this.State().(*counter).n)
+		})
+	var app *kukel.Module
+	app = kukel.NewModule("app").
+		Class(counterClass).
+		Func("make", func(in *kukel.Interp, args []kukel.Value) (kukel.Value, error) {
+			return counterClass.Object(&counter{n: 100}), nil
+		}).
+		Func("total", func(in *kukel.Interp, args []kukel.Value) (kukel.Value, error) {
+			sum := int64(0)
+			for _, a := range args {
+				s, ok := counterClass.StateOf(a)
+				if !ok {
+					return kukel.Nil, kukel.Errorf("TypeError", "app::total: not a counter: %v", a)
+				}
+				sum += s.(*counter).n
+			}
+			return kukel.Int(sum), nil
+		})
+	var out bytes.Buffer
+	p := compile(t, `use app;
+class Loud : app::Counter { log; Loud(start); changed(n); }
+Loud::Loud(start) { app::Counter::Counter(start); log = []; }
+Loud::changed(n) { push(log, n); }
+
+class Lazy : app::Counter { Lazy(); }
+Lazy::Lazy() { }
+
+main() {
+    local c = new app::Counter(5);
+    c->inc()->inc();
+    local l = new Loud(10);
+    l->inc()->inc();
+    local m = app::make();
+    println(c, c->value(), l->value(), l->log, l, m, app::Counter::zero(), Loud::zero());
+    println(app::total(c, l, m), instanceof(l, app::Counter));
+    try { new Lazy()->inc(); } catch (e) { println(e->kind + ":", e->message); }
+    try { app::total(new Lazy()); } catch (e) { println(e->kind + ":", e->message); }
+    try { new app::Counter("x"); } catch (e) { println(e->kind + ":", e->message); }
+}`, kukel.CompileOptions{Modules: []*kukel.Module{app}})
+	if _, err := interp(t, p, kukel.Options{Stdout: &out}).Run(); err != nil {
+		t.Fatal(err)
+	}
+	want := `app::Counter(7) 7 12 [11, 12] Loud{log: [11, 12]} app::Counter(100) 0 0
+119 true
+ValueError: app::Counter::inc: the app::Counter part of this Lazy object is not set up: its constructor must call app::Counter::Counter(...)
+TypeError: app::total: not a counter: Lazy{}
+TypeError: Counter: the start must be an int
+`
+	if out.String() != want {
+		t.Errorf("got:\n%s\nwant:\n%s", out.String(), want)
+	}
+	mustPanic := func(what string, f func()) {
+		t.Helper()
+		defer func() {
+			if recover() == nil {
+				t.Errorf("%s: no panic", what)
+			}
+		}()
+		f()
+	}
+	f := func(*kukel.Interp, *kukel.Object, []kukel.Value) (kukel.Value, error) { return kukel.Nil, nil }
+	mustPanic("a method named like the class", func() { kukel.NewClass("C").Method("C", f) })
+	mustPanic("a nil method", func() { kukel.NewClass("C").Method("m", nil) })
+	mustPanic("a member defined twice", func() { kukel.NewClass("C").Method("m", f).Method("m", f) })
+	mustPanic("a class name that is not a name", func() { kukel.NewClass("a-b") })
+	mustPanic("a class added after use", func() { app.Class(kukel.NewClass("Late")) })
+	mustPanic("a class in two modules", func() { kukel.NewModule("other").Class(counterClass) })
+}
+
+// Workers use the same host classes in parallel.
+func TestHostClassWorkers(t *testing.T) {
+	type box struct{ n int64 }
+	boxClass := kukel.NewClass("Box").
+		New(func(in *kukel.Interp, this *kukel.Object, args []kukel.Value) (kukel.Value, error) {
+			this.SetState(&box{})
+			return kukel.Nil, nil
+		}).
+		Method("add", func(in *kukel.Interp, this *kukel.Object, args []kukel.Value) (kukel.Value, error) {
+			b := this.State().(*box)
+			n, _ := args[0].AsInt()
+			b.n += n
+			return kukel.Int(b.n), nil
+		})
+	app := kukel.NewModule("app").Class(boxClass)
+	var out bytes.Buffer
+	p := compile(t, `use app;
+use worker;
+class Tally : app::Box { Tally(); }
+Tally::Tally() { app::Box::Box(); }
+count(n) {
+    local b = new Tally();
+    local r = 0;
+    for (local i = 0; i < n; i++) r = b->add(1);
+    return r;
+}
+main() {
+    local ws = [];
+    for (local i = 0; i < 4; i++) push(ws, worker::start(count, 2000));
+    local total = 0;
+    for (local w in ws) total += w->wait();
+    println(total);
+}`, kukel.CompileOptions{Modules: []*kukel.Module{app}})
+	if _, err := interp(t, p, kukel.Options{Stdout: &out}).Run(); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "8000\n" {
+		t.Errorf("got %q", out.String())
 	}
 }

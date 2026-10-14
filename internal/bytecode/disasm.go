@@ -31,6 +31,9 @@ func Disassemble(w io.Writer, p *Program) error {
 		if c.Base >= 0 && c.Base < len(p.Classes) {
 			base = " : " + p.Classes[c.Base].Name
 		}
+		if c.Native != "" {
+			base = " : " + c.Native + " (native)"
+		}
 		dw.printf("class %d: %s%s fields=%v statics=%v\n", i, c.Name, base, c.Fields, c.Statics)
 		for _, m := range c.Methods {
 			kind := "method"
@@ -155,6 +158,13 @@ func (d *disasm) operand(f *Function, op Op, pc int) string {
 		return fmt.Sprintf("%s  ; cache %d", d.constName(f, ReadU16(f.Code, pc+1)), ReadU16(f.Code, pc+3))
 	case OpCallMethod:
 		return fmt.Sprintf("%s, %d  ; cache %d", d.constName(f, ReadU16(f.Code, pc+1)), ReadU16(f.Code, pc+3), ReadU16(f.Code, pc+5))
+	case OpCallNative:
+		g := ReadU16(f.Code, pc+1)
+		s := fmt.Sprintf("%d, %s, %d", g, d.constName(f, ReadU16(f.Code, pc+3)), ReadU16(f.Code, pc+5))
+		if g < len(d.prog.Globals) {
+			s += "  ; " + d.prog.Globals[g].Name
+		}
+		return s
 	case OpCallDirect:
 		fn := ReadU16(f.Code, pc+1)
 		s := fmt.Sprintf("%d, %d", fn, ReadU16(f.Code, pc+3))

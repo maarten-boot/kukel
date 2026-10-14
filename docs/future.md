@@ -83,11 +83,15 @@ sock->close();
   forgotten ones as a safety net (Go finalizers), but not as the plan.
 
 *Done (TODO.md Q36): `internal/native`; the modules `json`, `strings` and
-`time` use it. Native classes cannot be derived from yet.*
+`time` use it. Kukel classes can derive from native classes that have a
+constructor (TODO.md Q51), and Go programs that embed Kukel can write
+native classes in host modules.*
 
 **F-3** Is deriving from native classes needed from the start (GUI style
 "override `onClick`"), or are callbacks (`button->onClick(fn() {...})`) enough?
-*Answered: not from the start; callbacks first, deriving when the GUI needs it.*
+*Answered: not from the start; callbacks first, deriving when the GUI needs it.
+Deriving is done (Q51): the derived constructor calls the native one; Go code
+calls an overridable step through the object (`this.Call` in the public API).*
 **F-4** A `with (local f = open(...)) { ... }` statement that closes
 automatically, or keep `try`/`finally`?
 *Answered and done (TODO.md Q45): the `with` statement.*
@@ -281,7 +285,8 @@ result, err := interp.Call("main", kukel.String("hi"))
 the repository root (`import "github.com/maarten-boot/kukel"`), Go functions
 come in host modules (`use app; app::notify(x)`), and the limits are a step
 budget per call, cancellation by a Go context, and allow-lists of modules
-and built-ins. Memory is not limited. See docs/embedding.md.*
+and built-ins. Memory is not limited. Host modules can hold classes written
+in Go too (Q51). See docs/embedding.md.*
 
 ### 2.2 Interpreters inside Kukel (workers)
 
