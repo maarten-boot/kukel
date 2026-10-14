@@ -53,7 +53,7 @@ caught RangeError: index 5 out of range for vector of length 3
   modules written in Go: `events` (an event loop with timers), `json`,
   `strings` (a string builder), `time`, and `worker` (interpreters that run
   in parallel and exchange messages)
-- 57 built-in functions (strings, collections, math, files, ...)
+- 55 built-in functions (strings, collections, math, files, ...)
 
 The full description is in [docs/reference.md](docs/reference.md); the
 grammar is in [syntax.ebnf](syntax.ebnf) (and as a

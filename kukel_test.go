@@ -112,7 +112,7 @@ func TestErrors(t *testing.T) {
 
 	in := interp(t, compile(t, `
 f(v) { return v[5]; }
-g() { throw [1, 2]; }
+g() { local v = [1, 2]; throw v; }
 h() { exit(4); }
 main() {}`, kukel.CompileOptions{}), kukel.Options{})
 	_, err = in.Call("f", kukel.Vector())
@@ -120,8 +120,8 @@ main() {}`, kukel.CompileOptions{}), kukel.Options{})
 	if !errors.As(err, &ke) || ke.Kind != "RangeError" || len(ke.Trace) != 1 || ke.Trace[0].Func != "f" || ke.Trace[0].Line != 2 {
 		t.Errorf("exception: %#v", err)
 	}
-	if _, err = in.Call("g"); !errors.As(err, &ke) || ke.Kind != "" || ke.Value.Len() != 2 {
-		t.Errorf("thrown value: %#v", err)
+	if _, err = in.Call("g"); !errors.As(err, &ke) || ke.Kind != "TypeError" || !strings.Contains(ke.Message, "only Error objects can be thrown") {
+		t.Errorf("a thrown vector: %#v", err)
 	}
 	var xe *kukel.ExitError
 	if _, err = in.Call("h"); !errors.As(err, &xe) || xe.Code != 4 {
@@ -355,7 +355,7 @@ main() {}`, kukel.CompileOptions{Modules: []*kukel.Module{boom}})
 	}
 
 	// A failed initializer fails every call, not only the first.
-	bad := interp(t, compile(t, `global g = h(); h() { throw "bad init"; } f() { return g; } main() {}`, kukel.CompileOptions{}), kukel.Options{})
+	bad := interp(t, compile(t, `global g = h(); h() { throw new Error("bad init"); } f() { return g; } main() {}`, kukel.CompileOptions{}), kukel.Options{})
 	for i := 0; i < 2; i++ {
 		if _, err := bad.Call("f"); err == nil || !strings.Contains(err.Error(), "bad init") {
 			t.Errorf("call %d after a failed init: %v", i, err)

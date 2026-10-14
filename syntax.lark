@@ -1,4 +1,4 @@
-// Lark grammar for Kukel (syntax.ebnf, syntax version 4; kukel v0.3).
+// Lark grammar for Kukel (syntax.ebnf, syntax version 5; kukel v0.4).
 //
 // Intended for:  Lark(grammar, parser="lalr", lexer="contextual")
 // (the default lexer for LALR; the start rule is "start"). The contextual
@@ -98,10 +98,7 @@ block: "{" statement* "}"
           | expression_nb ";"          -> expression_statement
           | ";"                        -> empty_statement
 
-if_statement: "if" condition statement [else_part]
-
-?else_part: "else" statement
-          | "elseif" condition statement [else_part]    -> elseif_part
+if_statement: "if" condition statement ["else" statement]
 
 ?condition: "(" expression ")"
 
@@ -114,10 +111,14 @@ while_statement: "while" condition statement
 
 do_statement: "do" statement "while" condition ";"
 
-for_statement: "for" "(" [for_init] ";" [expression] ";" [expression] ")" statement
+for_statement: "for" "(" [for_init] ";" [expression] ";" [expression_list] ")" statement
 
 ?for_init: for_local
-         | expression
+         | expression_list
+
+// The comma operator: only in the first and last part of a for loop.
+?expression_list: assignment
+                | assignment ("," assignment)+              -> comma
 
 // Pairs of (name, initializer or None).
 for_local: "local" IDENTIFIER ["=" assignment] ("," IDENTIFIER ["=" assignment])*
@@ -148,7 +149,6 @@ throw_statement: "throw" expression ";"
 // ======================================================================
 
 ?expression: assignment
-           | assignment ("," assignment)+                   -> comma
 
 ?assignment: conditional
            | conditional assignment_operator assignment     -> assign
@@ -237,7 +237,6 @@ map_entry: conditional ":" assignment
 // ----------------------------------------------------------------------
 
 ?expression_nb: assignment_nb
-              | assignment_nb ("," assignment)+             -> comma
 ?assignment_nb: conditional_nb
               | conditional_nb assignment_operator assignment -> assign
 ?conditional_nb: logical_or_nb
@@ -289,12 +288,12 @@ map_entry: conditional ":" assignment
 // Keywords are excluded from IDENTIFIER and LABEL by a lookahead, so that
 // even the contextual lexer never turns a keyword into a name.
 // (Max length of 255 characters is a semantic check.)
-IDENTIFIER: /(?!(?:break|case|catch|class|const|continue|default|do|else|elseif|false|finally|fn|for|global|if|in|local|new|nil|return|static|switch|this|throw|true|try|use|while)(?![A-Za-z0-9_]))[A-Za-z_][A-Za-z0-9_]*/
+IDENTIFIER: /(?!(?:break|case|catch|class|const|continue|default|do|else|false|finally|fn|for|global|if|in|local|new|nil|return|static|switch|this|throw|true|try|use|while)(?![A-Za-z0-9_]))[A-Za-z_][A-Za-z0-9_]*/
 
 // "name:" with the ":" on the same line, and not the start of "::".
 // Only offered by the contextual lexer where a statement may start, so
 // "a ? b : c", "{k: v}" and "case K:" are unaffected.
-LABEL.2: /(?!(?:break|case|catch|class|const|continue|default|do|else|elseif|false|finally|fn|for|global|if|in|local|new|nil|return|static|switch|this|throw|true|try|use|while)(?![A-Za-z0-9_]))[A-Za-z_][A-Za-z0-9_]*[ \t]*:(?!:)/
+LABEL.2: /(?!(?:break|case|catch|class|const|continue|default|do|else|false|finally|fn|for|global|if|in|local|new|nil|return|static|switch|this|throw|true|try|use|while)(?![A-Za-z0-9_]))[A-Za-z_][A-Za-z0-9_]*[ \t]*:(?!:)/
 
 STATIC: "static"
 THIS: "this"

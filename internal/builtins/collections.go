@@ -20,31 +20,6 @@ func init() {
 
 	// ---- strings ----
 
-	define("substr", func(env value.Env, args []value.Value) (value.Value, error) {
-		if err := argRange("substr", args, 2, 3); err != nil {
-			return value.NilValue, err
-		}
-		s, err := argString("substr", args, 0)
-		if err != nil {
-			return value.NilValue, err
-		}
-		start, err := argBound("substr", args, 1, len(s), "start")
-		if err != nil {
-			return value.NilValue, err
-		}
-		end := len(s)
-		if len(args) == 3 {
-			n, err := argInt("substr", args, 2)
-			if err != nil {
-				return value.NilValue, err
-			}
-			if n < 0 || n > int64(len(s)-start) {
-				return value.NilValue, value.Errorf(value.RangeError, "substr: length %d out of range (at most %d)", n, len(s)-start)
-			}
-			end = start + int(n)
-		}
-		return value.MakeString(s[start:end]), nil
-	})
 	define("find", func(env value.Env, args []value.Value) (value.Value, error) {
 		if err := argRange("find", args, 2, 3); err != nil {
 			return value.NilValue, err

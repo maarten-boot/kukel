@@ -304,9 +304,7 @@ File all.kkl
             Binary ==
               Name a
               Name b
-            Comma
-              Name c
-              Name d
+            Name c
             Assign =
               Name e
               Int 3

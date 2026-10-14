@@ -79,7 +79,7 @@ first line `#!/usr/bin/env ...` is allowed) and `/* ... */` (not nested; a
 **Nesting**: expressions and statements may nest at most 1000 levels deep
 (parentheses, blocks, ...); deeper is a compile error.
 
-**Keywords**: `break case catch class const continue default do else elseif
+**Keywords**: `break case catch class const continue default do else
 false finally fn for global if in local new nil return static switch this
 throw true try use while`.
 
@@ -165,7 +165,7 @@ main(args) { println(square(MAX), HALF, count, names, new Point(1, 2)); }
   a constant, function, class or built-in is a compile error.
 - A constant's value must be computable when compiling: literals, constants
   defined earlier, and the unary, binary and `?:` operators on them (not
-  calls, not the comma operator). Every part is checked, also the part that
+  calls). Every part is checked, also the part that
   `&&`, `||` or `?:` skips.
 - Global initializers run in program order (files in command-line order)
   before `main`. A global can be used anywhere, also above its declaration;
@@ -242,10 +242,11 @@ geometry::Circle{r: 1}
 
 ```
 { local a = 1, b; a = 2; }         // a block; locals are visible after their initializer
-if (x > 0) f(); elseif (x < 0) g(); else h();
+if (x > 0) f(); else if (x < 0) g(); else h();
 while (i < 10) i++;
 do { i--; } while (i > 0);
 for (local i = 0; i < n; i++) ...  // the locals belong to the loop
+for (i = 0, j = n; i < j; i++, j--) ...  // the comma operator: only in a for loop's first and last part
 for (;;) { if (done) break; }      // no condition: until break
 for (local x in v) ...             // elements of a vector, keys of a map, bytes of a string
 for (local i, x in v) ...          // index and element; key and value; index and byte
@@ -291,7 +292,7 @@ Operators, from lowest to highest precedence:
 
 | Operators | Associativity | Notes |
 |---|---|---|
-| `,` | left | evaluates both, gives the right one |
+| `,` | left | only in the first and last part of a `for` loop: evaluates both, gives the right one |
 | `= += -= *= /= %= &= \|= ^= <<= >>=` | right | the value of an assignment is the assigned value |
 | `c ? a : b` | right | |
 | `\|\|` | left | gives `true` or `false`; stops when the left side is true |
@@ -480,17 +481,21 @@ main() {
 }
 ```
 
-- Any value can be thrown; `catch (e)` catches everything.
-- Runtime errors throw objects of the built-in class `Error`, which has the
-  data members `message`, `kind` and `trace`. Programs throw it and derive
-  from it too (`new Error([message [, kind]])`).
+- Only `Error` objects can be thrown: objects of the built-in class `Error`
+  or of a class derived from it, with the data members `message`, `kind`
+  and `trace` (`throw new Error("bad input", "ValueError")`). Throwing
+  another value is a compile error for a literal (`throw "x"`), else a
+  `TypeError`. `catch (e)` catches everything, so `e->kind` and
+  `e->message` always work.
+- Runtime errors throw `Error` objects too; programs derive their own
+  classes from it (`new Error([message [, kind]])`).
 - The first time an `Error` is thrown, `trace` gets the stack trace (a
   vector of strings such as `"f (prog.kkl:3)"`, innermost call first) and,
   if `kind` is nil, `kind` becomes the name of its class.
 - An exception thrown in a `finally` block replaces the one in progress.
 - An uncaught exception ends the program with exit code 1, printing
-  `kind: message` (just `kind` when the message is nil or empty; `uncaught exception:
-  value` for values that are not `Error` objects) and the stack trace.
+  `kind: message` (just `kind` when the message is nil or empty) and the
+  stack trace.
 - `exit(code)` ends the program at once; it cannot be caught and `finally`
   blocks do not run.
 
@@ -516,6 +521,9 @@ Kinds of runtime errors:
 ---
 
 ## 10. Built-in functions
+
+`isnil` and `substr` were removed in v0.4 (the compiler says so): write
+`x == nil` and `slice(s, start, end)`.
 
 Argument positions in error messages count from 1. Unless noted, a wrong
 type is a `TypeError`, a wrong count an `ArgumentError`, a number or index
@@ -543,7 +551,6 @@ work with an `ArgumentError`.
 | `str(x)` | `x` as text, as `print` writes it |
 | `int(x)` | An int: floats are truncated toward zero; strings in decimal, `0x` or `0b` form with an optional sign (`"42"`, `"-0x10"`, `"0b11"`), surrounding spaces allowed and every `_` ignored (`"1_000"`); `true` is 1, `false` 0 |
 | `float(x)` | A float from an int, float or string (`"2.5"`, `"1e3"`, `"inf"`, also Go's other forms such as `"0x1p3"`) |
-| `isnil(x)` | Whether `x` is `nil` |
 | `classof(obj)` | The class of an object |
 | `instanceof(x, C)` | Whether `x` is an object of class `C` or of a class derived from it |
 
@@ -552,7 +559,6 @@ work with an `ArgumentError`.
 | Function | Description |
 |---|---|
 | `len(x)` | Length of a string (in bytes), vector or map |
-| `substr(s, start [, n])` | `n` bytes from `start` (to the end without `n`) |
 | `find(s, sub [, from])` | Index of the first `sub` at or after `from`, or -1 |
 | `split(s, sep)` | Vector of the parts between the `sep`s; with `""`, the single bytes |
 | `join(v [, sep])` | The elements joined with `sep`; non-strings as `str` gives them |
@@ -570,7 +576,7 @@ work with an `ArgumentError`.
 | `pop(v)` | Removes and returns the last element |
 | `insert(v, i, x)` | Inserts `x` at index `i` (0..`len(v)`) |
 | `remove(v, i)` | Removes and returns the element at `i` |
-| `slice(x, start [, end])` | A new vector (or string) of the elements from `start` up to `end` |
+| `slice(x, start [, end])` | A new vector (or string) of the elements (bytes) from `start` up to, not including, `end` (to the end without it): `slice("hello", 1, 3)` is `"el"` |
 | `sort(v [, less])` | Sorts `v` in place (stable); `less(a, b)` says whether `a` goes before `b` (default `<`) |
 | `keys(m)`, `values(m)` | Vectors of a map's keys or values, in insertion order |
 | `haskey(m, k)` | Whether `k` is a key of `m` |

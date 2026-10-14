@@ -1485,6 +1485,9 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			vm.handlers = vm.handlers[:len(vm.handlers)-1]
 		case bytecode.OpThrow:
 			sp--
+			if v := stack[sp]; v.Kind() != value.Object || !v.AsObject().Class.IsSubclassOf(vm.errorClass) {
+				return vm.fail(f, start, sp, value.Errorf(value.TypeError, "only Error objects can be thrown, not %s (throw new Error(message, kind))", v.Kind()))
+			}
 			f.ip = start
 			vm.sp = sp
 			return value.NilValue, vm.throwValue(stack[sp])

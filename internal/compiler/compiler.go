@@ -31,6 +31,13 @@ const (
 	symClass
 )
 
+// removedBuiltins are built-in functions that were removed, with what to
+// write instead: an undefined name that is one of these gets that advice.
+var removedBuiltins = map[string]string{
+	"isnil":  "write x == nil",
+	"substr": "write slice(s, start, end) (end is not included: substr(s, i, n) is slice(s, i, i + n))",
+}
+
 // global is a top-level name.
 type global struct {
 	kind   symKind
@@ -624,6 +631,11 @@ func (c *compiler) simpleStmt(s ast.Stmt) {
 	case *ast.TryStmt:
 		c.tryStmt(s)
 	case *ast.ThrowStmt:
+		switch s.Value.(type) {
+		case *ast.IntLit, *ast.FloatLit, *ast.CharLit, *ast.StringLit, *ast.BoolLit, *ast.NilLit,
+			*ast.VectorLit, *ast.MapLit, *ast.FuncLit:
+			c.errorf(s.Value.Pos(), "only Error objects can be thrown: throw new Error(message, kind)")
+		}
 		c.expr(s.Value)
 		c.mark(s.Throw)
 		c.emit(bytecode.OpThrow)
@@ -1321,6 +1333,9 @@ func (c *compiler) load(id *ast.Ident) {
 	}
 	g, ok := c.lookup(id.Name)
 	if !ok {
+		if hint, ok := removedBuiltins[id.Name]; ok {
+			c.errorf(id.NamePos, "%s was removed in Kukel v0.4: %s", id.Name, hint)
+		}
 		c.errorf(id.NamePos, "undefined name %s", id.Name)
 	}
 	c.loadGlobal(g, id)

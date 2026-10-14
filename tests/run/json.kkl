@@ -103,12 +103,12 @@ Parser::number() {
     if (peek() == '-') pos++;
     while (pos < len(text) && (text[pos] >= '0' && text[pos] <= '9' || text[pos] == '.' || text[pos] == 'e')) pos++;
     if (pos == start) fail("expected a value");
-    local s = substr(text, start, pos - start);
+    local s = slice(text, start, pos);
     return find(s, ".") >= 0 || find(s, "e") >= 0 ? float(s) : int(s);
 }
 
 Parser::literal(word, result) {
-    if (substr(text, pos, min(len(word), len(text) - pos)) != word) fail("expected " + word);
+    if (slice(text, pos, min(pos + len(word), len(text))) != word) fail("expected " + word);
     pos += len(word);
     return result;
 }

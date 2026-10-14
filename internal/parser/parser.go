@@ -429,19 +429,17 @@ func (p *parser) parseCondition(keyword string) ast.Expr {
 	return x
 }
 
-// parseIf parses "if (c) s [else s]" and "elseif (c) s [else-part]"; an
-// elseif becomes "else if".
+// parseIf parses "if (c) s [else s]".
 func (p *parser) parseIf() *ast.IfStmt {
 	s := &ast.IfStmt{If: p.tok.Pos}
-	keyword := p.tok.Kind.String()
 	p.next()
-	s.Cond = p.parseCondition(keyword)
+	s.Cond = p.parseCondition("if")
 	s.Then = p.parseStmt()
-	switch {
-	case p.accept(token.ELSE):
+	if p.accept(token.ELSE) {
 		s.Else = p.parseStmt()
-	case p.at(token.ELSEIF):
-		s.Else = p.parseIf()
+	} else if p.at(token.IDENT) && p.tok.Text == "elseif" && p.peek(1).Kind == token.LPAREN {
+		// "elseif (c)" was a keyword up to syntax version 4.
+		p.errorf(p.tok.Pos, "elseif was removed in syntax version 5: write 'else if'")
 	}
 	return s
 }
@@ -477,7 +475,7 @@ func (p *parser) parseFor() ast.Stmt {
 			p.errorf(p.tok.Pos, "a for-each loop takes one or two names before 'in'")
 		}
 	} else if !p.at(token.SEMICOLON) {
-		s.Init = p.parseExpr()
+		s.Init = p.parseExprList()
 	}
 	p.expect(token.SEMICOLON, "after for initializer")
 	if !p.at(token.SEMICOLON) {
@@ -485,7 +483,7 @@ func (p *parser) parseFor() ast.Stmt {
 	}
 	p.expect(token.SEMICOLON, "after for condition")
 	if !p.at(token.RPAREN) {
-		s.Post = p.parseExpr()
+		s.Post = p.parseExprList()
 	}
 	p.expect(token.RPAREN, "after for update")
 	s.Body = p.parseStmt()
@@ -514,8 +512,20 @@ func (p *parser) parseTry() *ast.TryStmt {
 // ----------------------------------------------------------------------
 // Expressions
 
-// parseExpr parses a comma expression.
+// parseExpr parses an expression. The comma operator belongs only to the
+// first and last part of a for loop (parseExprList); elsewhere a comma
+// after an expression gets a message that says so.
 func (p *parser) parseExpr() ast.Expr {
+	x := p.parseAssign()
+	if p.at(token.COMMA) {
+		p.errorf(p.tok.Pos, "a comma between expressions is only allowed in the first and last part of a for loop, as in for (i = 0, j = n; i < j; i++, j--); write separate statements")
+	}
+	return x
+}
+
+// parseExprList parses "a, b, c" (the comma operator) for the first and
+// last part of a for loop.
+func (p *parser) parseExprList() ast.Expr {
 	x := p.parseAssign()
 	if !p.at(token.COMMA) {
 		return x

@@ -124,7 +124,7 @@ main() { app::notify("started " + app::version); }
 | Error | When |
 |---|---|
 | `*CompileError` | An error in the source: `File`, `Line`, `Col`, `Message` (a missing file is the `os` error) |
-| `*Error` | An exception nothing in the program caught: `Kind` (`"RangeError"`, ..., `""` for a thrown value that is not an `Error` object), `Message`, `Value` (the thrown value), `Trace` (innermost call first). Also the step limit (`"StepLimitError"`) and cancellation (`"CancelledError"`), which the program cannot catch |
+| `*Error` | An exception nothing in the program caught: `Kind` (`"RangeError"`, ...), `Message`, `Value` (the thrown `Error` object), `Trace` (innermost call first). Also the step limit (`"StepLimitError"`) and cancellation (`"CancelledError"`), which the program cannot catch |
 | `*ExitError` | The program called `exit(code)` during a `Call`, `CallValue` or `Global` (in an initializer); `Run` gives the code as its result |
 
 `(*Error).Error()` gives `Kind: Message`, followed for an exception of the

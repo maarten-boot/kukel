@@ -12,7 +12,7 @@ words(line) {
     for (local c in lower(line) + " ") {
         if (isLetter(c)) {
             word += char(c);
-        } elseif (word != "") {
+        } else if (word != "") {
             push(out, word);
             word = "";
         }

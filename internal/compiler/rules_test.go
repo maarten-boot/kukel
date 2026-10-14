@@ -31,6 +31,13 @@ var ruleCases = map[string]struct {
 			{"global print; main() {}", "print is a built-in function and cannot be redefined"},
 		},
 	},
+	"throw_statement": {
+		ok: []string{`class E : Error {} main() { local e = new E(); try { throw e; } catch (x) { throw new Error("again", "Mine"); } }`},
+		bad: [][2]string{
+			{`main() { throw "x"; }`, "only Error objects can be thrown"},
+			{`main() { throw [1]; }`, "only Error objects can be thrown"},
+		},
+	},
 	"use_declaration": {elsewhere: "internal/compiler TestModules; internal/loader TestLoadOrder, TestLoadErrors"},
 	"global_variable": {elsewhere: "internal/vm TestPrograms: \"global initializers run in order\", \"global used before its initializer\""},
 	"const_definition": {

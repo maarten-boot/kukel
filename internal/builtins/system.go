@@ -62,12 +62,6 @@ func init() {
 
 	// ---- type and conversion ----
 
-	define("isnil", func(env value.Env, args []value.Value) (value.Value, error) {
-		if err := wantArgs("isnil", args, 1); err != nil {
-			return value.NilValue, err
-		}
-		return value.MakeBool(args[0].IsNil()), nil
-	})
 	define("int", func(env value.Env, args []value.Value) (value.Value, error) {
 		if err := wantArgs("int", args, 1); err != nil {
 			return value.NilValue, err

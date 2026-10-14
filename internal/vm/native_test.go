@@ -64,8 +64,8 @@ func TestNoStaleHandlersAfterFatal(t *testing.T) {
 	f, err := parser.ParseFile("t.kkl", []byte(`
 spin() { try { while (true) {} } catch (e) { return "caught?"; } }
 quits() { try { exit(3); } finally { println("finally?"); } }
-boom() { try { throw "x"; } catch (e) { return "caught " + e; } }
-bare() { throw "loose"; }
+boom() { try { throw new Error("x"); } catch (e) { return "caught " + e->message; } }
+bare() { throw new Error("loose"); }
 main() {}`))
 	if err != nil {
 		t.Fatal(err)

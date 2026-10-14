@@ -116,9 +116,9 @@ func isIdent(s string) bool {
 // end of a call by its step limit (Kind "StepLimitError") or its context
 // (Kind "CancelledError").
 type Error struct {
-	Kind    string  // "TypeError", "ValueError", ..., or "" for a thrown value that is not an Error object
-	Message string  // the Error object's message, or the thrown value as text
-	Value   Value   // the thrown value (Nil for the step limit and cancellation)
+	Kind    string  // "TypeError", "ValueError", ...
+	Message string  // the Error object's message
+	Value   Value   // the thrown Error object (Nil for the step limit and cancellation)
 	Trace   []Frame // the calls, innermost first
 	err     error   // the VM's error, to throw again unchanged
 }

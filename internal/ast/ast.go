@@ -345,7 +345,8 @@ type Spread struct {
 	X Expr
 }
 
-// CommaExpr is "a, b, c": evaluated left to right, value of the last.
+// CommaExpr is "a, b, c": evaluated left to right, value of the last. It
+// occurs only as the first and last part of a for loop.
 type CommaExpr struct {
 	List []Expr
 }

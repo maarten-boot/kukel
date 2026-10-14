@@ -256,30 +256,31 @@ sample.kkl:26:20  >         >
 sample.kkl:26:22  IDENT     c
 sample.kkl:26:23  )         )
 sample.kkl:26:25  ;         ;
-sample.kkl:26:27  elseif    elseif
-sample.kkl:26:34  (         (
-sample.kkl:26:35  IDENT     a
-sample.kkl:26:37  <=        <=
-sample.kkl:26:40  IDENT     b
-sample.kkl:26:42  <<        <<
-sample.kkl:26:45  INT       1  = 1
-sample.kkl:26:46  )         )
-sample.kkl:26:48  ;         ;
-sample.kkl:26:50  else      else
-sample.kkl:26:55  IDENT     a
-sample.kkl:26:57  =         =
-sample.kkl:26:59  true      true
-sample.kkl:26:64  ||        ||
-sample.kkl:26:67  false     false
-sample.kkl:26:73  ||        ||
-sample.kkl:26:76  nil       nil
-sample.kkl:26:79  ;         ;
-sample.kkl:26:81  }         }
-sample.kkl:26:83  while     while
-sample.kkl:26:89  (         (
-sample.kkl:26:90  INT       0  = 0
-sample.kkl:26:91  )         )
-sample.kkl:26:92  ;         ;
+sample.kkl:26:27  else      else
+sample.kkl:26:32  if        if
+sample.kkl:26:35  (         (
+sample.kkl:26:36  IDENT     a
+sample.kkl:26:38  <=        <=
+sample.kkl:26:41  IDENT     b
+sample.kkl:26:43  <<        <<
+sample.kkl:26:46  INT       1  = 1
+sample.kkl:26:47  )         )
+sample.kkl:26:49  ;         ;
+sample.kkl:26:51  else      else
+sample.kkl:26:56  IDENT     a
+sample.kkl:26:58  =         =
+sample.kkl:26:60  true      true
+sample.kkl:26:65  ||        ||
+sample.kkl:26:68  false     false
+sample.kkl:26:74  ||        ||
+sample.kkl:26:77  nil       nil
+sample.kkl:26:80  ;         ;
+sample.kkl:26:82  }         }
+sample.kkl:26:84  while     while
+sample.kkl:26:90  (         (
+sample.kkl:26:91  INT       0  = 0
+sample.kkl:26:92  )         )
+sample.kkl:26:93  ;         ;
 sample.kkl:27:5   return    return
 sample.kkl:27:12  --        --
 sample.kkl:27:14  IDENT     count

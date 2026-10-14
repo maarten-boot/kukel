@@ -125,12 +125,12 @@ func TestPrograms(t *testing.T) {
 				println(1 && "x", nil || 0, !nil, !0, !"", !!2.5);
 				if (t() && !f() || f()) println("yes", calls);
 			}`, "false true 2\ntrue false true true false true\nyes 4\n"},
-		{"conditional and comma", `main() {
-			local x;
+		{"conditional, and the comma in a for loop", `main() {
+			local i, j, s = "";
 			println(1 ? "a" : "b", 0 ? "a" : "b", 0 ? 1 : 0 ? 2 : 3);
-			x = (1, 2, 3);
-			println(x);
-		}`, "a b 3\n3\n"},
+			for (i = 0, j = 3; i < j; i++, j--) s += str(i) + str(j) + " ";
+			println(s);
+		}`, "a b 3\n03 12 \n"},
 		{"assignment values", `main() {
 			local a, b;
 			a = b = 5;
@@ -141,8 +141,8 @@ func TestPrograms(t *testing.T) {
 		{"increment and decrement", `
 			global g = 1.5;
 			main() { local i = 5; println(i++, i, ++i, i--, --i); g++; println(g); }`, "5 6 7 7 5\n2.5\n"},
-		{"elseif chain", `
-			sign(x) { if (x < 0) return "neg"; elseif (x == 0) return "zero"; elseif (x < 10) return "small"; else return "big"; }
+		{"else if chain", `
+			sign(x) { if (x < 0) return "neg"; else if (x == 0) return "zero"; else if (x < 10) return "small"; else return "big"; }
 			main() { println(sign(-1), sign(0), sign(5), sign(50)); }`, "neg zero small big\n"},
 		{"functions are values", `
 			global g;
@@ -303,7 +303,7 @@ func TestPrograms(t *testing.T) {
 		}`, "[95, 96, 97, 98, 99, \"new\"] 6 97\n"},
 		{"strings", `main() {
 			local s = "héllo";
-			println(len(s), s[0], s[1], substr(s, 3), substr(s, 0, 1), find(s, "l"), find(s, "l", 5), find(s, "z"));
+			println(len(s), s[0], s[1], slice(s, 3), slice(s, 0, 1), find(s, "l"), find(s, "l", 5), find(s, "z"));
 			println(split("a,b,,c", ","), split("abc", ""), join(["x", 1, 2.5, nil], "-"), join([]), join(["a", "b"]));
 			println(upper("Hi there!"), lower("ABC é"), trim("  \t x y \n"), replace("a-b-c", "-", "+"));
 			println(char(65) + char(0x42), ord("A"), ord("AB", 1), slice("hello", 1, 3), slice("hello", 2));
@@ -467,18 +467,18 @@ func TestPrograms(t *testing.T) {
 		// milestone 7
 		{"catching runtime errors", "f(x) {\n return 10 / x;\n}\nmain() {\n try { f(0); } catch (e) {\n  println(e->kind, \"|\", e->message, \"|\", e->trace, instanceof(e, Error));\n }\n println(\"after\");\n}",
 			"ZeroDivisionError | integer division by zero | [\"f (t.kkl:2)\", \"main (t.kkl:5)\"] true\nafter\n"},
-		{"any value can be thrown", `main() {
+		{"only Error objects can be thrown", `main() {
 			for (local v in [1, "s", [2], {"k": 3}, nil]) {
-				try { throw v; } catch (e) { print(typeof(e), e == v, ""); }
+				try { throw v; } catch (e) { print(e->kind, ""); }
 			}
 			println();
-		}`, "int true string true vector true map true nil true \n"},
+		}`, "TypeError TypeError TypeError TypeError TypeError \n"},
 		{"finally runs on every way out", `
 			global trail = [];
 			f(n) {
 				try {
 					if (n == 0) return "returned";
-					if (n == 1) throw "thrown";
+					if (n == 1) throw new Error("thrown");
 					push(trail, "body " + str(n));
 				} finally {
 					push(trail, "finally " + str(n));
@@ -487,7 +487,7 @@ func TestPrograms(t *testing.T) {
 			}
 			main() {
 				for (local n = 0; n < 3; n++) {
-					try { push(trail, f(n)); } catch (e) { push(trail, "caught " + e); }
+					try { push(trail, f(n)); } catch (e) { push(trail, "caught " + e->message); }
 				}
 				for (local i = 0; i < 3; i++) {
 					try { if (i == 0) continue; if (i == 2) break; push(trail, "loop " + str(i)); }
@@ -507,16 +507,16 @@ func TestPrograms(t *testing.T) {
 					} finally { print("b "); }
 				} finally { print("c "); }
 			}
-			try { try { throw "x"; } finally { print("d "); } } catch (e) { print("caught", e); }
+			try { try { throw new Error("x"); } finally { print("d "); } } catch (e) { print("caught", e->message); }
 			println();
 		}`, "a b c d caught x\n"},
 		{"exceptions in catch and finally", `main() {
 			try {
-				try { throw "first"; } catch (e) { throw "from catch: " + e; } finally { print("cleanup "); }
-			} catch (e) { println(e); }
+				try { throw new Error("first"); } catch (e) { throw new Error("from catch: " + e->message); } finally { print("cleanup "); }
+			} catch (e) { println(e->message); }
 			try {
-				try { throw "lost"; } finally { throw "from finally"; }
-			} catch (e) { println(e); }
+				try { throw new Error("lost"); } finally { throw new Error("from finally"); }
+			} catch (e) { println(e->message); }
 		}`, "cleanup from catch: first\nfrom finally\n"},
 		{"rethrowing keeps the original trace", "f() {\n [1][2];\n}\nmain() {\n try {\n  try { f(); } catch (e) { throw e; }\n } catch (e2) { println(e2->trace); }\n}",
 			"[\"f (t.kkl:2)\", \"main (t.kkl:6)\"]\n"},
@@ -538,31 +538,31 @@ func TestPrograms(t *testing.T) {
 				println(count(5000));
 			}`, "StackOverflowError 10000\n5000\n"},
 		{"exceptions cross built-ins", `
-			bad(a, b) { throw "from comparator"; }
+			bad(a, b) { throw new Error("from comparator"); }
 			main() {
-				try { sort([2, 1], bad); } catch (e) { println("caught:", e); }
+				try { sort([2, 1], bad); } catch (e) { println("caught:", e->message); }
 				try { sort([2, 1], fn2); } catch (e) { println(e->kind, e->trace); }
 			}
 			fn2(a, b) { return a < nil; }`,
 			"caught: from comparator\nTypeError [\"fn2 (t.kkl:7)\", \"main (t.kkl:5)\"]\n"},
 		{"the stack is restored after a catch", `
 			g() { try { return 1 / 0; } catch (e) { return 10; } }
-			h(n) { if (n == 0) throw "deep"; return h(n - 1) + 1; }
+			h(n) { if (n == 0) throw new Error("deep"); return h(n - 1) + 1; }
 			main() {
 				local a = 5;
 				println(1 + g() * 2, a);
 				local v = [];
 				for (local i = 0; i < 3; i++) {
-					try { push(v, i + h(i)); } catch (e) { push(v, e); }
+					try { push(v, i + h(i)); } catch (e) { push(v, e->message); }
 				}
 				println(v, a + 1);
 			}`, "21 5\n[\"deep\", \"deep\", \"deep\"] 6\n"},
 		{"a throwing constructor", `
 			class A { A(x); }
-			A::A(x) { if (x) throw "no"; }
+			A::A(x) { if (x) throw new Error("no"); }
 			main() {
 				local a;
-				try { a = new A(1); } catch (e) { println("caught", e, a); }
+				try { a = new A(1); } catch (e) { println("caught", e->message, a); }
 				println(new A(0));
 			}`, "caught no nil\nA{}\n"},
 		// milestone 8
@@ -609,9 +609,9 @@ func TestPrograms(t *testing.T) {
 			fact = fn(n) { return n <= 1 ? 1 : n * fact(n - 1); };
 			println(fact(10));
 		}`, "3628800\n"},
-		{"closures capture parameters, temporaries and catch variables", `
+		{"closures capture parameters, locals and catch variables", `
 			make(p) { local t; t = p * 2; return fn() { return [p, t]; }; }
-			catcher() { try { throw "e1"; } catch (e) { return fn() { return e; }; } }
+			catcher() { try { throw new Error("e1"); } catch (e) { return fn() { return e->message; }; } }
 			main() { println(make(4)(), catcher()()); }`, "[4, 8] e1\n"},
 		{"closures in member functions see this and members", `
 			class Button { label, clicks; Button(l); onClick(); }
@@ -649,7 +649,7 @@ func TestPrograms(t *testing.T) {
 		{"conversions", `main() {
 			println(int("42"), int(" -0x10 "), int("1_000"), int("0b101"), int("0xFFFFFFFFFFFFFFFF"), int("-9223372036854775808"));
 			println(int(3.9), int(-3.9), int(true), int(false), int(7));
-			println(float("2.5"), float(" 1e3 "), float(3), float("inf"), float("-0"), float(1.5), isnil(nil), isnil(0));
+			println(float("2.5"), float(" 1e3 "), float(3), float("inf"), float("-0"), float(1.5), nil == nil, 0 == nil);
 		}`, "42 -16 1000 5 -1 -9223372036854775808\n3 -3 1 0 7\n2.5 1000.0 3.0 inf -0.0 1.5 true false\n"},
 		{"math", `main() {
 			println(abs(-5), abs(-2.5), abs(-9223372036854775808), min(3, 1, 2), max([4, 9, 2]), min("b", "a"), max(1, 2.5));
@@ -753,10 +753,10 @@ main() {
 			"TypeError: cannot iterate over int\n  at main (t.kkl:2)"},
 		{"len of an int", "main() { len(1); }",
 			"TypeError: int has no length\n  at main (t.kkl:1)"},
-		{"built-in argument type", "main() { substr(1, 0); }",
-			"TypeError: substr: argument 1 must be a string, not int\n  at main (t.kkl:1)"},
-		{"built-in argument range", `main() { substr("abc", 4); }`,
-			"RangeError: substr: start 4 out of range 0..3\n  at main (t.kkl:1)"},
+		{"built-in argument type", "main() { slice(1, 0); }",
+			"TypeError: slice: argument 1 must be a vector or string, not int\n  at main (t.kkl:1)"},
+		{"built-in argument range", `main() { slice("abc", 4); }`,
+			"RangeError: slice: start 4 out of range 0..3\n  at main (t.kkl:1)"},
 		{"pop from an empty vector", "main() { pop([]); }",
 			"RangeError: pop from an empty vector\n  at main (t.kkl:1)"},
 		{"sort of mixed values", `main() { sort([1, "a"]); }`,
@@ -795,8 +795,8 @@ main() {
 			"ZeroDivisionError: integer division by zero\n  at A::g (t.kkl:3)\n  at A::f (t.kkl:2)\n  at main (t.kkl:4)"},
 		{"classof of a non-object", "main() { classof(1); }",
 			"TypeError: classof: argument 1 must be an object, not int\n  at main (t.kkl:1)"},
-		{"uncaught thrown value", "main() {\n throw \"oops\";\n}",
-			"uncaught exception: \"oops\"\n  at main (t.kkl:2)"},
+		{"throwing a value that is not an Error object", "main() {\n local v = \"oops\";\n throw v;\n}",
+			"TypeError: only Error objects can be thrown, not string (throw new Error(message, kind))\n  at main (t.kkl:3)"},
 		{"uncaught Error object", "main() {\n throw new Error(\"bad\");\n}",
 			"Error: bad\n  at main (t.kkl:2)"},
 		{"uncaught Error without a message", "class Oops : Error { }\nmain() {\n throw new Oops();\n}",

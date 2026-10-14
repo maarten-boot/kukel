@@ -25,7 +25,7 @@ first keeps each idea small.
 
 ### 1.1 Modules (name spaces)
 
-Today all built-ins share one flat name space with the program (57 names
+Today all built-ins share one flat name space with the program (55 names
 plus the class `Error`, reserved at the top level; locals and members may
 reuse them). GUI, messaging and database libraries would add hundreds.
 They need name spaces, loaded only when a program asks for them:

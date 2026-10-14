@@ -279,7 +279,7 @@ func FuzzCompile(f *testing.F) {
 		"class A { x; static s; A(a = 1); f(b..); static g(); } A::A(a) { x = a; s = this; } A::f(b) { return x++ + this->x-- + A::g(); } A::g() { return s->x; } main() { new A()->f(1, 2); }",
 		"class B { y; m(); } class C : B { z; C(); m(); } C::C() { B::m(); z = y = this->m; } C::m() { return B::m() + z->y++; } B::m() { return y; } main() { local c = C; new c()->z = new C()->m; }",
 		"f(x) { a: for (;;) { try { try { if (x) return x; break a; } catch (e) { continue; } finally { x++; } } finally { } } } main() { f(1); }",
-		"main() { switch (1) { case 1: try { throw 1; } catch (e) { try { } finally { while (1) break; } } default: } }",
+		"main() { switch (1) { case 1: try { throw new Error(); } catch (e) { try { } finally { while (1) break; } } default: } }",
 		"class E : Error { E(); } E::E() { Error::Error(\"m\"); } main() { try { throw new E(); } catch (e) { throw e; } finally { return; } }",
 		"main(a) { local t; local f = fn(x = a, y..) { local z; return fn() { a++; t = x; return z = y; }; }; for (local i = 0; i < 2; i++) f(i)(); }",
 		"class K { v; m(); } K::m() { return fn() { return fn() { v++; return this; }; }; } main() { try { new K()->m()()(); } catch (e) { local g = fn() { return e; }; } }",

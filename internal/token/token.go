@@ -78,7 +78,6 @@ const (
 	DEFAULT
 	DO
 	ELSE
-	ELSEIF
 	FALSE
 	FINALLY
 	FN
@@ -169,7 +168,6 @@ var names = [...]string{
 	DEFAULT:  "default",
 	DO:       "do",
 	ELSE:     "else",
-	ELSEIF:   "elseif",
 	FALSE:    "false",
 	FINALLY:  "finally",
 	FN:       "fn",

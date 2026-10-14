@@ -66,7 +66,7 @@ func TestOperatorsLongestMatch(t *testing.T) {
 
 func TestKeywordsAndIdentifiers(t *testing.T) {
 	for _, kw := range []string{"break", "case", "catch", "class", "const", "continue", "default", "do",
-		"else", "elseif", "false", "finally", "fn", "for", "global", "if", "in", "local", "new", "nil",
+		"else", "false", "finally", "fn", "for", "global", "if", "in", "local", "new", "nil",
 		"return", "static", "switch", "this", "throw", "true", "try", "while"} {
 		tk := one(t, kw)
 		if !tk.Kind.IsKeyword() || tk.Kind.String() != kw {

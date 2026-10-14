@@ -1,5 +1,5 @@
 (*
-   Kukel syntax, as implemented by kukel v0.3 (syntax version 4).
+   Kukel syntax, as implemented by kukel v0.4 (syntax version 5).
 
    Notation: ISO/IEC 14977 EBNF.
        =  definition        ;  end of rule        |  alternative
@@ -12,7 +12,13 @@
    What programs mean is described in docs/reference.md; how they are
    compiled and run in docs/vm.md.
 
-   History: syntax version 4 removed temporaries, the names after ";" in
+   History: syntax version 5 removed "elseif" (write "else if"; elseif is
+   no longer a keyword) and allows the comma operator only in the first
+   and last part of a for loop. The parser reports the old forms with that
+   advice. (Kukel v0.4 also removed the built-ins isnil and substr, and
+   allows only Error objects in throw; those are rules, not syntax.)
+
+   Syntax version 4 removed temporaries, the names after ";" in
    a parameter list ("f(a; t, u)"); a body declares them with "local"
    instead ("f(a) { local t, u; ... }"). The parser reports the old form
    with that advice.
@@ -188,12 +194,9 @@ statement           = if_statement
                     (* A "{" that starts a statement is a block, never a
                        map literal. *)
 
-if_statement        = "if" , condition , statement , [ else_part ] ;
-
-else_part           = "else" , statement
-                    | "elseif" , condition , statement , [ else_part ] ;
-                    (* "elseif (e) s" is "else if (e) s". An else belongs
-                       to the nearest if. *)
+if_statement        = "if" , condition , statement , [ "else" , statement ] ;
+                    (* An else belongs to the nearest if; "else if" chains
+                       conditions. *)
 
 condition           = "(" , expression , ")" ;
 
@@ -218,11 +221,15 @@ do_statement        = "do" , statement , "while" , condition , ";" ;
 
 for_statement       = "for" , "(" , [ for_init ] , ";" ,
                                     [ expression ] , ";" ,
-                                    [ expression ] , ")" , statement ;
+                                    [ expression_list ] , ")" , statement ;
                       (* An empty test loops until break. *)
 
 for_init            = "local" , local_variable , { "," , local_variable }
-                    | expression ;
+                    | expression_list ;
+
+expression_list     = assignment , { "," , assignment } ;
+                      (* The comma operator, only here: evaluated left to
+                         right (for (i = 0, j = n; i < j; i++, j--)). *)
                       (* Locals declared here are visible in the test, the
                          update and the body, not after the loop. Each
                          iteration has its own copy of them (a closure made
@@ -277,14 +284,18 @@ finally_part        = "finally" , block ;
                          outside the finally block, are compile errors. *)
 
 throw_statement     = "throw" , expression , ";" ;
+                      (* Rule: the value must be an Error object (an
+                         object of class Error or a class derived from it).
+                         A literal that is not one is a compile error,
+                         another value a TypeError when the throw runs. *)
 
 
 (* ======================================================================
    3. Expressions, lowest to highest precedence
    ====================================================================== *)
 
-expression          = assignment , { "," , assignment } ;
-                      (* comma: evaluated left to right, value of the last *)
+expression          = assignment ;
+                      (* No comma operator here (see expression_list). *)
 
 assignment          = conditional , [ assignment_operator , assignment ] ;
                       (* right associative. Rule: the left side must be an
@@ -299,9 +310,8 @@ assignment_operator = "=" | "+=" | "-=" | "*=" | "/=" | "%="
                     | "&=" | "|=" | "^=" | "<<=" | ">>=" ;
 
 conditional         = logical_or , [ "?" , expression , ":" , assignment ] ;
-                      (* As in C, the middle part may contain commas and the
-                         last part is an assignment: a ? b : c = d is
-                         a ? b : (c = d). *)
+                      (* As in C, the last part is an assignment:
+                         a ? b : c = d is a ? b : (c = d). *)
 
 logical_or          = logical_and , { "||" , logical_and } ;
 logical_and         = bitwise_or , { "&&" , bitwise_or } ;
@@ -420,7 +430,7 @@ Identifier          = ( ( Letter | "_" ) , { Letter | Digit | "_" } ) - Keyword 
                       (* at most 255 characters; case sensitive *)
 
 Keyword             = "break" | "case" | "catch" | "class" | "const" | "continue"
-                    | "default" | "do" | "else" | "elseif" | "false" | "finally"
+                    | "default" | "do" | "else" | "false" | "finally"
                     | "fn" | "for" | "global" | "if" | "in" | "local" | "new"
                     | "nil" | "return" | "static" | "switch" | "this" | "throw"
                     | "true" | "try" | "use" | "while" ;

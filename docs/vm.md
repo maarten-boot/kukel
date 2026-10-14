@@ -305,9 +305,10 @@ innermost one. A frame may only return with no handlers of its own left
 A **throw** (`THROW`, `RETHROW`, or a runtime error in any instruction or
 built-in):
 
-1. A runtime error becomes an `Error` object with `message` and `kind`.
-   When an `Error` object (of class `Error` or derived) is thrown for the
-   first time, its `trace` is set (a vector of strings `"f (file:line)"`,
+1. A runtime error becomes an `Error` object with `message` and `kind`;
+   `THROW` of anything but an `Error` object (of class `Error` or derived)
+   throws a `TypeError` instead, so every thrown value is an `Error` object.
+   When an `Error` object is thrown for the first time, its `trace` is set (a vector of strings `"f (file:line)"`,
    innermost first) and, if its `kind` is nil, `kind` becomes its class's
    name. Throwing it again keeps the original trace.
 2. The innermost handler is taken out. The frames above its frame are
@@ -318,8 +319,7 @@ built-in):
      value with the value and its trace), which `RETHROW` throws again
      unchanged after the finally code.
 3. Without a handler, the exception ends the run: `Run` returns it, and
-   `kukel` prints `kind: message` (or `uncaught exception: value`) with the
-   trace.
+   `kukel` prints `kind: message` with the trace.
 
 A built-in that calls Kukel code starts a nested execution. That execution
 only uses handlers registered by its own frames. An exception it does not
@@ -434,7 +434,7 @@ code: the numbers, names, operands and stack effects.
 | 61 | `NEW_V` | | 2 | 1 | like `NEW`, with the arguments in a vector |
 | 62 | `TRY_PUSH` | kind:u16, handler:u32 | 0 | 0 | register a handler (kind 0: catch, 1: finally) at `handler` (section 4.9) |
 | 63 | `TRY_POP` | | 0 | 0 | remove the innermost handler |
-| 64 | `THROW` | | 1 | 0 | throw the popped value |
+| 64 | `THROW` | | 1 | 0 | throw the popped value, which must be an `Error` object (else a `TypeError` is thrown instead) |
 | 65 | `RETHROW` | | 1 | 0 | throw the popped pending exception again (after a finally block) |
 | 66 | `NEW_CELL` | slot:u16 | 1 | 0 | pop into a new cell in `slot` |
 | 67 | `LOAD_CELL` | slot:u16 | 0 | 1 | push the value in `slot`'s cell |

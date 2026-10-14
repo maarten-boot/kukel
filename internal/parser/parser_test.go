@@ -104,11 +104,10 @@ func TestExpressions(t *testing.T) {
 		{"a <<= b >>= c &= d |= e ^= f *= g /= h %= i",
 			"(<<= a (>>= b (&= c (|= d (^= e (*= f (/= g (%= h i))))))))"},
 		{"a += b ? c : d", "(+= a (? b c d))"},
-		{"a ? b, c : d = e", "(? a (, b c) (= d e))"},
+		{"a ? b : d = e", "(? a b (= d e))"},
 		{"a ? b : c ? d : e", "(? a b (? c d e))"},
 		{"a = b ? c : d", "(= a (? b c d))"},
 		{"a || b ? c : d", "(? (|| a b) c d)"},
-		{"x = y, z", "(, (= x y) z)"},
 		// unary operators and literal folding
 		{"-x", "(- x)"},
 		{"-5", "-5"},
@@ -131,7 +130,6 @@ func TestExpressions(t *testing.T) {
 		{"f(a, b..)(c)", "(call (call f a (.. b)) c)"},
 		{"f()", "(call f)"},
 		{"a[i][j]", "(index (index a i) j)"},
-		{"a[i, j]", "(index a (, i j))"},
 		{"a->b->c(1)", "(method (member a b) c 1)"},
 		{"a->m()->n(x, y..)", "(method (method a m) n x (.. y))"},
 		{"(p->f)(x)", "(call (member p f) x)"},
@@ -200,7 +198,7 @@ func TestLiteralValues(t *testing.T) {
 func TestStatementShapes(t *testing.T) {
 	src := `
 main() {
-    if (a) x; elseif (b) y; elseif (c) z; else w;
+    if (a) x; else if (b) y; else if (c) z; else w;
     for (local k in v) ;
     for (local k, v in m) ;
     for (local i = 0, j; i < j; i++) ;
@@ -218,12 +216,12 @@ main() {
 	}
 	body := f.Decls[0].(*ast.FuncDecl).Body.Stmts
 
-	// elseif chains become nested ifs
+	// else if chains are nested ifs
 	s := body[0].(*ast.IfStmt)
 	s2 := s.Else.(*ast.IfStmt)
 	s3 := s2.Else.(*ast.IfStmt)
 	if sexpr(s2.Cond) != "b" || sexpr(s3.Cond) != "c" || s3.Else.(*ast.ExprStmt).X.(*ast.Ident).Name != "w" {
-		t.Errorf("elseif chain parsed wrongly")
+		t.Errorf("else if chain parsed wrongly")
 	}
 	if fe := body[1].(*ast.ForEachStmt); fe.Key.Name != "k" || fe.Value != nil {
 		t.Errorf("for-each with one name: %+v", fe)
@@ -272,7 +270,10 @@ func TestErrors(t *testing.T) {
 		{"main() { for (x in m) ; }", "1:17", "expected ';' after for initializer, found 'in'"},
 		{"main() { try { } }", "1:18", "expected 'catch' or 'finally' after the try block, found '}'"},
 		{"main() { if x {} }", "1:13", "expected '(' after 'if', found identifier 'x'"},
-		{"main() { elseif (x) y; }", "1:10", "expected expression, found 'elseif'"},
+		{"main() { if (a) b; elseif (c) d; }", "1:20", "elseif was removed in syntax version 5: write 'else if'"},
+		{"main() { x = y, z; }", "1:15", "a comma between expressions is only allowed in the first and last part of a for loop"},
+		{"main() { if (a, b) c; }", "1:15", "a comma between expressions is only allowed"},
+		{"main() { x = a ? b, c : d; }", "1:19", "a comma between expressions is only allowed"},
 		{"main() { case a ? b : c: }", "1:17", "expected ':' after case value, found '?'"},
 		{"main() { local this; }", "1:16", "expected local variable name, found 'this'"},
 		{"main() { x = [1, 2; }", "1:19", "expected ']' to close the vector opened at t.kkl:1:14, found ';'"},
@@ -335,7 +336,7 @@ func FuzzParser(f *testing.F) {
 		"main() { switch (x) { case 1: { local y; case 2: ; } default: break; } }",
 		"main() { try { throw new E(1)->m(); } catch (e) { } finally { } }",
 		"global g = [1, v.., {a: fn() { return this->x; }}]; const C = 1 << 2;",
-		"main() { if (a) b; elseif (c) d; else { do e; while (f); } }",
+		"main() { if (a) b; else if (c) d; else { do e; while (f); } }",
 		"main() { x = - - -1; !!y; a->b->c(); (p->f)(); C::x++; }",
 	} {
 		f.Add([]byte(s))

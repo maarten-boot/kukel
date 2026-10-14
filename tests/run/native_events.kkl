@@ -32,12 +32,12 @@ main() {
     t->cancel();
 
     // An exception leaves run() ...
-    events::after(0, fn() { throw "boom"; });
+    events::after(0, fn() { throw new Error("boom"); });
     events::after(0.01, println, "kept for the next run");
     try {
         events::run();
     } catch (e) {
-        println("caught:", e);
+        println("caught:", e->message);
     }
     // ... unless onerror takes it, and the loop goes on.
     events::onerror(fn(e) { println("onerror:", e->kind, e->message); });
