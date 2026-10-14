@@ -201,13 +201,14 @@ main() {}`, kukel.CompileOptions{}), kukel.Options{StepLimit: 1000})
 }
 
 func TestCancel(t *testing.T) {
-	in := interp(t, compile(t, `use time; use worker;
+	in := interp(t, compile(t, `use time; use worker; use zmq;
 loop() { while (true) {} }
 nap() { time::sleep(60); }
+listen() { local s = new zmq::Socket("PULL"); s->bind("inproc://nobody"); s->receive(); }
 waitFor() { worker::start(loop)->wait(); }
 quick() { return 1; }
 main() {}`, kukel.CompileOptions{}), kukel.Options{})
-	for _, name := range []string{"loop", "nap", "waitFor"} {
+	for _, name := range []string{"loop", "nap", "waitFor", "listen"} {
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		start := time.Now()
 		_, err := in.CallContext(ctx, name)

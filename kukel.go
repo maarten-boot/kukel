@@ -43,6 +43,7 @@ import (
 	_ "github.com/maarten-boot/kukel/internal/modules/stringsmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/timemod"
 	_ "github.com/maarten-boot/kukel/internal/modules/workermod"
+	_ "github.com/maarten-boot/kukel/internal/modules/zmqmod"
 )
 
 // SystemBuiltins are the built-in functions that reach outside the
@@ -56,7 +57,7 @@ var SystemBuiltins = []string{"readfile", "writefile", "appendfile", "readline",
 func Builtins() []string { return builtins.Names() }
 
 // StandardModules lists the modules written in Go that come with Kukel:
-// events, json, strings, time, worker.
+// events, json, strings, time, worker, zmq.
 func StandardModules() []string { return native.Names() }
 
 // CompileOptions say what a program may use beyond its own code.

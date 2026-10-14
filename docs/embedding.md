@@ -64,7 +64,7 @@ longer needed.
 
 `Builtins()` and `StandardModules()` list the names of the built-in
 functions and of the standard modules (`events`, `json`, `strings`, `time`,
-`worker`).
+`worker`, `zmq`).
 
 ## 2. Values
 

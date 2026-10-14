@@ -16,7 +16,7 @@ source files ──lexer──▶ tokens ──parser──▶ AST
 
 | Topic | Decision |
 |---|---|
-| Implementation language | Go (module, standard library only) |
+| Implementation language | Go (module; the standard library, and since Q43 the pure Go ZeroMQ library `github.com/go-zeromq/zmq4`) |
 | Syntax | `syntax.ebnf` **version 2** (see §1b for the changes from version 1); version 3 added modules (Q35), version 4 removed temporaries (Q40), version 5 removed `elseif` and the comma operator outside `for` (Q41). No compatibility with older versions is kept |
 | Parser | Hand-written lexer and recursive-descent parser (`syntax.lark` is a tested reference only) |
 | "Stored tokenized code" | Compile to a stack-machine bytecode image, saved as a binary `.kkc` file that runs without the source |
@@ -80,6 +80,7 @@ source files ──lexer──▶ tokens ──parser──▶ AST
 - Q40 (decided 2026-10-14) Temporaries (`f(a; t, u)`, from the first syntax) are removed: with `local` they are redundant (a local declared at the start of the body is exactly a temporary). Syntax version 4; the parser reports the old form with the advice to declare them with `local`
 - Q41 (decided 2026-10-14) One way for each thing (Kukel v0.4, syntax version 5): `elseif` is removed (write `else if`; no longer a keyword); the comma operator only in the first and last part of a `for` loop; the built-ins `isnil` (write `x == nil`) and `substr` (write `slice`) are removed; only `Error` objects can be thrown (this replaces Q29's "any value": a literal that is not one is a compile error, another value a `TypeError`), so a caught `e` always has `kind` and `message`. The old forms get error messages that name the replacement. Bytecode format 4 (old `.kkc` files are refused, since `THROW` changed meaning). Kept on purpose: `++`/`--` next to `+=`, `#` comments, the `time()` built-in, and static member functions called through objects (`p->f()` picks the static of the object's class, which `C::f()` cannot)
 - Q42 (decided 2026-10-14) Member functions stay declared in the class and defined outside it (`class C { m(a); }` and `C::m(a) { ... }`), not written inside the class body. Allowing bodies in the class as well would be two ways to define a member function (against Q41), and having only inline bodies would lose the class block as a compact interface overview and the splitting of a class's definitions over several files. The parameter lists written twice stay, checked by the compiler (Q19)
+- Q43 (decided 2026-10-14, F-14/F-15 of docs/future.md) Communication: the native module `zmq` on the pure Go library `github.com/go-zeromq/zmq4` v0.17.0 (no C library; `go install` and cross-compiling keep working; the first dependency outside the standard library). `zmq::Socket` of type REQ/REP, PUB/SUB, PUSH/PULL; `bind`, `connect`, `send` (a string, or a vector of strings for several parts), `receive([timeout])` (a timed-out read stays pending, so no message is lost), `onmessage(f)` through the event loop, `subscribe`/`unsubscribe`, `close`; network problems are `NetError`. Differences from C ZeroMQ: `connect` waits (about 3 seconds) for the other side, and `close` lingers 0.1 s after a send because the library only queues messages. Later: DEALER/ROUTER, PAIR, `zmq::poll`, CURVE security
 
 ## 1b. Syntax changes in version 2 (all adopted)
 
@@ -120,7 +121,7 @@ source files ──lexer──▶ tokens ──parser──▶ AST
   internal/builtins/
   internal/loader/    finds and reads the modules a program uses (Q35)
   internal/native/    modules written in Go, native classes, per-program limits (Q36, Q39)
-  internal/modules/   eventsmod, jsonmod, stringsmod, timemod, workermod (Q36-Q38)
+  internal/modules/   eventsmod, jsonmod, stringsmod, timemod, workermod, zmqmod (Q36-Q38, Q43)
   *.go (root)         the public package for embedding (Q39)
   tests/              .kkl programs + expected output
   docs/               reference.md (language), vm.md (VM and bytecode), embedding.md, future.md
@@ -324,4 +325,5 @@ All the "Rule:" comments in syntax.ebnf. The checks run while the compiler resol
 18. [x] Embedding (Q39; branch `embedding`): the public package at the repository root, docs/embedding.md
 19. [x] Remove temporaries (Q40; branch `remove-temporaries`): syntax version 4
 20. [x] One way for each thing (Q41; branch `simplify`): no `elseif`, comma only in `for`, no `isnil`/`substr`, throw only `Error` objects; syntax version 5
-21. [ ] Later/optional (see also [docs/future.md](docs/future.md): native classes in host modules, precompiled `.kkc` modules, deriving from native classes, multiple interpreters, events and Tk, ZeroMQ, SQL/ORM): jump tables for dense int switches, a peephole pass, a REPL, reporting several compile errors at once, a string representation that does not box (each new string costs one allocation for its value)
+21. [x] ZeroMQ (Q43; branch `zmq`): the native module `zmq`
+22. [ ] Later/optional (see also [docs/future.md](docs/future.md): native classes in host modules, precompiled `.kkc` modules, deriving from native classes, multiple interpreters, events and Tk, ZeroMQ, SQL/ORM): jump tables for dense int switches, a peephole pass, a REPL, reporting several compile errors at once, a string representation that does not box (each new string costs one allocation for its value)

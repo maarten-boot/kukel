@@ -51,8 +51,9 @@ caught RangeError: index 5 out of range for vector of length 3
 - `switch` with fall-through, labelled `break`/`continue`
 - modules: `use geometry;` loads `geometry.kkl`, reached as `geometry::name`;
   modules written in Go: `events` (an event loop with timers), `json`,
-  `strings` (a string builder), `time`, and `worker` (interpreters that run
-  in parallel and exchange messages)
+  `strings` (a string builder), `time`, `worker` (interpreters that run in
+  parallel and exchange messages) and `zmq` (ZeroMQ sockets, to talk with
+  other programs and machines)
 - 55 built-in functions (strings, collections, math, files, ...)
 
 The full description is in [docs/reference.md](docs/reference.md); the
@@ -130,14 +131,14 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/token`, `internal/diag` | token kinds and source positions; the error type all stages share |
 | `internal/lexer`, `internal/parser`, `internal/ast` | source to syntax tree |
 | `internal/loader` | finds and reads the modules a program uses |
-| `internal/native`, `internal/modules/...` | modules written in Go (`events`, `json`, `strings`, `time`, `worker`) and native classes |
+| `internal/native`, `internal/modules/...` | modules written in Go (`events`, `json`, `strings`, `time`, `worker`, `zmq`) and native classes |
 | `internal/compiler` | name resolution, the language's rules, code generation |
 | `internal/bytecode` | instruction set, `.kkc` files, the verifier that checks loaded files |
 | `internal/vm` | the stack machine: calls, objects, closures, exceptions (specified in [docs/vm.md](docs/vm.md)) |
 | `internal/value`, `internal/builtins` | values with their operators, built-in functions |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q42). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q43). Ideas for later are in [docs/future.md](docs/future.md).
 
 ## Development
 

@@ -430,8 +430,14 @@ Design notes:
   several sockets.
 - **Errors**: a `NetError` kind for connection and timeout problems.
 
+*Done (TODO.md Q43): the module `zmq` with REQ/REP, PUB/SUB, PUSH/PULL,
+multi-part messages, `receive([timeout])`, `onmessage` and `NetError`. Still
+to come: DEALER/ROUTER, PAIR, `zmq::poll`, security (CURVE), monitors.*
+
 **F-14** Pure Go (`go-zeromq/zmq4`) or libzmq (`pebbe/zmq4`)?
+*Answered: pure Go.*
 **F-15** Which socket types and features first (security/CURVE, monitors)?
+*Answered: REQ/REP, PUB/SUB, PUSH/PULL first; the rest later.*
 
 ---
 
@@ -541,7 +547,7 @@ Each step is usable on its own and prepares the next:
 | 1 | Modules (`use`) from Kukel files and Go, native classes, `json` | — | done (Q35, Q36), except `.kkc` modules |
 | 2 | Public embedding API; several interpreters in one process | 1 | done (Q39) |
 | 3 | Event loop, timers; workers with messages | 1 | done (Q37, Q38) |
-| 4 | ZeroMQ (blocking first, then events) | 1, 3 | |
+| 4 | ZeroMQ (blocking first, then events) | 1, 3 | done (Q43), the first socket types |
 | 5 | SQL: plain queries, transactions (SQLite first) | 1 | |
 | 6 | Time type; then the ORM on top of SQL | 5 | time type done (Q36) |
 | 7 | Tk GUI (after a proof of concept for the threading) | 1, 3 | |

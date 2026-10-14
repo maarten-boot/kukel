@@ -33,7 +33,7 @@ hello, Kukel
 8. [Classes and objects](#8-classes-and-objects)
 9. [Exceptions](#9-exceptions)
 10. [Built-in functions](#10-built-in-functions)
-11. [Modules written in Go](#11-modules-written-in-go): events, json, strings, time, worker
+11. [Modules written in Go](#11-modules-written-in-go): events, json, strings, time, worker, zmq
 
 ---
 
@@ -519,6 +519,7 @@ Kinds of runtime errors:
 | `StackOverflowError` | more than 10000 nested calls |
 | `CompileError` | `worker::startfile` of a program with a compile error |
 | `WorkerError` | `w->wait()` of a worker that failed (the message holds the worker's error) |
+| `NetError` | a network problem in `zmq`: an address that cannot be bound or reached, a message that cannot be sent or received |
 | `HostError` | a function of a Go program that embeds Kukel failed ([embedding.md](embedding.md)) |
 | `CancelledError` | the Go program that runs Kukel stopped it (a time limit); cannot be caught |
 | `StepLimitError` | the step limit set by a Go program that runs Kukel was reached; cannot be caught |
@@ -855,4 +856,64 @@ Outside a worker, `worker::send`, `receive` and `onmessage` are a
 
 A worker prints as `worker::Worker(square, running)` (or `done`, `failed`;
 the file's path for `startfile`).
+
+### zmq
+
+ZeroMQ sockets, to talk with other programs (in any language that has a
+ZeroMQ library) and other machines. `kukel` carries a ZeroMQ implementation
+written in Go, so no C library is needed.
+
+```
+use zmq;
+use worker;
+
+server() {                                 // could as well be another program
+    local rep = new zmq::Socket("REP");
+    rep->bind("tcp://127.0.0.1:0");        // port 0: any free port
+    worker::send(rep->endpoint());
+    rep->send("hello, " + rep->receive());
+    rep->close();
+}
+
+main() {
+    local w = worker::start(server);
+    local req = new zmq::Socket("REQ");
+    req->connect(w->receive());            // the server's endpoint
+    req->send("Kukel");
+    local reply = req->receive(5);         // the reply, or nil after 5 seconds
+    println(reply == nil ? "no answer" : reply);   // hello, Kukel
+    req->close();
+    w->wait();
+}
+```
+
+| Type | Use |
+|---|---|
+| `"REQ"`, `"REP"` | request and reply: a REQ socket sends a request and receives its reply, in turn; a REP socket receives a request and sends its reply |
+| `"PUB"`, `"SUB"` | publish and subscribe: a PUB socket sends to every SUB socket connected to it whose subscriptions match the start of the message |
+| `"PUSH"`, `"PULL"` | a pipeline: each message pushed goes to one of the PULL sockets |
+
+A message is a string (bytes), or a vector of strings for a message of
+several parts; `receive` gives a vector only for a message of more than one
+part. Structured data travels as text, for example with `json::encode` and
+`json::decode`. Endpoints are `"tcp://host:port"` (`"tcp://*:5555"` to bind
+on every interface), `"ipc://path"` (a Unix socket file) or `"inproc://name"`
+(between interpreters of one process, such as workers).
+
+| Function or member function | Description |
+|---|---|
+| `new zmq::Socket(type)` | A socket of that type (`ValueError` for another type) |
+| `s->bind(endpoint)` | Listens on `endpoint`. Port 0 (`"tcp://127.0.0.1:0"`) picks a free port, which `endpoint()` then shows. A busy or forbidden address is a `NetError` |
+| `s->connect(endpoint)` | Connects to a socket bound at `endpoint`. Unlike C ZeroMQ, it waits for the other side: it retries for about 3 seconds, then gives a `NetError`, so bind first |
+| `s->send(message)` | Sends a string, or a vector of strings as one message of several parts (`TypeError` for other values, `ValueError` for an empty vector) |
+| `s->receive([timeout])` | The next message; waits for it, at most `timeout` seconds if given, then gives `nil`. A message that arrives after the timeout is kept for the next `receive`. A negative or `nan` timeout is a `ValueError`; a broken connection a `NetError` |
+| `s->onmessage(f)` | The event loop (`events`) calls `f(message)` for each message, and `events::run()` keeps going until the socket is closed. Afterwards `receive()` is a `ValueError`, as is a second `onmessage`; `f` must be a function (`TypeError`) |
+| `s->subscribe(prefix)`, `s->unsubscribe(prefix)` | A SUB socket receives the messages that start with one of its prefixes (`""`: all of them); other socket types give a `ValueError`. Subscriptions take a moment to reach the PUB socket: messages published right after `subscribe` may be missed |
+| `s->type()`, `s->endpoint()` | The type, and the last endpoint bound to or connected to (`""` if none) |
+| `s->close()` | Closes the socket (closing again has no effect). If the socket sent a message less than 0.1 seconds before, `close` waits until 0.1 seconds have passed, so that the message still leaves. Using a closed socket is a `ValueError` |
+
+A socket prints as `zmq::Socket(REQ, tcp://localhost:5555)` (or without an
+endpoint, or `closed`). Close sockets when done; a program that ends closes
+nothing for you. A Go program that embeds Kukel can keep the network away
+from a program by leaving `zmq` out of `StandardModules`.
 

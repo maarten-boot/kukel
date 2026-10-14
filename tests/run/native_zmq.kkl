@@ -1,0 +1,58 @@
+// Native module zmq: ZeroMQ sockets. A worker plays the server; inproc://
+// endpoints connect interpreters of one process (tcp:// works the same
+// between processes and machines).
+use zmq;
+use worker;
+use events;
+
+// Answers requests until it gets "stop".
+server() {
+    local rep = new zmq::Socket("REP");
+    rep->bind("inproc://calc");
+    worker::send("ready");
+    for (local req = rep->receive(); req != "stop"; req = rep->receive()) {
+        if (typeof(req) == "vector")                  // a message of several parts
+            rep->send(["sum", str(int(req[0]) + int(req[1]))]);
+        else
+            rep->send("echo: " + req);
+    }
+    rep->send("stopped");
+    rep->close();
+}
+
+main() {
+    // Request and reply.
+    local w = worker::start(server);
+    w->receive();                                     // the server is bound
+    local req = new zmq::Socket("REQ");
+    req->connect("inproc://calc");
+    println(req);
+    req->send("hello");
+    println(req->receive(5));
+    req->send(["40", "2"]);
+    println(req->receive(5));
+    req->send("stop");
+    println(req->receive(5));
+    req->close();
+    w->wait();
+
+    // Push and pull, through the event loop.
+    local pull = new zmq::Socket("PULL"), push = new zmq::Socket("PUSH"), done = 0;
+    pull->bind("inproc://jobs");
+    push->connect("inproc://jobs");
+    println(pull->receive(0.05));                     // nothing yet: nil
+    pull->onmessage(fn(job) {
+        println("job", job);
+        if (++done == 3) pull->close();               // closing ends events::run()
+    });
+    for (local i = 1; i <= 3; i++) push->send(str(i));
+    events::run();
+    push->close();
+    println(pull);
+
+    try {
+        new zmq::Socket("DEALER");
+    } catch (e) {
+        println(e->kind + ":", e->message);
+    }
+}
