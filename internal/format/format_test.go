@@ -32,6 +32,9 @@ func TestFormat(t *testing.T) {
 		{"main() {\nouter: for (;;) { break outer; }\nwith (local c = open()) c->x();\ns = \"a\n  b\";\n}\n",
 			"main() {\n    outer: for (;;) { break outer; }\n\n    with (local c = open()) c->x();\n    s = \"a\n  b\";\n}\n"},
 	}
+	// the while of a do with braces, on its own line, gets no blank line
+	tests = append(tests, struct{ in, want string }{"f(i) {\ndo {\ni++;\n}\nwhile (i < 3);\nwhile (i > 0) i--;\n}\n",
+		"f(i) {\n    do {\n        i++;\n    }\n    while (i < 3);\n\n    while (i > 0) i--;\n}\n"})
 	// a block or brackets opened on a hanging line keep its extra level
 	tests = append(tests, struct{ in, want string }{"f(v) {\nfor (local x in v)\nif (x) {\nfoo(1,\n2);\nif (y)\nwhile (z) {\nq(\n);\n}\n} else {\nbar();\n}\nlocal m = [1,\n2];\n}\n", "f(v) {\n    for (local x in v)\n        if (x) {\n            foo(1,\n                2);\n\n            if (y)\n                while (z) {\n                    q(\n                    );\n                }\n        } else {\n            bar();\n        }\n    local m = [1,\n        2];\n}\n"})
 	for _, tc := range tests {

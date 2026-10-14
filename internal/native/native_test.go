@@ -92,3 +92,14 @@ func TestArgs(t *testing.T) {
 		t.Errorf("Errorf: %v", err)
 	}
 }
+
+// A member function named like a keyword could never be called (p->local()
+// does not parse): Prepare refuses it.
+func TestKeywordMember(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil || !strings.Contains(r.(string), "kw::C::local is a keyword") {
+			t.Errorf("got %v", r)
+		}
+	}()
+	Prepare(&Module{Name: "kw", Classes: []*Class{{Name: "C", Methods: map[string]value.NativeMethod{"local": nil}}}})
+}

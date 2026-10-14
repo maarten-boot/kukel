@@ -1143,7 +1143,7 @@ when it has one: `2026-10-14T09:30:01.5Z`).
 | `t->sub(u)` | The seconds from `u` to `t`, as a float (exact also over centuries) |
 | `t->before(u)`, `t->after(u)`, `t->equal(u)` | Compare instants (`equal` ignores the zone; `==` compares objects) |
 | `t->compare(u)` | -1, 0 or 1 |
-| `t->utc()`, `t->local()`, `t->inzone(zone)` | The same instant in UTC, the local zone, or `zone` |
+| `t->utc()`, `t->inlocal()`, `t->inzone(zone)` | The same instant in UTC, the local zone, or `zone` |
 
 **Formats** use `%` directives; any other character stands for itself:
 

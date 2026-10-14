@@ -591,3 +591,24 @@ main() {
 		t.Errorf("got %q", out.String())
 	}
 }
+
+// A transaction begun in one call with a context lives on after it: the
+// commit in a later call works (cross-check 5).
+func TestTransactionAcrossCalls(t *testing.T) {
+	if !dbmod.Has("SQLite") {
+		t.Skip("built without SQLite (tag nosqlite)")
+	}
+	in := interp(t, compile(t, `use db;
+global conn = db::open("sqlite::memory:");
+setup() { conn->exec("CREATE TABLE t (a)"); conn->begin(); conn->exec("INSERT INTO t VALUES (1)"); }
+finish() { conn->commit(); return conn->first("SELECT COUNT(*) AS n FROM t")["n"]; }
+main() {}`, kukel.CompileOptions{}), kukel.Options{})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := in.CallContext(ctx, "setup"); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := in.CallContext(ctx, "finish"); err != nil || n.String() != "1" {
+		t.Errorf("commit after the call that began: %v, %v", n, err)
+	}
+}

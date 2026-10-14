@@ -2,6 +2,7 @@ package dbmod
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/maarten-boot/kukel/internal/native"
@@ -146,8 +147,13 @@ func (m *model) columns() []string {
 
 // modelOf finds the mapping of class k, asking its table() and columns().
 func modelOf(a native.Args, env value.Env, c *conn, k *value.ClassObj) (*model, error) {
-	if k.Native {
-		return nil, a.Errorf(value.TypeError, "%s is a class written in Go: only Kukel classes can be stored", k.Name)
+	for b := k; b != nil; b = b.Base {
+		if b == k && b.Native {
+			return nil, a.Errorf(value.TypeError, "%s is a class written in Go: only Kukel classes can be stored", k.Name)
+		}
+		if b.Native { // a loaded object would have no Go part
+			return nil, a.Errorf(value.TypeError, "%s derives from %s, a class written in Go: its Go part cannot be stored, so the class cannot be", k.Name, b.Name)
+		}
 	}
 	if _, ok := k.FieldIndex["id"]; !ok {
 		return nil, a.Errorf(value.ValueError, "class %s has no data member id (the primary key)", k.Name)
@@ -686,8 +692,8 @@ func (m *model) fill(a native.Args, env value.Env, objs []value.Value, name stri
 	seen := map[string]bool{}
 	for _, o := range objs {
 		k := o.AsObject().Fields[m.class.FieldIndex[from]]
-		if !k.IsNil() && !seen[k.Repr()] {
-			seen[k.Repr()] = true
+		if !k.IsNil() && !seen[keyOf(k)] {
+			seen[keyOf(k)] = true
 			keys = append(keys, k)
 		}
 	}
@@ -710,7 +716,7 @@ func (m *model) fill(a native.Args, env value.Env, objs []value.Value, name stri
 			return err
 		}
 		for _, g := range got {
-			k := g.AsObject().Fields[other.class.FieldIndex[by]].Repr()
+			k := keyOf(g.AsObject().Fields[other.class.FieldIndex[by]])
 			found[k] = append(found[k], g)
 		}
 	}
@@ -719,9 +725,9 @@ func (m *model) fill(a native.Args, env value.Env, objs []value.Value, name stri
 		k := obj.Fields[m.class.FieldIndex[from]]
 		switch {
 		case r.many:
-			obj.Fields[slot] = value.MakeVector(append([]value.Value{}, found[k.Repr()]...))
-		case !k.IsNil() && len(found[k.Repr()]) > 0:
-			obj.Fields[slot] = found[k.Repr()][0]
+			obj.Fields[slot] = value.MakeVector(append([]value.Value{}, found[keyOf(k)]...))
+		case !k.IsNil() && len(found[keyOf(k)]) > 0:
+			obj.Fields[slot] = found[keyOf(k)][0]
 		default:
 			obj.Fields[slot] = value.NilValue
 		}
@@ -748,4 +754,13 @@ func load(a native.Args, env value.Env, c *conn) (value.Value, error) {
 		}
 	}
 	return a.V[0], nil
+}
+
+// keyOf is how a relation matches keys: by value, so that a key column of
+// another type than id (TEXT "1", a float 1.0) still matches id 1.
+func keyOf(v value.Value) string {
+	if n, ok := v.IntValue(); ok {
+		return strconv.FormatInt(n, 10)
+	}
+	return v.String()
 }

@@ -116,8 +116,14 @@ func (c *conn) sqlFor(text string) string {
 		ch := text[i]
 		switch {
 		case ch == '\'' || ch == '"': // a string, or a quoted name: up to the closing quote ('' and "" are inside)
+			// E'...' is a string with backslash escapes (\' inside).
+			escapes := ch == '\'' && i > 0 && (text[i-1] == 'E' || text[i-1] == 'e') && (i == 1 || !isNameByte(text[i-2]))
 			j := i + 1
 			for j < len(text) {
+				if escapes && text[j] == '\\' {
+					j += 2
+					continue
+				}
 				if text[j] == ch {
 					if j+1 < len(text) && text[j+1] == ch {
 						j += 2
@@ -206,4 +212,8 @@ func (c *conn) columnsSQL() string {
 		return "SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ?"
 	}
 	return "SELECT name FROM pragma_table_info(?)"
+}
+
+func isNameByte(c byte) bool {
+	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 }

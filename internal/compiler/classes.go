@@ -90,6 +90,9 @@ func (m *memberInfo) fullName() string { return m.class.name + "::" + m.name }
 // Declarations and definitions
 
 func (c *compiler) declareClass(d *ast.ClassDecl) {
+	if len(c.prog.Classes) > maxIndex {
+		c.errorf(d.Name.NamePos, "too many classes in the program (more than %d)", maxIndex+1)
+	}
 	k := &classInfo{
 		name:    c.qualify(d.Name.Name),
 		local:   d.Name.Name,

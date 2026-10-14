@@ -354,3 +354,50 @@ main() { h(); }`)
 		t.Errorf("got:\n%v", err)
 	}
 }
+
+// What a .kkc file can hold: a function on more than 65536 lines is a
+// compile error; a dense switch of more than 65536 values does without a
+// jump table (cross-check 5).
+func TestKKCLimits(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("main() {\nlocal x = 0;\n")
+	for i := 0; i < 66000; i++ {
+		b.WriteString("x++;\n")
+	}
+	b.WriteString("}\n")
+	if err := compileSrc(t, b.String()); err == nil || !strings.Contains(err.Error(), "function main is too long (code on more than 65536 lines)") {
+		t.Errorf("a long function: %v", err)
+	}
+	b.Reset()
+	b.WriteString("f(x) { switch (x) {")
+	for i := 0; i < 33000; i++ { // over 66000 values: dense, but more than a table holds
+		fmt.Fprintf(&b, " case %d:", 2*i)
+	}
+	b.WriteString(" return 1; } return 0; } main() { f(1); }")
+	files := []*ast.File{}
+	f, err := parser.ParseFile("t.kkl", []byte(b.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prog, err := Compile(append(files, f), testBuiltins)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fn := range prog.Funcs {
+		if len(fn.Tables) > 0 {
+			t.Errorf("%s has a jump table of %d values", fn.FuncName, len(fn.Tables[0].Targets))
+		}
+	}
+	if _, err := bytecode.Decode(mustEncode(t, prog)); err != nil {
+		t.Errorf("the .kkc file cannot be read: %v", err)
+	}
+}
+
+func mustEncode(t *testing.T, p *bytecode.Program) []byte {
+	t.Helper()
+	data, err := bytecode.Encode(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}

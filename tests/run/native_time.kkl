@@ -7,6 +7,7 @@ main() {
     println(launch->format("%A %e %B %Y, %I:%M %p"), "| day", launch->yearday());
 
     local ams = launch->inzone("Europe/Amsterdam");
+    println(launch->inlocal()->equal(launch), launch->utc()->equal(ams));   // the same instant in other zones
     println(ams->format("%H:%M %Z (%z)"), ams->zone(), ams->equal(launch));
 
     local xmas = time::Time::parse("25 Dec 2026", "%d %b %Y");

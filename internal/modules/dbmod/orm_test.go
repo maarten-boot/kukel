@@ -115,3 +115,43 @@ TypeError: db::Conn::migrate: NotRel::relations() must map names to db::many(...
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+// Fixes of cross-check 5: relation keys match by value (a TEXT key column),
+// a class derived from a Go class cannot be stored, lastid() is nil after an
+// UPDATE.
+func TestCrossCheck5(t *testing.T) {
+	got := run(t, `use db;
+use time;
+class Box { id, items; static relations(); }
+Box::relations() { return {"items": db::many(Item, "boxid")}; }
+class Item { id, boxid, box; static relations(); static columns(); }
+Item::relations() { return {"box": db::one(Box, "boxid")}; }
+Item::columns() { return {"boxid": "TEXT"}; }
+class Note : time::Time { id; }
+main() {
+    local conn = db::open("sqlite::memory:");
+    conn->migrate(Box);
+    conn->migrate(Item);
+    local b = conn->save(new Box()), it = new Item();
+    it->boxid = str(b->id);
+    conn->save(it);
+    println(len(conn->load(b, "items")->items), conn->load(conn->get(Item, 1), "box")->box->id);
+    try { conn->migrate(Note); } catch (e) { println(e->kind + ":", e->message); }
+    conn->exec("CREATE TABLE t (a)");
+    conn->exec("INSERT INTO t VALUES (1)");
+    println(conn->lastid());
+    conn->exec("UPDATE t SET a = 2");
+    println(conn->lastid());
+    conn->exec("/* x */ insert into t values (3)");
+    println(conn->lastid());
+}`)
+	want := `1 1
+TypeError: db::Conn::migrate: Note derives from time::Time, a class written in Go: its Go part cannot be stored, so the class cannot be
+1
+nil
+2
+`
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}

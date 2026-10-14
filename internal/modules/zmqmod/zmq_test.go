@@ -235,7 +235,7 @@ true for b
 true
 a1 b1
 handler a2
-TypeError: zmq::poll: argument 1 must be a vector of sockets, not vector
+ValueError: zmq::poll: no sockets to wait for
 TypeError: zmq::poll: element 1 of argument 1 must be a zmq::Socket, not int
 ValueError: zmq::poll: socket 1 is closed
 ValueError: zmq::poll: -1.0 seconds is not a usable timeout

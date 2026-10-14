@@ -46,9 +46,9 @@ func init() {
 			u, err := other(a)
 			return value.MakeInt(int64(t.Compare(u))), err
 		}),
-		"utc":    method("utc", 0, 0, func(a native.Args, t stdtime.Time) (value.Value, error) { return Time.Object(t.UTC()), nil }),
-		"local":  method("local", 0, 0, func(a native.Args, t stdtime.Time) (value.Value, error) { return Time.Object(t.Local()), nil }),
-		"inzone": method("inzone", 1, 1, inZone),
+		"utc":     method("utc", 0, 0, func(a native.Args, t stdtime.Time) (value.Value, error) { return Time.Object(t.UTC()), nil }),
+		"inlocal": method("inlocal", 0, 0, func(a native.Args, t stdtime.Time) (value.Value, error) { return Time.Object(t.Local()), nil }),
+		"inzone":  method("inzone", 1, 1, inZone),
 	}
 	Time.Statics = map[string]native.Func{
 		"parse":    parse,

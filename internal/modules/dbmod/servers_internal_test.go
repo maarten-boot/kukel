@@ -40,6 +40,7 @@ func TestSQLForPostgres(t *testing.T) {
 		{"SELECT ? -- what?\n, ? /* why? */ , ?", "SELECT $1 -- what?\n, $2 /* why? */ , $3"},
 		{"SELECT $$a?b$$, $tag$?$tag$, ?::text", "SELECT $$a?b$$, $tag$?$tag$, $1::text"},
 		{"SELECT $1", "SELECT $1"},
+		{`SELECT E'it\'s ?', e'\\', ?, name'?'`, `SELECT E'it\'s ?', e'\\', $1, name'?'`},
 		{"SELECT 'unterminated ?", "SELECT 'unterminated ?"},
 	}
 	for _, tc := range tests {

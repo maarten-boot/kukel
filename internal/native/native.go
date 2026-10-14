@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/maarten-boot/kukel/internal/token"
 	"github.com/maarten-boot/kukel/internal/value"
 )
 
@@ -50,6 +51,19 @@ type Class struct {
 }
 
 var modules = map[string]*Module{}
+
+// omitted are the standard modules this kukel was built without, with the
+// build tags that left them out (for the message about a "use" of one).
+var omitted = map[string]string{}
+
+// Omit records that module name is not in this kukel because of tags.
+func Omit(name, tags string) { omitted[name] = tags }
+
+// Omitted gives the build tags that left module name out, if they did.
+func Omitted(name string) (string, bool) {
+	tags, ok := omitted[name]
+	return tags, ok
+}
 
 // Register adds module m. It panics on a second module with the same name
 // (a programming error).
@@ -101,6 +115,13 @@ func (c *Class) QualifiedName() string { return c.module + "::" + c.Name }
 
 func (c *Class) build(module string) {
 	c.module = module
+	for _, names := range []map[string]bool{keysOf(c.Methods), keysOf(c.Statics)} {
+		for name := range names {
+			if token.Lookup(name) != token.IDENT { // p->while(...) cannot be written
+				panic("native: " + module + "::" + c.Name + "::" + name + " is a keyword")
+			}
+		}
+	}
 	k := &value.ClassObj{
 		Name:       c.QualifiedName(),
 		FieldIndex: map[string]int{},
@@ -280,4 +301,12 @@ func (c *Class) Is(v value.Value) bool {
 // value.TypeError, ...), prefixed with the function's name.
 func (a Args) Errorf(kind string, format string, args ...any) error {
 	return value.Errorf(kind, "%s: %s", a.Name, fmt.Sprintf(format, args...))
+}
+
+func keysOf[V any](m map[string]V) map[string]bool {
+	keys := map[string]bool{}
+	for k := range m {
+		keys[k] = true
+	}
+	return keys
 }

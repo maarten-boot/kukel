@@ -85,6 +85,7 @@ type open struct {
 	hang      int        // the hanging levels of that line (if (...) under a for without braces)
 	isMap     bool       // a "{" of a map literal (not a block)
 	isSwitch  bool       // the "{" of a switch body
+	isDo      bool       // the "{" of the body of a do
 	caseBlock bool       // a block opened on the line of a case label
 	inCase    bool       // a switch body after its first case or default label
 	question  int        // unmatched "?" inside it (for the ":" of ?:)
@@ -108,6 +109,7 @@ type formatter struct {
 	ifs           map[int][]int // per bracket depth: the hanging levels of lines that start with if
 	doBody        bool          // the current line is the statement of a do without braces
 	doTail        bool          // the current line ended that statement: a while next is the do's
+	closedDo      bool          // the current line closed the braces of a do: a while next is the do's
 }
 
 func layout(toks []token.Token, src []byte) []byte {
@@ -176,7 +178,7 @@ func (f *formatter) breathe(toks []token.Token, i int) bool {
 	}
 	switch t.Kind {
 	case token.WHILE:
-		return !f.doTail
+		return !f.doTail && !f.closedDo
 	case token.IF, token.DO, token.FOR, token.SWITCH, token.TRY, token.WITH:
 		return true
 	}
@@ -244,7 +246,7 @@ func (f *formatter) startLine(rest []token.Token) {
 	}
 	f.lineHanging = hanging
 	f.hanging = 0
-	f.doTail, f.doBody = f.doBody, false
+	f.doTail, f.doBody, f.closedDo = f.doBody, false, false
 	f.b.WriteString(strings.Repeat(Indent, level+hanging))
 }
 
@@ -362,6 +364,7 @@ func (f *formatter) after(t *token.Token) {
 		f.stack = append(f.stack, o)
 	case token.LBRACE:
 		o := &open{kind: t.Kind, line: t.Pos.Line, hang: f.lineHanging, isMap: f.mapBrace()}
+		o.isDo = f.last != nil && f.last.Kind == token.DO
 		if f.switchAt == len(f.stack) && !o.isMap {
 			o.isSwitch, f.switchAt = true, -1
 		} else if top := f.top(); !o.isMap && top != nil && top.isSwitch && f.lineHead != nil &&
@@ -372,9 +375,12 @@ func (f *formatter) after(t *token.Token) {
 	case token.RPAREN, token.RBRACK, token.RBRACE:
 		if n := len(f.stack); n > 0 {
 			f.lastClosedMap = f.stack[n-1].isMap
+			f.closedDo = t.Kind == token.RBRACE && f.stack[n-1].isDo
 			f.closedHeader = f.stack[n-1].header
 			f.stack = f.stack[:n-1]
 		}
+	case token.WHILE:
+		f.closedDo = false
 	case token.CASE, token.DEFAULT:
 		if top := f.top(); top != nil && top.isSwitch {
 			top.inCase = true

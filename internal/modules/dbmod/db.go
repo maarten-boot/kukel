@@ -101,8 +101,9 @@ func init() {
 		return "db::Cursor(open)"
 	}
 	ormInit()
-	if len(drivers) == 0 {
-		return // built without any database (tags nosqlite, nopostgres and nomysql): no module db
+	if len(drivers) == 0 { // built without any database: no module db
+		native.Omit("db", "the build tags nosqlite, nopostgres and nomysql")
+		return
 	}
 	native.Register(&native.Module{
 		Name:    "db",
@@ -293,8 +294,10 @@ func exec(a native.Args, env value.Env, c *conn) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, dbError(a, env, err)
 	}
+	// Only an insert sets it: SQLite keeps an earlier insert's id over an
+	// UPDATE.
 	c.lastID = value.NilValue
-	if id, err := res.LastInsertId(); err == nil && id != 0 {
+	if id, err := res.LastInsertId(); err == nil && id != 0 && inserts(text) {
 		c.lastID = value.MakeInt(id)
 	}
 	n, err := res.RowsAffected()
@@ -492,9 +495,9 @@ func begin(a native.Args, env value.Env, c *conn) (value.Value, error) {
 	if c.tx != nil {
 		return value.NilValue, a.Errorf(value.ValueError, "a transaction is already open (transactions do not nest)")
 	}
-	ctx, done := contextOf(env)
-	defer done()
-	tx, err := c.db.BeginTx(ctx, nil)
+	// Not the context of this call: the transaction outlives it (database/sql
+	// rolls a transaction back when its context ends).
+	tx, err := c.db.BeginTx(context.Background(), nil)
 	if err != nil {
 		return value.NilValue, dbError(a, env, err)
 	}
@@ -519,4 +522,28 @@ func (c *conn) finish(a native.Args, commit bool) error {
 		return a.Errorf(DBError, "%v", err)
 	}
 	return nil
+}
+
+// inserts reports whether SQL statement text adds rows (INSERT, REPLACE),
+// after leading space and comments.
+func inserts(text string) bool {
+	for {
+		text = strings.TrimLeft(text, " \t\r\n")
+		switch {
+		case strings.HasPrefix(text, "--"):
+			if i := strings.IndexByte(text, '\n'); i >= 0 {
+				text = text[i:]
+				continue
+			}
+			return false
+		case strings.HasPrefix(text, "/*"):
+			if i := strings.Index(text, "*/"); i >= 0 {
+				text = text[i+2:]
+				continue
+			}
+			return false
+		}
+		upper := strings.ToUpper(text)
+		return strings.HasPrefix(upper, "INSERT") || strings.HasPrefix(upper, "REPLACE")
+	}
 }

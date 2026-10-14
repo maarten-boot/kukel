@@ -517,3 +517,25 @@ func TestBuildModule(t *testing.T) {
 		t.Errorf("a module file whose name is not a name: exit %d, %q", code, errOut.String())
 	}
 }
+
+// In a kukel built without a module (tags), using it names the tags.
+func TestOmittedModules(t *testing.T) {
+	n := 0
+	for _, name := range []string{"db", "zmq"} {
+		tags, ok := native.Omitted(name)
+		if !ok {
+			continue
+		}
+		n++
+		src := filepath.Join(t.TempDir(), "m.kkl")
+		os.WriteFile(src, []byte("use "+name+";\nmain() {}\n"), 0o644)
+		var out, errOut bytes.Buffer
+		if code := run([]string{"run", src}, nil, &out, &errOut); code != 1 ||
+			!strings.Contains(errOut.String(), "module "+name+" is not in this kukel: it was built with "+tags) {
+			t.Errorf("use %s: exit %d, %q", name, code, errOut.String())
+		}
+	}
+	if n == 0 {
+		t.Skip("this kukel has db and zmq")
+	}
+}

@@ -488,6 +488,9 @@ func (c *compiler) function(name string, pos token.Pos, params *ast.ParamList, c
 	if len(fs.fn.Code) > bytecode.MaxCodeSize || fs.fn.MaxStack > bytecode.MaxStackDepth {
 		c.errorf(pos, "function %s is too large (more than %d bytes of code or a stack deeper than %d)", name, bytecode.MaxCodeSize, bytecode.MaxStackDepth)
 	}
+	if len(fs.fn.Lines) > maxIndex+1 { // what a .kkc file holds
+		c.errorf(pos, "function %s is too long (code on more than %d lines)", name, maxIndex+1)
+	}
 	return fs.fn
 }
 
@@ -999,7 +1002,8 @@ func (c *compiler) breakContinue(pos token.Pos, label *ast.Ident, isBreak bool) 
 // switchState collects the case and default labels of a switch body.
 type switchState struct {
 	cases      []switchCase
-	dflt       int // address of the default label, or -1
+	seen       map[string]int // case values (by key) -> index in cases
+	dflt       int            // address of the default label, or -1
 	dfltPos    token.Pos
 	firstScope int // index of the first scope opened inside the body
 	target     int // index of the switch's target in funcState.targets
@@ -1089,7 +1093,7 @@ func jumpTable(cases []switchCase) (bytecode.JumpTable, bool) {
 		}
 		lo, hi = min(lo, cs.value.AsInt()), max(hi, cs.value.AsInt())
 	}
-	if span := uint64(hi) - uint64(lo); span >= 2*uint64(len(cases)) {
+	if span := uint64(hi) - uint64(lo); span >= 2*uint64(len(cases)) || span > maxIndex { // a .kkc file holds 65536 targets
 		return bytecode.JumpTable{}, false
 	}
 	t := bytecode.JumpTable{Min: lo, Targets: make([]int, hi-lo+1)}
@@ -1133,11 +1137,17 @@ func (c *compiler) checkLabelScope(sw *switchState, pos token.Pos, what string) 
 func (c *compiler) caseLabel(s *ast.CaseLabel) {
 	sw := c.innermostSwitch(s.Pos())
 	v := c.constValue(s.Value)
-	for _, prev := range sw.cases {
-		if value.Equal(prev.value, v) {
-			c.errorf(s.Value.Pos(), "duplicate case value %s (also at %s)", v.Repr(), prev.pos)
-		}
+	if sw.seen == nil {
+		sw.seen = map[string]int{}
 	}
+	key := v.Repr() // values that are == have the same key: 1 and 1.0 too
+	if n, ok := v.IntValue(); ok {
+		key = fmt.Sprint(n)
+	}
+	if i, ok := sw.seen[key]; ok {
+		c.errorf(s.Value.Pos(), "duplicate case value %s (also at %s)", v.Repr(), sw.cases[i].pos)
+	}
+	sw.seen[key] = len(sw.cases)
 	c.checkLabelTry(sw, s.Pos(), "case")
 	c.checkLabelScope(sw, s.Pos(), "case")
 	sw.cases = append(sw.cases, switchCase{value: v, pos: s.Value.Pos(), addr: c.here()})

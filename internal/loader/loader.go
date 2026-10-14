@@ -119,7 +119,11 @@ func (l *loader) uses(f *ast.File, chain []string) error {
 		if l.config.Disallowed(name) {
 			continue // the compiler reports it
 		}
+
 		file, err := l.find(name, filepath.Dir(f.Name))
+		if tags, ok := native.Omitted(name); ok && err != nil {
+			return diag.Errorf(u.Name.NamePos, "module %s is not in this kukel: it was built with %s", name, tags)
+		}
 		if err != nil {
 			return diag.Errorf(u.Name.NamePos, "%v", err)
 		}

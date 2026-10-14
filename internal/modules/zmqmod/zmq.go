@@ -395,8 +395,11 @@ func poll(env value.Env, args []value.Value) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, err
 	}
-	if args[0].Kind() != value.Vector || len(args[0].AsVector().Elems) == 0 {
+	if args[0].Kind() != value.Vector {
 		return value.NilValue, a.TypeError(0, "a vector of sockets")
+	}
+	if len(args[0].AsVector().Elems) == 0 {
+		return value.NilValue, a.Errorf(value.ValueError, "no sockets to wait for")
 	}
 	elems := args[0].AsVector().Elems
 	socks := make([]*socket, len(elems))
