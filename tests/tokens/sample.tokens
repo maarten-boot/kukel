@@ -285,23 +285,31 @@ sample.kkl:26:90  (         (
 sample.kkl:26:91  INT       0  = 0
 sample.kkl:26:92  )         )
 sample.kkl:26:93  ;         ;
-sample.kkl:27:5   return    return
-sample.kkl:27:12  --        --
-sample.kkl:27:14  IDENT     count
-sample.kkl:27:20  ++        ++
-sample.kkl:27:23  -         -
-sample.kkl:27:25  -         -
-sample.kkl:27:26  INT       1  = 1
-sample.kkl:27:28  /         /
-sample.kkl:27:30  INT       2  = 2
-sample.kkl:27:32  *         *
-sample.kkl:27:34  INT       3  = 3
-sample.kkl:27:36  %         %
-sample.kkl:27:38  INT       4  = 4
-sample.kkl:27:40  &         &
-sample.kkl:27:42  INT       5  = 5
-sample.kkl:27:44  |         |
-sample.kkl:27:46  INT       6  = 6
-sample.kkl:27:47  ;         ;
-sample.kkl:28:1   }         }
-sample.kkl:29:1   EOF
+sample.kkl:27:5   with      with
+sample.kkl:27:10  (         (
+sample.kkl:27:11  local     local
+sample.kkl:27:17  IDENT     r
+sample.kkl:27:19  =         =
+sample.kkl:27:21  IDENT     p
+sample.kkl:27:22  )         )
+sample.kkl:27:24  ;         ;
+sample.kkl:28:5   return    return
+sample.kkl:28:12  --        --
+sample.kkl:28:14  IDENT     count
+sample.kkl:28:20  ++        ++
+sample.kkl:28:23  -         -
+sample.kkl:28:25  -         -
+sample.kkl:28:26  INT       1  = 1
+sample.kkl:28:28  /         /
+sample.kkl:28:30  INT       2  = 2
+sample.kkl:28:32  *         *
+sample.kkl:28:34  INT       3  = 3
+sample.kkl:28:36  %         %
+sample.kkl:28:38  INT       4  = 4
+sample.kkl:28:40  &         &
+sample.kkl:28:42  INT       5  = 5
+sample.kkl:28:44  |         |
+sample.kkl:28:46  INT       6  = 6
+sample.kkl:28:47  ;         ;
+sample.kkl:29:1   }         }
+sample.kkl:30:1   EOF

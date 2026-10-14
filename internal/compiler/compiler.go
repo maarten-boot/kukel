@@ -634,6 +634,8 @@ func (c *compiler) simpleStmt(s ast.Stmt) {
 		c.defaultLabel(s)
 	case *ast.TryStmt:
 		c.tryStmt(s)
+	case *ast.WithStmt:
+		c.withStmt(s)
 	case *ast.ThrowStmt:
 		switch s.Value.(type) {
 		case *ast.IntLit, *ast.FloatLit, *ast.CharLit, *ast.StringLit, *ast.BoolLit, *ast.NilLit,

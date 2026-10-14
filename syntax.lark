@@ -1,4 +1,4 @@
-// Lark grammar for Kukel (syntax.ebnf, syntax version 5; kukel v0.4).
+// Lark grammar for Kukel (syntax.ebnf, syntax version 6; kukel v0.7).
 //
 // Intended for:  Lark(grammar, parser="lalr", lexer="contextual")
 // (the default lexer for LALR; the start rule is "start"). The contextual
@@ -92,6 +92,7 @@ block: "{" statement* "}"
           | return_statement
           | local_declaration
           | try_statement
+          | with_statement
           | throw_statement
           | labelled_statement
           | block
@@ -139,6 +140,9 @@ local_variable: IDENTIFIER ["=" assignment]
 try_statement: "try" block (catch_part [finally_part] | finally_part)
 catch_part: "catch" "(" IDENTIFIER ")" block
 finally_part: "finally" block
+
+with_statement: "with" "(" "local" with_variable ("," with_variable)* ")" statement
+with_variable: IDENTIFIER "=" assignment
 
 throw_statement: "throw" expression ";"
 
@@ -288,12 +292,12 @@ map_entry: conditional ":" assignment
 // Keywords are excluded from IDENTIFIER and LABEL by a lookahead, so that
 // even the contextual lexer never turns a keyword into a name.
 // (Max length of 255 characters is a semantic check.)
-IDENTIFIER: /(?!(?:break|case|catch|class|const|continue|default|do|else|false|finally|fn|for|global|if|in|local|new|nil|return|static|switch|this|throw|true|try|use|while)(?![A-Za-z0-9_]))[A-Za-z_][A-Za-z0-9_]*/
+IDENTIFIER: /(?!(?:break|case|catch|class|const|continue|default|do|else|false|finally|fn|for|global|if|in|local|new|nil|return|static|switch|this|throw|true|try|use|while|with)(?![A-Za-z0-9_]))[A-Za-z_][A-Za-z0-9_]*/
 
 // "name:" with the ":" on the same line, and not the start of "::".
 // Only offered by the contextual lexer where a statement may start, so
 // "a ? b : c", "{k: v}" and "case K:" are unaffected.
-LABEL.2: /(?!(?:break|case|catch|class|const|continue|default|do|else|false|finally|fn|for|global|if|in|local|new|nil|return|static|switch|this|throw|true|try|use|while)(?![A-Za-z0-9_]))[A-Za-z_][A-Za-z0-9_]*[ \t]*:(?!:)/
+LABEL.2: /(?!(?:break|case|catch|class|const|continue|default|do|else|false|finally|fn|for|global|if|in|local|new|nil|return|static|switch|this|throw|true|try|use|while|with)(?![A-Za-z0-9_]))[A-Za-z_][A-Za-z0-9_]*[ \t]*:(?!:)/
 
 STATIC: "static"
 THIS: "this"

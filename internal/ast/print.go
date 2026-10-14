@@ -244,6 +244,10 @@ func (p *printer) node(n Node) {
 			p.sub("Finally", n.Finally)
 		}
 		p.indent--
+	case *WithStmt:
+		p.line(n, "With")
+		p.vars(n.Vars)
+		p.children(n.Body)
 	case *ThrowStmt:
 		p.line(n, "Throw")
 		p.children(n.Value)

@@ -231,6 +231,15 @@ type TryStmt struct {
 	Finally  *Block
 }
 
+// WithStmt is "with (local a = e, ...) body": at the end of body, however it
+// is left, a->close() is called for each variable that is not nil, the last
+// one first.
+type WithStmt struct {
+	With token.Pos
+	Vars []*VarSpec // each with a value
+	Body Stmt
+}
+
 // ThrowStmt is "throw value;".
 type ThrowStmt struct {
 	Throw token.Pos
@@ -449,6 +458,7 @@ func (s *ContinueStmt) Pos() token.Pos { return s.Continue }
 func (s *ReturnStmt) Pos() token.Pos   { return s.Return }
 func (s *LocalDecl) Pos() token.Pos    { return s.Local }
 func (s *TryStmt) Pos() token.Pos      { return s.Try }
+func (s *WithStmt) Pos() token.Pos     { return s.With }
 func (s *ThrowStmt) Pos() token.Pos    { return s.Throw }
 func (s *LabeledStmt) Pos() token.Pos  { return s.Label.NamePos }
 
@@ -513,6 +523,7 @@ func (*ContinueStmt) stmtNode() {}
 func (*ReturnStmt) stmtNode()   {}
 func (*LocalDecl) stmtNode()    {}
 func (*TryStmt) stmtNode()      {}
+func (*WithStmt) stmtNode()     {}
 func (*ThrowStmt) stmtNode()    {}
 func (*LabeledStmt) stmtNode()  {}
 

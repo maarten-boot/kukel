@@ -90,6 +90,7 @@ sock->close();
 *Answered: not from the start; callbacks first, deriving when the GUI needs it.*
 **F-4** A `with (local f = open(...)) { ... }` statement that closes
 automatically, or keep `try`/`finally`?
+*Answered and done (TODO.md Q45): the `with` statement.*
 
 ### 1.3 An event loop
 

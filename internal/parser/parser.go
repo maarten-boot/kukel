@@ -403,6 +403,18 @@ func (p *parser) parseStmt() ast.Stmt {
 		return &ast.LocalDecl{Local: pos, Vars: vars}
 	case token.TRY:
 		return p.parseTry()
+	case token.WITH:
+		p.next()
+		p.expect(token.LPAREN, "after 'with'")
+		p.expect(token.LOCAL, "after 'with (': with declares its variables, as in with (local f = open(...))")
+		vars := p.parseVarList("local variable name", false)
+		for _, v := range vars {
+			if v.Value == nil {
+				p.errorf(v.Name.NamePos, "%s needs a value: with closes what its variables hold", v.Name.Name)
+			}
+		}
+		p.expect(token.RPAREN, "after the variables of with")
+		return &ast.WithStmt{With: pos, Vars: vars, Body: p.parseStmt()}
 	case token.THROW:
 		p.next()
 		v := p.parseExpr()

@@ -280,6 +280,18 @@ File all.kkl
               Int 1
         Finally
           Block
+      With
+        Var r
+          New Point
+            Int 1
+            Int 2
+        Var s
+          Nil
+        ExprStmt
+          Assign =
+            Name t
+            MethodCall len
+              Name r
       ExprStmt
         Assign -=
           Name a

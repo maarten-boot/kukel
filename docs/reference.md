@@ -81,7 +81,7 @@ first line `#!/usr/bin/env ...` is allowed) and `/* ... */` (not nested; a
 
 **Keywords**: `break case catch class const continue default do else
 false finally fn for global if in local new nil return static switch this
-throw true try use while`.
+throw true try use while with`.
 
 **Integers**: `42`, `1_000_000` (`_` only between digits), `0xFF_FF`,
 `0b1010`. A leading zero does not mean octal. Decimal literals go up to
@@ -274,7 +274,8 @@ match); control falls through to the next label until `break`. Case values
 are constant expressions (with `?:` in parentheses: `case (A ? 1 : 2):`);
 duplicates and a second `default` are errors.
 `case` labels may appear inside nested statements (as in C), but not where
-jumping to them would enter a try block or skip a `local`'s initialization.
+jumping to them would enter a try or with block or skip a `local`'s
+initialization.
 A `local` directly in a switch body is not allowed: put it in a block.
 
 **Labels**: `name:` before a statement (on the same line as the name); a
@@ -286,6 +287,33 @@ continues the innermost loop. Neither crosses a function literal.
 **Finally**: a `finally` block runs however its try block is left: at the
 end, by `return`, `break` or `continue`, or by an exception. `return` in a
 finally block, and `break`/`continue` out of it, are compile errors.
+
+**With**: `with` closes what it opens, however its statement is left:
+
+```
+use db;
+
+main() {
+    with (local conn = db::open("sqlite::memory:")) {
+        conn->exec("CREATE TABLE t (x)");
+        println(conn->first("SELECT count(*) AS n FROM t"));   // {"n": 0}
+    }                                     // conn->close() has been called here
+}
+```
+
+- `with (local a = e1, b = e2) statement` declares the locals (each needs a
+  value) for the statement. When the statement is left (at its end, by
+  `return`, `break`, `continue` or an exception), `x->close()` is called for
+  each of them that is not `nil`, the last one first.
+- Any value with a `close()` member function works: `db::Conn`,
+  `db::Cursor`, `zmq::Socket`, and objects of your own classes. A
+  value without one gives a `TypeError` or `MemberError` when it is closed.
+- If the statement throws and a `close()` throws too, the statement's
+  exception goes on and the close failure is dropped. If only a `close()`
+  throws, its exception goes on after the other locals are closed. If an
+  initializer throws, the locals before it are closed.
+- As with `try`, a `case` or `default` label may not be inside a `with` that
+  is inside its switch.
 
 ---
 

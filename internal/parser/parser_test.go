@@ -256,6 +256,8 @@ main() {
 func TestErrors(t *testing.T) {
 	tests := []struct{ src, pos, msg string }{
 		{"main() { x = 1 }", "1:16", "expected ';' after expression, found '}'"},
+		{"main() { with (x) ; }", "1:16", "expected 'local' after 'with ('"},
+		{"main() { with (local a) ; }", "1:22", "a needs a value: with closes what its variables hold"},
 		// temporaries (syntax version 3 and before), in all three places
 		{"f(a; t, u) {} main() {}", "1:4", "temporaries after ';' were removed in syntax version 4: declare them at the start of the body instead (local t, u;)"},
 		{"class C { m(); } C::m(; total) {} main() {}", "1:23", "declare them at the start of the body instead (local total;)"},

@@ -1,5 +1,5 @@
 (*
-   Kukel syntax, as implemented by kukel v0.4 (syntax version 5).
+   Kukel syntax, as implemented by kukel v0.7 (syntax version 6).
 
    Notation: ISO/IEC 14977 EBNF.
        =  definition        ;  end of rule        |  alternative
@@ -12,7 +12,10 @@
    What programs mean is described in docs/reference.md; how they are
    compiled and run in docs/vm.md.
 
-   History: syntax version 5 removed "elseif" (write "else if"; elseif is
+   History: syntax version 6 added the with statement ("with" is a new
+   keyword).
+
+   Syntax version 5 removed "elseif" (write "else if"; elseif is
    no longer a keyword) and allows the comma operator only in the first
    and last part of a for loop. The parser reports the old forms with that
    advice. (Kukel v0.4 also removed the built-ins isnil and substr, and
@@ -187,6 +190,7 @@ statement           = if_statement
                     | return_statement
                     | local_declaration
                     | try_statement
+                    | with_statement
                     | throw_statement
                     | labelled_statement
                     | block
@@ -213,7 +217,7 @@ default_label       = "default" , ":" ;
                          switch body; no two case values of one switch equal
                          as == compares them (1 and 1.0 are equal); at most
                          one default per switch; a label may not be placed
-                         where jumping to it would enter a try block or skip
+                         where jumping to it would enter a try or with block or skip
                          the initialization of a local still in scope. *)
 
 while_statement     = "while" , condition , statement ;
@@ -283,6 +287,19 @@ catch_part          = "catch" , "(" , Identifier , ")" , block ;
 finally_part        = "finally" , block ;
                       (* Rule: return, and break or continue to a statement
                          outside the finally block, are compile errors. *)
+
+with_statement      = "with" , "(" , "local" , Identifier , "=" , assignment ,
+                      { "," , Identifier , "=" , assignment } , ")" , statement ;
+                      (* The locals are visible in the statement. However
+                         the statement is left (at its end, by return, break,
+                         continue or an exception), x->close() is called for
+                         each local x that is not nil, the last one first.
+                         If the statement threw and a close() throws too, the
+                         statement's exception goes on (the close failure is
+                         dropped); otherwise a close failure is thrown after
+                         the remaining locals are closed. Rule: a case or
+                         default label inside it, for a switch around it, is
+                         an error (as for try). *)
 
 throw_statement     = "throw" , expression , ";" ;
                       (* Rule: the value must be an Error object (an
@@ -434,7 +451,7 @@ Keyword             = "break" | "case" | "catch" | "class" | "const" | "continue
                     | "default" | "do" | "else" | "false" | "finally"
                     | "fn" | "for" | "global" | "if" | "in" | "local" | "new"
                     | "nil" | "return" | "static" | "switch" | "this" | "throw"
-                    | "true" | "try" | "use" | "while" ;
+                    | "true" | "try" | "use" | "while" | "with" ;
 
 Integer             = Decimal_Digits
                     | "0" , ( "x" | "X" ) , Hex_Digit , { [ "_" ] , Hex_Digit }

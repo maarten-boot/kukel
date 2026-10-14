@@ -97,6 +97,7 @@ const (
 	TRY
 	USE
 	WHILE
+	WITH
 	keywordEnd
 )
 
@@ -187,6 +188,7 @@ var names = [...]string{
 	TRY:      "try",
 	USE:      "use",
 	WHILE:    "while",
+	WITH:     "with",
 }
 
 // String returns the name of a literal kind (IDENT, INT, ...) or the source

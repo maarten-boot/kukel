@@ -132,9 +132,10 @@ func TestCompileErrors(t *testing.T) {
 		{"main() { a: { try { } finally { while (1) { continue a; } } } }", "1:54", "continue a: a does not label a loop"},
 		{"main() { a: while (1) { try { } finally { if (1) continue a; } } }", "1:50", "continue out of a finally block is not allowed"},
 		{"f() { try { } finally { return 1; } } main() {}", "1:25", "return out of a finally block is not allowed"},
-		{"main() { switch (1) { case 1: try { case 2: ; } catch (e) { } } }", "1:37", "a case label may not be inside a try, catch or finally block of its switch"},
-		{"main() { switch (1) { case 1: try { } catch (e) { default: } } }", "1:51", "a default label may not be inside a try, catch or finally block"},
-		{"main() { switch (1) { case 1: try { } finally { case 2: } } }", "1:49", "a case label may not be inside a try, catch or finally block"},
+		{"class R { close(); } R::close() {} main() { switch (1) { case 1: with (local a = new R()) { case 2: ; } } }", "1:93", "a case label may not be inside a try, catch, finally or with block of its switch"},
+		{"main() { switch (1) { case 1: try { case 2: ; } catch (e) { } } }", "1:37", "a case label may not be inside a try, catch, finally or with block of its switch"},
+		{"main() { switch (1) { case 1: try { } catch (e) { default: } } }", "1:51", "a default label may not be inside a try, catch, finally or with block"},
+		{"main() { switch (1) { case 1: try { } finally { case 2: } } }", "1:49", "a case label may not be inside a try, catch, finally or with block"},
 		{"main() { try { } catch (e) { local e; } }", "1:36", "local e is already declared in this block"},
 		{"class Error { }", "1:7", "Error is already defined at <prelude>:2:7"},
 		// function literals

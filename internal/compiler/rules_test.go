@@ -32,6 +32,10 @@ var ruleCases = map[string]struct {
 		},
 	},
 	"start": {elsewhere: "internal/parser TestErrors: \"nesting too deep\""},
+	"with_statement": {
+		ok:  []string{`class R { close(); } R::close() {} main() { with (local a = new R(), b = nil) { return; } }`},
+		bad: [][2]string{{`class R { close(); } R::close() {} main() { switch (1) { case 1: with (local a = new R()) { default: } } }`, "a default label may not be inside a try, catch, finally or with block"}},
+	},
 	"throw_statement": {
 		ok: []string{`class E : Error {} main() { local e = new E(); try { throw e; } catch (x) { throw new Error("again", "Mine"); } }`},
 		bad: [][2]string{

@@ -164,7 +164,65 @@ func (c *compiler) returnStmt(s *ast.ReturnStmt) {
 func (c *compiler) checkLabelTry(sw *switchState, pos token.Pos, what string) {
 	for _, t := range c.fs.tries {
 		if t.targets > sw.target {
-			c.errorf(pos, "a %s label may not be inside a try, catch or finally block of its switch", what)
+			c.errorf(pos, "a %s label may not be inside a try, catch, finally or with block of its switch", what)
 		}
 	}
+}
+
+// withStmt compiles "with (local a = e1, b = e2) body" as nested try blocks:
+// each variable is declared, then a try covers the rest; leaving it (at the
+// end, by return, break or continue) runs a->close() if a is not nil. On
+// the exception path the close runs inside a catch that ignores its
+// failure, so that the body's exception is the one that goes on.
+func (c *compiler) withStmt(s *ast.WithStmt) {
+	c.pushScope()
+	c.withVar(s, 0)
+	c.popScope()
+}
+
+func (c *compiler) withVar(s *ast.WithStmt, i int) {
+	if i == len(s.Vars) {
+		c.stmt(s.Body)
+		return
+	}
+	v := s.Vars[i]
+	c.local(&ast.LocalDecl{Local: v.Pos(), Vars: []*ast.VarSpec{v}})
+	normal, failing := closeBlocks(v.Name, s.With)
+	h := c.emit(bytecode.OpTryPush, 1, 0)
+	c.pushTry(&tryCtx{handlers: 1, finally: normal})
+	c.withVar(s, i+1)
+	c.popTry()
+	c.emit(bytecode.OpTryPop)
+	c.finallyBlock(normal)
+	end := c.jump(bytecode.OpJump)
+
+	c.patch([]int{h + 2}, c.here())
+	c.handlerEntry()
+	c.pushScope()
+	pending := c.declare(&ast.Ident{NamePos: s.With, Name: "(exception)"}, "hidden").slot
+	c.emit(bytecode.OpStoreLocal, pending)
+	c.finallyBlock(failing)
+	c.emit(bytecode.OpLoadLocal, pending)
+	c.emit(bytecode.OpRethrow)
+	c.popScope()
+	c.patch([]int{end}, c.here())
+}
+
+// closeBlocks makes the code that closes the value of name:
+//
+//	normal:  if (name != nil) name->close();
+//	failing: if (name != nil) try { name->close(); } catch ((ignored)) { }
+func closeBlocks(name *ast.Ident, pos token.Pos) (normal, failing *ast.Block) {
+	id := func() *ast.Ident { return &ast.Ident{NamePos: name.NamePos, Name: name.Name} }
+	call := func() ast.Stmt {
+		return &ast.ExprStmt{X: &ast.MethodCall{X: id(), Name: &ast.Ident{NamePos: pos, Name: "close"}}}
+	}
+	notNil := func() ast.Expr {
+		return &ast.BinaryExpr{X: id(), OpPos: pos, Op: token.NE, Y: &ast.NilLit{ValuePos: pos}}
+	}
+	normal = &ast.Block{Lbrace: pos, Stmts: []ast.Stmt{&ast.IfStmt{If: pos, Cond: notNil(), Then: call()}}}
+	guarded := &ast.TryStmt{Try: pos, Body: &ast.Block{Lbrace: pos, Stmts: []ast.Stmt{call()}},
+		CatchVar: &ast.Ident{NamePos: pos, Name: "(ignored)"}, Catch: &ast.Block{Lbrace: pos}}
+	failing = &ast.Block{Lbrace: pos, Stmts: []ast.Stmt{&ast.IfStmt{If: pos, Cond: notNil(), Then: guarded}}}
+	return normal, failing
 }

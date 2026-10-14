@@ -1,5 +1,5 @@
 #!/usr/bin/env kukel
-// Every kind of token in Kukel syntax version 5.
+// Every kind of token in Kukel syntax version 6.
 use util;
 
 global count = 0, names;
@@ -24,5 +24,6 @@ main(args) {
 line"); } catch (e) { p->x %= 1.5E-3 >> 2 ^ ~t; } finally { ; }
     a -= b *= c /= d &= e |= f ^= g >>= h; a == b ? c : d; [args.., 2];
     do { if (a + b > c) ; else if (a <= b << 1) ; else a = true || false || nil; } while (0);
+    with (local r = p) ;
     return --count ++ - -1 / 2 * 3 % 4 & 5 | 6;
 }

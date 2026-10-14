@@ -130,6 +130,9 @@ func Inspect(n Node, f func(Node) bool) {
 		if n.Finally != nil {
 			walk(n.Finally)
 		}
+	case *WithStmt:
+		vars(n.Vars)
+		walk(n.Body)
 	case *ThrowStmt:
 		walk(n.Value)
 	case *LabeledStmt:
