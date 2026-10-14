@@ -42,13 +42,20 @@ hello, Kukel
 | Command | What it does |
 |---|---|
 | `kukel run a.kkl b.kkl [-- args]` | Compile the files as one program and run it; the arguments after `--` go to `main` |
-| `kukel check a.kkl ...` | Compile only and report the first error; prints nothing when the program is fine |
+| `kukel check a.kkl ...` | Compile only and report the errors; prints nothing when the program is fine |
 | `kukel build [-o prog.kkc] a.kkl ...` | Compile to a bytecode file (default name: the first file with `.kkc`) |
 | `kukel exec prog.kkc [--] [args]` | Run a bytecode file (a first `--` is skipped) |
 | `kukel disasm prog.kkc` or `kukel disasm a.kkl ...` | Show the bytecode in readable form |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | Show the tokens or the syntax tree of each file (for debugging; `-pos` adds positions) |
 | `kukel version` | Show the version, the bytecode format and the modules written in Go |
 | `kukel help` | Show the commands |
+
+A compile reports several errors at once, in the order of the source: the
+first syntax error of each file, and otherwise the first error of each
+definition and of each function (at most 10 are shown, with a count of the
+rest). Errors in the definitions (names, classes, constants) are reported
+without compiling the function bodies, whose errors could only be their
+consequences.
 
 The exit code is `main`'s result when it returns an int, else 0. A compile
 error or an uncaught exception gives exit code 1; `exit(code)` ends the

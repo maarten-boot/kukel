@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/maarten-boot/kukel/internal/diag"
 )
 
 // tree writes files (path relative to a new temporary directory: source)
@@ -131,6 +133,19 @@ func TestEmptyPathEntry(t *testing.T) {
 	defer os.Chdir(wd)
 	_, err = Load([]string{filepath.Join(dir, "prog", "main.kkl")}, []string{"", filepath.Join(dir, "none")})
 	if err == nil || !strings.Contains(err.Error(), "module cwdmod not found") {
+		t.Errorf("got %v", err)
+	}
+}
+
+// A syntax error in one file does not hide one in another.
+func TestSyntaxErrorsOfSeveralFiles(t *testing.T) {
+	dir := tree(t, map[string]string{"a.kkl": "f( {}", "b.kkl": "main() { x = ; }", "c.kkl": "g() {}"})
+	var files []string
+	for _, f := range []string{"a.kkl", "b.kkl", "c.kkl"} {
+		files = append(files, filepath.Join(dir, f))
+	}
+	_, err := Load(files, nil)
+	if errs := diag.Errors(err); len(errs) != 2 || !strings.Contains(errs[0].Error(), "a.kkl:1:4") || !strings.Contains(errs[1].Error(), "b.kkl:1:14") {
 		t.Errorf("got %v", err)
 	}
 }

@@ -34,7 +34,7 @@ const usage = `usage: kukel <command> [arguments]
 
 commands:
   run a.kkl b.kkl [-- args]       compile in memory and run
-  check a.kkl ...                 compile only: report the first error, run nothing
+  check a.kkl ...                 compile only: report the errors, run nothing
   build [-o prog.kkc] a.kkl ...   compile to a bytecode file (default: a.kkc)
   exec prog.kkc [--] [args]       run a bytecode file
   disasm a.kkl ... | prog.kkc     show the bytecode in readable form

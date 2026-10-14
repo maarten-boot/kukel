@@ -538,7 +538,7 @@ ideas above make useful:
 - a peephole pass over the generated code;
 - a REPL (`kukel repl`): handy for trying the GUI, messaging and database
   libraries interactively;
-- reporting several compile errors at once;
+- reporting several compile errors at once (*done*, TODO.md Q46);
 - strings without an extra allocation per value (a different `Value`
   layout);
 - a debugger hook (breakpoints, stepping) on the VM, which the

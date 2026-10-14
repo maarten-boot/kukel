@@ -165,8 +165,8 @@ func TestCompileErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		err := compileSrc(t, tt.src)
-		e, ok := err.(*diag.Error)
-		if !ok || e.Pos.String() != "t.kkl:"+tt.pos || !strings.Contains(e.Msg, tt.msg) {
+		errs := diag.Errors(err) // the first one is the one each case is about
+		if len(errs) == 0 || errs[0].Pos.String() != "t.kkl:"+tt.pos || !strings.Contains(errs[0].Msg, tt.msg) {
 			t.Errorf("%q:\n got  %v\n want t.kkl:%s: ...%s...", tt.src, err, tt.pos, tt.msg)
 		}
 	}
@@ -324,5 +324,33 @@ func TestMainParameter(t *testing.T) {
 		if err := compileSrc(t, src); err == nil || !strings.Contains(err.Error(), "cannot have a default or be a rest parameter") {
 			t.Errorf("%s: %v", src, err)
 		}
+	}
+}
+
+// One compile reports an error in each function (the first in each), and
+// errors in the definitions without the functions' consequences.
+func TestSeveralErrors(t *testing.T) {
+	err := compileSrc(t, `f() { x = 1; y = 2; }
+g() { return nosuch(); }
+main() { h(); }`)
+	want := "t.kkl:1:7: undefined name x (declare globals with 'global')\nt.kkl:2:14: undefined name nosuch\nt.kkl:3:10: undefined name h"
+	if err == nil || err.Error() != want {
+		t.Errorf("got:\n%v\nwant:\n%s", err, want)
+	}
+	// Errors in the definitions stop before the bodies are compiled.
+	err = compileSrc(t, `f() {} f() {} const C = nosuch; main() { undefinedInABody; }`)
+	want = "t.kkl:1:8: f is already defined at t.kkl:1:1\nt.kkl:1:25: nosuch is not a constant defined earlier"
+	if err == nil || err.Error() != want {
+		t.Errorf("got:\n%v\nwant:\n%s", err, want)
+	}
+	// At most diag.MaxErrors are shown.
+	var b strings.Builder
+	for i := 0; i < 12; i++ {
+		fmt.Fprintf(&b, "f%d() { x%d; }\n", i, i)
+	}
+	b.WriteString("main() {}")
+	err = compileSrc(t, b.String())
+	if len(diag.Errors(err)) != 12 || !strings.HasSuffix(err.Error(), "(and 2 more errors)") || strings.Count(err.Error(), "\n") != 10 {
+		t.Errorf("got:\n%v", err)
 	}
 }

@@ -192,7 +192,7 @@ func TestGrammarRules(t *testing.T) {
 		}
 		for _, b := range rc.bad {
 			err := compileSrc(t, b[0])
-			if _, ok := err.(*diag.Error); !ok || !strings.Contains(err.Error(), b[1]) {
+			if len(diag.Errors(err)) == 0 || !strings.Contains(err.Error(), b[1]) {
 				t.Errorf("rule %s: %q: got %v, want an error containing %q", name, b[0], err, b[1])
 			}
 		}

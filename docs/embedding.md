@@ -129,7 +129,7 @@ main() { app::notify("started " + app::version); }
 
 | Error | When |
 |---|---|
-| `*CompileError` | An error in the source: `File`, `Line`, `Col`, `Message` (a missing file is the `os` error) |
+| `*CompileError` | An error in the source: `File`, `Line`, `Col`, `Message`; when the compile found several, the others are in `More` and `Error()` gives them all, one per line (a missing file is the `os` error) |
 | `*Error` | An exception nothing in the program caught: `Kind` (`"RangeError"`, ...), `Message`, `Value` (the thrown `Error` object), `Trace` (innermost call first). Also the step limit (`"StepLimitError"`) and cancellation (`"CancelledError"`), which the program cannot catch |
 | `*ExitError` | The program called `exit(code)` during a `Call`, `CallContext`, `CallValue` or `Global` (in an initializer); `Run` gives the code as its result |
 

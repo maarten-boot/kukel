@@ -1,6 +1,11 @@
-// A compile error is reported before anything runs.
+// Compile errors are reported before anything runs: one for each function
+// at most, all of them in one run.
 
 main() {
     println("not printed");
     total = 0;
+}
+
+helper(x) {
+    return x * factor;
 }

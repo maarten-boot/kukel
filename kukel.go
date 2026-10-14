@@ -174,21 +174,34 @@ func LoadProgram(data []byte, opts CompileOptions) (*Program, error) {
 // Encode gives the program as the bytes of a .kkc file.
 func (p *Program) Encode() ([]byte, error) { return bytecode.Encode(p.prog) }
 
-// CompileError is an error in Kukel source.
+// CompileError is an error in Kukel source. A compile can find several:
+// the first is the CompileError itself, the others are in More (in the
+// order of the source), and Error() gives all of them, one per line.
 type CompileError struct {
 	File      string
 	Line, Col int
 	Message   string
+	More      []*CompileError
 }
 
 func (e *CompileError) Error() string {
-	return fmt.Sprintf("%s:%d:%d: %s", e.File, e.Line, e.Col, e.Message)
+	s := fmt.Sprintf("%s:%d:%d: %s", e.File, e.Line, e.Col, e.Message)
+	for _, m := range e.More {
+		s += "\n" + m.Error()
+	}
+	return s
 }
 
 func compileError(err error) error {
-	var d *diag.Error
-	if errors.As(err, &d) {
-		return &CompileError{File: d.Pos.File, Line: d.Pos.Line, Col: d.Pos.Col, Message: d.Msg}
+	if ds := diag.Errors(err); len(ds) > 0 {
+		one := func(d *diag.Error) *CompileError {
+			return &CompileError{File: d.Pos.File, Line: d.Pos.Line, Col: d.Pos.Col, Message: d.Msg}
+		}
+		e := one(ds[0])
+		for _, d := range ds[1:] {
+			e.More = append(e.More, one(d))
+		}
+		return e
 	}
 	var pe *os.PathError
 	if errors.As(err, &pe) {

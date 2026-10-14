@@ -36,12 +36,20 @@ func Load(files []string, path []string) ([]*ast.File, error) {
 // Go it may use, and where (and whether) it finds modules written in Kukel.
 func LoadWith(files []string, config *native.Config) ([]*ast.File, error) {
 	var prog []*ast.File
+	var errs []*diag.Error // the first syntax error of each file
 	for _, file := range files {
 		f, err := parse(file, "")
+		if d, ok := err.(*diag.Error); ok {
+			errs = append(errs, d)
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
 		prog = append(prog, f)
+	}
+	if len(errs) > 0 {
+		return nil, diag.Join(errs)
 	}
 	return resolve(prog, config, true)
 }

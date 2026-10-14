@@ -77,6 +77,25 @@ type compiler struct {
 	file      *fileScope         // the file whose code is being compiled
 	fs        *funcState         // the function being compiled
 	config    *native.Config     // modules and built-ins the program may use (nil: all)
+	errs      []*diag.Error      // the errors so far (see attempt)
+}
+
+// attempt runs f, one definition or function, and records a compile
+// error it reports instead of stopping: the rest of the program is still
+// checked, so that one run reports several errors. Within f only the
+// first error counts.
+func (c *compiler) attempt(f func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			b, ok := r.(bailout)
+			if !ok {
+				panic(r)
+			}
+			c.errs = append(c.errs, b.err)
+			c.fs = nil // a function may have been half compiled
+		}
+	}()
+	f()
 }
 
 // bailout carries a compile error up to Compile.
@@ -129,44 +148,48 @@ func CompileWith(files []*ast.File, builtins []string, config *native.Config) (p
 		c.file = c.fileScope(f, i == 0)
 		scopes = append(scopes, c.file)
 		for _, d := range f.Decls {
-			switch d := d.(type) {
-			case *ast.UseDecl:
-				c.use(d)
-			case *ast.FuncDecl:
-				if d.Class != nil {
-					methodDefs = append(methodDefs, funcJob{decl: d, file: c.file}) // after all classes are known
-					continue
+			c.attempt(func() {
+				switch d := d.(type) {
+				case *ast.UseDecl:
+					c.use(d)
+				case *ast.FuncDecl:
+					if d.Class != nil {
+						methodDefs = append(methodDefs, funcJob{decl: d, file: c.file}) // after all classes are known
+						return
+					}
+					c.checkFuncCount(len(jobs), d.Name.NamePos)
+					g := c.define(d.Name, symFunc)
+					c.prog.Globals[g.index].Func = len(jobs)
+					g.params = shapeOf(c.qualify(d.Name.Name), d.Params)
+					jobs = append(jobs, funcJob{decl: d, file: c.file})
+				case *ast.GlobalDecl:
+					for _, v := range d.Vars {
+						g := c.define(v.Name, symVar)
+						globals = append(globals, globalInit{v, g, c.file})
+					}
+				case *ast.ConstDecl:
+					for _, v := range d.Vars {
+						val := c.constValue(v.Value)
+						c.define(v.Name, symConst).value = val
+					}
+				case *ast.ClassDecl:
+					c.declareClass(d)
 				}
-				c.checkFuncCount(len(jobs), d.Name.NamePos)
-				g := c.define(d.Name, symFunc)
-				c.prog.Globals[g.index].Func = len(jobs)
-				g.params = shapeOf(c.qualify(d.Name.Name), d.Params)
-				jobs = append(jobs, funcJob{decl: d, file: c.file})
-			case *ast.GlobalDecl:
-				for _, v := range d.Vars {
-					g := c.define(v.Name, symVar)
-					globals = append(globals, globalInit{v, g, c.file})
-				}
-			case *ast.ConstDecl:
-				for _, v := range d.Vars {
-					val := c.constValue(v.Value)
-					c.define(v.Name, symConst).value = val
-				}
-			case *ast.ClassDecl:
-				c.declareClass(d)
-			}
+			})
 		}
 	}
 	for _, job := range methodDefs {
-		c.file = job.file
-		job.class, job.member = c.methodDefinition(job.decl)
-		c.checkFuncCount(len(jobs), job.decl.Name.NamePos)
-		job.member.fn = len(jobs)
-		job.class.bc.Methods[job.member.method].Func = job.member.fn
-		jobs = append(jobs, job)
+		c.attempt(func() {
+			c.file = job.file
+			job.class, job.member = c.methodDefinition(job.decl)
+			c.checkFuncCount(len(jobs), job.decl.Name.NamePos)
+			job.member.fn = len(jobs)
+			job.class.bc.Methods[job.member.method].Func = job.member.fn
+			jobs = append(jobs, job)
+		})
 	}
 	for _, s := range scopes {
-		c.checkUses(s)
+		c.attempt(func() { c.checkUses(s) })
 	}
 
 	// The entry point.
@@ -177,39 +200,54 @@ func CompileWith(files []*ast.File, builtins []string, config *native.Config) (p
 			break
 		}
 	}
-	m, ok := c.modules[""].names["main"]
-	if !ok || m.kind != symFunc {
-		c.errorf(pos, "the program has no main function")
-	}
-	if fd := jobs[c.prog.Globals[m.index].Func].decl; len(fd.Params.Params) > 1 {
-		c.errorf(fd.Name.NamePos, "main takes at most one parameter (the command-line arguments)")
-	} else if len(fd.Params.Params) == 1 && (fd.Params.Params[0].Rest || fd.Params.Params[0].Default != nil) {
-		c.errorf(fd.Name.NamePos, "main's parameter (the command-line arguments) cannot have a default or be a rest parameter")
-	}
-	c.prog.Main = m.index
-
-	// Pass 2: the global initializers, then the functions.
-	c.prog.Funcs = make([]*bytecode.Function, len(jobs)) // function literals are added after these
-	c.prog.Init = c.function("<init>", pos, &ast.ParamList{}, nil, false, nil, initializers(globals), func() {
-		for _, v := range globals {
-			if v.spec.Value != nil {
-				c.file = v.file
-				c.mark(v.spec.Pos())
-				c.expr(v.spec.Value)
-				c.emit(bytecode.OpStoreGlobal, v.g.index)
-			}
+	c.attempt(func() {
+		m, ok := c.modules[""].names["main"]
+		if !ok || m.kind != symFunc {
+			c.errorf(pos, "the program has no main function")
 		}
+		if fd := jobs[c.prog.Globals[m.index].Func].decl; len(fd.Params.Params) > 1 {
+			c.errorf(fd.Name.NamePos, "main takes at most one parameter (the command-line arguments)")
+		} else if len(fd.Params.Params) == 1 && (fd.Params.Params[0].Rest || fd.Params.Params[0].Default != nil) {
+			c.errorf(fd.Name.NamePos, "main's parameter (the command-line arguments) cannot have a default or be a rest parameter")
+		}
+		c.prog.Main = m.index
+	})
+	// Errors in the definitions could make the functions report errors that
+	// are only their consequences: stop here.
+	if len(c.errs) > 0 {
+		return nil, diag.Join(c.errs)
+	}
+
+	// Pass 2: the global initializers, then the functions; each reports its
+	// first error.
+	c.prog.Funcs = make([]*bytecode.Function, len(jobs)) // function literals are added after these
+	c.attempt(func() {
+		c.prog.Init = c.function("<init>", pos, &ast.ParamList{}, nil, false, nil, initializers(globals), func() {
+			for _, v := range globals {
+				if v.spec.Value != nil {
+					c.file = v.file
+					c.mark(v.spec.Pos())
+					c.expr(v.spec.Value)
+					c.emit(bytecode.OpStoreGlobal, v.g.index)
+				}
+			}
+		})
 	})
 	for i, job := range jobs {
-		c.file = job.file
-		fd := job.decl
-		name, static := c.qualify(fd.Name.Name), false
-		if job.class != nil {
-			name, static = job.class.name+"::"+fd.Name.Name, job.member.static
-		}
-		c.prog.Funcs[i] = c.function(name, fd.Pos(), fd.Params, job.class, static, nil, fd, func() {
-			c.block(fd.Body)
+		c.attempt(func() {
+			c.file = job.file
+			fd := job.decl
+			name, static := c.qualify(fd.Name.Name), false
+			if job.class != nil {
+				name, static = job.class.name+"::"+fd.Name.Name, job.member.static
+			}
+			c.prog.Funcs[i] = c.function(name, fd.Pos(), fd.Params, job.class, static, nil, fd, func() {
+				c.block(fd.Body)
+			})
 		})
+	}
+	if len(c.errs) > 0 {
+		return nil, diag.Join(c.errs)
 	}
 	c.prog.Init.Index = -1
 	for i, f := range c.prog.Funcs {

@@ -424,3 +424,11 @@ func TestCrossCheck3(t *testing.T) {
 		t.Errorf("ToGo of clashing keys: %v", err)
 	}
 }
+
+func TestSeveralCompileErrors(t *testing.T) {
+	_, err := kukel.CompileSource("t.kkl", "f() { a; }\ng() { b; }\nmain() {}", kukel.CompileOptions{})
+	var ce *kukel.CompileError
+	if !errors.As(err, &ce) || ce.Line != 1 || len(ce.More) != 1 || ce.More[0].Line != 2 || strings.Count(err.Error(), "\n") != 1 {
+		t.Errorf("got %#v", err)
+	}
+}

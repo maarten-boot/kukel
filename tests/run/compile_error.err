@@ -1,1 +1,2 @@
-compile_error.kkl:5:5: undefined name total (declare globals with 'global')
+compile_error.kkl:6:5: undefined name total (declare globals with 'global')
+compile_error.kkl:10:16: undefined name factor
