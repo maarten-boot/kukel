@@ -302,3 +302,33 @@ func TestIterator(t *testing.T) {
 		t.Errorf("iterating an int should fail")
 	}
 }
+
+// Concatenations that share a buffer keep every string as it was made.
+func TestConcatSharing(t *testing.T) {
+	a := Concat(s("ab"), s("c")) // a new buffer
+	b := Concat(a, s("d"))       // appends to it
+	c := Concat(a, s("e"))       // a is no longer at its end: a copy
+	d := Concat(b, b)            // appends b's own bytes
+	e := Concat(Concat(b, s("")), s("f"))
+	want := map[string]Value{"abc": a, "abcd": b, "abce": c, "abcdabcd": d, "abcdf": e}
+	for w, v := range want {
+		if v.AsString() != w || v.Kind() != String {
+			t.Errorf("got %q, want %q", v.AsString(), w)
+		}
+	}
+	if Concat(s(""), s("x")).AsString() != "x" || Concat(s("x"), s("")).AsString() != "x" || s("").AsString() != "" {
+		t.Error("concatenation with an empty string")
+	}
+	x := s("")
+	for range 1000 {
+		x = Concat(x, s("xy"))
+	}
+	if len(x.AsString()) != 2000 || !Equal(x, MakeString(x.AsString())) || Equal(x, s("xy")) {
+		t.Error("a string built in a loop")
+	}
+	if v := Detached(b); v.AsString() != "abcd" {
+		t.Error("Detached")
+	} else if _, ok := v.obj.(*byte); !ok {
+		t.Error("a detached string still uses the buffer")
+	}
+}

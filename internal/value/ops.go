@@ -126,7 +126,7 @@ func Arith(op ArithOp, a, b Value) (Value, error) {
 		return NilValue, typeErr(op.String(), a, b)
 	}
 	if op == Add && a.kind == String && b.kind == String {
-		return MakeString(a.AsString() + b.AsString()), nil
+		return Concat(a, b), nil
 	}
 	return NilValue, typeErr(op.String(), a, b)
 }
@@ -230,7 +230,7 @@ func Equal(a, b Value) bool {
 	case Bool:
 		return a.num == b.num
 	case String:
-		return a.AsString() == b.AsString()
+		return a.num == b.num && a.AsString() == b.AsString() // num: the length
 	case BoundMethod: // p->m == p->m
 		x, y := a.AsBoundMethod(), b.AsBoundMethod()
 		return x.Method == y.Method && Equal(x.Recv, y.Recv)

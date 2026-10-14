@@ -127,8 +127,10 @@ func (q *queue) pop(timeout time.Duration, cancel <-chan struct{}) (value.Value,
 // the copy has the same shape.
 func copyValue(a native.Args, v value.Value, seen map[any]value.Value) (value.Value, error) {
 	switch v.Kind() {
-	case value.Nil, value.Bool, value.Int, value.Float, value.String:
+	case value.Nil, value.Bool, value.Int, value.Float:
 		return v, nil // immutable
+	case value.String:
+		return value.Detached(v), nil // immutable, but its buffer may still grow here
 	case value.Vector:
 		if c, ok := seen[v.Obj()]; ok {
 			return c, nil
@@ -156,7 +158,7 @@ func copyValue(a native.Args, v value.Value, seen map[any]value.Value) (value.Va
 			if err == nil {
 				var ce value.Value
 				if ce, err = copyValue(a, e, seen); err == nil {
-					err = m.Set(k, ce) // keys are strings and numbers
+					err = m.Set(value.Detached(k), ce) // keys are strings and numbers
 				}
 			}
 		})

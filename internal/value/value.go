@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unsafe"
 )
 
 // Kind is the type of a value.
@@ -60,8 +61,10 @@ func (k Kind) String() string { return kindNames[k] }
 
 // Value is a Kukel value. It is a small tagged struct, so that numbers do
 // not allocate: num holds the bits of a Bool, Int or Float, obj the payload
-// of the other kinds (string, *VectorObj, a function object, *BuiltinObj).
-// The zero Value is nil.
+// of the other kinds (*VectorObj, a function object, *BuiltinObj, ...). A
+// String holds its length in num and its bytes in obj: a *byte to the
+// first byte (a pointer fits in an interface without an allocation), or
+// the *strBuf of a string made by concatenation. The zero Value is nil.
 type Value struct {
 	kind Kind
 	num  uint64
@@ -82,7 +85,44 @@ func MakeBool(b bool) Value {
 }
 func MakeInt(i int64) Value     { return Value{kind: Int, num: uint64(i)} }
 func MakeFloat(f float64) Value { return Value{kind: Float, num: math.Float64bits(f)} }
-func MakeString(s string) Value { return Value{kind: String, obj: s} }
+func MakeString(s string) Value {
+	return Value{kind: String, num: uint64(len(s)), obj: unsafe.StringData(s)}
+}
+
+// strBuf holds the bytes of strings made by concatenation. The bytes of a
+// string are never changed: a concatenation onto the string that ends at
+// len(b) appends to b (s += x in a loop does not copy s each time), and
+// other strings in the buffer are prefixes of it.
+type strBuf struct{ b []byte }
+
+// Concat returns the string a + b.
+func Concat(a, b Value) Value {
+	bs := b.AsString()
+	if len(bs) == 0 {
+		return a
+	}
+	if buf, ok := a.obj.(*strBuf); ok && len(buf.b) == int(a.num) {
+		buf.b = append(buf.b, bs...)
+		return Value{kind: String, num: uint64(len(buf.b)), obj: buf}
+	}
+	as := a.AsString()
+	if len(as) == 0 {
+		return b
+	}
+	buf := &strBuf{b: make([]byte, 0, len(as)+len(bs))}
+	buf.b = append(append(buf.b, as...), bs...)
+	return Value{kind: String, num: uint64(len(buf.b)), obj: buf}
+}
+
+// Detached returns v, with a string's bytes no longer shared with a buffer
+// that its interpreter can still append to: for a value that goes to
+// another goroutine.
+func Detached(v Value) Value {
+	if v.kind == String {
+		return MakeString(v.AsString())
+	}
+	return v
+}
 
 // VectorObj is the shared, mutable storage of a vector.
 type VectorObj struct {
@@ -156,12 +196,17 @@ func (v Value) IntValue() (int64, bool) {
 	return 0, false
 }
 
-func (v Value) Kind() Kind           { return v.kind }
-func (v Value) IsNil() bool          { return v.kind == Nil }
-func (v Value) AsBool() bool         { return v.num != 0 }
-func (v Value) AsInt() int64         { return int64(v.num) }
-func (v Value) AsFloat() float64     { return math.Float64frombits(v.num) }
-func (v Value) AsString() string     { return v.obj.(string) }
+func (v Value) Kind() Kind       { return v.kind }
+func (v Value) IsNil() bool      { return v.kind == Nil }
+func (v Value) AsBool() bool     { return v.num != 0 }
+func (v Value) AsInt() int64     { return int64(v.num) }
+func (v Value) AsFloat() float64 { return math.Float64frombits(v.num) }
+func (v Value) AsString() string {
+	if p, ok := v.obj.(*byte); ok {
+		return unsafe.String(p, int(v.num))
+	}
+	return unsafe.String(unsafe.SliceData(v.obj.(*strBuf).b), int(v.num))
+}
 func (v Value) AsVector() *VectorObj { return v.obj.(*VectorObj) }
 func (v Value) AsMap() *MapObj       { return v.obj.(*MapObj) }
 func (v Value) AsBuiltin() *BuiltinObj {
