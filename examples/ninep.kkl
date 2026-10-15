@@ -1,0 +1,123 @@
+// ninep: a 9P file server and client (module p9). The server serves a small
+// tree the program makes up; the client lists, reads and writes the files
+// of a 9P server (this one, or Plan 9, plan9port, diod, QEMU, ...).
+//
+//     kukel run examples/ninep.kkl -- serve tcp://*:5640
+//     kukel run examples/ninep.kkl -- ls tcp://localhost:5640 /
+//     kukel run examples/ninep.kkl -- cat tcp://localhost:5640 /hello
+//     kukel run examples/ninep.kkl -- put tcp://localhost:5640 /notes 'buy milk'
+//     kukel run examples/ninep.kkl -- put tcp://localhost:5640 /ctl stop
+//     kukel run examples/ninep.kkl -- demo
+//
+// demo serves the tree on a free port and uses it with its own client, in
+// both versions of the protocol. The exit code is 2 after an error.
+use p9;
+use events;
+use time;
+
+// tree makes the tree the server serves: writing "stop" to /ctl calls
+// stop().
+tree(stop) {
+    local t = new p9::Tree(), hits = 0, notes = [];
+    t->file("/hello", "Hello from Kukel.\n");
+    t->file("/time", fn() { return time::now()->format() + "\n"; });
+    t->file("/hits", fn() { hits++; return str(hits) + "\n"; });
+    t->file("/notes", fn() { return join(notes); }, fn(data) { push(notes, data + "\n"); });
+    t->file("/ctl", "", fn(data) {
+        if (trim(data) != "stop") throw new Error("unknown command: " + data);
+        stop();
+    });
+    t->dir("/empty");
+    return t;
+}
+
+serve(address) {
+    local s = nil;
+    s = p9::serve(tree(fn() { s->close(); }), address);
+    println("serving", s->endpoint());
+    events::run();                         // until /ctl gets "stop"
+    println("stopped");
+}
+
+ls(c, path) {
+    for (local e in c->readdir(path))
+        println(e["mode"], e["size"], e["name"] + (e["dir"] ? "/" : ""));
+}
+
+demo() {
+    local s = nil;
+    s = p9::serve(tree(fn() { s->close(); }), "tcp://127.0.0.1:0");
+
+    for (local v in ["9P2000", "9P2000.L"]) {
+        local c = p9::dial(s->endpoint(), {"version": v});
+        println("--", c->version());
+        ls(c, "/");
+        print(c->read("/hello"));
+        print("hits: " + c->read("/hits"));
+        c->write("/notes", "written with " + v);
+        print(c->read("/notes"));
+
+        try {
+            c->write("/hello", "changed?");
+        } catch (e) {
+            println(e->message);
+        }
+
+        c->close();
+    }
+
+    local c = p9::dial(s->endpoint());
+    c->write("/ctl", "stop");
+    c->close();
+    println("stopped:", find(str(s), "closed") > 0);
+}
+
+usage(why) {
+    eprintln("ninep:", why);
+    eprintln("usage: ninep serve address | ls address [path] | cat address path | put address path text | demo");
+    return 2;
+}
+
+main(args) {
+    if (len(args) == 0) return usage("no command");
+    local cmd = args[0];
+
+    if (cmd == "demo" && len(args) == 1) {
+        demo();
+        return 0;
+    }
+
+    if (cmd == "serve" && len(args) == 2) {
+        serve(args[1]);
+        return 0;
+    }
+
+    local want = {"ls": [2, 3], "cat": [3, 3], "put": [4, 4]};
+
+    if (!haskey(want, cmd)) return usage("unknown command " + cmd);
+
+    if (len(args) < want[cmd][0] || len(args) > want[cmd][1]) return usage("wrong number of arguments for " + cmd);
+
+    try {
+        local c = p9::dial(args[1]);
+
+        switch (cmd) {
+            case "ls":
+                ls(c, len(args) == 3 ? args[2] : "/");
+                break;
+            case "cat":
+                print(c->read(args[2]));
+                break;
+            case "put":
+                c->write(args[2], args[3]);
+                break;
+        }
+
+        c->close();
+    } catch (e) {
+        eprintln("ninep:", e->message);
+        return 2;
+    }
+
+    return 0;
+}

@@ -53,7 +53,8 @@ caught RangeError: index 5 out of range for vector of length 3
 - modules: `use geometry;` loads `geometry.kkl`, reached as `geometry::name`;
   modules written in Go: `db` (SQL with SQLite, PostgreSQL and MySQL, and
   objects in tables), `events` (an event loop with timers), `fs`
-  (directories and files), `json`, `re`
+  (directories and files), `json`, `p9` (the 9P file protocol: a client,
+  and a server of trees the program builds), `re`
   (regular expressions), `strings` (a string builder), `time`, `uuid`,
   `worker` (interpreters that run in parallel and exchange messages) and
   `zmq` (ZeroMQ sockets, to talk with other programs and machines)
@@ -81,14 +82,14 @@ make            # vet, test and build bin/kukel
 make install    # install kukel into $GOBIN, else $(go env GOPATH)/bin
 ```
 
-`kukel` holds everything (about 22 MB). Build tags leave parts out for a
+`kukel` holds everything (about 23 MB). Build tags leave parts out for a
 smaller binary: `nopostgres`, `nomysql`, `nosqlite` (all three: no module
-`db`) and `nozmq`. With all four it is about 6 MB; with SQLite as the only
-database about 13 MB:
+`db`), `nozmq` and `no9p`. With all five it is about 7 MB; with SQLite as
+the only database about 15 MB:
 
 ```
 go install -tags nopostgres,nomysql github.com/maarten-boot/kukel/cmd/kukel@latest
-make small                    # bin/kukel-small, all four tags
+make small                    # bin/kukel-small, all five tags
 make small TAGS=nozmq         # other tags
 ```
 
@@ -151,7 +152,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/token`, `internal/diag` | token kinds and source positions; the error type all stages share |
 | `internal/lexer`, `internal/parser`, `internal/ast` | source to syntax tree |
 | `internal/loader` | finds and reads the modules a program uses |
-| `internal/native`, `internal/modules/...` | modules written in Go (`db`, `events`, `fs`, `json`, `re`, `strings`, `time`, `uuid`, `worker`, `zmq`) and native classes |
+| `internal/native`, `internal/modules/...` | modules written in Go (`db`, `events`, `fs`, `json`, `p9`, `re`, `strings`, `time`, `uuid`, `worker`, `zmq`) and native classes |
 | `examples/` | demo programs, such as a `grep` ([examples/README.md](examples/README.md)) |
 | `internal/compiler` | name resolution, the language's rules, code generation |
 | `internal/bytecode` | instruction set, `.kkc` files, the verifier that checks loaded files |
@@ -159,7 +160,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/value`, `internal/builtins` | values with their operators, built-in functions |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q61). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q62). Ideas for later are in [docs/future.md](docs/future.md).
 
 ## Development
 

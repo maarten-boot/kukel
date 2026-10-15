@@ -1245,6 +1245,93 @@ main() {
 | `json::encode(v [, indent])` | `v` as JSON text: `nil` is `null`, vectors are arrays, maps are objects in their order (number keys become their text, so keys `1` and `"1"` in one map give the same JSON key twice). Floats keep a `.0` so they decode as floats again. With `indent` (spaces and tabs, such as `"  "`; anything else is a `ValueError`) the text spreads over lines. A function, class or object is a `TypeError`; `inf`, `nan`, a string that is not UTF-8, a value that contains itself, or vectors and maps nested more than 10000 deep is a `ValueError` |
 | `json::decode(s)` | The value JSON text `s` stands for: objects become maps (in the order of the text; a repeated key keeps its first place and its last value), arrays vectors, a number without fraction or exponent that fits in 64 bits an int, any other number a float (one too large for a float is `inf` or `-inf`). Invalid UTF-8 and lone surrogates (`"\ud800"`) become U+FFFD. Invalid JSON, or arrays and objects nested more than 10000 deep, is a `ValueError` |
 
+### p9
+
+The 9P file protocol of Plan 9 and Linux, in both its versions: 9P2000
+and 9P2000.L. A client reads and writes the files of a 9P server; a server
+serves a tree of directories and files that the program builds, whose
+files hold a string or call a Kukel function. It is the protocol that
+Linux mounts with `mount -t 9p` and that Plan 9 and plan9port use for
+their files.
+
+```
+use p9;
+
+main() {
+    local t = new p9::Tree(), visits = 0, notes = [];
+    t->file("/motd", "hello\n");
+    t->file("/stats/visits", fn() { visits++; return str(visits); });
+    t->file("/notes", "", fn(data) { push(notes, data); });
+    local s = p9::serve(t, "tcp://127.0.0.1:0");   // port 0: any free port
+
+    local c = p9::dial(s->endpoint());     // could as well be another program
+
+    for (local e in c->readdir("/"))
+        println(e["name"], e["dir"] ? "(directory)" : e["size"]);   // motd 6, notes 0, stats (directory)
+    print(c->read("/motd"));                // hello
+    println(c->read("/stats/visits"), c->read("/stats/visits"));   // 1 2
+    c->write("/notes", "remember the milk");
+    println(c->version(), notes);          // 9P2000.L ["remember the milk"]
+    c->close();
+    s->close();
+}
+```
+
+Addresses are `"tcp://host:port"` (the port is 564 when left out) and
+`"unix:///path"` (a Unix socket file). For `p9::serve`, `"tcp://*:5640"` or
+`"tcp://:5640"` listens on every interface, and port 0 picks a free port.
+Paths on the server start at the directory the client attached to; `"a/b"`
+and `"/a/b"` are the same, and `..` stops at the top.
+
+| Function or member function | Description |
+|---|---|
+| `p9::dial(address [, options])` | Connects to a 9P server and gives a `p9::Client`. The options are a map: `"version"` (`"9P2000.L"` or `"9P2000"`; without it 9P2000.L is tried first, then 9P2000), `"aname"` (the tree to attach to, for a server that has several; for a Kukel server, a directory of its tree), `"user"` (the user name sent with 9P2000; the user running the program by default) and `"timeout"` (seconds to wait for the connection, 10 by default). A server that cannot be reached is a `NetError`; a wrong address or option a `ValueError` (`TypeError` for an option of the wrong type) |
+| `c->readdir(path)` | The entries of a directory, by name. An **entry** is a map as for `fs`: `name`, `size`, `dir`, `link`, `mode` (`"-rw-r--r--"`) and `time` (a `time::Time`) |
+| `c->stat(path)`, `c->exists(path)` | The entry of a file or directory (the top is named `"/"`); whether there is one |
+| `c->read(path)` | The content of a file, as a string |
+| `c->write(path, s)` | Makes the content of a file `s`: the file is truncated first, or made if it is not there (when the server allows that) |
+| `c->mkdir(path)`, `c->remove(path)` | Makes a directory; removes a file or an empty directory |
+| `c->version()` | The version spoken: `"9P2000.L"` or `"9P2000"` |
+| `c->close()` | Closes the connection (closing again has no effect). Using a closed client is a `ValueError`, except `version()` and `close()` |
+| `new p9::Tree()` | An empty tree, for `p9::serve` |
+| `t->file(path, content [, write])` | A file at `path`; the directories above it are made. `content` is a string, or a function that gives the content as a string; it is called each time a client opens the file. With `write`, a function, clients may write the file: when a client closes it, `write(data)` gets what the client wrote. A file already at `path` is replaced (clients see the new content the next time they open it) |
+| `t->dir(path)` | A directory at `path`, and those above it |
+| `t->remove(path)` | Takes the file or directory (with everything in it) out of the tree. A client that has it open goes on reading what it read |
+| `p9::serve(tree, address)` | Serves the tree at `address`, in both versions (each client picks one), and gives a `p9::Server`. An address that cannot be listened on (in use, no permission) is a `NetError` |
+| `s->endpoint()` | The address served, with the port that port 0 picked (`"tcp://127.0.0.1:43127"`) |
+| `s->close()` | Stops the server: it no longer listens, and closes each connection once the request it is answering is answered (so a function of the tree may close its own server). Closing again has no effect |
+
+A file whose content is a string has that size; a file with a content
+function has size 0 (it has no content until it is opened), as files that
+a program makes up have on Plan 9 and in `/proc`. Clients cannot make,
+rename or remove files of a Kukel tree, nor write files without a `write`
+function: that is a "permission denied" `IOError` for them. Directories
+show as `dr-xr-xr-x`, files as `-r--r--r--`, files with a `write`
+function as `-rw-rw-rw-`; they belong to the user running the server.
+
+The functions of a tree are Kukel functions and run one at a time on the
+interpreter's goroutine: inside `events::run()`, which keeps going while a
+server is open, or while a client of the same program waits for an answer
+(so a program can read its own server, as above). A server program usually
+ends with `events::run()`; a function of the tree can call `s->close()` to
+end it. An exception in a content or `write` function fails the client's
+request: a 9P2000 client gets the exception's message, a 9P2000.L client
+an "input/output error"; the server goes on. A content function must give
+a string.
+
+What a server refuses (a missing file, no permission) is an `IOError`
+whose message names the function and the path, with the server's message:
+`p9::Client::read: /nope: file does not exist`. 9P2000.L carries only an
+error number, so its messages are the system's (`no such file or
+directory`).
+
+A client prints as `p9::Client(tcp://localhost:564, 9P2000.L)`, a tree as
+`p9::Tree(3 files)`, a server as `p9::Server(tcp://127.0.0.1:43127)`, each
+with `closed` when closed. There is no authentication or encryption: use 9P
+on a trusted network, or over an SSH tunnel or a VPN. A Go program that
+embeds Kukel keeps a program off the network by leaving `p9` out of
+`StandardModules`.
+
 ### re
 
 Regular expressions with Go's RE2 syntax

@@ -4,7 +4,7 @@ FUZZTIME ?= 30s
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo devel)
 LDFLAGS  := -X main.version=$(VERSION)
 # The build tags that leave everything optional out (make small).
-SMALL    := nosqlite,nopostgres,nomysql,nozmq
+SMALL    := nosqlite,nopostgres,nomysql,nozmq,no9p
 
 .PHONY: all build small install test test-small test-all vet fmt fuzz bench golden clean
 

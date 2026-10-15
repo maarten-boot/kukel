@@ -604,7 +604,7 @@ tree whose files are backed by Kukel functions.
 use p9;
 
 main() {
-    local c = p9::dial("tcp://fileserver:564", "ann");   // attach as user ann
+    local c = p9::dial("tcp://fileserver:564", {"user": "ann"});   // attach as user ann
 
     for (local e in c->readdir("/logs")) println(e["name"]);
     println(c->read("/logs/today.txt"));
@@ -621,9 +621,8 @@ global hits = 0;
 
 main() {
     local tree = new p9::Tree();
-    tree->file("/status", fn() { return "hits " + str(hits) + "
-"; });   // read: a function
-    tree->file("/hit", nil, fn(data) { hits++; });                         // write: a function
+    tree->file("/status", fn() { return "hits " + str(hits) + "\n"; });   // read: a function
+    tree->file("/hit", "", fn(data) { hits++; });                        // write: a function
     tree->dir("/config");
     p9::serve(tree, "tcp://*:5640");      // requests arrive through the event loop
     events::run();
@@ -646,10 +645,33 @@ Then on Linux: `mount -t 9p -o trans=tcp,port=5640 host /mnt/app`, and
 
 **F-24** Which protocol versions: 9P2000 (Plan 9, plan9port, Inferno),
 9P2000.L (Linux, QEMU) or both? This picks the library, or two.
+*Answered: both.*
 **F-25** Authentication: none (trusted networks, like most 9P use today),
 or the protocol's `afid` with a password, or TLS around the connection?
+*Answered: none at first, for trusted networks; TLS later as an option
+(little code with Go's `crypto/tls`, but the usual 9P clients, such as the
+Linux kernel, do not speak it).*
 **F-26** The server's tree: built in Kukel as above, or also a directory of
 the local disk served as it is (a file server written in Kukel)?
+*Answered: both; the disk directory read-only unless asked otherwise.*
+
+*Done, step 1 (TODO.md Q62): `p9::dial` (9P2000.L tried first, then
+9P2000), `p9::Tree` with `file`, `dir` and `remove`, and `p9::serve`, which
+serves both versions on one address (it reads the version from the
+client's first message). Files hold a string or a function; `write`
+functions get what a client wrote when it closes the file. 9P2000.L uses
+`github.com/hugelgupf/p9`; 9P2000 uses `9fans.net/go/plan9` (its client,
+and its message codec for a small server of our own; `go9p` logs to
+standard error and pulls in more). The functions of a tree run inside
+`events::run()`, or while a client of the same program waits, so a program
+can read its own server. Not tried yet: a Linux kernel mount (it needs
+root).*
+
+*Next, step 2: `p9::disk(root [, {"readonly": false}])`, a directory of the
+local disk served as it is: read-only unless asked, confined to `root` (no
+way out through `..` or symbolic links), files owned by the user running
+the server; and `tree->mount(path, disk)` to put one into a tree. TLS
+comes after that, as an option of `serve` and `dial`.*
 
 ## 7. Smaller items
 
@@ -691,7 +713,7 @@ Each step is usable on its own and prepares the next:
 | 6 | Time type; then the ORM on top of SQL | 5 | done: time type (Q36), ORM (Q52), relations (Q56) |
 | 7 | Tk GUI (after a proof of concept for the threading) | 1, 3 | |
 | 8 | Files: the module `fs` (6.1) | 1 | done (Q61) |
-| 9 | 9P client and server (6.2) | 3, 8 | |
+| 9 | 9P client and server (6.2) | 3, 8 | step 1 done (Q62): trees built in Kukel; next a disk directory |
 
 Steps 4, 5, 7 and 8 are independent of each other once 1 and 3 exist. A
 `ffi` module (1.6) can come at any point after step 1.

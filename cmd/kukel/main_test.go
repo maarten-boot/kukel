@@ -314,13 +314,14 @@ func TestASTError(t *testing.T) {
 }
 
 // fullModules are the modules of a kukel built without tags.
-const fullModules = "db (SQLite, PostgreSQL, MySQL), events, fs, json, re, strings, time, uuid, worker, zmq"
+const fullModules = "db (SQLite, PostgreSQL, MySQL), events, fs, json, p9, re, strings, time, uuid, worker, zmq"
 
 // fullBuild reports whether this kukel has every module and database
 // (no build tag left one out).
 func fullBuild() bool {
 	_, zmq := native.Lookup("zmq")
-	return zmq && len(dbmod.Kinds()) == 3
+	_, p9 := native.Lookup("p9")
+	return zmq && p9 && len(dbmod.Kinds()) == 3
 }
 
 // unavailable tells why program src cannot run in this kukel, built
@@ -328,6 +329,9 @@ func fullBuild() bool {
 func unavailable(src string) string {
 	if _, ok := native.Lookup("zmq"); !ok && strings.Contains(src, "use zmq;") {
 		return "built without zmq (tag nozmq)"
+	}
+	if _, ok := native.Lookup("p9"); !ok && strings.Contains(src, "use p9;") {
+		return "built without p9 (tag no9p)"
 	}
 	if !dbmod.Has("SQLite") && strings.Contains(src, "use db;") {
 		return "built without SQLite (tag nosqlite)"
@@ -526,7 +530,7 @@ func TestBuildModule(t *testing.T) {
 // In a kukel built without a module (tags), using it names the tags.
 func TestOmittedModules(t *testing.T) {
 	n := 0
-	for _, name := range []string{"db", "zmq"} {
+	for _, name := range []string{"db", "p9", "zmq"} {
 		tags, ok := native.Omitted(name)
 		if !ok {
 			continue
@@ -541,7 +545,7 @@ func TestOmittedModules(t *testing.T) {
 		}
 	}
 	if n == 0 {
-		t.Skip("this kukel has db and zmq")
+		t.Skip("this kukel has db, p9 and zmq")
 	}
 }
 

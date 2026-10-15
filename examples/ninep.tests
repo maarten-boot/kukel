@@ -1,0 +1,43 @@
+# Tests of ninep.kkl, run in examples/ (see examples/README.md). demo serves
+# the tree on a free port and reads it with its own client; a server and a
+# client in two processes cannot be run from here.
+
+$ demo
+-- 9P2000
+-rw-rw-rw- 0 ctl
+dr-xr-xr-x 0 empty/
+-r--r--r-- 18 hello
+-r--r--r-- 0 hits
+-rw-rw-rw- 0 notes
+-r--r--r-- 0 time
+Hello from Kukel.
+hits: 1
+written with 9P2000
+p9::Client::write: /hello: permission denied: the file cannot be written
+-- 9P2000.L
+-rw-rw-rw- 0 ctl
+dr-xr-xr-x 0 empty/
+-r--r--r-- 18 hello
+-r--r--r-- 0 hits
+-rw-rw-rw- 0 notes
+-r--r--r-- 0 time
+Hello from Kukel.
+hits: 2
+written with 9P2000
+written with 9P2000.L
+p9::Client::write: /hello: permission denied
+stopped: true
+
+$ cat tcp://localhost:5640
+! ninep: wrong number of arguments for cat
+! usage: ninep serve address | ls address [path] | cat address path | put address path text | demo
+exit 2
+
+$ rm tcp://localhost:5640 /hello
+! ninep: unknown command rm
+! usage: ninep serve address | ls address [path] | cat address path | put address path text | demo
+exit 2
+
+$ ls localhost:5640
+! ninep: p9::dial: "localhost:5640" is not a 9P address such as "tcp://host:564" or "unix:///path"
+exit 2
