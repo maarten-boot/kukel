@@ -1,6 +1,5 @@
 // Package stringsmod is the native module "strings": a Builder class that
-// builds a long string piece by piece without copying it again for every
-// piece (s += x copies s each time).
+// builds a long string from many pieces.
 //
 //	use strings;
 //	local b = new strings::Builder();

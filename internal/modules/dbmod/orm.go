@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/maarten-boot/kukel/internal/modules/uuidmod"
 	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/value"
 )
@@ -130,6 +131,7 @@ type model struct {
 	table   string
 	types   map[string]string    // the SQL type of each column ("" for none)
 	autoKey bool                 // the database fills in id (an INTEGER PRIMARY KEY, AUTO_INCREMENT, IDENTITY, ...)
+	uuidKey bool                 // id is declared "UUID": save fills in a new version 7 UUID
 	rels    map[string]*relation // relation members (relations()): not columns
 }
 
@@ -185,6 +187,11 @@ func modelOf(a native.Args, env value.Env, c *conn, k *value.ClassObj) (*model, 
 					bad = a.Errorf(value.ValueError, "%s::columns() names %s, which is not a data member of %s", k.Name, col.AsString(), k.Name)
 				}
 				m.types[col.AsString()] = typ.AsString()
+				if strings.EqualFold(strings.TrimSpace(typ.AsString()), "UUID") {
+					// The ORM's own type: the database's type for a UUID.
+					m.types[col.AsString()] = c.uuidType(col.AsString() == "id")
+					m.uuidKey = m.uuidKey || col.AsString() == "id"
+				}
 			}
 		})
 		if bad != nil {
@@ -332,6 +339,12 @@ func save(a native.Args, env value.Env, c *conn) (value.Value, error) {
 	}
 	idSlot := m.class.FieldIndex["id"]
 	id := obj.Fields[idSlot]
+	if id.IsNil() && m.uuidKey { // a new key, then as for a key the program set
+		id = value.MakeString(uuidmod.V7())
+		obj.Fields[idSlot] = id
+	} else if m.uuidKey && (id.Kind() != value.String || !uuidmod.Valid(id.AsString())) {
+		return value.NilValue, a.Errorf(value.ValueError, "%s->id is %s, not a UUID (or nil for a new one)", m.class.Name, id.Repr())
+	}
 	if id.IsNil() {
 		if !m.autoKey {
 			return value.NilValue, a.Errorf(value.ValueError, "%s->id is nil: set it before saving (the key is %s, which the database does not fill in)", m.class.Name, m.types["id"])
@@ -385,6 +398,7 @@ func save(a native.Args, env value.Env, c *conn) (value.Value, error) {
 				return value.NilValue, err
 			}
 		}
+		c.lastID = id
 		return a.V[0], nil
 	}
 	var sets []string
@@ -400,6 +414,7 @@ func save(a native.Args, env value.Env, c *conn) (value.Value, error) {
 	if _, err := exec(sqlArgs(a, text, append([]value.Value{id}, vals...)), env, c); err != nil {
 		return value.NilValue, err
 	}
+	c.lastID = id // the row's id, as after an insert the database numbered
 	return a.V[0], nil
 }
 

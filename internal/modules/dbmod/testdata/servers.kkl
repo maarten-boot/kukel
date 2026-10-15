@@ -25,13 +25,17 @@ Order::columns() { return {"customerid": "BIGINT", "day": "VARCHAR(10)"}; }
 class Line { id, orderid, product, qty; static columns(); }
 Line::columns() { return {"orderid": "BIGINT", "product": "VARCHAR(20)", "qty": "INTEGER"}; }
 
+class Doc { id, title, parentid, parent; static columns(); static relations(); }
+Doc::columns() { return {"id": "UUID", "title": "VARCHAR(40)", "parentid": "UUID"}; }
+Doc::relations() { return {"parent": db::one(Doc, "parentid")}; }
+
 class Tag { id, label; static columns(); }
 Tag::columns() { return {"id": "VARCHAR(40) PRIMARY KEY", "label": "TEXT"}; }
 
 main(args) {
     local conn = db::open(args[0]);
 
-    for (local t in ["item", "tag", "plain", "line", "order", "customer"]) conn->exec("DROP TABLE IF EXISTS " + quoted(args[0], t));
+    for (local t in ["item", "tag", "plain", "line", "order", "customer", "doc"]) conn->exec("DROP TABLE IF EXISTS " + quoted(args[0], t));
 
     // plain SQL: parameters, types, a ? inside a string, transactions
     conn->exec("CREATE TABLE plain (id INTEGER PRIMARY KEY, word VARCHAR(20) UNIQUE, n INTEGER, x DOUBLE PRECISION, ok BOOLEAN)");
@@ -117,6 +121,24 @@ main(args) {
         println(x->day, x->customer->name, len(x->lines));
     local c = conn->find(Customer)->include("orders")->where("name = ?", "Ann")->first();
     println(c->name, len(c->orders), c->orders[1]->day);
+
+    // UUID keys: made by save (version 7, in time order), checked
+    conn->migrate(Doc);
+    local a = new Doc();
+    a->title = "first";
+    conn->save(a);
+    local b = new Doc();
+    b->title = "second"; b->parentid = a->id;
+    conn->save(b);
+    println(len(a->id), a->id < b->id, conn->lastid() == b->id);
+    b->title = "changed";
+    conn->save(b);
+    local got = conn->load(conn->get(Doc, b->id), "parent");
+    println(got->title, got->parent->title, conn->find(Doc)->count());
+    local bad = new Doc();
+    bad->id = "not a uuid";
+
+    try { conn->save(bad); } catch (e) { println(e->kind); }
     conn->close();
 }
 

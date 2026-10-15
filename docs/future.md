@@ -542,10 +542,10 @@ main() {
 `query`, `first`, cursors and transactions. The ORM is done too (Q52), as a
 data mapper rather than the sketch above: any class, no `db::Model` base;
 `conn->migrate(C)`, `save`, `get`, `delete`, and `conn->find(C)->where(...)
-->orderby(...)->limit(...)->all()`; see the language reference. Still to
-come: keys that the database or `kukel` generates other than integers
-(UUIDs). PostgreSQL and MySQL/MariaDB are done (Q54), and relations
-(`db::many`, `db::one`, `conn->load`, `query->include`; Q56).*
+->orderby(...)->limit(...)->all()`; see the language reference. PostgreSQL and
+MySQL/MariaDB are done (Q54), relations (`db::many`, `db::one`,
+`conn->load`, `query->include`; Q56) and UUID keys (`"UUID"` in
+`columns()`, the module `uuid`; Q58).*
 
 **F-16** Which databases first (SQLite only, to start)?
 *Answered: SQLite first; PostgreSQL and MySQL/MariaDB followed (Q54).*

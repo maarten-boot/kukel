@@ -33,7 +33,7 @@ hello, Kukel
 8. [Classes and objects](#8-classes-and-objects)
 9. [Exceptions](#9-exceptions)
 10. [Built-in functions](#10-built-in-functions)
-11. [Modules written in Go](#11-modules-written-in-go): db, events, json, strings, time, worker, zmq
+11. [Modules written in Go](#11-modules-written-in-go): db, events, json, strings, time, uuid, worker, zmq
 
 ---
 
@@ -948,6 +948,18 @@ main() {
   SQLite and MySQL, PostgreSQL has `TIMESTAMP`); types that all three
   understand (`VARCHAR(100)`, `DOUBLE PRECISION`, `BOOLEAN`, `TIMESTAMP`)
   keep a class usable with each.
+- `"UUID"` in `columns()` is the ORM's own type, for a column that holds
+  UUIDs (`uuid` module): PostgreSQL's `UUID`, else `CHAR(36)`. For `id`
+  it makes the key a version 7 UUID that `save` makes when `p->id` is
+  `nil`; an `id` that is not a UUID is then a `ValueError`. Keys that point
+  to such objects are declared `"UUID"` too:
+
+  ```
+  class Doc { id, title, parentid, parent; static columns(); static relations(); }
+  Doc::columns() { return {"id": "UUID", "title": "VARCHAR(40)", "parentid": "UUID"}; }
+  Doc::relations() { return {"parent": db::one(Doc, "parentid")}; }
+  ```
+
 - The database fills in `id` when its type (from `columns()`, else the
   default above) is the default, or has `AUTO_INCREMENT`, `IDENTITY` or
   `SERIAL` in it, or in SQLite starts with `INTEGER PRIMARY KEY`. Any other
@@ -1213,6 +1225,23 @@ second) is accepted and counts as the first second of the next minute
 (RFC 3339 without a format does not allow it). Parts the format leaves out
 are those of 1970-01-01 00:00:00. A text that does not match, or an
 unknown directive, is a `ValueError`.
+
+### uuid
+
+```
+use uuid;
+
+main() {
+    local id = uuid::v7();
+    println(len(id), uuid::valid(id), uuid::valid("not a uuid"));   // 36 true false
+}
+```
+
+| Function | Description |
+|---|---|
+| `uuid::v7()` | A new version 7 UUID, as a string such as `"019a1b2c-3d4e-7f60-8a9b-0c1d2e3f4a5b"` (lower case). Its first 48 bits are the time in milliseconds, so later ones sort after earlier ones (within a millisecond, not necessarily), and as database keys new rows land at the end of the index |
+| `uuid::v4()` | A new version 4 UUID: entirely random |
+| `uuid::valid(s)` | Whether string `s` is a UUID in that form: 32 hexadecimal digits (either case) in groups of 8, 4, 4, 4 and 12, joined by `-` |
 
 ### worker
 

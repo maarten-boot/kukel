@@ -53,7 +53,7 @@ caught RangeError: index 5 out of range for vector of length 3
 - modules: `use geometry;` loads `geometry.kkl`, reached as `geometry::name`;
   modules written in Go: `db` (SQL with SQLite, PostgreSQL and MySQL, and
   objects in tables), `events` (an event loop with timers), `json`,
-  `strings` (a string builder), `time`, `worker` (interpreters that run in
+  `strings` (a string builder), `time`, `uuid`, `worker` (interpreters that run in
   parallel and exchange messages) and `zmq` (ZeroMQ sockets, to talk with
   other programs and machines)
 - 55 built-in functions (strings, collections, math, files, ...)
@@ -156,7 +156,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/value`, `internal/builtins` | values with their operators, built-in functions |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q57). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q58). Ideas for later are in [docs/future.md](docs/future.md).
 
 ## Development
 
@@ -172,7 +172,7 @@ design decisions (Q1–Q57). Ideas for later are in [docs/future.md](docs/future
 
 The tests of `db` also run on database servers when `KUKEL_TEST_POSTGRES`
 and `KUKEL_TEST_MYSQL` name one (a URL as `db::open` takes it; the tables
-`item`, `tag`, `plain`, `customer`, `order` and `line` there are dropped:
+`item`, `tag`, `plain`, `customer`, `order`, `line` and `doc` there are dropped:
 use a database for tests only), for example with Docker:
 
 ```

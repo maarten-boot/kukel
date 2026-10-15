@@ -217,3 +217,16 @@ func (c *conn) columnsSQL() string {
 func isNameByte(c byte) bool {
 	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 }
+
+// uuidType is the column type for "UUID" in columns(): PostgreSQL has one,
+// the others keep the text form.
+func (c *conn) uuidType(key bool) string {
+	t := "CHAR(36)"
+	if c.dialect == postgres {
+		t = "UUID"
+	}
+	if key {
+		t += " PRIMARY KEY"
+	}
+	return t
+}
