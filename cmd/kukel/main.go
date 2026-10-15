@@ -24,6 +24,7 @@ import (
 	_ "github.com/maarten-boot/kukel/internal/modules/dbmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/eventsmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/jsonmod"
+	_ "github.com/maarten-boot/kukel/internal/modules/remod"
 	_ "github.com/maarten-boot/kukel/internal/modules/stringsmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/timemod"
 	_ "github.com/maarten-boot/kukel/internal/modules/uuidmod"

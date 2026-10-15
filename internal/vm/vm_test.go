@@ -988,7 +988,7 @@ func BenchmarkSwitchDense1M(b *testing.B) {
 }
 
 func BenchmarkStringConcat(b *testing.B) {
-	benchmarkSource(b, `main() { local s = ""; for (local i = 0; i < 20000; i++) s += "x"; local n = 0; for (local i = 0; i < 20000; i++) if (s[i] == "x") n++; }`)
+	benchmarkSource(b, `main() { local s = ""; for (local i = 0; i < 20000; i++) s += "x"; local n = 0; for (local i = 0; i < 20000; i++) if (s[i] == 'x') n++; }`)
 }
 
 func BenchmarkStringCompare1M(b *testing.B) {

@@ -572,7 +572,13 @@ ideas above make useful:
 - strings without an extra allocation per value (a different `Value`
   layout) (*done*, Q50, with in-place appends for `s += x`);
 - a debugger hook (breakpoints, stepping) on the VM, which the
-  disassembler and line tables already prepare for;
+  disassembler and line tables already prepare for (*next*, TODO.md);
+- reading directories: a small module (`fs`) with `fs::readdir(path)`
+  (the names in a directory), `fs::stat(path)` (size, time, kind) and
+  perhaps `fs::walk`, so that demos such as `examples/grep.kkl` can search
+  a tree (`-r`);
+- a faster VM (register-based, or fewer instructions per call): an
+  experiment on a test branch, kept only for at least 10% faster calls;
 - a code formatter (`kukel fmt`): *done* for indentation and spacing
   (TODO.md Q47), and a blank line before `if`, `while`, `do`, `for`,
   `switch`, `try` and `with` (Q53).

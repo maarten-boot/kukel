@@ -6,7 +6,7 @@ LDFLAGS  := -X main.version=$(VERSION)
 # The build tags that leave everything optional out (make small).
 SMALL    := nosqlite,nopostgres,nomysql,nozmq
 
-.PHONY: all build small install test test-small vet fmt fuzz bench golden clean
+.PHONY: all build small install test test-small test-all vet fmt fuzz bench golden clean
 
 all: vet test build
 
@@ -29,6 +29,12 @@ test:
 # The tests of the smallest build: what needs a left-out part skips.
 test-small:
 	$(GO) test -tags $(SMALL) ./...
+
+# Everything: vet, the tests (with the programs in examples/) of the full
+# and the smallest build, and the race detector. The db tests also use the
+# servers that KUKEL_TEST_POSTGRES and KUKEL_TEST_MYSQL name (README).
+test-all: vet test test-small
+	$(GO) test -race ./...
 
 vet:
 	@unformatted="$$(gofmt -l .)"; if [ -n "$$unformatted" ]; then \

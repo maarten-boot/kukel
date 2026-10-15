@@ -1,0 +1,53 @@
+# Tests of grep.kkl, run in examples/ (see examples/README.md): "$ " and the
+# arguments ('...' quotes one with spaces or backslashes, "< file" is
+# standard input), then the expected standard output; lines with "! " are
+# expected on standard error, and "exit N" is the exit code (else 0).
+
+$ -n error testdata/log.txt
+6:2026-10-16 09:05:00 error retrying write (attempt 2)
+
+$ -in error testdata/log.txt
+4:2026-10-16 09:02:30 ERROR could not write /var/data/cache.db: disk full
+6:2026-10-16 09:05:00 error retrying write (attempt 2)
+
+$ -c -v INFO testdata/log.txt
+3
+
+$ -o '\buser \w+' testdata/log.txt
+user ann
+user bob
+user ann
+
+$ -l disk testdata/log.txt testdata/words.txt
+testdata/log.txt
+
+$ -F 1.5*2 testdata/words.txt testdata/log.txt
+testdata/words.txt:beta 1.5*2
+
+$ -h -n -i 'warn|error' testdata/log.txt testdata/words.txt
+3:2026-10-16 09:01:12 WARN  disk 91% full
+4:2026-10-16 09:02:30 ERROR could not write /var/data/cache.db: disk full
+6:2026-10-16 09:05:00 error retrying write (attempt 2)
+
+$ -n a < testdata/words.txt
+1:alpha
+2:beta 1.5*2
+3:gamma
+
+$ nothing testdata/log.txt
+exit 1
+
+$ -x a
+! grep: unknown option -x
+! usage: grep [-icFhlnov] pattern [file ...]
+exit 2
+
+$ ( testdata/log.txt
+! grep: bad pattern: re::compile: error parsing regexp: missing closing ): `(`
+! usage: grep [-icFhlnov] pattern [file ...]
+exit 2
+
+$ alpha testdata/words.txt testdata/nofile.txt
+testdata/words.txt:alpha
+! grep: readfile: testdata/nofile.txt: no such file or directory
+exit 2

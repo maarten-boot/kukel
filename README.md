@@ -52,10 +52,10 @@ caught RangeError: index 5 out of range for vector of length 3
 - `switch` with fall-through, labelled `break`/`continue`
 - modules: `use geometry;` loads `geometry.kkl`, reached as `geometry::name`;
   modules written in Go: `db` (SQL with SQLite, PostgreSQL and MySQL, and
-  objects in tables), `events` (an event loop with timers), `json`,
-  `strings` (a string builder), `time`, `uuid`, `worker` (interpreters that run in
-  parallel and exchange messages) and `zmq` (ZeroMQ sockets, to talk with
-  other programs and machines)
+  objects in tables), `events` (an event loop with timers), `json`, `re`
+  (regular expressions), `strings` (a string builder), `time`, `uuid`,
+  `worker` (interpreters that run in parallel and exchange messages) and
+  `zmq` (ZeroMQ sockets, to talk with other programs and machines)
 - 55 built-in functions (strings, collections, math, files, ...)
 
 The full description is in [docs/reference.md](docs/reference.md); the
@@ -149,14 +149,15 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/token`, `internal/diag` | token kinds and source positions; the error type all stages share |
 | `internal/lexer`, `internal/parser`, `internal/ast` | source to syntax tree |
 | `internal/loader` | finds and reads the modules a program uses |
-| `internal/native`, `internal/modules/...` | modules written in Go (`db`, `events`, `json`, `strings`, `time`, `worker`, `zmq`) and native classes |
+| `internal/native`, `internal/modules/...` | modules written in Go (`db`, `events`, `json`, `re`, `strings`, `time`, `uuid`, `worker`, `zmq`) and native classes |
+| `examples/` | demo programs, such as a `grep` ([examples/README.md](examples/README.md)) |
 | `internal/compiler` | name resolution, the language's rules, code generation |
 | `internal/bytecode` | instruction set, `.kkc` files, the verifier that checks loaded files |
 | `internal/vm` | the stack machine: calls, objects, closures, exceptions (specified in [docs/vm.md](docs/vm.md)) |
 | `internal/value`, `internal/builtins` | values with their operators, built-in functions |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q58). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q59). Ideas for later are in [docs/future.md](docs/future.md).
 
 ## Development
 
@@ -165,6 +166,7 @@ design decisions (Q1–Q58). Ideas for later are in [docs/future.md](docs/future
 | `make` | gofmt check, `go vet`, tests, build (each also on its own: `make vet`, `make test`, `make build`) |
 | `make install` | install `kukel` into `$GOBIN`, else `$(go env GOPATH)/bin` |
 | `make fmt`, `make clean` | `gofmt -w` the sources; remove `bin/` |
+| `make test-all` | everything: vet, the tests of the full and the smallest build, and the tests with the race detector |
 | `make small`, `make test-small` | build `bin/kukel-small`, or run the tests, without the optional parts (`TAGS=...` picks other tags for `small`; `make vet` also vets the smallest build) |
 | `make fuzz FUZZTIME=1m` | fuzz the lexer, parser, compiler, bytecode loader and verifier (what they accept runs in the VM with a step limit), `json::decode`, time parsing and `kukel fmt` (each for 30s by default) |
 | `make bench` | benchmarks |

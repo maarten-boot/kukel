@@ -314,7 +314,7 @@ func TestASTError(t *testing.T) {
 }
 
 // fullModules are the modules of a kukel built without tags.
-const fullModules = "db (SQLite, PostgreSQL, MySQL), events, json, strings, time, uuid, worker, zmq"
+const fullModules = "db (SQLite, PostgreSQL, MySQL), events, json, re, strings, time, uuid, worker, zmq"
 
 // fullBuild reports whether this kukel has every module and database
 // (no build tag left one out).
@@ -542,5 +542,119 @@ func TestOmittedModules(t *testing.T) {
 	}
 	if n == 0 {
 		t.Skip("this kukel has db and zmq")
+	}
+}
+
+// TestExamples runs the demo programs in examples/: each name.tests file
+// lists runs of name.kkl (see examples/README.md), in that directory.
+func TestExamples(t *testing.T) {
+	dir, err := filepath.Abs("../../examples")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, _ := filepath.Glob(filepath.Join(dir, "*.tests"))
+	if len(files) == 0 {
+		t.Fatal("no examples")
+	}
+	for _, file := range files {
+		prog := strings.TrimSuffix(filepath.Base(file), ".tests") + ".kkl"
+		text, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src, _ := os.ReadFile(filepath.Join(dir, prog))
+		if why := unavailable(string(src)); why != "" {
+			t.Logf("%s: %s", prog, why)
+			continue
+		}
+		for _, c := range exampleCases(string(text)) {
+			t.Run(prog+" "+c.args, func(t *testing.T) {
+				t.Chdir(dir)
+				args, stdin := splitArgs(c.args)
+				in := strings.NewReader("")
+				if stdin != "" {
+					data, err := os.ReadFile(stdin)
+					if err != nil {
+						t.Fatal(err)
+					}
+					in = strings.NewReader(string(data))
+				}
+				var out, errOut bytes.Buffer
+				code := run(append([]string{"run", prog, "--"}, args...), in, &out, &errOut)
+				if out.String() != c.stdout || errOut.String() != c.stderr || code != c.code {
+					t.Errorf("exit %d, stdout:\n%s\nstderr:\n%s\nwant exit %d, stdout:\n%s\nstderr:\n%s",
+						code, out.String(), errOut.String(), c.code, c.stdout, c.stderr)
+				}
+			})
+		}
+	}
+}
+
+type exampleCase struct {
+	args, stdout, stderr string
+	code                 int
+}
+
+// exampleCases reads a .tests file: "$ args" starts a case; then the
+// standard output, "! " lines of standard error and an "exit N" line.
+// Comments (#) and blank lines between cases are skipped.
+func exampleCases(text string) []exampleCase {
+	var cases []exampleCase
+	for _, line := range strings.Split(text, "\n") {
+		switch {
+		case strings.HasPrefix(line, "$ "):
+			cases = append(cases, exampleCase{args: line[2:]})
+		case len(cases) == 0 || strings.HasPrefix(line, "#") || line == "":
+		case strings.HasPrefix(line, "! "):
+			cases[len(cases)-1].stderr += line[2:] + "\n"
+		case strings.HasPrefix(line, "exit "):
+			cases[len(cases)-1].code, _ = strconv.Atoi(line[5:])
+		default:
+			cases[len(cases)-1].stdout += line + "\n"
+		}
+	}
+	return cases
+}
+
+// splitArgs splits the arguments of a case at spaces; '...' quotes one, and
+// "< file" names the file for standard input.
+func splitArgs(s string) (args []string, stdin string) {
+	var cur strings.Builder
+	quoted, has := false, false
+	flush := func() {
+		if has {
+			args = append(args, cur.String())
+		}
+		cur.Reset()
+		has = false
+	}
+	for _, r := range s {
+		switch {
+		case r == '\'':
+			quoted, has = !quoted, true
+		case r == ' ' && !quoted:
+			flush()
+		default:
+			cur.WriteRune(r)
+			has = true
+		}
+	}
+	flush()
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "<" {
+			stdin = args[i+1]
+			args = append(args[:i], args[i+2:]...)
+			break
+		}
+	}
+	return args, stdin
+}
+
+// The demo programs are formatted as kukel fmt formats them.
+func TestExamplesFormatted(t *testing.T) {
+	files, _ := filepath.Glob("../../examples/*.kkl")
+	var out, errOut bytes.Buffer
+	if code := run(append([]string{"fmt", "-l"}, files...), nil, &out, &errOut); code != 0 || out.Len() > 0 {
+		t.Errorf("kukel fmt -l: exit %d, %s%s", code, out.String(), errOut.String())
 	}
 }

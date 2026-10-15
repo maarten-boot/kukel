@@ -1,0 +1,7 @@
+2026-10-16 09:00:01 INFO  server started on port 8080
+2026-10-16 09:00:05 INFO  user ann logged in
+2026-10-16 09:01:12 WARN  disk 91% full
+2026-10-16 09:02:30 ERROR could not write /var/data/cache.db: disk full
+2026-10-16 09:02:31 INFO  user bob logged in
+2026-10-16 09:05:00 error retrying write (attempt 2)
+2026-10-16 09:05:02 INFO  user ann logged out

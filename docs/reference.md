@@ -33,7 +33,7 @@ hello, Kukel
 8. [Classes and objects](#8-classes-and-objects)
 9. [Exceptions](#9-exceptions)
 10. [Built-in functions](#10-built-in-functions)
-11. [Modules written in Go](#11-modules-written-in-go): db, events, json, strings, time, uuid, worker, zmq
+11. [Modules written in Go](#11-modules-written-in-go): db, events, json, re, strings, time, uuid, worker, zmq
 
 ---
 
@@ -1129,6 +1129,45 @@ main() {
 |---|---|
 | `json::encode(v [, indent])` | `v` as JSON text: `nil` is `null`, vectors are arrays, maps are objects in their order (number keys become their text, so keys `1` and `"1"` in one map give the same JSON key twice). Floats keep a `.0` so they decode as floats again. With `indent` (spaces and tabs, such as `"  "`; anything else is a `ValueError`) the text spreads over lines. A function, class or object is a `TypeError`; `inf`, `nan`, a string that is not UTF-8, a value that contains itself, or vectors and maps nested more than 10000 deep is a `ValueError` |
 | `json::decode(s)` | The value JSON text `s` stands for: objects become maps (in the order of the text; a repeated key keeps its first place and its last value), arrays vectors, a number without fraction or exponent that fits in 64 bits an int, any other number a float (one too large for a float is `inf` or `-inf`). Invalid UTF-8 and lone surrogates (`"\ud800"`) become U+FFFD. Invalid JSON, or arrays and objects nested more than 10000 deep, is a `ValueError` |
+
+### re
+
+Regular expressions with Go's RE2 syntax
+([syntax](https://pkg.go.dev/regexp/syntax)). A match takes time linear in
+the length of the text, whatever the pattern: there is no backtracking, and
+so no back references (`\1`).
+
+```
+use re;
+
+main() {
+    local mail = re::compile("(\\w+)@(\\w+)\\.com", "i");
+    println(mail->match("Mail ANN@Example.COM"));            // true
+    println(mail->groups("Mail ann@example.com"));           // ["ann@example.com", "ann", "example"]
+    println(mail->replace("a@b.com, c@d.com", "$2:$1"));     // b:a, d:c
+    println(re::compile("\\d+")->findall("1 22 333"));      // ["1", "22", "333"]
+}
+```
+
+In a Kukel string, a backslash is written `\\`: `"\\d+"` is the pattern
+`\d+`.
+
+| Function or member function | Description |
+|---|---|
+| `re::compile(pattern [, flags])`, `new re::Regexp(pattern [, flags])` | A `re::Regexp`. `flags` are letters: `i` ignores case, `m` makes `^` and `$` match at line ends, `s` lets `.` match `\n`, `U` makes repetition lazy. A pattern that is not valid, or another flag, is a `ValueError` |
+| `re::match(pattern, s)` | Whether `pattern` matches somewhere in `s` (compiles it each time) |
+| `re::quote(s)` | `s` with the characters that mean something in a pattern escaped: `re::quote("1.5*2")` is `1\.5\*2` |
+| `r->match(s)` | Whether `r` matches somewhere in `s` (anchor it with `^...$` for all of `s`) |
+| `r->find(s)` | The first match, or `nil` |
+| `r->findall(s [, n])` | All the matches (a vector, empty for none), or the first `n` |
+| `r->groups(s)` | The first match and its groups: `[match, group1, ...]` (a group that took no part is `nil`), or `nil` for no match |
+| `r->names()` | The names of the groups, `""` for one without (`(?P<year>\d+)` is named `year`) |
+| `r->replace(s, repl)` | `s` with every match replaced: `repl` is a string in which `$1`, `${1}` and `${name}` stand for groups (`$$` for a `$`), or a function that gets the match and gives its replacement (a string) |
+| `r->split(s [, n])` | The parts of `s` between the matches (at most `n`, the last one holding the rest) |
+| `r->pattern()` | The pattern, with the flags in front (`(?i)...`) |
+
+A `re::Regexp` prints as `re::Regexp("(?i)a+")`. Strings are bytes: `.`
+and the classes match UTF-8 characters, and the positions are in bytes.
 
 ### strings
 
