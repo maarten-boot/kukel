@@ -40,6 +40,7 @@ import (
 	// The modules written in Go that come with Kukel.
 	_ "github.com/maarten-boot/kukel/internal/modules/dbmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/eventsmod"
+	_ "github.com/maarten-boot/kukel/internal/modules/fsmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/jsonmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/remod"
 	_ "github.com/maarten-boot/kukel/internal/modules/stringsmod"

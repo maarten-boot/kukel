@@ -1,0 +1,2 @@
+// TODO: more helpers
+twice(x) { return 2 * x; }

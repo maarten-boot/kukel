@@ -39,15 +39,23 @@ exit 1
 
 $ -x a
 ! grep: unknown option -x
-! usage: grep [-icFhlnov] pattern [file ...]
+! usage: grep [-icFhlnorv] pattern [file ...]
 exit 2
 
 $ ( testdata/log.txt
 ! grep: bad pattern: re::compile: error parsing regexp: missing closing ): `(`
-! usage: grep [-icFhlnov] pattern [file ...]
+! usage: grep [-icFhlnorv] pattern [file ...]
 exit 2
 
 $ alpha testdata/words.txt testdata/nofile.txt
 testdata/words.txt:alpha
 ! grep: readfile: testdata/nofile.txt: no such file or directory
 exit 2
+
+$ -r -n TODO testdata/tree
+testdata/tree/lib/util.kkl:1:// TODO: more helpers
+testdata/tree/main.kkl:2:// TODO: read the settings from a file
+
+$ -r -l -i todo testdata/tree testdata/words.txt
+testdata/tree/lib/util.kkl
+testdata/tree/main.kkl

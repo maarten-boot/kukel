@@ -10,7 +10,7 @@ kukel run grep.kkl -- -n -i error testdata/log.txt
 
 | Program | What it does |
 |---|---|
-| [grep.kkl](grep.kkl) | prints the lines of files (or of standard input) that match a regular expression (module `re`), with `-i`, `-n`, `-v`, `-c`, `-l`, `-o`, `-F` and `-h` |
+| [grep.kkl](grep.kkl) | prints the lines of files (or of standard input) that match a regular expression (module `re`), with `-i`, `-n`, `-v`, `-c`, `-l`, `-o`, `-F`, `-h`, and `-r` for directories (module `fs`) |
 
 ## Tests
 

@@ -589,7 +589,11 @@ main(args) {
   Kukel can leave `fs` out (`StandardModules`), as it does `db`.
 
 **F-22** Entries as maps (`e["name"]`) or as objects of a class `fs::Entry`
-(`e->name()`)? **F-23** Does `walk` follow symbolic links?
+(`e->name()`)? *Answered: maps.* **F-23** Does `walk` follow symbolic
+links? *Answered: no; they are reported.*
+
+*Done (TODO.md Q61), with `fs::removeall` as a separate name, and the path
+functions `join`, `base`, `dir` and `ext`; `walk` gives `(path, entry)`.*
 
 ### 6.2 9P: client and server
 
@@ -663,8 +667,8 @@ ideas above make useful:
   disassembler and line tables already prepare for (*done*: `kukel debug`,
   TODO.md Q60; the Debug Adapter Protocol for editors could follow on the
   same hook);
-- reading directories: the module `fs` of section 6.1, so that demos such
-  as `examples/grep.kkl` can search a tree (`-r`);
+- reading directories: the module `fs` of section 6.1 (*done*, Q61), and
+  `examples/grep.kkl` searches trees (`-r`);
 - a faster VM (register-based, or fewer instructions per call): an
   experiment on a test branch, kept only for at least 10% faster calls;
 - a code formatter (`kukel fmt`): *done* for indentation and spacing
@@ -686,7 +690,7 @@ Each step is usable on its own and prepares the next:
 | 5 | SQL: plain queries, transactions (SQLite first) | 1 | done: SQLite (Q44), PostgreSQL and MySQL (Q54) |
 | 6 | Time type; then the ORM on top of SQL | 5 | done: time type (Q36), ORM (Q52), relations (Q56) |
 | 7 | Tk GUI (after a proof of concept for the threading) | 1, 3 | |
-| 8 | Files: the module `fs` (6.1) | 1 | |
+| 8 | Files: the module `fs` (6.1) | 1 | done (Q61) |
 | 9 | 9P client and server (6.2) | 3, 8 | |
 
 Steps 4, 5, 7 and 8 are independent of each other once 1 and 3 exist. A

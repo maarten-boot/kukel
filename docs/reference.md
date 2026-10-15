@@ -33,7 +33,7 @@ hello, Kukel
 8. [Classes and objects](#8-classes-and-objects)
 9. [Exceptions](#9-exceptions)
 10. [Built-in functions](#10-built-in-functions)
-11. [Modules written in Go](#11-modules-written-in-go): db, events, json, re, strings, time, uuid, worker, zmq
+11. [Modules written in Go](#11-modules-written-in-go): db, events, fs, json, re, strings, time, uuid, worker, zmq
 
 ---
 
@@ -1185,6 +1185,48 @@ in the order they were made). A late timer fires late, never early.
 
 A timer prints as `events::Timer(once)`, `events::Timer(every 0.5s)`,
 `events::Timer(fired)` or `events::Timer(cancelled)`.
+
+### fs
+
+Directories and files of the local file system. Paths are strings, as for
+`readfile`; relative ones start at the current directory.
+
+```
+use fs;
+
+main() {
+    for (local e in fs::readdir("."))
+        println(e["name"], e["dir"] ? "(directory)" : e["size"]);
+    local n = 0;
+    fs::walk(".", fn(path, e) {
+        if (fs::ext(path) == ".kkl") n++;
+        return e["name"] != ".git";              // false: not into this directory
+    });
+    println(n, "Kukel files");
+}
+```
+
+An **entry** is a map: `name` (the last part of the path), `size` (bytes),
+`dir` and `link` (a symbolic link), `mode` (as `ls` shows it:
+`"-rw-r--r--"`) and `time` (when it was last changed, a `time::Time`).
+
+| Function | Description |
+|---|---|
+| `fs::readdir(path)` | The entries of a directory, by name. A symbolic link is an entry of its own (`link` true, and `dir` false), not what it points to |
+| `fs::stat(path)` | The entry of a file or directory; for a symbolic link, of what it points to, with `link` true |
+| `fs::exists(path)` | Whether there is a file or directory there (a link to nothing does not count) |
+| `fs::walk(path, f)` | Calls `f(p, entry)` for `path` and everything below it, depth first and by name; `p` is `path` joined with the names. When `f` returns `false` for a directory, `walk` does not go into it. Symbolic links are reported, never followed (so a link cannot make a loop). An exception in `f` ends the walk and goes on |
+| `fs::mkdir(path)`, `fs::mkdirall(path)` | Makes a directory; `mkdirall` also the ones above it that are missing (and is fine when it exists) |
+| `fs::remove(path)` | Removes a file or an empty directory |
+| `fs::removeall(path)` | Removes a file, or a directory with everything in it |
+| `fs::rename(from, to)` | Renames (moves) a file or directory |
+| `fs::join(part, ...)`, `fs::base(path)`, `fs::dir(path)`, `fs::ext(path)` | Paths as text: the parts joined with the system's separator and cleaned (`fs::join("a", "..", "b")` is `"b"`); the last part; all but the last; the extension of the last (`".kkl"`, or `""`) |
+
+What the file system refuses (a missing path, a directory that is not
+empty for `remove`, no permission) is an `IOError` whose message names the
+function and the path. A Go program that embeds Kukel keeps a program away
+from files by leaving `fs` out of `StandardModules` (and the file
+built-ins in `DenyBuiltins`).
 
 ### json
 

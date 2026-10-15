@@ -263,7 +263,8 @@ opts := kukel.CompileOptions{
   one is a compile error ("built-in function readfile is not available in
   this program"). The names stay reserved.
 - `StandardModules` lists the standard modules allowed (nil: all;
-  `[]string{}`: none). A name the build does not have is an error, so a
+  `[]string{}`: none). `fs` and `db` reach files (as do the built-ins of
+  `SystemBuiltins`), `zmq` the network. A name the build does not have is an error, so a
   Go program built with build tags (`nozmq`, ...) must not list those
   modules; `kukel.StandardModules()` gives the ones it has. `worker` in particular starts interpreters and reads
   program files (`startfile`); its workers follow the same limits.

@@ -9,16 +9,18 @@
 //     -o  only the matching parts of the lines
 //     -F  the pattern is plain text, not a regular expression
 //     -h  no file names before the lines (the default for one file)
+//     -r  search the files in the directories given, and below (module fs)
 //
 // The exit code is 0 when a line matched, 1 when none did, 2 after an error.
 use re;
+use fs;
 
 // The options, by letter: true when given.
 global opts = {};
 
 usage(why) {
     eprintln("grep:", why);
-    eprintln("usage: grep [-icFhlnov] pattern [file ...]");
+    eprintln("usage: grep [-icFhlnorv] pattern [file ...]");
     return 2;
 }
 
@@ -32,7 +34,7 @@ main(args) {
         }
 
         for (local c in slice(args[i], 1)) {
-            if (find("icFhlnov", char(c)) < 0) return usage("unknown option -" + char(c));
+            if (find("icFhlnorv", char(c)) < 0) return usage("unknown option -" + char(c));
             opts[char(c)] = true;
         }
     }
@@ -50,6 +52,8 @@ main(args) {
     }
 
     local files = slice(args, i + 1), found = false, failed = false;
+
+    if (haskey(opts, "r")) files = below(files);
 
     if (len(files) == 0) {
         found = search(rx, "(standard input)", stdinLines(), false);
@@ -111,4 +115,21 @@ stdinLines() {
 
     for (local line = readline(); line != nil; line = readline()) push(v, line);
     return v;
+}
+
+// below gives the files in the directories of paths, and below them, in
+// the order walk finds them (by name); other paths stay as they are.
+below(paths) {
+    local out = [];
+
+    for (local p in paths) {
+        if (fs::exists(p) && fs::stat(p)["dir"]) {
+            fs::walk(p, fn(path, e) {
+                if (!e["dir"] && !e["link"]) push(out, path);
+            });
+        } else {
+            push(out, p);
+        }
+    }
+    return out;
 }
