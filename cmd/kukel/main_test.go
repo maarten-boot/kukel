@@ -79,6 +79,11 @@ func TestRunGolden(t *testing.T) {
 			if why := unavailable(string(text)); why != "" {
 				t.Skip(why)
 			}
+			// A directory to write files in, and where the programs are
+			// (for worker::startfile): programs read them with getenv.
+			t.Setenv("KUKEL_TEST_TMP", t.TempDir())
+			dir, _ := filepath.Abs(filepath.Dir(src))
+			t.Setenv("KUKEL_TEST_DIR", dir)
 			base := strings.TrimSuffix(src, ".kkl")
 			_, statErr := os.Stat(base + ".err")
 			wantCode := 0

@@ -1,0 +1,2 @@
+// A program with a compile error, for startfile.kkl.
+main() { return nosuch; }

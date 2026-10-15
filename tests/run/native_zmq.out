@@ -8,6 +8,10 @@ job 2
 job 3
 zmq::Socket(PULL, closed)
 welcome, alice | welcome, bob
+weather.sunny
+sports.match
+ping
+pong
 nil
 true storm warning
 ValueError: zmq::Socket::Socket: unknown socket type "STREAM" (one of DEALER, PAIR, PUB, PULL, PUSH, REP, REQ, ROUTER, SUB)

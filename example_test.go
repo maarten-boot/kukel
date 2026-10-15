@@ -2,6 +2,7 @@ package kukel_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -162,4 +163,35 @@ main() {
 	// Output:
 	// app::Counter(2)
 	// now 1
+}
+
+// A step limit stops code that runs too long (each call from Go gets the
+// whole budget), and a panic in a Go function is a HostError for Kukel.
+func ExampleOptions_stepLimit() {
+	app := kukel.NewModule("app").Func("crash", func(in *kukel.Interp, args []kukel.Value) (kukel.Value, error) {
+		var m map[string]int
+		m["x"] = 1 // panics
+		return kukel.Nil, nil
+	})
+	prog, err := kukel.CompileSource("limits.kkl", `use app;
+spin() { while (true) {} }
+count(n) { local i = 0; while (i < n) i++; return i; }
+crash() { try { app::crash(); } catch (e) { return e->kind; } }
+main() {}`, kukel.CompileOptions{Modules: []*kukel.Module{app}})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	in, _ := kukel.New(prog, kukel.Options{StepLimit: 10000})
+	_, err = in.Call("spin")
+	var e *kukel.Error
+	if errors.As(err, &e) {
+		fmt.Println(e.Kind + ": " + e.Message)
+	}
+	fmt.Println(in.Call("count", kukel.Int(5000))) // a new budget for this call
+	fmt.Println(in.Call("crash"))
+	// Output:
+	// StepLimitError: more than 10000 steps
+	// 5000 <nil>
+	// HostError <nil>
 }

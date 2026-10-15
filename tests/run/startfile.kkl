@@ -1,0 +1,28 @@
+// worker::startfile: another program as a worker (lib/child.kkl), with
+// arguments and messages; a program that does not compile is a
+// CompileError, a worker that fails gives a WorkerError from wait().
+// KUKEL_TEST_DIR (set by the tests) is the directory of this program.
+use worker;
+
+failing(x) { return 10 / x; }
+
+main() {
+    local dir = getenv("KUKEL_TEST_DIR");
+
+    if (dir == nil) dir = "tests/run";
+    local w = worker::startfile(dir + "/lib/child.kkl", "a", "b");
+    println(w->receive());
+
+    for (local i = 1; i <= 3; i++) {
+        w->send(i);
+        println(i, "->", w->receive());
+    }
+    w->stop();
+    println(w->wait());
+
+    try { worker::startfile(dir + "/lib/broken.kkl"); } catch (e) { println(e->kind); }
+
+    try { worker::startfile(dir + "/lib/no such file.kkl"); } catch (e) { println(e->kind); }
+
+    try { worker::start(failing, 0)->wait(); } catch (e) { println(e->kind + ":", e->message); }
+}

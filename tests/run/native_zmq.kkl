@@ -22,6 +22,16 @@ server() {
     rep->close();
 }
 
+// Publishes the messages until sub receives one; gives that one.
+firstOf(pub, sub, messages) {
+    while (true) {
+        for (local m in messages) pub->send(m);
+        local got = sub->receive(0.01);
+
+        if (got != nil) return got;
+    }
+}
+
 main() {
     // Request and reply.
     local w = worker::start(server);
@@ -70,6 +80,31 @@ main() {
         router->send([m[0], "welcome, " + m[0]]);
     }
     println(alice->receive(5), "|", bob->receive(5));
+
+    // Publish and subscribe: a SUB socket gets the messages that start with
+    // what it subscribed to. A subscription takes a moment to reach the
+    // publisher (until then messages are lost), so publish until one arrives.
+    local pub = new zmq::Socket("PUB"), sub = new zmq::Socket("SUB");
+    pub->bind("inproc://news-feed");
+    sub->connect("inproc://news-feed");
+    sub->subscribe("weather.");
+    println(firstOf(pub, sub, ["sports.goal", "weather.sunny"]));
+    sub->unsubscribe("weather.");                     // (it takes a moment too)
+    local fans = new zmq::Socket("SUB");
+    fans->connect("inproc://news-feed");
+    fans->subscribe("sports.");
+    println(firstOf(pub, fans, ["weather.rain", "sports.match"]));
+
+    // A PAIR is one connection both ways.
+    local left = new zmq::Socket("PAIR"), right = new zmq::Socket("PAIR");
+    left->bind("inproc://pair");
+    right->connect("inproc://pair");
+    left->send("ping");
+    println(right->receive(5));
+    right->send("pong");
+    println(left->receive(5));
+
+    for (local x in [pub, sub, fans, left, right]) x->close();
 
     // poll waits for whichever socket has a message first.
     local news = new zmq::Socket("PULL"), alerts = new zmq::Socket("PULL");

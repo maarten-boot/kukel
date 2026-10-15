@@ -1,0 +1,8 @@
+started with a b
+1 -> 1
+2 -> 4
+3 -> 9
+done
+CompileError
+IOError
+WorkerError: worker failing failed: ZeroDivisionError: integer division by zero

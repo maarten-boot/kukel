@@ -1,0 +1,10 @@
+// A program that worker::startfile runs (startfile.kkl): it answers each
+// number its parent sends with its square, and ends with nil.
+use worker;
+
+main(args) {
+    worker::send("started with " + join(args, " "));
+
+    for (local n = worker::receive(); n != nil; n = worker::receive()) worker::send(n * n);
+    return "done";
+}

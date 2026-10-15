@@ -1,0 +1,23 @@
+// Files: writefile replaces, appendfile adds (and creates), readfile reads
+// the whole file; a file that cannot be read or written is an IOError.
+// KUKEL_TEST_TMP (set by the tests) names a directory to write in.
+
+main() {
+    local dir = getenv("KUKEL_TEST_TMP");
+
+    if (dir == nil) dir = ".";
+    local path = dir + "/notes.txt";
+    writefile(path, "first line\n");
+    appendfile(path, "second line\n");
+    appendfile(path, "third line\n");
+    local text = readfile(path);
+    println(len(text), "bytes");
+
+    for (local line in split(trim(text), "\n")) println("-", line);
+    writefile(path, "replaced");
+    println(readfile(path));
+
+    for (local f in [fn() { return readfile(dir + "/no such file"); },
+        fn() { return writefile(dir + "/no such dir/x", "y"); }])
+        try { f(); } catch (e) { println(e->kind); }
+}
