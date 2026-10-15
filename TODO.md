@@ -367,4 +367,4 @@ All the "Rule:" comments in syntax.ebnf. The checks run while the compiler resol
 32. [x] The module `re` and the first demo program, `examples/grep.kkl` (Q59; branch `re-and-grep`)
 33. [ ] Next: a debugger (`kukel debug`: breakpoints, stepping, locals, backtrace; at no cost when not debugging)
 34. [ ] Later, as an experiment on a test branch: a register-based or otherwise faster VM, kept only for at least 10% faster calls
-35. [ ] Later/optional (see also [docs/future.md](docs/future.md): events and Tk; reading directories): a register-based or otherwise restructured dispatch loop, if call speed matters (the loop of `run` is at its limit for small changes)
+35. [ ] Later/optional (see also [docs/future.md](docs/future.md): events and Tk; files: the module `fs` and 9P, client and server, section 6): a register-based or otherwise restructured dispatch loop, if call speed matters (the loop of `run` is at its limit for small changes)

@@ -13,8 +13,9 @@ Contents:
 3. [Events and a Tk GUI](#3-events-and-a-tk-gui)
 4. [ZeroMQ messaging](#4-zeromq-messaging)
 5. [SQL and an ORM](#5-sql-and-an-orm)
-6. [Smaller items](#6-smaller-items)
-7. [Suggested order](#7-suggested-order)
+6. [Files: a module fs and 9P](#6-files-a-module-fs-and-9p)
+7. [Smaller items](#7-smaller-items)
+8. [Suggested order](#8-suggested-order)
 
 ---
 
@@ -559,7 +560,94 @@ name in lower case the table), with optional static member functions
 
 ---
 
-## 6. Smaller items
+## 6. Files: a module fs and 9P
+
+**Goal**: programs that work with file trees, local or remote: list and
+search directories (a `grep -r`), and reach or serve trees over 9P, the
+file protocol of Plan 9 (also spoken by QEMU/KVM `virtfs`, WSL2, gVisor,
+plan9port and Inferno).
+
+### 6.1 Local files: fs
+
+```
+use fs;
+
+main(args) {
+    for (local e in fs::readdir(args[0]))            // the entries, sorted by name
+        println(e["name"], e["dir"] ? "/" : e["size"]);
+    fs::walk(args[0], fn(path, info) {                // every file below, depth first
+        if (!info["dir"] && find(path, ".kkl") > 0) println(path);
+    });
+}
+```
+
+- `fs::readdir(path)`, `fs::stat(path)` (name, size, time as
+  `time::Time`, whether a directory, mode), `fs::walk(path, f)`; also
+  `fs::mkdir`, `fs::remove`, `fs::rename` and `fs::exists`, so that programs
+  need not shell out.
+- An `IOError` for what fails, as `readfile` has. A Go program that embeds
+  Kukel can leave `fs` out (`StandardModules`), as it does `db`.
+
+**F-22** Entries as maps (`e["name"]`) or as objects of a class `fs::Entry`
+(`e->name()`)? **F-23** Does `walk` follow symbolic links?
+
+### 6.2 9P: client and server
+
+The client reaches a file tree another system serves; the server serves a
+tree whose files are backed by Kukel functions.
+
+```
+use p9;
+
+main() {
+    local c = p9::dial("tcp://fileserver:564", "ann");   // attach as user ann
+
+    for (local e in c->readdir("/logs")) println(e["name"]);
+    println(c->read("/logs/today.txt"));
+    c->write("/tmp/note", "hello");
+    c->close();
+}
+```
+
+```
+use p9;
+use events;
+
+global hits = 0;
+
+main() {
+    local tree = new p9::Tree();
+    tree->file("/status", fn() { return "hits " + str(hits) + "
+"; });   // read: a function
+    tree->file("/hit", nil, fn(data) { hits++; });                         // write: a function
+    tree->dir("/config");
+    p9::serve(tree, "tcp://*:5640");      // requests arrive through the event loop
+    events::run();
+}
+```
+
+Then on Linux: `mount -t 9p -o trans=tcp,port=5640 host /mnt/app`, and
+`cat /mnt/app/status`, `echo x > /mnt/app/hit` talk to the program.
+
+- The client has the same functions as `fs` (`readdir`, `stat`, `read`,
+  `write`, `mkdir`, `remove`), so code written for local trees works on
+  remote ones.
+- The server runs its handlers on the interpreter's goroutine through the
+  event loop, one at a time, as `zmq` handlers do; a slow handler holds up
+  the others.
+- Libraries: pure Go, so `go install` and cross-compiling keep working, and
+  a build tag `no9p` leaves the module out: `github.com/hugelgupf/p9`
+  (9P2000.L, client and server, from gVisor), `9fans.net/go/plan9/client`
+  (9P2000 client), `github.com/knusbaum/go9p` (9P2000 server and client).
+
+**F-24** Which protocol versions: 9P2000 (Plan 9, plan9port, Inferno),
+9P2000.L (Linux, QEMU) or both? This picks the library, or two.
+**F-25** Authentication: none (trusted networks, like most 9P use today),
+or the protocol's `afid` with a password, or TLS around the connection?
+**F-26** The server's tree: built in Kukel as above, or also a directory of
+the local disk served as it is (a file server written in Kukel)?
+
+## 7. Smaller items
 
 Carried over from the last item of TODO.md's milestone list, plus things the
 ideas above make useful:
@@ -573,10 +661,8 @@ ideas above make useful:
   layout) (*done*, Q50, with in-place appends for `s += x`);
 - a debugger hook (breakpoints, stepping) on the VM, which the
   disassembler and line tables already prepare for (*next*, TODO.md);
-- reading directories: a small module (`fs`) with `fs::readdir(path)`
-  (the names in a directory), `fs::stat(path)` (size, time, kind) and
-  perhaps `fs::walk`, so that demos such as `examples/grep.kkl` can search
-  a tree (`-r`);
+- reading directories: the module `fs` of section 6.1, so that demos such
+  as `examples/grep.kkl` can search a tree (`-r`);
 - a faster VM (register-based, or fewer instructions per call): an
   experiment on a test branch, kept only for at least 10% faster calls;
 - a code formatter (`kukel fmt`): *done* for indentation and spacing
@@ -585,7 +671,7 @@ ideas above make useful:
 
 ---
 
-## 7. Suggested order
+## 8. Suggested order
 
 Each step is usable on its own and prepares the next:
 
@@ -598,9 +684,11 @@ Each step is usable on its own and prepares the next:
 | 5 | SQL: plain queries, transactions (SQLite first) | 1 | done: SQLite (Q44), PostgreSQL and MySQL (Q54) |
 | 6 | Time type; then the ORM on top of SQL | 5 | done: time type (Q36), ORM (Q52), relations (Q56) |
 | 7 | Tk GUI (after a proof of concept for the threading) | 1, 3 | |
+| 8 | Files: the module `fs` (6.1) | 1 | |
+| 9 | 9P client and server (6.2) | 3, 8 | |
 
-Steps 4, 5 and 7 are independent of each other once 1 and 3 exist. A
+Steps 4, 5, 7 and 8 are independent of each other once 1 and 3 exist. A
 `ffi` module (1.6) can come at any point after step 1.
 
-The open questions **F-1** to **F-21** are best answered just before the
+The open questions **F-1** to **F-26** are best answered just before the
 step that needs them.
