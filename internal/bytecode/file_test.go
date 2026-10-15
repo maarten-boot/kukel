@@ -312,3 +312,25 @@ func TestSharedCacheSlot(t *testing.T) {
 		t.Errorf("run: %v", err)
 	}
 }
+
+// Debuggable copies the code with a BREAK at each line start and keeps the
+// program as it was; a file with a BREAK is refused.
+func TestDebuggable(t *testing.T) {
+	for name, p := range compilePrograms(t) {
+		d := bytecode.Debuggable(p)
+		for i, f := range p.Funcs {
+			g := d.Funcs[i]
+			if &f.Code[0] == &g.Code[0] || f.Saved != nil {
+				t.Fatalf("%s: %s shares its code with the copy", name, f.FuncName)
+			}
+			for _, l := range f.Lines {
+				if bytecode.Op(g.Code[l.PC]) != bytecode.OpBreak || g.Saved[l.PC] != bytecode.Op(f.Code[l.PC]) {
+					t.Fatalf("%s: %s: no BREAK at line %d (pc %d)", name, f.FuncName, l.Line, l.PC)
+				}
+			}
+		}
+		if err := bytecode.Verify(d); err == nil || !strings.Contains(err.Error(), "BREAK is only for the debugger") {
+			t.Errorf("%s: a program with BREAK: %v", name, err)
+		}
+	}
+}

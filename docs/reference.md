@@ -48,6 +48,7 @@ hello, Kukel
 | `kukel exec prog.kkc [--] [args]` | Run a bytecode file (a first `--` is skipped). A module compiled on its own is not a program: `exec` and `disasm` refuse it |
 | `kukel disasm prog.kkc` or `kukel disasm a.kkl ...` | Show the bytecode in readable form |
 | `kukel repl [a.kkl ...]` | Read declarations and statements and run them as they come (see [The REPL](#the-repl)); with files, their declarations come first (`main` is not called) |
+| `kukel debug a.kkl ... [-- args]` | Run the program under the debugger: breakpoints, stepping, values (see [The debugger](#the-debugger)) |
 | `kukel fmt [-w \| -l] a.kkl ...` | Format source files: indentation (4 spaces; `case` labels one level into the switch, their statements two) and the spaces between tokens (`{ }` becomes `{}`; a comment at the end of a line keeps its distance); line breaks and comments stay, at most one blank line in a row. A statement that starts a line with `if`, `while`, `do`, `for`, `switch`, `try` or `with` (also after a label: `outer: for`) gets a blank line before it (above the comments right above it), except as the first statement of a block, after a label on its own line or a `case`, as the statement of `else` or a header without braces, or as the `while` of a `do`. The output is checked to give the same tokens and comments as the input; a file it cannot format safely is refused with an "internal error".  Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`; `-w` and `-l` together are a usage error). A file with a syntax error or a NUL byte is left alone, and the exit code is 1 |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | Show the tokens or the syntax tree of each file (for debugging; `-pos`, before the files, adds positions) |
 | `kukel version` (also `-version`, `--version`) | Show the version (with the commit and the Go version), the bytecode format and the modules written in Go, with the databases `db` can open (`db (SQLite, PostgreSQL, MySQL)`): a `kukel` built with tags may lack some (see the README) |
@@ -116,6 +117,78 @@ checked when they are loaded, so a damaged file gives an error instead of
 running.
 
 ---
+
+### The debugger
+
+`kukel debug prog.kkl [-- args]` runs the program and stops before the
+first line of `main`, where it reads commands. For this `shop.kkl`:
+
+```
+// A small shop: a cart of items and prices.
+class Cart { items; Cart(); add(name, price); total(); }
+
+Cart::Cart() { items = {}; }
+Cart::add(name, price) {
+    items[name] = price;
+}
+Cart::total() { local t = 0; for (local k, p in items) t += p; return t; }
+
+// The program.
+main() {
+    local cart = new Cart();
+    cart->add("pen", 1.5);
+    println(cart->total());
+}
+```
+
+a session goes like this:
+
+```
+$ kukel debug shop.kkl
+main at shop.kkl:12
+   12      local cart = new Cart();
+(kdb) b Cart::add
+breakpoint 1 at shop.kkl:6
+(kdb) c
+breakpoint 1, Cart::add at shop.kkl:6
+    6      items[name] = price;
+(kdb) p name
+"pen"
+(kdb) p this->items
+{}
+(kdb) bt
+*0 Cart::add (shop.kkl:6)
+ 1 main (shop.kkl:13)
+(kdb) finish
+main at shop.kkl:14
+   14      println(cart->total());
+(kdb) c
+1.5
+the program ended (exit code 0)
+```
+
+| Command | |
+|---|---|
+| `break file:line`, `break line`, `break function` (`b`) | Stop at that line (of the current file), or at the first line of a function (`main`, `Shape::area`, `util::f`); a line without code moves the breakpoint to the next line with code |
+| `delete [n]` (`d`), `breaks` | Remove breakpoint `n`, or all; list them |
+| `continue` (`c`) | Run to the next breakpoint |
+| `step` (`s`), `next` (`n`) | To the start of the next line: also into a call, or over calls |
+| `finish` (`f`) | Until the current function has returned (to the next line of its caller) |
+| `print path` (`p`) | A value: a variable (parameter, local, captured), `this`, a data member of `this`, or a global (`count`, `util::count`), followed by `->member` and `[index]` steps (`p v[2]`, `p m["key"]`, `p this->items`) |
+| `locals` | The variables of the frame |
+| `backtrace` (`bt`), `frame n` | The calls, innermost first; look at frame `n` (for `print`, `locals` and `list`) |
+| `list [line]` (`l`) | The source around the current line, or around `line` |
+| `quit` (`q`) | End the program (also the end of the input) |
+| `help` (`h`) | The commands |
+
+- It stops at the start of lines only (a line with several statements is
+  one stop), also in global initializers and in event handlers.
+- Looking never changes the program: `print` reads, it calls nothing.
+  The locals of a function are its slots: a slot that two blocks share
+  shows the name of the later one.
+- Only the main interpreter stops; workers run on. The program reads its
+  input (`readline`) from the same input as the debugger.
+- When the program ends, `kukel debug` says so, with the exit code.
 
 ## 2. Lexical structure
 

@@ -104,6 +104,7 @@ make small TAGS=nozmq         # other tags
 | `kukel exec prog.kkc [--] [args]` | run a bytecode file |
 | `kukel disasm prog.kkc` (or `a.kkl ...`) | show the bytecode |
 | `kukel fmt [-w \| -l] a.kkl ...` | format source files (indentation, spacing, a blank line before `if`, `for`, ...) |
+| `kukel debug a.kkl ... [-- args]` | run a program under the debugger (breakpoints, stepping, values) |
 | `kukel repl [a.kkl ...]` | read declarations and statements and run them as they come |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | show the tokens or the syntax tree |
 | `kukel version` | show the version and the modules written in Go |
@@ -157,7 +158,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/value`, `internal/builtins` | values with their operators, built-in functions |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q59). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q60). Ideas for later are in [docs/future.md](docs/future.md).
 
 ## Development
 

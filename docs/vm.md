@@ -124,6 +124,7 @@ A **function** (`bytecode.Function`) has:
 | `Upvalues` | for a function literal: where each captured cell comes from (section 4.8) |
 | `NumCaches` | the number of inline cache slots its member instructions use (section 4.10) |
 | `Tables` | the jump tables of its `SWITCH_TABLE` instructions: the first int and a target per int (section 6.8) |
+| `Saved` | in a copy the debugger made: the instructions its `BREAK`s replaced, by pc (section 4.12); never in files |
 | `Index` | its position in `Funcs` (−1 for `Init`); not stored in files |
 
 The **prelude** is Kukel source compiled in front of every program. It
@@ -394,6 +395,25 @@ is not cached.) The caches belong to the VM, not to the image.
 | step limit | off; when set (tests, or a Go program that embeds Kukel: per call from Go), backward jumps, calls of Kukel functions and thrown exceptions are counted, and exceeding it is fatal |
 | cancellation | off; `VM.Cancellable` gives a `Canceller` that any goroutine can use to stop the program at its next step (a fatal `CancelledError`); waiting Go functions watch `Env.Done()` |
 
+### 4.12 The debugger
+
+`kukel debug` runs a copy of the program (`bytecode.Debuggable`): each
+function gets its own copy of its code, in which the first instruction of
+each source line (each entry of `Lines`) is replaced by `BREAK`, with the
+replaced instruction kept in `Function.Saved`. `BREAK` calls the VM's
+`Debug` hook, if it has one, with the frame's `ip` at the line's start, and
+then runs the saved instruction. The hook looks at the frames
+(`Frames`: function and line of each call; `Vars`: the parameters, locals
+and captured variables of one) and decides whether to stop; while it reads
+commands the program waits. An error from the hook stops the program
+(quitting is an `exit`).
+
+A program that is not being debugged contains no `BREAK`, so the debugger
+costs nothing then (the extra case in the dispatch loop measured within
+the noise, 1 to 2%). Workers share the copy but have no hook: their `BREAK`s
+run the saved instruction at once, so only the main interpreter stops. A
+`.kkc` file never holds a `BREAK`: the verifier refuses one.
+
 ---
 
 ## 5. Instruction set
@@ -488,6 +508,7 @@ code: the numbers, names, operands and stack effects.
 | 75 | `SWITCH_TABLE` | table:u16, miss:u32 | 1 | 0 | `x`: jump to the target of `x` in the function's jump table `table`, else to `miss` (below) |
 | 76 | `ADD_LOCAL` | slot:u16 | 1 | 0 | `x`: `slot = slot + x` (statement `local += x`) |
 | 77 | `CALL_NATIVE` | class:u16, name:u16, argc:u16 | argc+1 | 1 | `this args`: call the member function written in Go named by string constant `name` of the native class in global `class`, on `this` (`Base::m(...)` and `Base::Base(...)` for a native base) |
+| 78 | `BREAK` | | 0 | 0 | the start of a source line in code the debugger copied: the debug hook, then the instruction it replaced (section 4.12) |
 
 `CMP_JUMP`'s `cmp` operand is the comparison in its low byte (0 `<`,
 1 `<=`, 2 `>`, 3 `>=`, 4 `==`, 5 `!=`), plus 0x100 to jump when the
@@ -863,6 +884,7 @@ make the VM crash or read outside its data.
   base has no other; `main` is a function;
   functions have their own index;
 - per function: parameter, slot, stack and cache counts are in range;
+- no `BREAK` (it belongs to the debugger's copies only);
 - every instruction is known and complete, and its operands are in range:
   constants, slots, globals, functions, classes and their statics, upvalues,
   cache slots, jump tables; member names are string constants; `CMP_JUMP`

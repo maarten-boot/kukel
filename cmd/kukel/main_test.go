@@ -658,3 +658,32 @@ func TestExamplesFormatted(t *testing.T) {
 		t.Errorf("kukel fmt -l: exit %d, %s%s", code, out.String(), errOut.String())
 	}
 }
+
+// A kukel debug session: breakpoints by function and file:line, continue,
+// step, finish, print paths, bt, frame, locals, list and the errors.
+func TestDebug(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("p.kkl", []byte(debugSrc), 0o644)
+	var out bytes.Buffer
+	if code := run([]string{"debug", "p.kkl", "--", "hello"}, strings.NewReader(debugCmds), &out, &out); code != 0 || out.String() != debugOut {
+		t.Errorf("exit %d:\n%s\nwant:\n%s", code, out.String(), debugOut)
+	}
+	// A worker runs on: only the main interpreter stops at a breakpoint.
+	os.WriteFile("w.kkl", []byte("use worker;\ndouble(x) {\n    return x * 2;\n}\nmain() {\n    local w = worker::start(double, 21);\n    println(double(4), w->wait());\n}\n"), 0o644)
+	out.Reset()
+	if code := run([]string{"debug", "w.kkl"}, strings.NewReader("b double\nc\np x\nc\n"), &out, &out); code != 0 ||
+		!strings.Contains(out.String(), "(kdb) 4\n(kdb) 8 42\nthe program ended (exit code 0)") {
+		t.Errorf("a worker: exit %d:\n%s", code, out.String())
+	}
+	// The end of the input quits.
+	out.Reset()
+	if code := run([]string{"debug", "w.kkl"}, strings.NewReader(""), &out, &out); code != 0 || !strings.HasSuffix(out.String(), "(kdb) \nthe program ended (exit code 0)\n") {
+		t.Errorf("the end of the input: exit %d:\n%s", code, out.String())
+	}
+}
+
+const debugSrc = "class Acc { total; Acc(); add(x); }\nAcc::Acc() { total = 0; }\nAcc::add(x) {\n    total += x;\n    return this;\n}\n\nsquare(n) {\n    local r = n * n;\n    return r;\n}\n\nmain(args) {\n    local acc = new Acc(), v = [1, 2, 3], m = {\"k\": \"v\"};\n    println(\"start\", args);\n\n    for (local x in v) {\n        acc->add(square(x));\n    }\n    println(\"total\", acc->total);\n    local f = fn(y) { return y + acc->total; };\n    println(f(1));\n}\n"
+
+const debugCmds = "b square\nc\nbt\np n\nfinish\np acc->total\np v[1]\np m[\"k\"]\np v[9]\nframe 9\nd 1\nb p.kkl:22\nbreaks\nc\nstep\nlocals\nlist 22\nb nosuch\nb 999\nwhat\nquit\n"
+
+const debugOut = "main at p.kkl:14\n   14      local acc = new Acc(), v = [1, 2, 3], m = {\"k\": \"v\"};\n(kdb) breakpoint 1 at p.kkl:9\n(kdb) start [\"hello\"]\nbreakpoint 1, square at p.kkl:9\n    9      local r = n * n;\n(kdb) *0 square (p.kkl:9)\n 1 main (p.kkl:18)\n(kdb) 1\n(kdb) main at p.kkl:18\n   18          acc->add(square(x));\n(kdb) 1\n(kdb) 2\n(kdb) \"v\"\n(kdb) index 9 out of range for vector of length 3\n(kdb) no frame \"9\" (0 to 0, as bt numbers them)\n(kdb) breakpoint 1 deleted\n(kdb) breakpoint 2 at p.kkl:22\n(kdb) 2: p.kkl:22\n(kdb) total 14\nbreakpoint 2, main at p.kkl:22\n   22      println(f(1));\n(kdb) main/fn@21 at p.kkl:21\n   21      local f = fn(y) { return y + acc->total; };\n(kdb) y = 1\nacc = Acc{total: 14}\n(kdb)    19      }\n   20      println(\"total\", acc->total);\n>  21      local f = fn(y) { return y + acc->total; };\n   22      println(f(1));\n   23  }\n   24  \n(kdb) no function \"nosuch\"\n(kdb) no code at or after p.kkl:999\n(kdb) unknown command \"what\" (help lists them)\n(kdb) the program ended (exit code 0)\n"

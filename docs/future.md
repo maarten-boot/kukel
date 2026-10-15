@@ -660,7 +660,9 @@ ideas above make useful:
 - strings without an extra allocation per value (a different `Value`
   layout) (*done*, Q50, with in-place appends for `s += x`);
 - a debugger hook (breakpoints, stepping) on the VM, which the
-  disassembler and line tables already prepare for (*next*, TODO.md);
+  disassembler and line tables already prepare for (*done*: `kukel debug`,
+  TODO.md Q60; the Debug Adapter Protocol for editors could follow on the
+  same hook);
 - reading directories: the module `fs` of section 6.1, so that demos such
   as `examples/grep.kkl` can search a tree (`-r`);
 - a faster VM (register-based, or fewer instructions per call): an

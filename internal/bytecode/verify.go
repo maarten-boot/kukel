@@ -303,6 +303,8 @@ func (v *verifier) operands(f *Function, pc int, op Op, x []int) error {
 		if x[0] > 1 {
 			return fail("has unknown handler kind %d", x[0])
 		}
+	case OpBreak:
+		return fail("is only for the debugger, not in programs")
 	case OpSwitchTable:
 		if x[0] >= len(f.Tables) {
 			return fail("refers to jump table %d of %d", x[0], len(f.Tables))

@@ -115,6 +115,12 @@ type VM struct {
 	inited   bool       // Init has run
 	initErr  error      // why Init failed
 	cancel   *Canceller // set by Cancellable; nil: the program cannot be cancelled
+
+	// Debug, when set, runs at every BREAK instruction: at the start of each
+	// source line of code that the debugger made a copy of (Debuggable).
+	// The VM's frames are then as at the start of that line (Frames). An
+	// error stops the program (a fatal one, such as exit, ends it).
+	Debug func(vm *VM) error
 }
 
 // Builtins resolves built-in functions by name.
@@ -1095,8 +1101,19 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 		start := ip
 		op := bytecode.Op(code[ip])
 		ip++
+	dispatch:
 		switch op {
 		case bytecode.OpNop:
+
+		case bytecode.OpBreak: // a line start in code the debugger copied
+			if vm.Debug != nil {
+				f.ip, vm.sp = start, sp // for the hook's look at the frames
+				if e := vm.Debug(vm); e != nil {
+					return vm.fail(f, start, sp, e)
+				}
+			}
+			op = f.fn.Saved[start]
+			goto dispatch
 
 		case bytecode.OpConst:
 			stack[sp] = consts[bytecode.ReadU16(code, ip)]
@@ -1621,4 +1638,61 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			return vm.fail(f, start, sp, value.Errorf(value.InternalError, "bad opcode %d at %d in %s", op, start, f.fn.FuncName))
 		}
 	}
+}
+
+// ----------------------------------------------------------------------
+// For the debugger
+
+// DebugFrame is a call the program is in, for the debugger.
+type DebugFrame struct {
+	Func *bytecode.Function
+	Line int              // the line it is at (where it called the next frame)
+	This *value.ObjectObj // the object of a member function call, or nil
+}
+
+// Frames gives the calls the program is in, outermost first; the last is
+// the one at the BREAK the debug hook was called for.
+func (vm *VM) Frames() []DebugFrame {
+	out := make([]DebugFrame, len(vm.frames))
+	for i, f := range vm.frames {
+		pc := f.ip
+		if i < len(vm.frames)-1 && pc > 0 {
+			pc-- // a caller's ip is past its call instruction
+		}
+		out[i] = DebugFrame{Func: f.fn, Line: f.fn.LineAt(pc), This: f.this}
+	}
+	return out
+}
+
+// DebugVar is a variable of a frame: a parameter, local or captured one.
+type DebugVar struct {
+	Name  string
+	Value value.Value
+}
+
+// Vars gives the variables of frame i (an index into Frames): parameters
+// and locals by their slots (a slot that two blocks share has the name of
+// the later one), then captured variables.
+func (vm *VM) Vars(i int) []DebugVar {
+	f := vm.frames[i]
+	var vars []DebugVar
+	for s := 0; s < f.fn.NumSlots && s < len(f.fn.SlotNames); s++ {
+		name := f.fn.SlotNames[s]
+		if name == "" || name[0] == '(' { // hidden slots: (switch), (iterator), (temp), ...
+			continue
+		}
+		v := vm.stack[f.base+s]
+		if v.Kind() == value.Cell {
+			v = v.AsCell().V
+		}
+		vars = append(vars, DebugVar{name, v})
+	}
+	if f.cl != nil {
+		for j, u := range f.fn.Upvalues {
+			if j < len(f.cl.Cells) {
+				vars = append(vars, DebugVar{u.Name, f.cl.Cells[j].V})
+			}
+		}
+	}
+	return vars
 }

@@ -50,6 +50,8 @@ commands:
   repl [a.kkl ...]                read declarations and statements and run
                                   them as they come (after the declarations
                                   of the files, if given)
+  debug a.kkl ... [-- args]       run under the debugger: breakpoints,
+                                  stepping, values (help inside)
   disasm a.kkl ... | prog.kkc     show the bytecode in readable form
   tokens a.kkl ...                show the tokens of source files
   ast [-pos] a.kkl ...            show the syntax tree of source files
@@ -92,6 +94,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return cmdRun(args, stdin, stdout, stderr)
 	case "repl":
 		return cmdRepl(args, stdin, stdout, stderr)
+	case "debug":
+		return cmdDebug(args, stdin, stdout, stderr)
 	case "check":
 		return cmdCheck(args, stderr)
 	case "disasm":

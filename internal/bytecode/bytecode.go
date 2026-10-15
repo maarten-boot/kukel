@@ -124,6 +124,9 @@ const (
 	// Native base classes (Kukel v0.9).
 	OpCallNative // class u16, name u16, argc u16: this args -> result of the member function name of the native class in global class, on this (Base::m(...))
 
+	// The debugger (Kukel v0.15).
+	OpBreak // the start of a source line in code the debugger copied: its hook, then the instruction Function.Saved holds for this pc
+
 	numOps
 )
 
@@ -215,6 +218,7 @@ var opInfo = [numOps]OpInfo{
 	OpSwitchTable:  {"SWITCH_TABLE", []int{2, 4}},
 	OpAddLocal:     {"ADD_LOCAL", u16},
 	OpCallNative:   {"CALL_NATIVE", []int{2, 2, 2}},
+	OpBreak:        {"BREAK", nil},
 }
 
 // The comparison operand of CMP_JUMP: one of these, plus CmpJumpIfTrue to
@@ -292,6 +296,10 @@ type Function struct {
 	Upvalues    []Upvalue   // a function literal's captured variables
 	NumCaches   int         // inline cache slots of member instructions (the VM keeps the caches)
 	Tables      []JumpTable // of SWITCH_TABLE instructions
+
+	// Saved holds the opcodes that BREAK instructions replaced, by pc: only
+	// in a copy of the code the debugger made (never in files).
+	Saved map[int]Op
 
 	// Index is the function's position in Program.Funcs (-1 for Init). It is
 	// not stored in files: the compiler and Decode set it.
