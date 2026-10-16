@@ -187,15 +187,19 @@ func decode(env value.Env, args []value.Value) (value.Value, error) {
 		}
 	}
 	if err != nil {
+		// Newer versions of encoding/json (built on encoding/json/v2) report
+		// the end of the text and too deep nesting as syntax errors, with
+		// texts of their own: the messages stay the same with every Go.
 		var syn *json.SyntaxError
-		if errors.As(err, &syn) {
-			return value.NilValue, a.Errorf(value.ValueError, "invalid JSON at byte %d: %v", syn.Offset, err)
-		}
-		if errors.Is(err, errTooDeep) {
-			return value.NilValue, a.Errorf(value.ValueError, "%v", err)
-		}
-		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		isSyn := errors.As(err, &syn)
+		switch {
+		case errors.Is(err, errTooDeep) || isSyn && strings.Contains(syn.Error(), "exceeded max depth"):
+			return value.NilValue, a.Errorf(value.ValueError, "%v", errTooDeep)
+		case errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+			isSyn && strings.Contains(syn.Error(), "unexpected end of JSON input"):
 			return value.NilValue, a.Errorf(value.ValueError, "invalid JSON: unexpected end of text")
+		case isSyn:
+			return value.NilValue, a.Errorf(value.ValueError, "invalid JSON at byte %d: %v", syn.Offset, err)
 		}
 		return value.NilValue, a.Errorf(value.ValueError, "invalid JSON at byte %d: %v", d.InputOffset(), err)
 	}
