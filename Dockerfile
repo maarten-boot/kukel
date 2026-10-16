@@ -9,7 +9,7 @@
 
 # Build on the machine's own platform and cross-compile: no emulation
 # needed for the other one.
-FROM --platform=$BUILDPLATFORM golang:1.26-trixie@sha256:f06b7122f888680048afb247c4e5f49c0069eb6c4c1ccae0f3f4834527a8d22c AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e AS build
 ARG TARGETOS TARGETARCH
 ARG VERSION=devel
 WORKDIR /src
