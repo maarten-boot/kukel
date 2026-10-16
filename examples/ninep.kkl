@@ -8,9 +8,10 @@
 //     kukel run examples/ninep.kkl -- cat tcp://localhost:5640 /hello
 //     kukel run examples/ninep.kkl -- put tcp://localhost:5640 /notes 'buy milk'
 //     kukel run examples/ninep.kkl -- put tcp://localhost:5640 /ctl stop
-//     kukel run examples/ninep.kkl -- demo
+//     kukel run examples/ninep.kkl -- demo [directory]
 //
-// demo serves the tree on a free port and uses it with its own client, in
+// demo serves the tree on a free port, with the directory as /files
+// (testdata/tree: run it in examples/), and uses it with its own client, in
 // both versions of the protocol. The exit code is 2 after an error.
 use p9;
 use events;
@@ -47,9 +48,9 @@ ls(c, path) {
         println(e["mode"], e["size"], e["name"] + (e["dir"] ? "/" : ""));
 }
 
-demo() {
+demo(dir) {
     local s = nil;
-    s = p9::serve(tree(fn() { s->close(); }, "testdata/tree"), "tcp://127.0.0.1:0");
+    s = p9::serve(tree(fn() { s->close(); }, dir), "tcp://127.0.0.1:0");
 
     for (local v in ["9P2000", "9P2000.L"]) {
         local c = p9::dial(s->endpoint(), {"version": v});
@@ -86,7 +87,7 @@ demo() {
 
 usage(why) {
     eprintln("ninep:", why);
-    eprintln("usage: ninep serve address [directory] | ls address [path] | cat address path | put address path text | demo");
+    eprintln("usage: ninep serve address [directory] | ls address [path] | cat address path | put address path text | demo [directory]");
     return 2;
 }
 
@@ -94,8 +95,14 @@ main(args) {
     if (len(args) == 0) return usage("no command");
     local cmd = args[0];
 
-    if (cmd == "demo" && len(args) == 1) {
-        demo();
+    if (cmd == "demo" && len(args) <= 2) {
+        try {
+            demo(len(args) == 2 ? args[1] : "testdata/tree");
+        } catch (e) {
+            eprintln("ninep:", e->message);
+            return 2;
+        }
+
         return 0;
     }
 

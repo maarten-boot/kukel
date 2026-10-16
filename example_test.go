@@ -17,6 +17,7 @@ func Example() {
 const VAT = 0.21;
 price(net, qty) {
     local total = net * qty;
+
     if (qty >= 10) total *= 0.9;       // volume discount
     return round(total * (1 + VAT) * 100) / 100.0;
 }

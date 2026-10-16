@@ -77,13 +77,14 @@ type fileScope struct {
 
 type compiler struct {
 	prog      *bytecode.Program
-	universal map[string]*global // the built-ins and the prelude's names
-	modules   map[string]*module // by name; "" is the program itself
-	file      *fileScope         // the file whose code is being compiled
-	fs        *funcState         // the function being compiled
-	config    *native.Config     // modules and built-ins the program may use (nil: all)
-	errs      []*diag.Error      // the errors so far (see attempt)
-	linked    bool               // code of a module compiled on its own was linked
+	universal map[string]*global   // the built-ins and the prelude's names
+	modules   map[string]*module   // by name; "" is the program itself
+	file      *fileScope           // the file whose code is being compiled
+	fileInits map[*ast.VarSpec]int // the <init> functions of other files, by their first initializer
+	fs        *funcState           // the function being compiled
+	config    *native.Config       // modules and built-ins the program may use (nil: all)
+	errs      []*diag.Error        // the errors so far (see attempt)
+	linked    bool                 // code of a module compiled on its own was linked
 }
 
 // attempt runs f, one definition or function, and records a compile
@@ -202,15 +203,29 @@ func (c *compiler) jobName(job funcJob) (string, bool) {
 }
 
 // initFunction compiles the function that runs the initializers of
-// globals, in order.
+// globals, in order. Those of other files than pos.File (modules, other
+// program files) go into an <init> function of their file, which it
+// calls, so that positions in messages and the debugger name the right
+// file.
 func (c *compiler) initFunction(globals []globalInit, pos token.Pos) *bytecode.Function {
 	return c.function("<init>", pos, &ast.ParamList{}, nil, false, nil, initializers(globals), func() {
-		for _, v := range globals {
-			if v.spec == nil {
+		for i := 0; i < len(globals); i++ {
+			v := globals[i]
+			switch {
+			case v.spec == nil:
 				c.emit(bytecode.OpLoadFunc, v.file.initFn)
 				c.emit(bytecode.OpCall, 0)
 				c.emit(bytecode.OpPop)
-			} else if v.spec.Value != nil {
+			case v.spec.Pos().File != pos.File:
+				j := i + 1 // the run of initializers of this file
+				for j < len(globals) && globals[j].spec != nil && globals[j].spec.Pos().File == v.spec.Pos().File {
+					j++
+				}
+				c.emit(bytecode.OpLoadFunc, c.fileInit(globals[i:j]))
+				c.emit(bytecode.OpCall, 0)
+				c.emit(bytecode.OpPop)
+				i = j - 1
+			case v.spec.Value != nil:
 				c.file = v.file
 				c.mark(v.spec.Pos())
 				c.expr(v.spec.Value)
@@ -218,6 +233,35 @@ func (c *compiler) initFunction(globals []globalInit, pos token.Pos) *bytecode.F
 			}
 		}
 	})
+}
+
+// fileInit gives the index in Program.Funcs of the <init> function of a
+// run of initializers of one file, compiling it the first time (a REPL
+// session compiles Program.Init again with every piece).
+func (c *compiler) fileInit(run []globalInit) int {
+	if i, ok := c.fileInits[run[0].spec]; ok {
+		return i
+	}
+	outer := c.file
+	defer func() { c.file = outer }()
+	fn := c.function("<init>", run[0].spec.Pos(), &ast.ParamList{}, nil, false, nil, initializers(run), func() {
+		for _, v := range run {
+			if v.spec.Value != nil {
+				c.file = v.file
+				c.mark(v.spec.Pos())
+				c.expr(v.spec.Value)
+				c.emit(bytecode.OpStoreGlobal, v.g.index)
+			}
+		}
+	})
+	c.checkFuncCount(len(c.prog.Funcs)+1, run[0].spec.Pos())
+	fn.Index = len(c.prog.Funcs)
+	c.prog.Funcs = append(c.prog.Funcs, fn)
+	if c.fileInits == nil {
+		c.fileInits = map[*ast.VarSpec]int{}
+	}
+	c.fileInits[run[0].spec] = fn.Index
+	return fn.Index
 }
 
 // declarations is pass 1 for files, each with the scope that scope makes

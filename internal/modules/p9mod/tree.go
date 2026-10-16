@@ -92,6 +92,24 @@ func (t *tree) at(p string) *node {
 	return n
 }
 
+// mountOn gives the mounted disk directory that path p goes into, or nil.
+// t.mu is held.
+func (t *tree) mountOn(p string) *node {
+	n := t.root
+	for _, name := range names(p) {
+		if n.disk != nil {
+			return n
+		}
+		if !n.dir {
+			return nil
+		}
+		if n = n.kids[name]; n == nil {
+			return nil
+		}
+	}
+	return nil
+}
+
 // make finds or makes the node at path p (a directory if dir) and the
 // directories above it. t.mu is held.
 func (t *tree) make(p string, dir bool) (*node, error) {
@@ -136,6 +154,8 @@ func (t *tree) make(p string, dir bool) (*node, error) {
 func (t *tree) remove(p string) error {
 	n := t.at(p)
 	switch {
+	case n == nil && t.mountOn(p) != nil:
+		return errorf(linux.EPERM, "%s is a mounted disk directory: the tree does not reach into it", t.pathOfLocked(t.mountOn(p)))
 	case n == nil:
 		return errorf(linux.ENOENT, "%s does not exist", path.Clean("/"+p))
 	case n == t.root:

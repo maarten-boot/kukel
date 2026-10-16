@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	"9fans.net/go/plan9"
@@ -63,11 +64,24 @@ type dialOptions struct {
 	timeout              time.Duration
 }
 
-// dial connects to a 9P server. With no version asked for, it tries
-// 9P2000.L first and then 9P2000.
+// attachError is a server refusing the attach (a wrong aname): it was
+// reached, and speaks the version.
+type attachError struct{ err error }
+
+func (e *attachError) Error() string { return e.err.Error() }
+func (e *attachError) Unwrap() error { return e.err }
+
+// dial connects to a 9P server: the connection, the version and the attach
+// within o.timeout. With no version asked for, it tries 9P2000.L first
+// and then 9P2000.
 func dial(network, addr string, o dialOptions) (remote, error) {
+	deadline := time.Now().Add(o.timeout)
 	connect := func() (net.Conn, error) {
-		return net.DialTimeout(network, addr, o.timeout)
+		c, err := (&net.Dialer{Deadline: deadline}).Dial(network, addr)
+		if err == nil {
+			c.SetDeadline(deadline) // cleared once attached
+		}
+		return c, err
 	}
 	var errL error
 	if o.version != "9P2000" {
@@ -76,7 +90,8 @@ func dial(network, addr string, o dialOptions) (remote, error) {
 			return nil, err
 		}
 		r, err := dialL(c, o.aname)
-		if err == nil || o.version == "9P2000.L" {
+		var refused *attachError
+		if err == nil || o.version == "9P2000.L" || errors.As(err, &refused) || time.Now().After(deadline) {
 			return r, err
 		}
 		errL = err
@@ -86,10 +101,39 @@ func dial(network, addr string, o dialOptions) (remote, error) {
 		return nil, err
 	}
 	r, err := dial2000(c, o.user, o.aname)
-	if err != nil && errL != nil {
+	var refused *attachError
+	if err != nil && errL != nil && !errors.As(err, &refused) {
 		return nil, errors.New("the server speaks neither 9P2000.L (" + errL.Error() + ") nor 9P2000 (" + err.Error() + ")")
 	}
 	return r, err
+}
+
+// lost reports whether err is the connection failing, not a refusal of
+// the server.
+func lost(err error) bool {
+	var ne net.Error
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, net.ErrClosed) ||
+		errors.As(err, &ne) || strings.Contains(err.Error(), "socket error") ||
+		err.Error() == "connection has been closed" // 9fans.net/go/plan9/client
+}
+
+// notFound reports whether err says that the file is not there.
+func notFound(err error) bool {
+	if errors.Is(err, linux.ENOENT) {
+		return true
+	}
+	msg := err.Error()
+	return msg == "file does not exist" || strings.HasPrefix(msg, "file '") && strings.HasSuffix(msg, "' not found")
+}
+
+// clean gives the message of a server's refusal: 9fans.net/go/plan9/client
+// reports a walk that stops early in its own words.
+func clean(err error) string {
+	msg := err.Error()
+	if strings.HasPrefix(msg, "file '") && strings.HasSuffix(msg, "' not found") {
+		return "file does not exist"
+	}
+	return msg
 }
 
 // ----------------------------------------------------------------------
@@ -104,9 +148,6 @@ func dialL(c net.Conn, aname string) (remote, error) {
 	if aname == "" {
 		aname = "/"
 	}
-	// The deadline is for a server that does not answer a version it does
-	// not know.
-	c.SetDeadline(time.Now().Add(10 * time.Second))
 	pc, err := p9.NewClient(c, p9.WithMessageSize(chunk+4096))
 	if err != nil {
 		c.Close()
@@ -115,6 +156,9 @@ func dialL(c net.Conn, aname string) (remote, error) {
 	root, err := pc.Attach(aname)
 	if err != nil {
 		pc.Close()
+		if !lost(err) {
+			err = &attachError{err}
+		}
 		return nil, err
 	}
 	c.SetDeadline(time.Time{})
@@ -339,8 +383,12 @@ func dial2000(c net.Conn, user, aname string) (remote, error) {
 	fsys, err := conn.Attach(nil, user, aname)
 	if err != nil {
 		conn.Close()
+		if !lost(err) {
+			err = &attachError{err}
+		}
 		return nil, err
 	}
+	c.SetDeadline(time.Time{})
 	return &client2000{conn, fsys}, nil
 }
 

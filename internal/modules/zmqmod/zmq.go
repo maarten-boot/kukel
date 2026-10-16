@@ -4,6 +4,8 @@ package zmqmod
 
 import (
 	"context"
+	"io"
+	"log"
 	"reflect"
 	"sort"
 	"strings"
@@ -45,8 +47,16 @@ type socket struct {
 }
 
 // sendOnly are the socket types that cannot receive: reading one fails at
-// once, so receive, onmessage and poll refuse them.
-var sendOnly = map[string]bool{"PUSH": true, "PUB": true}
+// once, so receive, onmessage and poll refuse them. receiveOnly cannot
+// send: zmq4 fails at once for PULL, and never returns for SUB.
+var (
+	sendOnly    = map[string]bool{"PUSH": true, "PUB": true}
+	receiveOnly = map[string]bool{"PULL": true, "SUB": true}
+)
+
+// quiet is the logger of the sockets: zmq4 would write its own lines on
+// standard error (a connection that could not be made, ...).
+var quiet = log.New(io.Discard, "", 0)
 
 // linger is how long close waits after the last send: zmq4's Send only
 // queues a message, and closing at once would drop it.
@@ -142,6 +152,7 @@ func newSocket(env value.Env, this *value.ObjectObj, args []value.Value) (value.
 		return value.NilValue, a.Errorf(value.ValueError, "unknown socket type %q (one of %s)", kind, strings.Join(typeNames(), ", "))
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	opts = append(opts, zmq4.WithLogger(quiet))
 	this.State = &socket{kind: kind, s: newSock(ctx, opts...), cancel: cancel}
 	return value.NilValue, nil
 }
@@ -161,8 +172,12 @@ func endpointArg(a native.Args) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !strings.Contains(ep, "://") {
+	scheme, _, found := strings.Cut(ep, "://")
+	if !found {
 		return "", a.Errorf(value.ValueError, "%q is not an endpoint such as \"tcp://localhost:5555\"", ep)
+	}
+	if scheme != "tcp" && scheme != "ipc" && scheme != "inproc" {
+		return "", a.Errorf(value.ValueError, "%q: the transports are tcp://, ipc:// and inproc://", ep)
 	}
 	return ep, nil
 }
@@ -200,6 +215,9 @@ func connect(a native.Args, env value.Env, s *socket) (value.Value, error) {
 // s->send(message): a string, or a vector of strings for a message of
 // several parts.
 func send(a native.Args, env value.Env, s *socket) (value.Value, error) {
+	if receiveOnly[s.kind] {
+		return value.NilValue, a.Errorf(value.ValueError, "a %s socket cannot send messages", s.kind)
+	}
 	var msg zmq4.Msg
 	switch v := a.V[0]; v.Kind() {
 	case value.String:
@@ -227,6 +245,9 @@ func send(a native.Args, env value.Env, s *socket) (value.Value, error) {
 		err = s.s.Send(msg)
 	}
 	if err != nil {
+		if strings.Contains(err.Error(), "no connections available") { // zmq4 adds "%!w(<nil>)"
+			return value.NilValue, a.Errorf(NetError, "no peer is connected to send to")
+		}
 		return value.NilValue, a.Errorf(NetError, "%v", err)
 	}
 	s.lastSend = time.Now()
@@ -302,6 +323,9 @@ func receive(a native.Args, env value.Env, s *socket) (value.Value, error) {
 // received gives the message of a finished Recv, or its error.
 func received(a native.Args, r result) (value.Value, error) {
 	if r.err != nil {
+		if strings.Contains(r.err.Error(), "no connections available") {
+			return value.NilValue, a.Errorf(NetError, "no peer is connected (a REQ socket receives only after it sent a request)")
+		}
 		return value.NilValue, a.Errorf(NetError, "%v", r.err)
 	}
 	return message(r.msg), nil

@@ -204,6 +204,7 @@ func TestVerifyRejects(t *testing.T) {
 // FuzzDecode feeds mutated .kkc files to the loader; whatever it accepts is
 // run with a step limit. Nothing may panic.
 func FuzzDecode(f *testing.F) {
+	f.Setenv("KUKEL_TEST_TMP", f.TempDir()) // tests/run/files.kkl writes there, not into the sources
 	for _, p := range compilePrograms(f) {
 		data, err := bytecode.Encode(p)
 		if err != nil {
@@ -237,6 +238,7 @@ func FuzzDecode(f *testing.F) {
 // FuzzVerifyCode replaces the code of functions in real programs with
 // arbitrary bytes: whatever the verifier accepts must run without a panic.
 func FuzzVerifyCode(f *testing.F) {
+	f.Setenv("KUKEL_TEST_TMP", f.TempDir())
 	progs := compilePrograms(f)
 	var names []string
 	for name, p := range progs {

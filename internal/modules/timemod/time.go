@@ -207,7 +207,7 @@ func sleep(env value.Env, args []value.Value) (value.Value, error) {
 		return value.NilValue, err
 	}
 	if s < 0 || math.IsNaN(s) {
-		return value.NilValue, a.Errorf(value.ValueError, "%s is not a usable duration", value.FormatFloat(s))
+		return value.NilValue, a.Errorf(value.ValueError, "%s seconds is not a usable duration", value.FormatFloat(s))
 	}
 	d := stdtime.Duration(math.MaxInt64) // about 292 years: as good as forever
 	if s < d.Seconds() {

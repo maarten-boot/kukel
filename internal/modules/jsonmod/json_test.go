@@ -67,6 +67,7 @@ func TestErrors(t *testing.T) {
 		{encode, []value.Value{deep}, "nested more than 10000 deep"},
 		{encode, []value.Value{value.MakeMap(m)}, "the value contains itself"},
 		{encode, []value.Value{value.MakeFloat(-1 / zero())}, "-inf has no JSON form"},
+		{encode, []value.Value{infKey()}, "the map key inf has no JSON form"},
 		{decode, []value.Value{value.MakeInt(1)}, "argument 1 must be a string, not int"},
 		{decode, []value.Value{value.MakeString(strings.Repeat("[", 20000))}, "nested more than 10000 deep"},
 		{decode, []value.Value{value.MakeString(`{"a":1,}`)}, "invalid JSON at byte 8: invalid character '}' where an object key (a string) should be"},
@@ -78,7 +79,7 @@ func TestErrors(t *testing.T) {
 		{decode, []value.Value{value.MakeString(`01`)}, "invalid JSON at byte 2: text after the value"},
 		{decode, []value.Value{value.MakeString(`-x`)}, "invalid JSON at byte 2: invalid character 'x' in a number (a digit expected)"},
 		{decode, []value.Value{value.MakeString(`1.`)}, "invalid JSON: unexpected end of text"},
-		{decode, []value.Value{value.MakeString("\"a\tb\"")}, "invalid JSON at byte 3: invalid character byte 0x09 in a string (control characters must be escaped)"},
+		{decode, []value.Value{value.MakeString("\"a\tb\"")}, "invalid JSON at byte 3: invalid byte 0x09 in a string (control characters must be escaped)"},
 		{decode, []value.Value{value.MakeString(`"\x"`)}, "invalid JSON at byte 3: invalid character 'x' in an escape"},
 		{decode, []value.Value{value.MakeString(`"\u12g4"`)}, "invalid JSON at byte 6: invalid character 'g' in a \\u escape"},
 		{decode, []value.Value{value.MakeString(`'a'`)}, "invalid JSON at byte 1: invalid character '\\'' where a value should be"},
@@ -174,4 +175,10 @@ func TestLikeEncodingJSON(t *testing.T) {
 			t.Errorf("%q: decode gives %s, encoding/json %s", text, again, want)
 		}
 	}
+}
+
+func infKey() value.Value {
+	m := value.NewMap()
+	m.Set(value.MakeFloat(1/zero()), value.MakeInt(1))
+	return value.MakeMap(m)
 }

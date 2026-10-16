@@ -394,7 +394,7 @@ func minMax(name string, better value.CmpOp) builtinFn {
 			vals = args[0].AsVector().Elems
 		}
 		if len(vals) == 0 {
-			return value.NilValue, value.Errorf(value.ArgumentError, "%s of no values", name)
+			return value.NilValue, value.Errorf(value.ArgumentError, "%s: no values", name)
 		}
 		best := vals[0]
 		if !isNumber(best) && best.Kind() != value.String {

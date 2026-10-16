@@ -31,9 +31,10 @@ const debugHelp = `commands:
   print path                          show a value: x, this->name, v[2], m["k"], util::count (p)
   locals                              the variables of the current frame
   backtrace                           the calls, innermost first (bt)
-  frame n                             look at frame n of bt (for print and locals)
+  frame n                             look at frame n of bt (for print, locals and list)
   list [line]                         the source around the line (l)
-  quit                                end the program (q)
+  quit                                end the program, exit code 0 (q)
+  help                                these commands (h)
 `
 
 type breakpoint struct {
@@ -48,7 +49,6 @@ type debugger struct {
 	out     *bufio.Writer // the program's output (flushed before the debugger writes)
 	msg     io.Writer
 	prog    *bytecode.Program
-	mainFn  *bytecode.Function
 	breaks  []breakpoint
 	nextID  int
 	mode    string // "start", "continue", "step", "next", "finish"
@@ -86,9 +86,6 @@ func cmdDebug(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	machine.SetStderr(stderr)
 	d := &debugger{in: in, out: out, msg: stdout, prog: prog, mode: "start", sources: map[string][]string{}}
-	if g := prog.Globals[prog.Main]; g.Kind == bytecode.GlobalFunc {
-		d.mainFn = prog.Funcs[g.Func]
-	}
 	machine.Debug = d.hook
 	code, err := machine.Run(progArgs)
 	out.Flush()
@@ -106,9 +103,7 @@ func (d *debugger) hook(m *vm.VM) error {
 	top := frames[len(frames)-1]
 	stop := false
 	switch d.mode {
-	case "start":
-		stop = top.Func == d.mainFn
-	case "step":
+	case "start", "step": // start: the first line that runs, in a global initializer or main
 		stop = true
 	case "next":
 		stop = len(frames) <= d.depth
@@ -241,7 +236,7 @@ func (d *debugger) sourceLine(file string, line int) (string, bool) {
 	if !ok {
 		data, err := os.ReadFile(file)
 		if err == nil {
-			lines = strings.Split(string(data), "\n")
+			lines = strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
 		}
 		d.sources[file] = lines
 	}

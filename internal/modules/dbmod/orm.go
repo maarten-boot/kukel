@@ -38,6 +38,11 @@ func ormInit() {
 			if err != nil {
 				return value.NilValue, err
 			}
+			for i, v := range a.V[1:] { // here, so that the message names where
+				if _, ok := dbValue(v); !ok {
+					return value.NilValue, a.Errorf(value.TypeError, "argument %d cannot be stored in a database: %s (nil, booleans, numbers, strings and time::Time can)", i+2, kindOf(v))
+				}
+			}
 			r := q.copy()
 			r.wheres = append(r.wheres, text)
 			r.args = append(r.args, a.V[1:]...)

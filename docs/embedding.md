@@ -254,7 +254,7 @@ more does not compile, so it never runs half-way):
 ```go
 opts := kukel.CompileOptions{
     DenyBuiltins:    kukel.SystemBuiltins,          // readfile, writefile, appendfile, readline, getenv, exit
-    StandardModules: []string{"json", "strings"},   // no db, fs, time, events, worker, zmq, p9
+    StandardModules: []string{"json", "strings"},   // no db, fs, p9, zmq, events, worker, re, time, uuid
     NoFileModules:   true,                          // no program files: "use" finds only Go modules, no worker::startfile
 }
 ```
@@ -263,8 +263,9 @@ opts := kukel.CompileOptions{
   one is a compile error ("built-in function readfile is not available in
   this program"). The names stay reserved.
 - `StandardModules` lists the standard modules allowed (nil: all;
-  `[]string{}`: none). `fs` and `db` reach files (as do the built-ins of
-  `SystemBuiltins`), `zmq` and `p9` the network. A name the build does not have is an error, so a
+  `[]string{}`: none). `fs`, `db` and `p9` reach files (as do the
+  built-ins of `SystemBuiltins`; `p9::disk` serves a directory, and can
+  let clients change it), `zmq` and `p9` the network. A name the build does not have is an error, so a
   Go program built with build tags (`nozmq`, ...) must not list those
   modules; `kukel.StandardModules()` gives the ones it has. `worker` in particular starts interpreters and reads
   program files (`startfile`); its workers follow the same limits.

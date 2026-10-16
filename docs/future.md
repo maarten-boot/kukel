@@ -1,6 +1,6 @@
 # Kukel: ideas for the future
 
-Ideas for after v0.1.0. Parts marked *Done* are built (as of v0.11, see the
+Ideas for after v0.1.0. Parts marked *Done* are built (as of v0.18, see the
 language reference and docs/embedding.md); for the rest, the Kukel code below
 shows how things *could* look and is not meant to run. Each idea lists open
 questions (**F-n**) to settle before it is built, in the same way the Q-list
@@ -83,8 +83,8 @@ sock->close();
   future `with` statement makes that safe. Garbage collection could close
   forgotten ones as a safety net (Go finalizers), but not as the plan.
 
-*Done (TODO.md Q36): `internal/native`; the modules `json`, `strings` and
-`time` use it. Kukel classes can derive from native classes that have a
+*Done (TODO.md Q36): `internal/native`; every module written in Go uses
+it. Kukel classes can derive from native classes that have a
 constructor (TODO.md Q51), and Go programs that embed Kukel can write
 native classes in host modules.*
 
@@ -202,9 +202,10 @@ each, so no C compiler is needed:
 Windows. Build tags can leave out the large modules (`go build -tags
 nogui`), and `kukel version` lists the modules a binary contains.
 
-*Done for `json`, `strings`, `time` (TODO.md Q36), `events`, `worker`, `zmq`
-and `db`, and `kukel version` lists them. Build tags are done for the large ones (Q55): `nopostgres`,
-`nomysql`, `nosqlite` and `nozmq`; a GUI module would get `nogui`.*
+*Done for `json`, `strings`, `time` (TODO.md Q36), `events`, `worker`, `zmq`,
+`db`, `uuid`, `re`, `fs` and `p9`, and `kukel version` lists them. Build tags
+are done for the large ones (Q55, Q62): `nopostgres`, `nomysql`, `nosqlite`,
+`nozmq` and `no9p`; a GUI module would get `nogui`.*
 
 **Foreign libraries (`.so` on Linux, `.dll` on Windows, `.dylib` on
 macOS).** For a C library that has no Go binding. Go offers four ways:

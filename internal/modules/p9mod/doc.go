@@ -8,13 +8,16 @@
 //	println(c->read("/motd"));
 //	c->close();
 //
-// A server serves a tree the program builds; its files hold a string, or
-// call a Kukel function when they are read or written:
+// A server serves a tree the program builds, whose files hold a string or
+// call a Kukel function when they are read or written, and directories of
+// the local disk (read-only unless asked):
 //
+//	use p9; use events; use time;
 //	local t = new p9::Tree();
 //	t->file("/motd", "hello\n");
-//	t->file("/time", fn() { return string(new time::Time()) + "\n"; });
+//	t->file("/time", fn() { return time::now()->format() + "\n"; });
 //	t->file("/log", "", fn(data) { print(data); });
+//	t->mount("/files", p9::disk("/srv/files"));
 //	local s = p9::serve(t, "tcp://*:5640");
 //	events::run();
 //

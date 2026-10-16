@@ -2,6 +2,7 @@ package fsmod_test
 
 import (
 	"bytes"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,7 +11,7 @@ import (
 	"github.com/maarten-boot/kukel/internal/ast"
 	"github.com/maarten-boot/kukel/internal/builtins"
 	"github.com/maarten-boot/kukel/internal/compiler"
-	_ "github.com/maarten-boot/kukel/internal/modules/fsmod"
+	"github.com/maarten-boot/kukel/internal/modules/fsmod"
 	"github.com/maarten-boot/kukel/internal/parser"
 	"github.com/maarten-boot/kukel/internal/vm"
 )
@@ -63,3 +64,24 @@ const fsSrc = "use fs;\nmain(args) {\n    local root = fs::join(args[0], \"tree\
 const fsOut = "a true true false object 10\nempty true true false object 10\ntop.kkl false true false object 10\ntop.kkl 3 false true false\ntree dir\ntree/a dir\ntree/a/b dir\ntree/a/one.txt 1\ntree/empty dir\ntree/top.kkl 3\ntrue y.kkl /x .kkl b/c\nIOError: fs:\nIOError: fs:\nIOError: fs:\nTypeError: fs:\nKeyError: \nIOError: fs:\nfalse\n"
 
 const linksSrc = "use fs;\nmain(a) {\n    for (local e in fs::readdir(a[0])) println(e[\"name\"], e[\"link\"], e[\"dir\"]);\n    local n = 0;\n    fs::walk(a[0], fn(p, e) { n++; });\n    println(n, fs::exists(a[0] + \"/dangling\"), fs::stat(a[0] + \"/d/up\")[\"link\"], fs::stat(a[0] + \"/d/up\")[\"dir\"]);\n}\n"
+
+func TestModeString(t *testing.T) {
+	for m, want := range map[fs.FileMode]string{
+		0o644:                  "-rw-r--r--",
+		fs.ModeDir | 0o755:     "drwxr-xr-x",
+		fs.ModeSymlink | 0o777: "lrwxrwxrwx",
+		fs.ModeDevice | fs.ModeCharDevice | 0o666: "crw-rw-rw-",
+		fs.ModeDevice | 0o660:                     "brw-rw----",
+		fs.ModeNamedPipe | 0o600:                  "prw-------",
+		fs.ModeSocket | 0o755:                     "srwxr-xr-x",
+		fs.ModeSetuid | 0o755:                     "-rwsr-xr-x",
+		fs.ModeSetuid | 0o644:                     "-rwSr--r--",
+		fs.ModeSetgid | 0o750:                     "-rwxr-s---",
+		fs.ModeDir | fs.ModeSticky | 0o777:        "drwxrwxrwt",
+		fs.ModeDir | fs.ModeSticky | 0o776:        "drwxrwxrwT",
+	} {
+		if got := fsmod.ModeString(m); got != want {
+			t.Errorf("%v: %s, want %s", m, got, want)
+		}
+	}
+}

@@ -3,6 +3,7 @@
 package p9mod
 
 import (
+	"errors"
 	"net"
 
 	"github.com/hugelgupf/p9/linux"
@@ -11,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/maarten-boot/kukel/internal/modules/fsmod"
 	"github.com/maarten-boot/kukel/internal/modules/timemod"
 	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/value"
@@ -60,10 +62,13 @@ func init() {
 		}),
 		"exists": clientPathMethod("exists", 1, func(a native.Args, c *client, p string) (value.Value, error) {
 			err := c.do(func() (err error) { _, err = c.r.stat(p); return })
-			if c.closed {
-				return value.NilValue, c.fail(a, p, err)
+			switch {
+			case err == nil:
+				return value.MakeBool(true), nil
+			case notFound(err) && !c.closed:
+				return value.MakeBool(false), nil
 			}
-			return value.MakeBool(err == nil), nil
+			return value.NilValue, c.fail(a, p, err)
 		}),
 		"read": clientPathMethod("read", 1, func(a native.Args, c *client, p string) (value.Value, error) {
 			var data []byte
@@ -172,7 +177,7 @@ func init() {
 
 	native.Register(&native.Module{
 		Name:    "p9",
-		Doc:     "the 9P file protocol (9P2000 and 9P2000.L): a client, and a server of a tree the program builds",
+		Doc:     "the 9P file protocol (9P2000 and 9P2000.L): a client, and a server of trees the program builds and of disk directories",
 		Funcs:   map[string]native.Func{"dial": dial9, "serve": serve9, "disk": disk9},
 		Classes: []*native.Class{Client, Tree, Disk, Server},
 	})
@@ -187,7 +192,7 @@ func (e entry) value() value.Value {
 	set("size", value.MakeInt(int64(e.size)))
 	set("dir", value.MakeBool(e.mode.IsDir()))
 	set("link", value.MakeBool(e.mode&os.ModeSymlink != 0))
-	set("mode", value.MakeString(e.mode.String()))
+	set("mode", value.MakeString(fsmod.ModeString(e.mode)))
 	set("time", timemod.Time.Object(e.mtime))
 	return value.MakeMap(m)
 }
@@ -241,8 +246,12 @@ func dial9(env value.Env, args []value.Value) (value.Value, error) {
 	}
 	c := &client{url: u, l: localOf(env)}
 	if err := c.do(func() (err error) { c.r, err = dial(network, addr, o); return }); err != nil {
-		if env.Err() != nil {
+		var refused *attachError
+		switch {
+		case env.Err() != nil:
 			return value.NilValue, err
+		case errors.As(err, &refused):
+			return value.NilValue, a.Errorf(value.IOError, "%s: the server refuses the attach to %q: %s", u, o.aname, clean(refused.err))
 		}
 		return value.NilValue, a.Errorf(NetError, "%s: %v", u, err)
 	}
@@ -321,15 +330,21 @@ func (c *client) do(fn func() error) error {
 	return err
 }
 
-// fail makes the exception for an error of the server about path p.
+// fail makes the exception for an error about path p: a refusal of the
+// server is an IOError; a lost connection a NetError, and the client is
+// closed.
 func (c *client) fail(a native.Args, p string, err error) error {
-	if c.l.env.Err() != nil { // cancelled: passed on as it is
+	switch {
+	case c.l.env.Err() != nil: // cancelled: passed on as it is
 		return err
-	}
-	if c.closed {
+	case c.closed:
 		return a.Errorf(value.ValueError, "the client is closed")
+	case lost(err):
+		c.closed = true
+		c.r.close()
+		return a.Errorf(NetError, "%s: the connection is lost: %v", p, err)
 	}
-	return a.Errorf(value.IOError, "%s: %v", p, err)
+	return a.Errorf(value.IOError, "%s: %s", p, clean(err))
 }
 
 func clientMethod(name string, min, max int, fn func(a native.Args, c *client) (value.Value, error)) value.NativeMethod {
@@ -356,9 +371,16 @@ func clientPathMethod(name string, n int, fn func(a native.Args, c *client, p st
 		if err != nil {
 			return value.NilValue, err
 		}
+		// The same answer in both versions (9P2000.L would not even ask).
+		if changes[name] && len(names(p)) == 0 {
+			return value.NilValue, a.Errorf(value.IOError, "%s: the top directory cannot be written, made, renamed or removed", p)
+		}
 		return fn(a, c, p)
 	})
 }
+
+// changes are the member functions that change the file at their path.
+var changes = map[string]bool{"write": true, "mkdir": true, "rename": true, "remove": true}
 
 // ----------------------------------------------------------------------
 // The tree and the server

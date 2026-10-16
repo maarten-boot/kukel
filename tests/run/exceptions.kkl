@@ -12,14 +12,11 @@ ConfigError::ConfigError(key, message) {
 global config = {"port": "8080", "debug": "yes", "retries": "x"};
 
 getInt(key) {
-    local text, value, digit;
-
     if (!haskey(config, key)) throw new ConfigError(key, "missing");
-    text = config[key];
-    value = 0;
+    local text = config[key], value = 0;
 
     for (local c in text) {
-        digit = c - '0';
+        local digit = c - '0';
 
         if (digit < 0 || digit > 9) throw new ConfigError(key, "not a number: " + text);
         value = value * 10 + digit;

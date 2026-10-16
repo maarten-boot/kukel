@@ -287,7 +287,7 @@ func loadKKC(file string) (*bytecode.Program, error) {
 // first) go to main.
 func cmdExec(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: kukel exec prog.kkc [args]")
+		fmt.Fprintln(stderr, "usage: kukel exec prog.kkc [--] [args]")
 		return 2
 	}
 	progArgs := args[1:]

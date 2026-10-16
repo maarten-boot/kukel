@@ -25,6 +25,7 @@ $ -n error testdata/log.txt
 
 $ -x a
 ! grep: unknown option -x
+! usage: grep [-icFhlnorv] pattern [file ...]
 exit 2
 ```
 

@@ -1,4 +1,4 @@
 main() {
-// TODO: read the settings from a file
+    // TODO: read the settings from a file
     println("hello");
 }

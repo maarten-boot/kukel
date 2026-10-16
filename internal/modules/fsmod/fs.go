@@ -50,9 +50,48 @@ func entry(name string, info fs.FileInfo, link bool) value.Value {
 	set("size", value.MakeInt(info.Size()))
 	set("dir", value.MakeBool(info.IsDir()))
 	set("link", value.MakeBool(link))
-	set("mode", value.MakeString(info.Mode().String()))
+	set("mode", value.MakeString(ModeString(info.Mode())))
 	set("time", timemod.Time.Object(info.ModTime()))
 	return value.MakeMap(m)
+}
+
+// ModeString is mode as ls shows it: "-rw-r--r--", "drwxr-xr-x",
+// "lrwxrwxrwx"; s, S and t, T for setuid, setgid and sticky.
+func ModeString(m fs.FileMode) string {
+	b := []byte("----------")
+	switch {
+	case m&fs.ModeDir != 0:
+		b[0] = 'd'
+	case m&fs.ModeSymlink != 0:
+		b[0] = 'l'
+	case m&fs.ModeNamedPipe != 0:
+		b[0] = 'p'
+	case m&fs.ModeSocket != 0:
+		b[0] = 's'
+	case m&fs.ModeCharDevice != 0:
+		b[0] = 'c'
+	case m&fs.ModeDevice != 0:
+		b[0] = 'b'
+	}
+	const rwx = "rwxrwxrwx"
+	for i := 0; i < 9; i++ {
+		if m&(1<<(8-i)) != 0 {
+			b[i+1] = rwx[i]
+		}
+	}
+	special := func(i int, on bool, lower byte) {
+		if on {
+			if b[i] == 'x' {
+				b[i] = lower
+			} else {
+				b[i] = lower - 'a' + 'A'
+			}
+		}
+	}
+	special(3, m&fs.ModeSetuid != 0, 's')
+	special(6, m&fs.ModeSetgid != 0, 's')
+	special(9, m&fs.ModeSticky != 0, 't')
+	return string(b)
 }
 
 func ioError(a native.Args, err error) error {

@@ -84,6 +84,9 @@ func (e *encoder) value(v value.Value, depth int) error {
 		keys := v.AsMap().Keys()
 		return e.container(v, '{', '}', len(keys), depth, func(i int) error {
 			k := keys[i]
+			if k.Kind() == value.Float && (math.IsInf(k.AsFloat(), 0) || math.IsNaN(k.AsFloat())) {
+				return e.a.Errorf(value.ValueError, "the map key %s has no JSON form", value.FormatFloat(k.AsFloat()))
+			}
 			if err := e.str(k.String()); err != nil { // number keys become their text
 				return err
 			}
@@ -224,14 +227,15 @@ func (p *parser) errorf(format string, args ...any) error {
 	return &syntaxError{p.i, fmt.Sprintf(format, args...)}
 }
 
-// char shows the byte at i in a message.
+// char shows the byte at i in a message: "character 'x'", or "byte 0x01"
+// for one that is not printable.
 func (p *parser) char() string {
 	c := p.s[p.i]
 	switch {
 	case c == '\'':
-		return `'\''`
+		return `character '\''`
 	case c >= 0x20 && c < 0x7f:
-		return "'" + string(c) + "'"
+		return "character '" + string(c) + "'"
 	}
 	return fmt.Sprintf("byte 0x%02x", c)
 }
@@ -269,7 +273,7 @@ func (p *parser) value(depth int) (value.Value, error) {
 	case c == 'n':
 		return value.NilValue, p.word("null")
 	}
-	return value.NilValue, p.errorf("invalid character %s where a value should be", p.char())
+	return value.NilValue, p.errorf("invalid %s where a value should be", p.char())
 }
 
 func (p *parser) word(w string) error {
@@ -278,7 +282,7 @@ func (p *parser) word(w string) error {
 			return errEnd
 		}
 		if p.s[p.i] != w[k] {
-			return p.errorf("invalid character %s in the literal %s", p.char(), w)
+			return p.errorf("invalid %s in the literal %s", p.char(), w)
 		}
 		p.i++
 	}
@@ -311,7 +315,7 @@ func (p *parser) array(depth int) (value.Value, error) {
 			p.i++
 			return value.MakeVector(elems), nil
 		default:
-			return value.NilValue, p.errorf("invalid character %s after an array element (',' or ']' expected)", p.char())
+			return value.NilValue, p.errorf("invalid %s after an array element (',' or ']' expected)", p.char())
 		}
 	}
 }
@@ -330,7 +334,7 @@ func (p *parser) object(depth int) (value.Value, error) {
 			return value.NilValue, errEnd
 		}
 		if p.s[p.i] != '"' {
-			return value.NilValue, p.errorf("invalid character %s where an object key (a string) should be", p.char())
+			return value.NilValue, p.errorf("invalid %s where an object key (a string) should be", p.char())
 		}
 		k, err := p.str()
 		if err != nil {
@@ -341,7 +345,7 @@ func (p *parser) object(depth int) (value.Value, error) {
 			return value.NilValue, errEnd
 		}
 		if p.s[p.i] != ':' {
-			return value.NilValue, p.errorf("invalid character %s after an object key (':' expected)", p.char())
+			return value.NilValue, p.errorf("invalid %s after an object key (':' expected)", p.char())
 		}
 		p.i++
 		p.space()
@@ -363,7 +367,7 @@ func (p *parser) object(depth int) (value.Value, error) {
 			p.i++
 			return value.MakeMap(m), nil
 		default:
-			return value.NilValue, p.errorf("invalid character %s after an object member (',' or '}' expected)", p.char())
+			return value.NilValue, p.errorf("invalid %s after an object member (',' or '}' expected)", p.char())
 		}
 	}
 }
@@ -387,7 +391,7 @@ func (p *parser) str() (string, error) {
 			p.i++
 			return b.String(), nil
 		case c < 0x20:
-			return "", p.errorf("invalid character %s in a string (control characters must be escaped)", p.char())
+			return "", p.errorf("invalid %s in a string (control characters must be escaped)", p.char())
 		case c >= 0x80:
 			r, size := utf8.DecodeRuneInString(p.s[p.i:])
 			if r == utf8.RuneError && size == 1 {
@@ -407,7 +411,7 @@ func (p *parser) str() (string, error) {
 				continue
 			}
 			if e != 'u' {
-				return "", p.errorf("invalid character %s in an escape (one of \\\" \\\\ \\/ \\b \\f \\n \\r \\t \\u)", p.char())
+				return "", p.errorf("invalid %s in an escape (one of \\\" \\\\ \\/ \\b \\f \\n \\r \\t \\u)", p.char())
 			}
 			p.i++
 			r, err := p.hex4()
@@ -456,7 +460,7 @@ func (p *parser) hex4() (rune, error) {
 		case c >= 'A' && c <= 'F':
 			d = c - 'A' + 10
 		default:
-			return 0, p.errorf("invalid character %s in a \\u escape (four hexadecimal digits expected)", p.char())
+			return 0, p.errorf("invalid %s in a \\u escape (four hexadecimal digits expected)", p.char())
 		}
 		r = r*16 + rune(d)
 		p.i++
@@ -475,7 +479,7 @@ func (p *parser) number() (value.Value, error) {
 			return errEnd
 		}
 		if p.s[p.i] < '0' || p.s[p.i] > '9' {
-			return p.errorf("invalid character %s in a number (a digit expected)", p.char())
+			return p.errorf("invalid %s in a number (a digit expected)", p.char())
 		}
 		for p.i < len(p.s) && p.s[p.i] >= '0' && p.s[p.i] <= '9' {
 			p.i++

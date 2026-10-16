@@ -54,7 +54,7 @@ exit 2
 
 $ -r -n TODO testdata/tree
 testdata/tree/lib/util.kkl:1:// TODO: more helpers
-testdata/tree/main.kkl:2:// TODO: read the settings from a file
+testdata/tree/main.kkl:2:    // TODO: read the settings from a file
 
 $ -r -l -i todo testdata/tree testdata/words.txt
 testdata/tree/lib/util.kkl

@@ -304,6 +304,9 @@ func exec(a native.Args, env value.Env, c *conn) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, nil
 	}
+	if c.dialect == sqlite && !changesRows(text) {
+		n = 0
+	}
 	return value.MakeInt(n), nil
 }
 
@@ -524,9 +527,26 @@ func (c *conn) finish(a native.Args, commit bool) error {
 	return nil
 }
 
-// inserts reports whether SQL statement text adds rows (INSERT, REPLACE),
-// after leading space and comments.
+// inserts reports whether SQL statement text adds rows (INSERT, REPLACE).
 func inserts(text string) bool {
+	w := firstWord(text)
+	return w == "INSERT" || w == "REPLACE"
+}
+
+// changesRows reports whether SQL statement text can change rows: SQLite
+// reports the count of the last such statement also after others (CREATE,
+// DROP, a SELECT through exec).
+func changesRows(text string) bool {
+	switch firstWord(text) {
+	case "INSERT", "REPLACE", "UPDATE", "DELETE", "WITH", "MERGE":
+		return true
+	}
+	return false
+}
+
+// firstWord gives the first word of SQL statement text, in upper case,
+// after leading space and comments.
+func firstWord(text string) string {
 	for {
 		text = strings.TrimLeft(text, " \t\r\n")
 		switch {
@@ -535,15 +555,18 @@ func inserts(text string) bool {
 				text = text[i:]
 				continue
 			}
-			return false
+			return ""
 		case strings.HasPrefix(text, "/*"):
 			if i := strings.Index(text, "*/"); i >= 0 {
 				text = text[i+2:]
 				continue
 			}
-			return false
+			return ""
 		}
-		upper := strings.ToUpper(text)
-		return strings.HasPrefix(upper, "INSERT") || strings.HasPrefix(upper, "REPLACE")
+		end := strings.IndexFunc(text, func(r rune) bool { return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z') })
+		if end < 0 {
+			end = len(text)
+		}
+		return strings.ToUpper(text[:end])
 	}
 }

@@ -158,3 +158,17 @@ db::Cursor(done) db::Conn(sqlite::memory:, closed)
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+// exec gives the rows a statement changed: 0 for statements that change
+// none, though SQLite reports the last change again.
+func TestRowCounts(t *testing.T) {
+	got := run(t, `use db;
+main() {
+    local c = db::open("sqlite::memory:");
+    println(c->exec("CREATE TABLE t (i INTEGER)"), c->exec("INSERT INTO t VALUES (1), (2), (3)"), c->exec("CREATE TABLE u (i INTEGER)"),
+            c->exec("SELECT 1"), c->exec("  -- note\n UPDATE t SET i = i + 1"), c->exec("DROP TABLE u"), c->exec("DELETE FROM t WHERE i > 2"));
+}`)
+	if got != "0 3 0 0 3 0 2\n" {
+		t.Errorf("got %q", got)
+	}
+}

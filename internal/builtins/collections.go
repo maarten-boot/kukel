@@ -181,7 +181,7 @@ func init() {
 			return value.NilValue, err
 		}
 		if len(v.Elems) == 0 {
-			return value.NilValue, value.Errorf(value.RangeError, "pop from an empty vector")
+			return value.NilValue, value.Errorf(value.RangeError, "pop: the vector is empty")
 		}
 		last := v.Elems[len(v.Elems)-1]
 		v.Elems[len(v.Elems)-1] = value.NilValue

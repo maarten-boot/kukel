@@ -5,7 +5,8 @@ values, the program image, the execution model of the stack machine, every
 instruction, how the compiler translates the language's constructs, the
 `.kkc` file format and what the loader guarantees.
 
-It describes bytecode format version **6** (kukel v0.9). The language
+It describes bytecode format version **6** (introduced in kukel v0.9,
+still current in v0.18). The language
 itself is described in [reference.md](reference.md), its grammar in
 [syntax.ebnf](../syntax.ebnf).
 
@@ -105,8 +106,8 @@ and what the VM runs:
 |---|---|
 | `Globals` | the global slots: name and kind (variable, function, built-in, class, native) and, for functions and classes, an index into `Funcs` or `Classes`. A *native* global is a function, static member function or class of a module written in Go, named by its qualified name (`json::encode`, `time::Time::parse`, `time::Time`). Names of a module's top-level names are qualified (`geometry::hypot`) |
 | `Classes` | name (`module::Class` for a class of a module), base class index (a base always comes before its derived classes) or the qualified name of a native base class (`Native`), own data members, own static data members, own member functions (name, static flag, function index or −1 if declared but not defined) |
-| `Funcs` | all functions: top-level functions, member functions, function literals |
-| `Init` | the function that runs the global initializers |
+| `Funcs` | all functions: top-level functions, member functions, function literals, and the `<init>` functions of files other than the program's first (below) |
+| `Init` | the function that runs the global initializers: those of the program's first file itself, and for each run of initializers of another file (a module, a second program file) a call of that file's `<init>` function in `Funcs`, so that positions name the right file |
 | `Main` | the global index of `main` |
 
 A **function** (`bytecode.Function`) has:
@@ -828,7 +829,9 @@ uv   n + jump tables         min (a zigzag varint), uv n + targets (uv target+1,
 layout changes (version 2: milestone 12's superinstructions and inline
 cache slots; version 3: native globals; version 4: `THROW` takes only
 `Error` objects; version 5: jump tables, `SWITCH_TABLE`, `ADD_LOCAL`;
-version 6: native base classes, `CALL_NATIVE`). A reader refuses any version other
+version 6: native base classes, `CALL_NATIVE`). `BREAK` came later
+without a new version: it is only in the debugger's copy of the code, and a
+file that holds one is refused. A reader refuses any version other
 than its own, telling the user to compile the program again. Built-ins and
 the names of native modules are referred to by name, so a program that uses
 one the running `kukel` does not have is refused when the VM is set up to

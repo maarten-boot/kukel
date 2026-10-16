@@ -679,6 +679,15 @@ func TestDebug(t *testing.T) {
 		!strings.Contains(out.String(), "(kdb) 4\n(kdb) 8 42\nthe program ended (exit code 0)") {
 		t.Errorf("a worker: exit %d:\n%s", code, out.String())
 	}
+	// The first stop is the first line that runs: of a global initializer
+	// when the program has one, also in a module (its own file).
+	os.WriteFile("gm.kkl", []byte("g() {\n    return 1;\n}\nglobal x = g();\n"), 0o644)
+	os.WriteFile("gi.kkl", []byte("use gm;\n\nmain() {\n    println(gm::x);\n}\n"), 0o644)
+	out.Reset()
+	if code := run([]string{"debug", "gi.kkl"}, strings.NewReader("s\nbt\nc\n"), &out, &out); code != 0 ||
+		out.String() != "<init> at gm.kkl:4\n    4  global x = g();\n(kdb) gm::g at gm.kkl:2\n    2      return 1;\n(kdb) *0 gm::g (gm.kkl:2)\n 1 <init> (gm.kkl:4)\n 2 <init> (gi.kkl:1)\n(kdb) 1\nthe program ended (exit code 0)\n" {
+		t.Errorf("a global initializer: exit %d:\n%s", code, out.String())
+	}
 	// The end of the input quits.
 	out.Reset()
 	if code := run([]string{"debug", "w.kkl"}, strings.NewReader(""), &out, &out); code != 0 || !strings.HasSuffix(out.String(), "(kdb) \nthe program ended (exit code 0)\n") {
@@ -690,4 +699,26 @@ const debugSrc = "class Acc { total; Acc(); add(x); }\nAcc::Acc() { total = 0; }
 
 const debugCmds = "b square\nc\nbt\np n\nfinish\np acc->total\np v[1]\np m[\"k\"]\np v[9]\nframe 9\nd 1\nb p.kkl:22\nbreaks\nc\nstep\nlocals\nlist 22\nb nosuch\nb 999\nwhat\nquit\n"
 
-const debugOut = "main at p.kkl:14\n   14      local acc = new Acc(), v = [1, 2, 3], m = {\"k\": \"v\"};\n(kdb) breakpoint 1 at p.kkl:9\n(kdb) start [\"hello\"]\nbreakpoint 1, square at p.kkl:9\n    9      local r = n * n;\n(kdb) *0 square (p.kkl:9)\n 1 main (p.kkl:18)\n(kdb) 1\n(kdb) main at p.kkl:18\n   18          acc->add(square(x));\n(kdb) 1\n(kdb) 2\n(kdb) \"v\"\n(kdb) index 9 out of range for vector of length 3\n(kdb) no frame \"9\" (0 to 0, as bt numbers them)\n(kdb) breakpoint 1 deleted\n(kdb) breakpoint 2 at p.kkl:22\n(kdb) 2: p.kkl:22\n(kdb) total 14\nbreakpoint 2, main at p.kkl:22\n   22      println(f(1));\n(kdb) main/fn@21 at p.kkl:21\n   21      local f = fn(y) { return y + acc->total; };\n(kdb) y = 1\nacc = Acc{total: 14}\n(kdb)    19      }\n   20      println(\"total\", acc->total);\n>  21      local f = fn(y) { return y + acc->total; };\n   22      println(f(1));\n   23  }\n   24  \n(kdb) no function \"nosuch\"\n(kdb) no code at or after p.kkl:999\n(kdb) unknown command \"what\" (help lists them)\n(kdb) the program ended (exit code 0)\n"
+const debugOut = "main at p.kkl:14\n   14      local acc = new Acc(), v = [1, 2, 3], m = {\"k\": \"v\"};\n(kdb) breakpoint 1 at p.kkl:9\n(kdb) start [\"hello\"]\nbreakpoint 1, square at p.kkl:9\n    9      local r = n * n;\n(kdb) *0 square (p.kkl:9)\n 1 main (p.kkl:18)\n(kdb) 1\n(kdb) main at p.kkl:18\n   18          acc->add(square(x));\n(kdb) 1\n(kdb) 2\n(kdb) \"v\"\n(kdb) index 9 out of range for vector of length 3\n(kdb) no frame \"9\" (0 to 0, as bt numbers them)\n(kdb) breakpoint 1 deleted\n(kdb) breakpoint 2 at p.kkl:22\n(kdb) 2: p.kkl:22\n(kdb) total 14\nbreakpoint 2, main at p.kkl:22\n   22      println(f(1));\n(kdb) main/fn@21 at p.kkl:21\n   21      local f = fn(y) { return y + acc->total; };\n(kdb) y = 1\nacc = Acc{total: 14}\n(kdb)    19      }\n   20      println(\"total\", acc->total);\n>  21      local f = fn(y) { return y + acc->total; };\n   22      println(f(1));\n   23  }\n(kdb) no function \"nosuch\"\n(kdb) no code at or after p.kkl:999\n(kdb) unknown command \"what\" (help lists them)\n(kdb) the program ended (exit code 0)\n"
+
+// An error in a global initializer names the file it is in: a module's,
+// or the second file of a program.
+func TestInitializerFiles(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("mm.kkl", []byte("\n\n\nglobal u = 1 / 0;\n"), 0o644)
+	os.WriteFile("p.kkl", []byte("use mm;\n\nmain() {}\n"), 0o644)
+	os.WriteFile("two.kkl", []byte("global a = 1;\nglobal b = [][a];\n"), 0o644)
+	os.WriteFile("one.kkl", []byte("main() {}\n"), 0o644)
+	for _, tc := range []struct {
+		files []string
+		want  string
+	}{
+		{[]string{"p.kkl"}, "at <init> (mm.kkl:4)"},
+		{[]string{"one.kkl", "two.kkl"}, "at <init> (two.kkl:2)"},
+	} {
+		var out, errOut bytes.Buffer
+		if code := run(append([]string{"run"}, tc.files...), nil, &out, &errOut); code != 1 || !strings.Contains(errOut.String(), tc.want) {
+			t.Errorf("%v: exit %d, %s", tc.files, code, errOut.String())
+		}
+	}
+}

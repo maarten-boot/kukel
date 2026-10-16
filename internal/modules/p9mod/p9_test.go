@@ -449,3 +449,74 @@ main() {
 }
 
 func timeAfter10ms() <-chan time.Time { return time.After(10 * time.Millisecond) }
+
+// What fails between client and server: a server that never answers (the
+// timeout covers the handshake), an attach the server refuses, a lost
+// connection; exists() fails then instead of giving false.
+func TestClientFailures(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() { // accepts, and never answers
+		var held []net.Conn
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				for _, c := range held {
+					c.Close()
+				}
+				return
+			}
+			held = append(held, c)
+		}
+	}()
+	got := run(t, `use p9;
+main(args) {
+    for (local v in [nil, "9P2000", "9P2000.L"]) {
+        local o = {"timeout": 0.5}, t0 = clock();
+        if (v != nil) o["version"] = v;
+        try { p9::dial("tcp://" + args[0], o); } catch (e) { println(e->kind, clock() - t0 < 3); }
+    }
+    local t = new p9::Tree();
+    t->file("/a/b", "x");
+    t->mount("/m", p9::disk("."));
+    try { t->remove("/m/x"); } catch (e) { println(e->message); }
+    local s = p9::serve(t, "tcp://127.0.0.1:0");
+    for (local v in ["9P2000", "9P2000.L"]) {
+        try { p9::dial(s->endpoint(), {"aname": "/nope", "version": v}); } catch (e) { println(e->kind, find(e->message, "the server refuses the attach to \"/nope\"") > 0); }
+        local c = p9::dial(s->endpoint(), {"version": v});
+        println(c->exists("/a/b"), c->exists("/a/nope"), c->exists("/nope/x"));
+        try { c->read("/m/nope/deeper"); } catch (e) { println(e->kind); }
+        try { c->mkdir("/"); } catch (e) { println(e->kind, e->message); }
+        local s2 = p9::serve(t, "tcp://127.0.0.1:0");
+        local c2 = p9::dial(s2->endpoint(), {"version": v});
+        s2->close();
+        try { c2->exists("/a/b"); } catch (e) { println(e->kind, find(e->message, "the connection is lost") > 0); }
+        println(find(str(c2), "closed") > 0);
+        c->close();
+    }
+    s->close();
+}`, ln.Addr().String())
+	want := `NetError true
+NetError true
+NetError true
+p9::Tree::remove: /m is a mounted disk directory: the tree does not reach into it
+IOError true
+true false false
+IOError
+IOError p9::Client::mkdir: /: the top directory cannot be written, made, renamed or removed
+NetError true
+true
+IOError true
+true false false
+IOError
+IOError p9::Client::mkdir: /: the top directory cannot be written, made, renamed or removed
+NetError true
+true
+`
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}

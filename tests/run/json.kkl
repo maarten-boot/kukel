@@ -45,7 +45,7 @@ Parser::value() {
 }
 
 Parser::object() {
-    local m = {}, key;
+    local m = {};
     expect('{');
     skip();
 
@@ -53,7 +53,7 @@ Parser::object() {
 
     while (true) {
         skip();
-        key = string();
+        local key = string();
         skip();
         expect(':');
         m[key] = value();
@@ -81,12 +81,12 @@ Parser::array() {
 }
 
 Parser::string() {
-    local out = "", c;
+    local out = "";
     expect('"');
 
     while (true) {
         if (pos >= len(text)) fail("unterminated string");
-        c = text[pos++];
+        local c = text[pos++];
 
         switch (c) {
             case '"': return out;
@@ -96,7 +96,10 @@ Parser::string() {
                 switch (c) {
                     case 'n': out += "\n"; break;
                     case 't': out += "\t"; break;
-                    default: out += char(c);
+                    case 'r': out += "\r"; break;
+                    case 'b': out += char(8); break;
+                    case 'f': out += char(12); break;
+                    default: out += char(c); // \" \\ \/
                 }
                 break;
             default:

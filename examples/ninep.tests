@@ -38,12 +38,12 @@ stopped: true
 
 $ cat tcp://localhost:5640
 ! ninep: wrong number of arguments for cat
-! usage: ninep serve address [directory] | ls address [path] | cat address path | put address path text | demo
+! usage: ninep serve address [directory] | ls address [path] | cat address path | put address path text | demo [directory]
 exit 2
 
 $ rm tcp://localhost:5640 /hello
 ! ninep: unknown command rm
-! usage: ninep serve address [directory] | ls address [path] | cat address path | put address path text | demo
+! usage: ninep serve address [directory] | ls address [path] | cat address path | put address path text | demo [directory]
 exit 2
 
 $ ls localhost:5640
@@ -51,5 +51,9 @@ $ ls localhost:5640
 exit 2
 
 $ serve tcp://127.0.0.1:0 testdata/nope
+! ninep: p9::disk: open testdata/nope: no such file or directory
+exit 2
+
+$ demo testdata/nope
 ! ninep: p9::disk: open testdata/nope: no such file or directory
 exit 2

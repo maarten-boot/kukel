@@ -244,3 +244,22 @@ ValueError: zmq::poll: -1.0 seconds is not a usable timeout
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+// What a socket refuses at once: sending on SUB (zmq4 would wait for
+// ever) and PULL, a REQ without a peer, an unknown transport.
+func TestRefusals(t *testing.T) {
+	got := run(t, `use zmq;
+main() {
+    for (local f in [fn() { new zmq::Socket("SUB")->send("x"); }, fn() { new zmq::Socket("PULL")->send("x"); },
+                     fn() { new zmq::Socket("REQ")->send("x"); }, fn() { new zmq::Socket("REQ")->bind("foo://x"); }])
+        try { f(); } catch (e) { println(e->kind, e->message); }
+}`)
+	want := `ValueError zmq::Socket::send: a SUB socket cannot send messages
+ValueError zmq::Socket::send: a PULL socket cannot send messages
+NetError zmq::Socket::send: no peer is connected to send to
+ValueError zmq::Socket::bind: "foo://x": the transports are tcp://, ipc:// and inproc://
+`
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
