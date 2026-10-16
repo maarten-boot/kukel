@@ -43,6 +43,9 @@ const usage = `usage: kukel <command> [arguments]
 
 commands:
   run a.kkl b.kkl [-- args]       compile in memory and run
+  a.kkl [args] | prog.kkc [args]  the same as run a.kkl -- args (exec for
+                                  .kkc): for scripts that start with
+                                  #!/usr/bin/env kukel
   check a.kkl ...                 compile only: report the errors, run nothing
   build [-o prog.kkc] a.kkl ...   compile to a bytecode file (default: a.kkc)
   build -module [-o m.kkc] m.kkl  compile module m on its own, for programs
@@ -106,6 +109,18 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return cmdBuild(args, stderr)
 	case "exec":
 		return cmdExec(args, stdin, stdout, stderr)
+	}
+	// "kukel prog.kkl args": a file instead of a command is run (a .kkc file
+	// executed), all the arguments after it going to main. This is what a
+	// script starting with "#!/usr/bin/env kukel" gets.
+	// A name ending in .kkl or .kkc is taken as a file also when it is not
+	// there, so that the message says so.
+	isFile := strings.HasSuffix(cmd, ".kkl") || strings.HasSuffix(cmd, ".kkc")
+	if info, err := os.Stat(cmd); isFile || err == nil && info.Mode().IsRegular() {
+		if strings.HasSuffix(cmd, ".kkc") {
+			return cmdExec(append([]string{cmd, "--"}, args...), stdin, stdout, stderr)
+		}
+		return cmdRun(append([]string{cmd, "--"}, args...), stdin, stdout, stderr)
 	}
 	fmt.Fprintf(stderr, "kukel: unknown command %q\n\n%s", cmd, usage)
 	return 2

@@ -123,6 +123,7 @@ machine as `kukel:dev` (`IMAGE=...` names it otherwise).
 | Command | What it does |
 |---|---|
 | `kukel run a.kkl b.kkl [-- args]` | compile the files as one program and run it |
+| `kukel a.kkl [args]` | the same as `kukel run a.kkl -- args`: a script that starts with `#!/usr/bin/env kukel` runs as a command |
 | `kukel check a.kkl ...` | compile only and report the errors |
 | `kukel build [-o prog.kkc] a.kkl ...` | compile to a bytecode file |
 | `kukel build -module [-o m.kkc] m.kkl` | compile a module on its own; `use m;` finds `m.kkc` when there is no `m.kkl` |

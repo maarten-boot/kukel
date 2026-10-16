@@ -722,3 +722,33 @@ func TestInitializerFiles(t *testing.T) {
 		}
 	}
 }
+
+// A file instead of a command is run (or executed): a script with a
+// #!/usr/bin/env kukel line gets its arguments as they are.
+func TestScript(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("script", []byte("#!/usr/bin/env kukel\nmain(args) {\n    println(args);\n    return len(args);\n}\n"), 0o755)
+	os.WriteFile("s.kkl", []byte("main(args) { println(\"kkl\", args); }\n"), 0o644)
+	var out, errOut bytes.Buffer
+	if code := run([]string{"script", "a", "--", "b c"}, nil, &out, &errOut); code != 3 || out.String() != "[\"a\", \"--\", \"b c\"]\n" {
+		t.Errorf("script: exit %d, %q %q", code, out.String(), errOut.String())
+	}
+	out.Reset()
+	if code := run([]string{"build", "-o", "s.kkc", "s.kkl"}, nil, &out, &errOut); code != 0 {
+		t.Fatalf("build: %s", errOut.String())
+	}
+	for _, file := range []string{"s.kkl", "s.kkc"} {
+		out.Reset()
+		if code := run([]string{file, "x"}, nil, &out, &errOut); code != 0 || out.String() != "kkl [\"x\"]\n" {
+			t.Errorf("%s: exit %d, %q", file, code, out.String())
+		}
+	}
+	errOut.Reset()
+	if code := run([]string{"nosuch.kkl"}, nil, &out, &errOut); code != 1 || !strings.Contains(errOut.String(), "no such file") {
+		t.Errorf("a missing file: exit %d, %q", code, errOut.String())
+	}
+	errOut.Reset()
+	if code := run([]string{"frobnicate"}, nil, &out, &errOut); code != 2 || !strings.Contains(errOut.String(), "unknown command") {
+		t.Errorf("an unknown command: exit %d, %q", code, errOut.String())
+	}
+}
