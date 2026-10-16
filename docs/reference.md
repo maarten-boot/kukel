@@ -115,6 +115,15 @@ state with the pieces before it:
   `KUKEL_PATH`. Positions in messages name the piece: `<input 3>:1:5`.
 - A worker sees the global variables of the session with their initial
   values, as a worker of a program does; session `local`s are `nil` there.
+- On a terminal the input line can be edited: the arrow keys, Home and
+  End, Ctrl-A and Ctrl-E (start and end), Ctrl-K and Ctrl-U (delete to the
+  end, to the start), Ctrl-W (the word before). Up and down go through the
+  lines typed before, also in earlier sessions: the last 1000 are kept in
+  `~/.kukel_history`, or in the file `KUKEL_HISTORY` names
+  (`KUKEL_HISTORY=` keeps none). Ctrl-C drops the line or the incomplete
+  piece; Ctrl-D on an empty line ends the session. While a piece runs, the
+  terminal is as usual (`readline()` reads a plain line, and Ctrl-C stops
+  `kukel`).
 
 ### The debugger
 

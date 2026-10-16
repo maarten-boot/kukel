@@ -534,6 +534,10 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			interactive = true
 		}
 	}
+	var editor *lineEditor // line editing and history, on a terminal
+	if f, ok := stdout.(*os.File); ok && interactive {
+		editor = newLineEditor(stdin.(*os.File), f)
+	}
 	if interactive {
 		first, _, _ := strings.Cut(versionText(), "\n")
 		fmt.Fprintf(out, "%s\ntype declarations or statements; a blank line ends an incomplete piece, end of input (Ctrl-D) quits\n", first)
@@ -544,15 +548,25 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		var decls *ast.File
 		name := fmt.Sprintf("<input %d>", n)
 		for {
-			if interactive {
-				if len(src) == 0 {
-					fmt.Fprint(out, "> ")
-				} else {
-					fmt.Fprint(out, "... ")
-				}
+			prompt := "> "
+			if len(src) > 0 {
+				prompt = "... "
+			}
+			if interactive && editor == nil {
+				fmt.Fprint(out, prompt)
 			}
 			out.Flush()
-			line, rerr := in.ReadString('\n')
+			var line string
+			var rerr error
+			if editor != nil {
+				line, rerr = editor.readLine(prompt)
+				if rerr == errInterrupted { // Ctrl-C: the piece is dropped
+					src = nil
+					continue
+				}
+			} else {
+				line, rerr = in.ReadString('\n')
+			}
 			end := rerr != nil && line == ""
 			if end && len(src) == 0 {
 				if interactive {
