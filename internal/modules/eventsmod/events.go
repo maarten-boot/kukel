@@ -37,6 +37,14 @@ type Loop struct {
 	running bool
 	stopped bool
 	onerror value.Value // nil, or the handler for exceptions of handlers
+	polls   []*poll
+}
+
+// poll is a function the loop calls regularly (Loop.Poll).
+type poll struct {
+	fn    func() error
+	every time.Duration
+	last  time.Time
 }
 
 type loopKey struct{}
@@ -57,6 +65,42 @@ func (l *Loop) Post(fn func() error) {
 	l.posted = append(l.posted, fn)
 	l.mu.Unlock()
 	l.signal()
+}
+
+// Poll has fn called on the interpreter's goroutine about every `every`
+// while events::run() runs: for a source that must be asked for its events
+// from that goroutine, such as a GUI toolkit. An error fn returns is
+// treated like an exception of a handler. Poll is called on the
+// interpreter's goroutine; the returned function stops the calls.
+func (l *Loop) Poll(fn func() error, every time.Duration) (remove func()) {
+	p := &poll{fn: fn, every: every}
+	l.polls = append(l.polls, p)
+	return func() {
+		for i, q := range l.polls {
+			if q == p {
+				l.polls = append(l.polls[:i], l.polls[i+1:]...)
+				return
+			}
+		}
+	}
+}
+
+// runPolls calls the polls that are due, and gives the time the next one
+// is due (zero: none).
+func (l *Loop) runPolls(now time.Time) (time.Time, error) {
+	var next time.Time
+	for _, p := range append([]*poll(nil), l.polls...) { // a poll may remove polls
+		if now.Sub(p.last) >= p.every {
+			p.last = now
+			if err := l.dispatch(p.fn()); err != nil {
+				return time.Time{}, err
+			}
+		}
+		if due := p.last.Add(p.every); next.IsZero() || due.Before(next) {
+			next = due
+		}
+	}
+	return next, nil
 }
 
 // Hold keeps events::run() going (instead of returning when nothing is
@@ -112,8 +156,13 @@ func (l *Loop) run(a native.Args) error {
 	l.running, l.stopped = true, false
 	defer func() { l.running = false }()
 	for !l.stopped {
-		// Timers that are due, in the order of their deadlines.
+		// Polls that are due, also when the loop is busy.
 		now := time.Now()
+		nextPoll, err := l.runPolls(now)
+		if err != nil {
+			return err
+		}
+		// Timers that are due, in the order of their deadlines.
 		for !l.stopped && len(l.timers) > 0 && !l.timers[0].deadline.After(now) {
 			t := heap.Pop(&l.timers).(*timer)
 			if t.cancelled {
@@ -157,11 +206,15 @@ func (l *Loop) run(a native.Args) error {
 		if l.active == 0 && holds == 0 {
 			return nil
 		}
-		// Wait for the next timer, a posted event or a released hold.
+		// Wait for the next timer, poll, posted event or released hold.
 		var wait *time.Timer
 		var due <-chan time.Time
-		if len(l.timers) > 0 {
-			wait = time.NewTimer(time.Until(l.timers[0].deadline))
+		if len(l.timers) > 0 || !nextPoll.IsZero() {
+			deadline := nextPoll
+			if len(l.timers) > 0 && (deadline.IsZero() || l.timers[0].deadline.Before(deadline)) {
+				deadline = l.timers[0].deadline
+			}
+			wait = time.NewTimer(time.Until(deadline))
 			due = wait.C
 		}
 		select {

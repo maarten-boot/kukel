@@ -23,6 +23,31 @@ func init() {
 	native.Register(&native.Module{
 		Name: "evtest",
 		Funcs: map[string]native.Func{
+			// poll(n, f): holds the loop and polls: the loop calls f(i)
+			// from a poll, for i = 1..n, then releases it.
+			"poll": func(env value.Env, args []value.Value) (value.Value, error) {
+				a, err := native.Check("evtest::poll", args, 2, 2)
+				if err != nil {
+					return value.NilValue, err
+				}
+				n, err := a.Int(0)
+				if err != nil {
+					return value.NilValue, err
+				}
+				fn, loop, i := args[1], eventsmod.For(env), int64(0)
+				release := loop.Hold()
+				var remove func()
+				remove = loop.Poll(func() error {
+					i++
+					if i == n {
+						remove()
+						release()
+					}
+					_, err := env.Call(fn, []value.Value{value.MakeInt(i)})
+					return err
+				}, 5*time.Millisecond)
+				return value.NilValue, nil
+			},
 			"spawn": func(env value.Env, args []value.Value) (value.Value, error) {
 				a, err := native.Check("evtest::spawn", args, 2, 2)
 				if err != nil {
@@ -106,5 +131,22 @@ func TestOneLoopPerInterpreter(t *testing.T) {
 		if got := run(t, src); got != "x\n0\n" {
 			t.Errorf("run %d: got %q", i, got)
 		}
+	}
+}
+
+// A poll is called regularly while events::run() runs, also next to
+// timers; its exceptions go to onerror like those of handlers.
+func TestPoll(t *testing.T) {
+	got := run(t, `use events; use evtest;
+main() {
+    local seen = [];
+    events::onerror(fn(e) { push(seen, "error " + e->message); });
+    events::after(0.012, fn() { push(seen, "timer"); });
+    evtest::poll(5, fn(i) { push(seen, i); if (i == 3) throw new Error("three"); });
+    events::run();
+    println(len(seen), seen[0], seen[len(seen) - 1], find(str(seen), "timer") > 0, find(str(seen), "error three") > 0);
+}`)
+	if got != "7 1 5 true true\n" {
+		t.Errorf("got %q", got)
 	}
 }

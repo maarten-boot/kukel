@@ -102,7 +102,7 @@ func init() {
 	}
 	ormInit()
 	if len(drivers) == 0 { // built without any database: no module db
-		native.Omit("db", "the build tags nosqlite, nopostgres and nomysql")
+		native.Omit("db", "it was built with the build tags nosqlite, nopostgres and nomysql")
 		return
 	}
 	native.Register(&native.Module{

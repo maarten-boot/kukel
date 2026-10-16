@@ -52,17 +52,19 @@ type Class struct {
 
 var modules = map[string]*Module{}
 
-// omitted are the standard modules this kukel was built without, with the
-// build tags that left them out (for the message about a "use" of one).
+// omitted are the standard modules this kukel was built without, with why
+// (for the message about a "use" of one).
 var omitted = map[string]string{}
 
-// Omit records that module name is not in this kukel because of tags.
-func Omit(name, tags string) { omitted[name] = tags }
+// Omit records that module name is not in this kukel, and why: "it was
+// built with the build tag nozmq", "it was built without the build tag tk".
+func Omit(name, why string) { omitted[name] = why }
 
-// Omitted gives the build tags that left module name out, if they did.
+// Omitted gives why module name is not in this kukel, if a build tag left
+// it out.
 func Omitted(name string) (string, bool) {
-	tags, ok := omitted[name]
-	return tags, ok
+	why, ok := omitted[name]
+	return why, ok
 }
 
 // Register adds module m. It panics on a second module with the same name

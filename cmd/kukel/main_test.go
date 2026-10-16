@@ -540,7 +540,7 @@ func TestOmittedModules(t *testing.T) {
 		os.WriteFile(src, []byte("use "+name+";\nmain() {}\n"), 0o644)
 		var out, errOut bytes.Buffer
 		if code := run([]string{"run", src}, nil, &out, &errOut); code != 1 ||
-			!strings.Contains(errOut.String(), "module "+name+" is not in this kukel: it was built with "+tags) {
+			!strings.Contains(errOut.String(), "module "+name+" is not in this kukel: "+tags) {
 			t.Errorf("use %s: exit %d, %q", name, code, errOut.String())
 		}
 	}
