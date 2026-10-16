@@ -95,6 +95,29 @@ make small TAGS=nozmq         # other tags
 
 `kukel version` lists the modules (and databases) a binary has.
 
+Each release on GitHub also has ready-made archives of `kukel` for Linux,
+macOS and Windows (amd64 and arm64), with `SHA256SUMS`.
+
+### Docker
+
+Each release is also a Docker image for linux/amd64 and linux/arm64,
+`ghcr.io/maarten-boot/kukel` (tagged with the version, and `latest`). It
+holds only `kukel` (on a distroless base, with CA certificates and time
+zones); programs come in through a volume mounted at `/work`, the working
+directory:
+
+```
+docker run --rm -v "$PWD:/work" ghcr.io/maarten-boot/kukel run prog.kkl -- args
+docker run --rm -it -v "$PWD:/work" ghcr.io/maarten-boot/kukel repl
+docker run --rm -p 5640:5640 -v "$PWD:/work" ghcr.io/maarten-boot/kukel run server.kkl
+```
+
+`kukel` runs as a user without privileges (uid 65532); to let a program
+write files into the mounted directory, run it as yourself: `--user
+"$(id -u):$(id -g)"`. A server inside (9P, ZeroMQ) listens on `tcp://*:port`
+and is reached through `-p`. `make docker` builds the image for this
+machine as `kukel:dev` (`IMAGE=...` names it otherwise).
+
 ## Using it
 
 | Command | What it does |
@@ -160,7 +183,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `examples/` | demo programs, such as a `grep` ([examples/README.md](examples/README.md)) |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q65). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q66). Ideas for later are in [docs/future.md](docs/future.md).
 
 ## Development
 
@@ -174,6 +197,7 @@ design decisions (Q1–Q65). Ideas for later are in [docs/future.md](docs/future
 | `make fuzz FUZZTIME=1m` | fuzz the lexer, parser, compiler, bytecode loader and verifier (what they accept runs in the VM with a step limit), `json::decode`, time parsing and `kukel fmt` (each for 30s by default) |
 | `make bench` | benchmarks |
 | `make golden` | rewrite the expected outputs in `tests/` after an intended change |
+| `make docker` | the Docker image for this machine, `kukel:dev` (`IMAGE=...` for another name) |
 | `make dist VERSION=v1.2.3` | the archives of a release in `dist/`: `kukel` for Linux, macOS and Windows on amd64 and arm64 (`PLATFORMS=...` picks others), with `SHA256SUMS` |
 
 **Releases**: pushing a tag `v1.2.3` runs `.github/workflows/release.yml`,
@@ -181,7 +205,11 @@ which first runs the whole CI (`ci.yml`); when that passes, the archives
 of `make dist` are published as the GitHub release of the tag, with notes
 made from the commits since the previous tag. A release that already
 exists (made by hand) gets the archives added, replacing files of the same
-name.
+name. At the same time the Docker image is built for linux/amd64 and
+linux/arm64 and pushed to `ghcr.io` as `:v1.2.3`, and as `:latest` when the
+tag is the newest release (a tag with a `-`, such as `v1.3.0-rc1`, never
+is). The base images and BuildKit are pinned to digests; Dependabot
+proposes updates of them and of the actions.
 
 The tests of `db` also run on database servers when `KUKEL_TEST_POSTGRES`
 and `KUKEL_TEST_MYSQL` name one (a URL as `db::open` takes it; the tables

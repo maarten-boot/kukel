@@ -1,8 +1,13 @@
-# Proposes updates of the GitHub Actions in .github/workflows (pinned to
-# commits) once a week.
+# Proposes updates once a week: of the GitHub Actions in .github/workflows
+# (pinned to commits) and of the base images of the Dockerfile (pinned to
+# digests).
 version: 2
 updates:
   - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly

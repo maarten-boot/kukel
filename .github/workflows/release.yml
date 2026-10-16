@@ -3,7 +3,10 @@ name: Release
 # A tag v1.2.3 runs the whole CI (ci.yml); only when it passes are the
 # archives built (make dist) and published as the GitHub release of the
 # tag, with notes generated from the commits since the previous tag. A
-# release that already exists (made by hand) gets the archives added.
+# release that already exists (made by hand) gets the archives added. The
+# Docker image (Dockerfile) is built for linux/amd64 and linux/arm64 and
+# pushed to ghcr.io as :v1.2.3, and as :latest when the tag is the newest
+# release (not one with a "-", such as v1.3.0-rc1).
 
 on:
   push:
@@ -40,3 +43,36 @@ jobs:
           else
             gh release create "$TAG" dist/* --title "kukel $TAG" --generate-notes --verify-tag
           fi
+
+  image:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write              # to push to ghcr.io
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          fetch-depth: 0           # the tags, to tell whether this one is the newest
+      - name: Build and push the image
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          image="ghcr.io/${REPO,,}"
+          tags=(--tag "$image:$TAG")
+          newest=$(git tag --list 'v*' | grep -v -e '-' | sort -V | tail -n 1)
+          if [[ "$TAG" != *-* && "$TAG" == "$newest" ]]; then
+            tags+=(--tag "$image:latest")
+          fi
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          # A builder that can push an image for several platforms; BuildKit
+          # pinned to a digest (v0.33.1).
+          docker buildx create --use --driver docker-container \
+            --driver-opt image=moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            --build-arg VERSION="$TAG" \
+            --label org.opencontainers.image.version="$TAG" \
+            --label org.opencontainers.image.revision="$GITHUB_SHA" \
+            "${tags[@]}" --push .

@@ -6,7 +6,7 @@ LDFLAGS  := -X main.version=$(VERSION)
 # The build tags that leave everything optional out (make small).
 SMALL    := nosqlite,nopostgres,nomysql,nozmq,no9p
 
-.PHONY: all build small install test test-small test-all vet fmt fuzz bench golden dist clean
+.PHONY: all build small install test test-small test-all vet fmt fuzz bench golden dist docker clean
 
 all: vet test build
 
@@ -80,6 +80,12 @@ dist:
 		rm -rf dist/$$name; \
 	done
 	cd dist && sha256sum kukel-* > SHA256SUMS
+
+# The Docker image for this machine's platform (the release workflow builds
+# and pushes linux/amd64 and linux/arm64 to ghcr.io).
+IMAGE ?= kukel:dev
+docker:
+	docker build --build-arg VERSION=$(VERSION) -t $(IMAGE) .
 
 clean:
 	rm -rf bin dist

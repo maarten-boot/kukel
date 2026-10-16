@@ -1,0 +1,6 @@
+# What the image build does not need (the context stays small).
+.git
+.github
+bin
+dist
+**/*.kkc
