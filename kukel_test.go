@@ -612,3 +612,31 @@ main() {}`, kukel.CompileOptions{}), kukel.Options{})
 		t.Errorf("commit after the call that began: %v, %v", n, err)
 	}
 }
+
+// The Go version go.mod requires is the one the README promises and the
+// one CI tests as the oldest: a dependency update must not raise it
+// unnoticed (go get does that when a new version needs a newer Go).
+func TestGoVersion(t *testing.T) {
+	mod, err := os.ReadFile("go.mod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var minor string
+	for _, line := range strings.Split(string(mod), "\n") {
+		if v, ok := strings.CutPrefix(line, "go "); ok {
+			parts := strings.Split(v, ".")
+			if len(parts) < 2 {
+				t.Fatalf("go.mod: %q", line)
+			}
+			minor = parts[0] + "." + parts[1]
+		}
+	}
+	readme, _ := os.ReadFile("README.md")
+	ci, _ := os.ReadFile(".github/workflows/ci.yml")
+	if !strings.Contains(string(readme), "With Go "+minor+" or newer") {
+		t.Errorf("go.mod requires Go %s, but README.md does not say \"With Go %s or newer\"", minor, minor)
+	}
+	if !strings.Contains(string(ci), `"`+minor+`.x"`) {
+		t.Errorf("go.mod requires Go %s, but the CI matrix does not test \"%s.x\"", minor, minor)
+	}
+}

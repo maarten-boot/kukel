@@ -1,6 +1,6 @@
 module github.com/maarten-boot/kukel
 
-go 1.26.0
+go 1.25.0
 
 require (
 	9fans.net/go v0.0.7
@@ -9,7 +9,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/hugelgupf/p9 v0.4.1
 	github.com/jackc/pgx/v5 v5.11.0
-	golang.org/x/term v0.47.0
+	golang.org/x/term v0.45.0
 	modernc.org/sqlite v1.59.0
 )
 
@@ -25,7 +25,7 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/u-root/uio v0.0.0-20230305220412-3e8cd9d6bf63 // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
 	modernc.org/libc v1.75.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
