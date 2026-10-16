@@ -168,12 +168,19 @@ design decisions (Q1–Q64). Ideas for later are in [docs/future.md](docs/future
 |---|---|
 | `make` | gofmt check, `go vet`, tests, build (each also on its own: `make vet`, `make test`, `make build`) |
 | `make install` | install `kukel` into `$GOBIN`, else `$(go env GOPATH)/bin` |
-| `make fmt`, `make clean` | `gofmt -w` the sources; remove `bin/` |
+| `make fmt`, `make clean` | `gofmt -w` the sources; remove `bin/` and `dist/` |
 | `make test-all` | everything: vet, the tests of the full and the smallest build, and the tests with the race detector |
 | `make small`, `make test-small` | build `bin/kukel-small`, or run the tests, without the optional parts (`TAGS=...` picks other tags for `small`; `make vet` also vets the smallest build) |
 | `make fuzz FUZZTIME=1m` | fuzz the lexer, parser, compiler, bytecode loader and verifier (what they accept runs in the VM with a step limit), `json::decode`, time parsing and `kukel fmt` (each for 30s by default) |
 | `make bench` | benchmarks |
 | `make golden` | rewrite the expected outputs in `tests/` after an intended change |
+| `make dist VERSION=v1.2.3` | the archives of a release in `dist/`: `kukel` for Linux, macOS and Windows on amd64 and arm64 (`PLATFORMS=...` picks others), with `SHA256SUMS` |
+
+**Releases**: pushing a tag `v1.2.3` runs the CI workflow
+(`.github/workflows/release.yml`); when it passes, the archives of `make
+dist` are published as the GitHub release of the tag, with notes made
+from the commits since the previous tag. A release made by hand for the
+tag first gets the archives added to it.
 
 The tests of `db` also run on database servers when `KUKEL_TEST_POSTGRES`
 and `KUKEL_TEST_MYSQL` name one (a URL as `db::open` takes it; the tables

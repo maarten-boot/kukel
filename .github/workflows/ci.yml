@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
+    branches: ["**"]               # tags run it through release.yml
   pull_request:
+  workflow_call:                   # release.yml: a release only after these pass
 
 # The actions are pinned to commits (the version in the comment), so that a
 # moved tag cannot change what runs; Dependabot proposes updates.

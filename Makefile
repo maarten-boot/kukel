@@ -6,7 +6,7 @@ LDFLAGS  := -X main.version=$(VERSION)
 # The build tags that leave everything optional out (make small).
 SMALL    := nosqlite,nopostgres,nomysql,nozmq,no9p
 
-.PHONY: all build small install test test-small test-all vet fmt fuzz bench golden clean
+.PHONY: all build small install test test-small test-all vet fmt fuzz bench golden dist clean
 
 all: vet test build
 
@@ -63,6 +63,24 @@ bench:
 golden:
 	$(GO) test ./cmd/kukel -update
 
+# The archives of a release, in dist/: kukel for each of PLATFORMS (a .zip
+# for Windows, else a .tar.gz, with README.md and LICENSE), and SHA256SUMS.
+# The release workflow runs it for a tag: make dist VERSION=v1.2.3.
+PLATFORMS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
+dist:
+	rm -rf dist && mkdir -p dist
+	@set -e; for p in $(PLATFORMS); do \
+		os=$${p%/*}; arch=$${p#*/}; name=kukel-$(VERSION)-$$os-$$arch; exe=kukel; \
+		[ $$os = windows ] && exe=kukel.exe; \
+		echo "$$name"; mkdir -p dist/$$name; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -trimpath -ldflags "-s -w $(LDFLAGS)" -o dist/$$name/$$exe ./cmd/kukel; \
+		cp README.md LICENSE dist/$$name/; \
+		if [ $$os = windows ]; then (cd dist && zip -qr $$name.zip $$name); \
+		else tar -C dist -czf dist/$$name.tar.gz $$name; fi; \
+		rm -rf dist/$$name; \
+	done
+	cd dist && sha256sum kukel-* > SHA256SUMS
+
 clean:
-	rm -rf bin
+	rm -rf bin dist
 	$(GO) clean -testcache

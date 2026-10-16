@@ -1,0 +1,42 @@
+name: Release
+
+# A tag v1.2.3 runs the whole CI (ci.yml); only when it passes are the
+# archives built (make dist) and published as the GitHub release of the
+# tag, with notes generated from the commits since the previous tag. A
+# release that already exists (made by hand) gets the archives added.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write              # to make the release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e   # v7.0.0
+        with:
+          go-version: stable
+      - name: Build the archives
+        run: make dist VERSION=${{ github.ref_name }}
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --title "kukel $TAG" --generate-notes --verify-tag
+          fi
