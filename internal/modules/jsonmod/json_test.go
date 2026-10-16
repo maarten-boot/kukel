@@ -1,6 +1,7 @@
 package jsonmod
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -68,7 +69,19 @@ func TestErrors(t *testing.T) {
 		{encode, []value.Value{value.MakeFloat(-1 / zero())}, "-inf has no JSON form"},
 		{decode, []value.Value{value.MakeInt(1)}, "argument 1 must be a string, not int"},
 		{decode, []value.Value{value.MakeString(strings.Repeat("[", 20000))}, "nested more than 10000 deep"},
-		{decode, []value.Value{value.MakeString(`{"a":1,}`)}, "invalid JSON at byte 7"},
+		{decode, []value.Value{value.MakeString(`{"a":1,}`)}, "invalid JSON at byte 8: invalid character '}' where an object key (a string) should be"},
+		{decode, []value.Value{value.MakeString(`[1 2]`)}, "invalid JSON at byte 4: invalid character '2' after an array element (',' or ']' expected)"},
+		{decode, []value.Value{value.MakeString(`{"a" 1}`)}, "invalid JSON at byte 6: invalid character '1' after an object key (':' expected)"},
+		{decode, []value.Value{value.MakeString(`{"a":1 "b"}`)}, "invalid JSON at byte 8: invalid character '\"' after an object member (',' or '}' expected)"},
+		{decode, []value.Value{value.MakeString(`tru`)}, "invalid JSON: unexpected end of text"},
+		{decode, []value.Value{value.MakeString(`nul!`)}, "invalid JSON at byte 4: invalid character '!' in the literal null"},
+		{decode, []value.Value{value.MakeString(`01`)}, "invalid JSON at byte 2: text after the value"},
+		{decode, []value.Value{value.MakeString(`-x`)}, "invalid JSON at byte 2: invalid character 'x' in a number (a digit expected)"},
+		{decode, []value.Value{value.MakeString(`1.`)}, "invalid JSON: unexpected end of text"},
+		{decode, []value.Value{value.MakeString("\"a\tb\"")}, "invalid JSON at byte 3: invalid character byte 0x09 in a string (control characters must be escaped)"},
+		{decode, []value.Value{value.MakeString(`"\x"`)}, "invalid JSON at byte 3: invalid character 'x' in an escape"},
+		{decode, []value.Value{value.MakeString(`"\u12g4"`)}, "invalid JSON at byte 6: invalid character 'g' in a \\u escape"},
+		{decode, []value.Value{value.MakeString(`'a'`)}, "invalid JSON at byte 1: invalid character '\\'' where a value should be"},
 	}
 	for _, tc := range tests {
 		_, err := call(tc.fn, tc.args...)
@@ -80,14 +93,17 @@ func TestErrors(t *testing.T) {
 
 func zero() float64 { return 0 }
 
-// FuzzJSON: decode never panics, and what it decodes encodes and decodes
-// again to the same text.
+// FuzzJSON: decode never panics, accepts what encoding/json accepts, and
+// what it decodes encodes and decodes again to the same text.
 func FuzzJSON(f *testing.F) {
 	for _, s := range []string{`{"a":[1,2.5,"x",null,true]}`, `"é"`, `[[[]]]`, `1e400`, `{"a":1,"a":2}`} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
 		v, err := call(decode, value.MakeString(s))
+		if valid := json.Valid([]byte(s)); valid != (err == nil) {
+			t.Fatalf("%q: encoding/json valid %v, decode: %v", s, valid, err)
+		}
 		if err != nil {
 			return
 		}
@@ -118,5 +134,44 @@ func TestDeepDecode(t *testing.T) {
 	s := strings.Repeat("[", maxDepth) + strings.Repeat("]", maxDepth)
 	if _, err := call(decode, value.MakeString(s)); err != nil {
 		t.Errorf("depth %d: %v", maxDepth, err)
+	}
+}
+
+// The decoder accepts what encoding/json accepts, and gives the same
+// values (compared as encode gives them).
+func TestLikeEncodingJSON(t *testing.T) {
+	texts := []string{
+		`null`, ` true `, `false`, `0`, `-0.5e-3`, `1E+2`, `123456789012345678901234567890`, `""`,
+		`"\u00e9\ud83d\ude00"`, `"\ud800"`, `"\udc00x"`, `"\ud800\u0041"`, "\"\xff\xfe\"", "\"caf\xc3\"",
+		`"\/\b\f\n\r\t\"\\"`, `[]`, `[ ]`, `{}`, `{ }`, `[1,2,[3,{"a":[]}]]`, `{"a":1,"a":2,"b":3}`,
+		`[1,]`, `[,1]`, `{"a":1,}`, `{,}`, `{"a"}`, `{"a":}`, `{1:2}`, `[1 2]`, `01`, `1.`, `.5`, `+1`, `1e`, `1e+`,
+		`-`, `--1`, `tru`, `truex`, `nul`, `NaN`, `"abc`, `"\`, `"\u12"`, `"\q"`, "\"a\x01\"", `[`, `{`, `{"a"`,
+		"\t[\r\n1\n]\n", `[] []`, ``, ` `, `"a" x`,
+	}
+	for _, text := range texts {
+		v, err := call(decode, value.MakeString(text))
+		if valid := json.Valid([]byte(text)); valid != (err == nil) {
+			t.Errorf("%q: encoding/json valid %v, decode: %v", text, valid, err)
+			continue
+		}
+		if err != nil {
+			continue
+		}
+		var x any
+		if err := json.Unmarshal([]byte(text), &x); err != nil {
+			t.Fatal(err)
+		}
+		want, _ := json.Marshal(x)
+		got, err := call(encode, v)
+		if err != nil {
+			t.Errorf("%q: %v", text, err)
+			continue
+		}
+		var y any
+		json.Unmarshal([]byte(got.AsString()), &y)
+		again, _ := json.Marshal(y)
+		if string(again) != string(want) {
+			t.Errorf("%q: decode gives %s, encoding/json %s", text, again, want)
+		}
 	}
 }

@@ -7,13 +7,12 @@
 package jsonmod
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"strconv"
 	"strings"
+	"unicode/utf16"
 	"unicode/utf8"
 
 	"github.com/maarten-boot/kukel/internal/native"
@@ -169,6 +168,8 @@ func (e *encoder) str(s string) error {
 // decode(s): the value JSON text s stands for. Objects become maps (keys in
 // the order of the text), arrays vectors; a number without a fraction or
 // exponent that fits in 64 bits becomes an int, any other number a float.
+// The decoder is our own, not encoding/json, so that its messages (and the
+// byte positions in them) are the same with every version of Go.
 func decode(env value.Env, args []value.Value) (value.Value, error) {
 	a, err := native.Check("json::decode", args, 1, 1)
 	if err != nil {
@@ -178,87 +179,330 @@ func decode(env value.Env, args []value.Value) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, err
 	}
-	d := json.NewDecoder(strings.NewReader(s))
-	d.UseNumber()
-	v, err := decodeValue(d, 0)
+	p := &parser{s: s}
+	p.space()
+	v, err := p.value(0)
 	if err == nil {
-		if _, extra := d.Token(); extra != io.EOF {
-			err = errors.New("text after the value")
+		p.space()
+		if p.i < len(s) {
+			err = p.errorf("text after the value")
 		}
 	}
-	if err != nil {
-		// Newer versions of encoding/json (built on encoding/json/v2) report
-		// the end of the text and too deep nesting as syntax errors, with
-		// texts of their own: the messages stay the same with every Go.
-		var syn *json.SyntaxError
-		isSyn := errors.As(err, &syn)
-		switch {
-		case errors.Is(err, errTooDeep) || isSyn && strings.Contains(syn.Error(), "exceeded max depth"):
-			return value.NilValue, a.Errorf(value.ValueError, "%v", errTooDeep)
-		case errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
-			isSyn && strings.Contains(syn.Error(), "unexpected end of JSON input"):
+	switch e := err.(type) {
+	case nil:
+		return v, nil
+	case *syntaxError:
+		if e.pos < 0 {
 			return value.NilValue, a.Errorf(value.ValueError, "invalid JSON: unexpected end of text")
-		case isSyn:
-			return value.NilValue, a.Errorf(value.ValueError, "invalid JSON at byte %d: %v", syn.Offset, err)
 		}
-		return value.NilValue, a.Errorf(value.ValueError, "invalid JSON at byte %d: %v", d.InputOffset(), err)
+		return value.NilValue, a.Errorf(value.ValueError, "invalid JSON at byte %d: %s", e.pos+1, e.msg)
 	}
-	return v, nil
+	return value.NilValue, a.Errorf(value.ValueError, "%v", err)
 }
 
 // errTooDeep is the error for nesting deeper than maxDepth.
 var errTooDeep = fmt.Errorf("arrays and objects nested more than %d deep", maxDepth)
 
-func decodeValue(d *json.Decoder, depth int) (value.Value, error) {
-	t, err := d.Token()
-	if err != nil {
-		return value.NilValue, err
+// syntaxError is invalid JSON at byte pos of the text (counted from 0;
+// -1: the text ended too soon).
+type syntaxError struct {
+	pos int
+	msg string
+}
+
+func (e *syntaxError) Error() string { return e.msg }
+
+var errEnd = &syntaxError{pos: -1, msg: "unexpected end of text"}
+
+// parser reads JSON text (RFC 8259) from s at i.
+type parser struct {
+	s string
+	i int
+}
+
+func (p *parser) errorf(format string, args ...any) error {
+	return &syntaxError{p.i, fmt.Sprintf(format, args...)}
+}
+
+// char shows the byte at i in a message.
+func (p *parser) char() string {
+	c := p.s[p.i]
+	switch {
+	case c == '\'':
+		return `'\''`
+	case c >= 0x20 && c < 0x7f:
+		return "'" + string(c) + "'"
 	}
-	switch t := t.(type) {
-	case nil:
-		return value.NilValue, nil
-	case bool:
-		return value.MakeBool(t), nil
-	case string:
-		return value.MakeString(t), nil
-	case json.Number:
-		return number(string(t))
-	case json.Delim:
+	return fmt.Sprintf("byte 0x%02x", c)
+}
+
+func (p *parser) space() {
+	for p.i < len(p.s) && (p.s[p.i] == ' ' || p.s[p.i] == '\t' || p.s[p.i] == '\n' || p.s[p.i] == '\r') {
+		p.i++
+	}
+}
+
+// value reads a value; depth is the number of arrays and objects around
+// it.
+func (p *parser) value(depth int) (value.Value, error) {
+	if p.i >= len(p.s) {
+		return value.NilValue, errEnd
+	}
+	switch c := p.s[p.i]; {
+	case c == '{' || c == '[':
 		if depth >= maxDepth {
 			return value.NilValue, errTooDeep
 		}
-		switch t {
-		case '[':
-			elems := []value.Value{}
-			for d.More() {
-				v, err := decodeValue(d, depth+1)
-				if err != nil {
-					return value.NilValue, err
-				}
-				elems = append(elems, v)
-			}
-			_, err := d.Token() // ]
-			return value.MakeVector(elems), err
-		case '{':
-			m := value.NewMap()
-			for d.More() {
-				k, err := d.Token()
-				if err != nil {
-					return value.NilValue, err
-				}
-				v, err := decodeValue(d, depth+1)
-				if err != nil {
-					return value.NilValue, err
-				}
-				if err := m.Set(value.MakeString(k.(string)), v); err != nil {
-					return value.NilValue, err
-				}
-			}
-			_, err := d.Token() // }
-			return value.MakeMap(m), err
+		if c == '{' {
+			return p.object(depth)
+		}
+		return p.array(depth)
+	case c == '"':
+		s, err := p.str()
+		return value.MakeString(s), err
+	case c == '-' || c >= '0' && c <= '9':
+		return p.number()
+	case c == 't':
+		return value.MakeBool(true), p.word("true")
+	case c == 'f':
+		return value.MakeBool(false), p.word("false")
+	case c == 'n':
+		return value.NilValue, p.word("null")
+	}
+	return value.NilValue, p.errorf("invalid character %s where a value should be", p.char())
+}
+
+func (p *parser) word(w string) error {
+	for k := 0; k < len(w); k++ {
+		if p.i >= len(p.s) {
+			return errEnd
+		}
+		if p.s[p.i] != w[k] {
+			return p.errorf("invalid character %s in the literal %s", p.char(), w)
+		}
+		p.i++
+	}
+	return nil
+}
+
+func (p *parser) array(depth int) (value.Value, error) {
+	p.i++ // [
+	elems := []value.Value{}
+	p.space()
+	if p.i < len(p.s) && p.s[p.i] == ']' {
+		p.i++
+		return value.MakeVector(elems), nil
+	}
+	for {
+		p.space()
+		v, err := p.value(depth + 1)
+		if err != nil {
+			return value.NilValue, err
+		}
+		elems = append(elems, v)
+		p.space()
+		if p.i >= len(p.s) {
+			return value.NilValue, errEnd
+		}
+		switch p.s[p.i] {
+		case ',':
+			p.i++
+		case ']':
+			p.i++
+			return value.MakeVector(elems), nil
+		default:
+			return value.NilValue, p.errorf("invalid character %s after an array element (',' or ']' expected)", p.char())
 		}
 	}
-	return value.NilValue, fmt.Errorf("unexpected %v", t) // Token reports misplaced delimiters itself
+}
+
+func (p *parser) object(depth int) (value.Value, error) {
+	p.i++ // {
+	m := value.NewMap()
+	p.space()
+	if p.i < len(p.s) && p.s[p.i] == '}' {
+		p.i++
+		return value.MakeMap(m), nil
+	}
+	for {
+		p.space()
+		if p.i >= len(p.s) {
+			return value.NilValue, errEnd
+		}
+		if p.s[p.i] != '"' {
+			return value.NilValue, p.errorf("invalid character %s where an object key (a string) should be", p.char())
+		}
+		k, err := p.str()
+		if err != nil {
+			return value.NilValue, err
+		}
+		p.space()
+		if p.i >= len(p.s) {
+			return value.NilValue, errEnd
+		}
+		if p.s[p.i] != ':' {
+			return value.NilValue, p.errorf("invalid character %s after an object key (':' expected)", p.char())
+		}
+		p.i++
+		p.space()
+		v, err := p.value(depth + 1)
+		if err != nil {
+			return value.NilValue, err
+		}
+		if err := m.Set(value.MakeString(k), v); err != nil { // a repeated key keeps its first place
+			return value.NilValue, err
+		}
+		p.space()
+		if p.i >= len(p.s) {
+			return value.NilValue, errEnd
+		}
+		switch p.s[p.i] {
+		case ',':
+			p.i++
+		case '}':
+			p.i++
+			return value.MakeMap(m), nil
+		default:
+			return value.NilValue, p.errorf("invalid character %s after an object member (',' or '}' expected)", p.char())
+		}
+	}
+}
+
+// str reads a string. Invalid UTF-8 and lone surrogates become U+FFFD, as
+// encoding/json does.
+func (p *parser) str() (string, error) {
+	p.i++ // "
+	var b strings.Builder
+	for {
+		start := p.i
+		for p.i < len(p.s) && p.s[p.i] != '"' && p.s[p.i] != '\\' && p.s[p.i] >= 0x20 && p.s[p.i] < 0x80 {
+			p.i++
+		}
+		b.WriteString(p.s[start:p.i])
+		if p.i >= len(p.s) {
+			return "", errEnd
+		}
+		switch c := p.s[p.i]; {
+		case c == '"':
+			p.i++
+			return b.String(), nil
+		case c < 0x20:
+			return "", p.errorf("invalid character %s in a string (control characters must be escaped)", p.char())
+		case c >= 0x80:
+			r, size := utf8.DecodeRuneInString(p.s[p.i:])
+			if r == utf8.RuneError && size == 1 {
+				r = utf8.RuneError
+			}
+			b.WriteRune(r)
+			p.i += size
+		default: // a backslash
+			p.i++
+			if p.i >= len(p.s) {
+				return "", errEnd
+			}
+			e := p.s[p.i]
+			if r, ok := escapes[e]; ok {
+				b.WriteByte(r)
+				p.i++
+				continue
+			}
+			if e != 'u' {
+				return "", p.errorf("invalid character %s in an escape (one of \\\" \\\\ \\/ \\b \\f \\n \\r \\t \\u)", p.char())
+			}
+			p.i++
+			r, err := p.hex4()
+			if err != nil {
+				return "", err
+			}
+			if utf16.IsSurrogate(r) {
+				r2 := utf8.RuneError
+				if strings.HasPrefix(p.s[p.i:], "\\u") {
+					save := p.i
+					p.i += 2
+					if r2, err = p.hex4(); err != nil {
+						return "", err
+					}
+					if d := utf16.DecodeRune(r, r2); d != utf8.RuneError {
+						r = d
+					} else {
+						p.i = save // not the second half: it is read on its own
+						r = utf8.RuneError
+					}
+				} else {
+					r = utf8.RuneError
+				}
+			}
+			b.WriteRune(r)
+		}
+	}
+}
+
+var escapes = map[byte]byte{'"': '"', '\\': '\\', '/': '/', 'b': '\b', 'f': '\f', 'n': '\n', 'r': '\r', 't': '\t'}
+
+// hex4 reads the four hexadecimal digits of a \u escape.
+func (p *parser) hex4() (rune, error) {
+	var r rune
+	for k := 0; k < 4; k++ {
+		if p.i >= len(p.s) {
+			return 0, errEnd
+		}
+		c := p.s[p.i]
+		var d byte
+		switch {
+		case c >= '0' && c <= '9':
+			d = c - '0'
+		case c >= 'a' && c <= 'f':
+			d = c - 'a' + 10
+		case c >= 'A' && c <= 'F':
+			d = c - 'A' + 10
+		default:
+			return 0, p.errorf("invalid character %s in a \\u escape (four hexadecimal digits expected)", p.char())
+		}
+		r = r*16 + rune(d)
+		p.i++
+	}
+	return r, nil
+}
+
+// number reads -? (0 | [1-9][0-9]*) (. [0-9]+)? ([eE] [+-]? [0-9]+)?.
+func (p *parser) number() (value.Value, error) {
+	start := p.i
+	if p.s[p.i] == '-' {
+		p.i++
+	}
+	digits := func() error {
+		if p.i >= len(p.s) {
+			return errEnd
+		}
+		if p.s[p.i] < '0' || p.s[p.i] > '9' {
+			return p.errorf("invalid character %s in a number (a digit expected)", p.char())
+		}
+		for p.i < len(p.s) && p.s[p.i] >= '0' && p.s[p.i] <= '9' {
+			p.i++
+		}
+		return nil
+	}
+	if p.i < len(p.s) && p.s[p.i] == '0' {
+		p.i++
+	} else if err := digits(); err != nil {
+		return value.NilValue, err
+	}
+	if p.i < len(p.s) && p.s[p.i] == '.' {
+		p.i++
+		if err := digits(); err != nil {
+			return value.NilValue, err
+		}
+	}
+	if p.i < len(p.s) && (p.s[p.i] == 'e' || p.s[p.i] == 'E') {
+		p.i++
+		if p.i < len(p.s) && (p.s[p.i] == '+' || p.s[p.i] == '-') {
+			p.i++
+		}
+		if err := digits(); err != nil {
+			return value.NilValue, err
+		}
+	}
+	return number(p.s[start:p.i])
 }
 
 func number(s string) (value.Value, error) {
