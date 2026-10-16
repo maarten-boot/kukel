@@ -6,6 +6,7 @@ $ demo
 -- 9P2000
 -rw-rw-rw- 0 ctl
 dr-xr-xr-x 0 empty/
+dr-xr-xr-x 0 files/
 -r--r--r-- 18 hello
 -r--r--r-- 0 hits
 -rw-rw-rw- 0 notes
@@ -14,9 +15,13 @@ Hello from Kukel.
 hits: 1
 written with 9P2000
 p9::Client::write: /hello: permission denied: the file cannot be written
+-r--r--r-- 49 util.kkl
+no matches here
+p9::Client::remove: /files/notes.txt: read-only file system
 -- 9P2000.L
 -rw-rw-rw- 0 ctl
 dr-xr-xr-x 0 empty/
+dr-xr-xr-x 0 files/
 -r--r--r-- 18 hello
 -r--r--r-- 0 hits
 -rw-rw-rw- 0 notes
@@ -26,18 +31,25 @@ hits: 2
 written with 9P2000
 written with 9P2000.L
 p9::Client::write: /hello: permission denied
+-r--r--r-- 49 util.kkl
+no matches here
+p9::Client::remove: /files/notes.txt: read-only file system
 stopped: true
 
 $ cat tcp://localhost:5640
 ! ninep: wrong number of arguments for cat
-! usage: ninep serve address | ls address [path] | cat address path | put address path text | demo
+! usage: ninep serve address [directory] | ls address [path] | cat address path | put address path text | demo
 exit 2
 
 $ rm tcp://localhost:5640 /hello
 ! ninep: unknown command rm
-! usage: ninep serve address | ls address [path] | cat address path | put address path text | demo
+! usage: ninep serve address [directory] | ls address [path] | cat address path | put address path text | demo
 exit 2
 
 $ ls localhost:5640
 ! ninep: p9::dial: "localhost:5640" is not a 9P address such as "tcp://host:564" or "unix:///path"
+exit 2
+
+$ serve tcp://127.0.0.1:0 testdata/nope
+! ninep: p9::disk: open testdata/nope: no such file or directory
 exit 2

@@ -4,6 +4,8 @@ package p9mod
 
 import (
 	"net"
+
+	"github.com/hugelgupf/p9/linux"
 	"os"
 	"sort"
 	"strconv"
@@ -23,6 +25,10 @@ var Client = &native.Class{Name: "Client"}
 
 // Tree is the class p9::Tree: the directories and files a server serves.
 var Tree = &native.Class{Name: "Tree"}
+
+// Disk is the class p9::Disk: a directory of the local disk, for
+// p9::serve and Tree::mount.
+var Disk = &native.Class{Name: "Disk"}
 
 // Server is the class p9::Server: what p9::serve gives.
 var Server = &native.Class{Name: "Server"}
@@ -82,6 +88,16 @@ func init() {
 			}
 			return value.NilValue, nil
 		}),
+		"rename": clientPathMethod("rename", 2, func(a native.Args, c *client, p string) (value.Value, error) {
+			to, err := a.String(1)
+			if err != nil {
+				return value.NilValue, err
+			}
+			if err := c.do(func() error { return c.r.rename(p, to) }); err != nil {
+				return value.NilValue, c.fail(a, p, err)
+			}
+			return value.NilValue, nil
+		}),
 		"remove": clientPathMethod("remove", 1, func(a native.Args, c *client, p string) (value.Value, error) {
 			if err := c.do(func() error { return c.r.remove(p) }); err != nil {
 				return value.NilValue, c.fail(a, p, err)
@@ -109,6 +125,7 @@ func init() {
 		"file":   treeMethod("file", 2, 3, treeFile),
 		"dir":    treeMethod("dir", 1, 1, treeDir),
 		"remove": treeMethod("remove", 1, 1, treeRemove),
+		"mount":  treeMethod("mount", 2, 2, treeMount),
 	}
 	Tree.Show = func(o *value.ObjectObj) string {
 		t := o.State.(*tree)
@@ -118,6 +135,14 @@ func init() {
 			return "p9::Tree(1 file)"
 		}
 		return "p9::Tree(" + strconv.Itoa(t.files) + " files)"
+	}
+
+	Disk.Show = func(o *value.ObjectObj) string {
+		d := o.State.(*disk)
+		if d.readonly {
+			return "p9::Disk(" + d.dir + ", read-only)"
+		}
+		return "p9::Disk(" + d.dir + ")"
 	}
 
 	Server.Methods = map[string]value.NativeMethod{
@@ -148,8 +173,8 @@ func init() {
 	native.Register(&native.Module{
 		Name:    "p9",
 		Doc:     "the 9P file protocol (9P2000 and 9P2000.L): a client, and a server of a tree the program builds",
-		Funcs:   map[string]native.Func{"dial": dial9, "serve": serve9},
-		Classes: []*native.Class{Client, Tree, Server},
+		Funcs:   map[string]native.Func{"dial": dial9, "serve": serve9, "disk": disk9},
+		Classes: []*native.Class{Client, Tree, Disk, Server},
 	})
 }
 
@@ -402,6 +427,35 @@ func treeFile(a native.Args, t *tree, p string) error {
 	return nil
 }
 
+// t->mount(path, disk): the directory of the disk appears at path (a file
+// or directory already there is replaced; the directories above it are
+// made).
+func treeMount(a native.Args, t *tree, p string) error {
+	st, err := a.Object(1, Disk)
+	if err != nil {
+		return err
+	}
+	ns := names(p)
+	if len(ns) == 0 {
+		if len(t.root.kids) > 0 {
+			return errorf(linux.ENOTEMPTY, "the tree is not empty: mount at the top only on an empty tree")
+		}
+		t.root.disk, t.root.rel = st.(*disk), "."
+		return nil
+	}
+	if old := t.at(p); old != nil {
+		if err := t.remove(p); err != nil {
+			return err
+		}
+	}
+	n, err := t.make(p, true)
+	if err != nil {
+		return err
+	}
+	n.disk, n.rel, n.kids = st.(*disk), ".", nil
+	return nil
+}
+
 // t->dir(path): a directory at path (and those above it).
 func treeDir(a native.Args, t *tree, p string) error {
 	_, err := t.make(p, true)
@@ -414,7 +468,7 @@ func treeRemove(a native.Args, t *tree, p string) error {
 	return t.remove(p)
 }
 
-// p9::serve(tree, url): serves the tree at url ("tcp://*:564", port 0 for
+// p9::serve(tree, url): serves the tree (or a disk directory) at url ("tcp://*:564", port 0 for
 // a free port; "unix:///path"), in both versions, until the server is
 // closed; events::run() keeps going meanwhile. Gives a p9::Server.
 func serve9(env value.Env, args []value.Value) (value.Value, error) {
@@ -422,13 +476,18 @@ func serve9(env value.Env, args []value.Value) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, err
 	}
-	st, err := a.Object(0, Tree)
-	if err != nil {
-		return value.NilValue, err
-	}
-	t := st.(*tree)
-	if t.local.env != env {
-		return value.NilValue, a.Errorf(value.ValueError, "the tree belongs to another interpreter")
+	var t *tree
+	switch {
+	case Tree.Is(a.V[0]):
+		t = a.V[0].AsObject().State.(*tree)
+		if t.local.env != env {
+			return value.NilValue, a.Errorf(value.ValueError, "the tree belongs to another interpreter")
+		}
+	case Disk.Is(a.V[0]):
+		t = newTree(localOf(env))
+		t.root.disk, t.root.rel, t.root.kids = a.V[0].AsObject().State.(*disk), ".", nil
+	default:
+		return value.NilValue, a.TypeError(0, "a p9::Tree or a p9::Disk")
 	}
 	u, err := a.String(1)
 	if err != nil {
@@ -447,4 +506,45 @@ func serve9(env value.Env, args []value.Value) (value.Value, error) {
 		endpoint = "tcp://" + ln.Addr().String()
 	}
 	return Server.Object(newServer(t, ln, endpoint)), nil
+}
+
+// p9::disk(dir [, options]): the directory dir of the local disk, for
+// p9::serve and Tree::mount. Clients see what is in it, and only that.
+// The option "readonly" (default true) set to false lets them change it:
+// write, make, rename and remove files and directories.
+func disk9(env value.Env, args []value.Value) (value.Value, error) {
+	a, err := native.Check("p9::disk", args, 1, 2)
+	if err != nil {
+		return value.NilValue, err
+	}
+	dir, err := a.String(0)
+	if err != nil {
+		return value.NilValue, err
+	}
+	readonly := true
+	if a.Has(1) {
+		if a.V[1].Kind() != value.Map {
+			return value.NilValue, a.TypeError(1, "a map of options")
+		}
+		var bad error
+		a.V[1].AsMap().Each(func(k, v value.Value) {
+			switch {
+			case bad != nil:
+			case k.Kind() != value.String || k.AsString() != "readonly":
+				bad = a.Errorf(value.ValueError, "unknown option %q (the option is readonly)", k.String())
+			case v.Kind() != value.Bool:
+				bad = a.Errorf(value.TypeError, "option readonly must be true or false, not %s", v.Kind())
+			default:
+				readonly = v.AsBool()
+			}
+		})
+		if bad != nil {
+			return value.NilValue, bad
+		}
+	}
+	d, err := openDisk(dir, readonly)
+	if err != nil {
+		return value.NilValue, a.Errorf(value.IOError, "%v", err)
+	}
+	return Disk.Object(d), nil
 }

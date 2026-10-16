@@ -1,8 +1,9 @@
 // ninep: a 9P file server and client (module p9). The server serves a small
-// tree the program makes up; the client lists, reads and writes the files
-// of a 9P server (this one, or Plan 9, plan9port, diod, QEMU, ...).
+// tree the program makes up, and with a directory also that directory
+// (read-only, as /files); the client lists, reads and writes the files of
+// a 9P server (this one, or Plan 9, plan9port, diod, QEMU, ...).
 //
-//     kukel run examples/ninep.kkl -- serve tcp://*:5640
+//     kukel run examples/ninep.kkl -- serve tcp://*:5640 [directory]
 //     kukel run examples/ninep.kkl -- ls tcp://localhost:5640 /
 //     kukel run examples/ninep.kkl -- cat tcp://localhost:5640 /hello
 //     kukel run examples/ninep.kkl -- put tcp://localhost:5640 /notes 'buy milk'
@@ -16,8 +17,8 @@ use events;
 use time;
 
 // tree makes the tree the server serves: writing "stop" to /ctl calls
-// stop().
-tree(stop) {
+// stop(); a directory dir appears as /files.
+tree(stop, dir) {
     local t = new p9::Tree(), hits = 0, notes = [];
     t->file("/hello", "Hello from Kukel.\n");
     t->file("/time", fn() { return time::now()->format() + "\n"; });
@@ -28,12 +29,14 @@ tree(stop) {
         stop();
     });
     t->dir("/empty");
+
+    if (dir != nil) t->mount("/files", p9::disk(dir));
     return t;
 }
 
-serve(address) {
+serve(address, dir) {
     local s = nil;
-    s = p9::serve(tree(fn() { s->close(); }), address);
+    s = p9::serve(tree(fn() { s->close(); }, dir), address);
     println("serving", s->endpoint());
     events::run();                         // until /ctl gets "stop"
     println("stopped");
@@ -46,7 +49,7 @@ ls(c, path) {
 
 demo() {
     local s = nil;
-    s = p9::serve(tree(fn() { s->close(); }), "tcp://127.0.0.1:0");
+    s = p9::serve(tree(fn() { s->close(); }, "testdata/tree"), "tcp://127.0.0.1:0");
 
     for (local v in ["9P2000", "9P2000.L"]) {
         local c = p9::dial(s->endpoint(), {"version": v});
@@ -63,6 +66,15 @@ demo() {
             println(e->message);
         }
 
+        ls(c, "/files/lib");
+        print(c->read("/files/notes.txt"));
+
+        try {
+            c->remove("/files/notes.txt");
+        } catch (e) {
+            println(e->message);
+        }
+
         c->close();
     }
 
@@ -74,7 +86,7 @@ demo() {
 
 usage(why) {
     eprintln("ninep:", why);
-    eprintln("usage: ninep serve address | ls address [path] | cat address path | put address path text | demo");
+    eprintln("usage: ninep serve address [directory] | ls address [path] | cat address path | put address path text | demo");
     return 2;
 }
 
@@ -87,8 +99,14 @@ main(args) {
         return 0;
     }
 
-    if (cmd == "serve" && len(args) == 2) {
-        serve(args[1]);
+    if (cmd == "serve" && (len(args) == 2 || len(args) == 3)) {
+        try {
+            serve(args[1], len(args) == 3 ? args[2] : nil);
+        } catch (e) {
+            eprintln("ninep:", e->message);
+            return 2;
+        }
+
         return 0;
     }
 

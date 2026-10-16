@@ -667,11 +667,12 @@ standard error and pulls in more). The functions of a tree run inside
 can read its own server. Not tried yet: a Linux kernel mount (it needs
 root).*
 
-*Next, step 2: `p9::disk(root [, {"readonly": false}])`, a directory of the
-local disk served as it is: read-only unless asked, confined to `root` (no
-way out through `..` or symbolic links), files owned by the user running
-the server; and `tree->mount(path, disk)` to put one into a tree. TLS
-comes after that, as an option of `serve` and `dial`.*
+*Done, step 2 (TODO.md Q63): `p9::disk(dir [, {"readonly": false}])`, a
+directory of the local disk served as it is: read-only unless asked,
+confined to `dir` with Go's `os.Root` (no way out through `..` or symbolic
+links), files shown as the user running the server; `tree->mount(path,
+disk)` puts one into a tree; the client got `rename`. Next: TLS, as an
+option of `serve` and `dial`.*
 
 ## 7. Smaller items
 
@@ -713,7 +714,7 @@ Each step is usable on its own and prepares the next:
 | 6 | Time type; then the ORM on top of SQL | 5 | done: time type (Q36), ORM (Q52), relations (Q56) |
 | 7 | Tk GUI (after a proof of concept for the threading) | 1, 3 | |
 | 8 | Files: the module `fs` (6.1) | 1 | done (Q61) |
-| 9 | 9P client and server (6.2) | 3, 8 | step 1 done (Q62): trees built in Kukel; next a disk directory |
+| 9 | 9P client and server (6.2) | 3, 8 | done (Q62, Q63): trees built in Kukel and disk directories; TLS later |
 
 Steps 4, 5, 7 and 8 are independent of each other once 1 and 3 exist. A
 `ffi` module (1.6) can come at any point after step 1.

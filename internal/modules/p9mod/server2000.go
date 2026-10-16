@@ -5,7 +5,9 @@ package p9mod
 import (
 	"bufio"
 	"io"
+	"os"
 	"strings"
+	"time"
 
 	"9fans.net/go/plan9"
 	"github.com/hugelgupf/p9/linux"
@@ -19,10 +21,11 @@ const maxMsize = 1 << 20
 
 // fid2000 is a fid of a 9P2000 connection.
 type fid2000 struct {
-	n    *node
-	h    *handle // when open
-	read bool    // opened for reading
-	next int     // a directory: the entry the next read gives first
+	n      *node
+	h      *handle // when open
+	read   bool    // opened for reading
+	rclose bool    // remove the file when the fid is clunked (ORCLOSE)
+	next   int     // a directory: the entry the next read gives first
 }
 
 type conn2000 struct {
@@ -161,20 +164,36 @@ func (c *conn2000) handle(tx *plan9.Fcall) *plan9.Fcall {
 		if f.h != nil {
 			return rerror(errorf(linux.EINVAL, "the fid is already open"))
 		}
+		read, write := modes(tx.Mode)
 		if tx.Mode&plan9.ORCLOSE != 0 {
-			return rerror(errNoCreate)
+			if f.n.disk == nil {
+				return rerror(errNoCreate)
+			}
+			if f.n.disk.readonly {
+				return rerror(errReadOnlyDisk)
+			}
 		}
-		mode := tx.Mode & 3
-		read := mode == plan9.OREAD || mode == plan9.ORDWR || mode == plan9.OEXEC
-		write := mode == plan9.OWRITE || mode == plan9.ORDWR
 		h, err := c.t.open(f.n, read, write, tx.Mode&plan9.OTRUNC != 0)
 		if err != nil {
 			return rerror(err)
 		}
-		f.h, f.read = h, read
+		f.h, f.read, f.rclose = h, read, tx.Mode&plan9.ORCLOSE != 0
 		return &plan9.Fcall{Type: plan9.Ropen, Qid: c.qid(f.n), Iounit: c.msize - plan9.IOHDRSZ}
 	case plan9.Tcreate:
-		return rerror(errNoCreate)
+		if f.h != nil {
+			return rerror(errorf(linux.EINVAL, "the fid is open"))
+		}
+		if tx.Perm&(plan9.DMSYMLINK|plan9.DMDEVICE|plan9.DMNAMEDPIPE|plan9.DMSOCKET|plan9.DMAUTH|plan9.DMMOUNT) != 0 {
+			return rerror(errorf(linux.EINVAL, "only files and directories can be made"))
+		}
+		read, _ := modes(tx.Mode)
+		isDir := tx.Perm&plan9.DMDIR != 0
+		n, h, err := c.t.create(f.n, tx.Name, isDir, os.FileMode(tx.Perm&0o777), read || isDir, !isDir)
+		if err != nil {
+			return rerror(err)
+		}
+		f.n, f.h, f.read, f.rclose = n, h, read || isDir, tx.Mode&plan9.ORCLOSE != 0
+		return &plan9.Fcall{Type: plan9.Rcreate, Qid: c.qid(n), Iounit: c.msize - plan9.IOHDRSZ}
 	case plan9.Tread:
 		if f.h == nil || !f.read {
 			return rerror(errNotOpen)
@@ -184,7 +203,10 @@ func (c *conn2000) handle(tx *plan9.Fcall) *plan9.Fcall {
 			return c.readDir(f, tx.Offset, count)
 		}
 		buf := make([]byte, count)
-		n := f.h.readAt(buf, tx.Offset)
+		n, err := f.h.readAt(buf, tx.Offset)
+		if err != nil {
+			return rerror(err)
+		}
 		return &plan9.Fcall{Type: plan9.Rread, Data: buf[:n]}
 	case plan9.Twrite:
 		if f.h == nil {
@@ -196,16 +218,21 @@ func (c *conn2000) handle(tx *plan9.Fcall) *plan9.Fcall {
 		}
 		return &plan9.Fcall{Type: plan9.Rwrite, Count: uint32(n)}
 	case plan9.Tclunk, plan9.Tremove:
-		delete(c.fids, tx.Fid)
+		delete(c.fids, tx.Fid) // also when the remove fails
 		var err error
 		if f.h != nil {
 			err = f.h.close()
 		}
+		if tx.Type == plan9.Tremove || f.rclose {
+			if rerr := c.t.removeNode(f.n); err == nil {
+				err = rerr
+			}
+		}
 		switch {
-		case tx.Type == plan9.Tremove:
-			return rerror(errNoCreate) // the fid is clunked all the same
 		case err != nil:
 			return rerror(err)
+		case tx.Type == plan9.Tremove:
+			return &plan9.Fcall{Type: plan9.Rremove}
 		}
 		return &plan9.Fcall{Type: plan9.Rclunk}
 	case plan9.Tstat:
@@ -246,8 +273,15 @@ func (c *conn2000) readDir(f *fid2000, offset uint64, count uint32) *plan9.Fcall
 	return &plan9.Fcall{Type: plan9.Rread, Data: data}
 }
 
-// wstat allows what changes nothing (a "sync"), and a length of 0 for a
-// file open for writing (a truncate).
+// modes tells whether an open mode reads and writes.
+func modes(mode uint8) (read, write bool) {
+	m := mode & 3
+	return m == plan9.OREAD || m == plan9.ORDWR || m == plan9.OEXEC, m == plan9.OWRITE || m == plan9.ORDWR
+}
+
+// wstat changes the name (in the same directory), length, permissions and
+// modification time of a file, as far as the tree allows; what changes
+// nothing is a "sync". The owner, group and type cannot change.
 func (c *conn2000) wstat(f *fid2000, stat []byte) *plan9.Fcall {
 	d, err := plan9.UnmarshalDir(stat)
 	if err != nil {
@@ -255,22 +289,42 @@ func (c *conn2000) wstat(f *fid2000, stat []byte) *plan9.Fcall {
 	}
 	var none plan9.Dir
 	none.Null()
-	length := d.Length
-	d.Length = none.Length
-	if *d != none {
-		return rerror(errorf(linux.EINVAL, "permission denied: the server program decides about names, modes and times"))
+	if d.Type != none.Type || d.Dev != none.Dev || d.Qid != none.Qid || d.Uid != "" || d.Gid != "" || d.Muid != "" {
+		return rerror(errorf(linux.EPERM, "permission denied: the type, owner and group of a file cannot change"))
 	}
-	switch {
-	case length == none.Length:
-	case f.h != nil && f.h.writing:
-		if err := f.h.truncate(length); err != nil {
+	var ch change
+	if d.Length != none.Length {
+		ch.size = &d.Length
+	}
+	if d.Mode != none.Mode {
+		if (d.Mode&plan9.DMDIR != 0) != f.n.dir {
+			return rerror(errorf(linux.EPERM, "permission denied: a file cannot become a directory, nor the other way round"))
+		}
+		perm := os.FileMode(d.Mode & 0o777)
+		ch.perm = &perm
+	}
+	if d.Mtime != none.Mtime {
+		m := time.Unix(int64(d.Mtime), 0)
+		ch.mtime = &m
+	}
+	if d.Atime != none.Atime {
+		a := time.Unix(int64(d.Atime), 0)
+		ch.atime = &a
+	}
+	if !ch.empty() {
+		if err := c.t.setattr(f.n, f.h, ch); err != nil {
 			return rerror(err)
 		}
-	case length != 0 || c.t.info(f.n).mode&0o222 == 0:
-		return rerror(errReadOnly)
-	default:
-		// Linux truncates a file before it opens it with OTRUNC: nothing
-		// to do.
+	}
+	if d.Name != "" && d.Name != f.n.name {
+		dir := f.n.parent
+		if dir == nil {
+			return rerror(errorf(linux.EBUSY, "the top cannot be renamed"))
+		}
+		if err := c.t.rename(f.n, dir, d.Name); err != nil {
+			return rerror(err)
+		}
+		f.n = renamed(f.n, dir, d.Name)
 	}
 	return &plan9.Fcall{Type: plan9.Rwstat}
 }

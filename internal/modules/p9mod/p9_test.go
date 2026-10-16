@@ -246,7 +246,7 @@ TypeError: p9::Tree::file: argument 3 must be a function, not string
 ValueError: p9::Tree::remove: the top of the tree cannot be removed
 ValueError: p9::Tree::remove: /nope does not exist
 ValueError: p9::serve: "http://x" is not a 9P address such as "tcp://*:564" or "unix:///path"
-TypeError: p9::serve: argument 1 must be a p9::Tree, not int
+TypeError: p9::serve: argument 1 must be a p9::Tree or a p9::Disk, not int
 NetError: p9::serve: listen tcp ADDR: bind: address already in use
 ValueError: p9::dial: "localhost:564" is not a 9P address such as "tcp://host:564" or "unix:///path"
 ValueError: p9::dial: "tcp://" is not a 9P address such as "tcp://host:564" or "unix:///path"
@@ -447,3 +447,5 @@ main() {
 		t.Errorf("got %q", got)
 	}
 }
+
+func timeAfter10ms() <-chan time.Time { return time.After(10 * time.Millisecond) }

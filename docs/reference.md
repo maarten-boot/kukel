@@ -1250,7 +1250,8 @@ main() {
 The 9P file protocol of Plan 9 and Linux, in both its versions: 9P2000
 and 9P2000.L. A client reads and writes the files of a 9P server; a server
 serves a tree of directories and files that the program builds, whose
-files hold a string or call a Kukel function. It is the protocol that
+files hold a string or call a Kukel function, or a directory of the local
+disk. It is the protocol that
 Linux mounts with `mount -t 9p` and that Plan 9 and plan9port use for
 their files.
 
@@ -1291,13 +1292,16 @@ and `"/a/b"` are the same, and `..` stops at the top.
 | `c->read(path)` | The content of a file, as a string |
 | `c->write(path, s)` | Makes the content of a file `s`: the file is truncated first, or made if it is not there (when the server allows that) |
 | `c->mkdir(path)`, `c->remove(path)` | Makes a directory; removes a file or an empty directory |
+| `c->rename(from, to)` | Renames (moves) a file or directory. 9P2000 can only rename within a directory (another directory is an `IOError`); 9P2000.L can also move |
 | `c->version()` | The version spoken: `"9P2000.L"` or `"9P2000"` |
 | `c->close()` | Closes the connection (closing again has no effect). Using a closed client is a `ValueError`, except `version()` and `close()` |
 | `new p9::Tree()` | An empty tree, for `p9::serve` |
 | `t->file(path, content [, write])` | A file at `path`; the directories above it are made. `content` is a string, or a function that gives the content as a string; it is called each time a client opens the file. With `write`, a function, clients may write the file: when a client closes it, `write(data)` gets what the client wrote. A file already at `path` is replaced (clients see the new content the next time they open it) |
 | `t->dir(path)` | A directory at `path`, and those above it |
 | `t->remove(path)` | Takes the file or directory (with everything in it) out of the tree. A client that has it open goes on reading what it read |
-| `p9::serve(tree, address)` | Serves the tree at `address`, in both versions (each client picks one), and gives a `p9::Server`. An address that cannot be listened on (in use, no permission) is a `NetError` |
+| `p9::disk(dir [, options])` | The directory `dir` of the local disk, as a `p9::Disk` for `serve` and `mount`. It is read-only for clients unless the options say `{"readonly": false}`. A directory that is not there, or a file, is an `IOError`; another option a `ValueError` |
+| `t->mount(path, disk)` | The disk directory appears at `path` in the tree (the directories above it are made; what was at `path` is replaced). `"/"` mounts it on a tree that is still empty. The tree's own `file`, `dir` and `remove` do not reach into a mounted directory (`ValueError`) |
+| `p9::serve(tree, address)` | Serves the tree (or a `p9::Disk` on its own) at `address`, in both versions (each client picks one), and gives a `p9::Server`. An address that cannot be listened on (in use, no permission) is a `NetError` |
 | `s->endpoint()` | The address served, with the port that port 0 picked (`"tcp://127.0.0.1:43127"`) |
 | `s->close()` | Stops the server: it no longer listens, and closes each connection once the request it is answering is answered (so a function of the tree may close its own server). Closing again has no effect |
 
@@ -1325,8 +1329,46 @@ whose message names the function and the path, with the server's message:
 error number, so its messages are the system's (`no such file or
 directory`).
 
+In a **disk directory** clients see the files as they are on the disk,
+with their sizes, permissions and times; they belong to the user running
+the server (whatever their owner on the disk). Clients cannot get out of
+the directory: `..` stops at its top, and a symbolic link that leads
+outside it (or is absolute, or leads nowhere) is left out of listings and
+cannot be opened; links that stay inside are followed. A read-only disk
+(the default) refuses every change with "read-only file system" and shows
+no write permissions. A writable one lets clients write, make, rename and
+remove files and directories and change permissions and times, as the
+user running the server may; owners and groups cannot change, and
+symbolic links, hard links and device files cannot be made. A server
+that shares a disk directory gives everyone who can reach it that
+access: there is no authentication.
+
+```
+use p9;
+
+main() {
+    local t = new p9::Tree();
+    t->file("/README", "the files are in /files\n");
+    t->mount("/files", p9::disk("."));     // the current directory, read-only
+    local s = p9::serve(t, "tcp://127.0.0.1:0");
+
+    local c = p9::dial(s->endpoint());
+    println(c->exists("/files/.."), c->stat("/files")["dir"]);   // true true
+
+    try {
+        c->write("/files/new.txt", "x");
+    } catch (e) {
+        println(e->message);               // p9::Client::write: /files/new.txt: read-only file system
+    }
+
+    c->close();
+    s->close();
+}
+```
+
 A client prints as `p9::Client(tcp://localhost:564, 9P2000.L)`, a tree as
-`p9::Tree(3 files)`, a server as `p9::Server(tcp://127.0.0.1:43127)`, each
+`p9::Tree(3 files)`, a disk as `p9::Disk(/srv/data, read-only)` (or
+without `read-only`), a server as `p9::Server(tcp://127.0.0.1:43127)`, each
 with `closed` when closed. There is no authentication or encryption: use 9P
 on a trusted network, or over an SSH tunnel or a VPN. A Go program that
 embeds Kukel keeps a program off the network by leaving `p9` out of
