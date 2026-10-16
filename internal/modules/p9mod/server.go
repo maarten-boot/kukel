@@ -49,6 +49,7 @@ type server struct {
 	mu     sync.Mutex
 	conns  map[net.Conn]bool
 	closed bool
+	active sync.WaitGroup // the connections being served
 }
 
 func newServer(t *tree, ln net.Listener, endpoint string) *server {
@@ -71,6 +72,7 @@ func (s *server) accept() {
 			return
 		}
 		s.conns[c] = true
+		s.active.Add(1)
 		s.mu.Unlock()
 		go s.serveConn(c)
 	}
@@ -84,6 +86,7 @@ func (s *server) serveConn(c net.Conn) {
 		s.mu.Lock()
 		delete(s.conns, c)
 		s.mu.Unlock()
+		s.active.Done()
 	}()
 	r := bufio.NewReaderSize(c, 8192)
 	// Tversion: size[4] type[1] tag[2] msize[4] version[s]
@@ -110,7 +113,9 @@ type readCloser struct {
 
 // close stops the server: the listener is closed, and the connections
 // after the requests they are answering (close may be called by a
-// function of the tree, for such a request).
+// function of the tree, for such a request). The event loop keeps going
+// until they are done, so that the answers still leave before the program
+// ends.
 func (s *server) close() {
 	s.mu.Lock()
 	if s.closed {
@@ -125,5 +130,8 @@ func (s *server) close() {
 	for c := range conns {
 		c.SetReadDeadline(time.Now()) // the next read fails; the answer is still written
 	}
-	s.release()
+	go func() {
+		s.active.Wait()
+		s.release()
+	}()
 }

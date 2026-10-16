@@ -54,7 +54,7 @@ caught RangeError: index 5 out of range for vector of length 3
   modules written in Go: `db` (SQL with SQLite, PostgreSQL and MySQL, and
   objects in tables), `events` (an event loop with timers), `fs`
   (directories and files), `json`, `p9` (the 9P file protocol: a client,
-  and a server of trees the program builds), `re`
+  and a server of trees the program builds and of disk directories), `re`
   (regular expressions), `strings` (a string builder), `time`, `uuid`,
   `worker` (interpreters that run in parallel and exchange messages) and
   `zmq` (ZeroMQ sockets, to talk with other programs and machines)
@@ -160,7 +160,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/value`, `internal/builtins` | values with their operators, built-in functions |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q62). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q63). Ideas for later are in [docs/future.md](docs/future.md).
 
 ## Development
 

@@ -26,6 +26,7 @@ type remote interface {
 	write(p string, data []byte) error
 	mkdir(p string) error
 	remove(p string) error
+	rename(from, to string) error
 	close() error
 }
 
@@ -297,6 +298,28 @@ func (r *clientL) remove(p string) error {
 	return f.UnlinkAt(name, flags)
 }
 
+func (r *clientL) rename(from, to string) error {
+	dir1, name1, err := split(from)
+	if err != nil {
+		return err
+	}
+	dir2, name2, err := split(to)
+	if err != nil {
+		return err
+	}
+	d1, err := r.walk(dir1)
+	if err != nil {
+		return err
+	}
+	defer d1.Close()
+	d2, err := r.walk(dir2)
+	if err != nil {
+		return err
+	}
+	defer d2.Close()
+	return d1.RenameAt(name1, d2, name2)
+}
+
 func (r *clientL) close() error { return r.c.Close() }
 
 // ----------------------------------------------------------------------
@@ -407,5 +430,24 @@ func (r *client2000) mkdir(p string) error {
 }
 
 func (r *client2000) remove(p string) error { return r.fsys.Remove(rel(p)) }
+
+// rename: 9P2000 renames a file only within its directory.
+func (r *client2000) rename(from, to string) error {
+	dir1, _, err := split(from)
+	if err != nil {
+		return err
+	}
+	dir2, name, err := split(to)
+	if err != nil {
+		return err
+	}
+	if dir1 != dir2 {
+		return errors.New("9P2000 renames only within a directory")
+	}
+	var d plan9.Dir
+	d.Null()
+	d.Name = name
+	return r.fsys.Wstat(rel(from), &d)
+}
 
 func (r *client2000) close() error { return r.conn.Close() }

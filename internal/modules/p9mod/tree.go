@@ -4,6 +4,7 @@ package p9mod
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/user"
 	"path"
@@ -44,6 +45,12 @@ type node struct {
 	version uint32           // the qid version: changes with the content
 	mtime   time.Time
 	removed bool
+
+	// A node of a disk directory (disk.go), or the directory a disk is
+	// mounted on (rel "."): rel is its path in the disk. Such nodes are
+	// made by each walk, and do not change.
+	disk *disk
+	rel  string
 }
 
 func newTree(l *local) *tree {
@@ -75,7 +82,7 @@ func names(p string) []string {
 func (t *tree) at(p string) *node {
 	n := t.root
 	for _, name := range names(p) {
-		if !n.dir {
+		if !n.dir || n.disk != nil {
 			return nil
 		}
 		if n = n.kids[name]; n == nil {
@@ -97,6 +104,9 @@ func (t *tree) make(p string, dir bool) (*node, error) {
 	}
 	n := t.root
 	for i, name := range ns {
+		if n.disk != nil {
+			return nil, errorf(linux.EPERM, "%s is a mounted disk directory: the tree does not reach into it", t.pathOfLocked(n))
+		}
 		last := i == len(ns)-1
 		k := n.kids[name]
 		switch {
@@ -198,6 +208,9 @@ type info struct {
 }
 
 func (t *tree) info(n *node) info {
+	if n.disk != nil {
+		return n.disk.info(n)
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.infoLocked(n)
@@ -219,6 +232,9 @@ func (t *tree) infoLocked(n *node) info {
 
 // walk goes from n to the node called name in it ("..": up).
 func (t *tree) walk(n *node, name string) (*node, error) {
+	if n.disk != nil {
+		return n.disk.walk(n, name)
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	switch {
@@ -245,8 +261,9 @@ func (t *tree) walk(n *node, name string) (*node, error) {
 type handle struct {
 	t       *tree
 	n       *node
-	data    []byte  // what reads give: the content when the file was opened
-	kids    []*node // of a directory: its entries when it was opened, by name
+	f       *os.File // a file of a disk
+	data    []byte   // what reads give: the content when the file was opened
+	kids    []*node  // of a directory: its entries when it was opened, by name
 	writing bool
 
 	mu    sync.Mutex // a client may write in parallel
@@ -257,6 +274,9 @@ type handle struct {
 // open opens n for reading and/or writing; a function giving the content
 // is called now.
 func (t *tree) open(n *node, read, write, trunc bool) (*handle, error) {
+	if n.disk != nil {
+		return n.disk.open(t, n, read, write, trunc)
+	}
 	t.mu.Lock()
 	removed, dir, data, readFn, writeFn := n.removed, n.dir, n.data, n.read, n.write
 	var kids []*node
@@ -293,16 +313,27 @@ func (t *tree) open(n *node, read, write, trunc bool) (*handle, error) {
 	return h, nil
 }
 
-func (h *handle) readAt(p []byte, off uint64) int {
-	if off >= uint64(len(h.data)) {
-		return 0
+func (h *handle) readAt(p []byte, off uint64) (int, error) {
+	if h.f != nil {
+		n, err := h.f.ReadAt(p, int64(off))
+		if err == io.EOF {
+			err = nil
+		}
+		return n, diskError(err)
 	}
-	return copy(p, h.data[off:])
+	if off >= uint64(len(h.data)) {
+		return 0, nil
+	}
+	return copy(p, h.data[off:]), nil
 }
 
 func (h *handle) writeAt(p []byte, off uint64) (int, error) {
 	if !h.writing {
 		return 0, errNotOpen
+	}
+	if h.f != nil {
+		n, err := h.f.WriteAt(p, int64(off))
+		return n, diskError(err)
 	}
 	end := off + uint64(len(p))
 	if end > maxWrite || end < off {
@@ -320,6 +351,9 @@ func (h *handle) writeAt(p []byte, off uint64) (int, error) {
 
 // truncate sets the size of what was written (0 from Linux for O_TRUNC).
 func (h *handle) truncate(size uint64) error {
+	if h.f != nil {
+		return diskError(h.f.Truncate(int64(size)))
+	}
 	if size > maxWrite {
 		return errTooBig
 	}
@@ -336,6 +370,9 @@ func (h *handle) truncate(size uint64) error {
 
 // close gives what the client wrote to the write function of the file.
 func (h *handle) close() error {
+	if h.f != nil {
+		return diskError(h.f.Close())
+	}
 	h.mu.Lock()
 	wrote, data := h.wrote, string(h.buf)
 	h.wrote = false
@@ -356,6 +393,10 @@ func (h *handle) close() error {
 func (t *tree) pathOf(n *node) string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	return t.pathOfLocked(n)
+}
+
+func (t *tree) pathOfLocked(n *node) string {
 	var parts []string
 	for ; n != nil && n.parent != nil; n = n.parent {
 		parts = append([]string{n.name}, parts...)
