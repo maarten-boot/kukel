@@ -376,5 +376,6 @@ All the "Rule:" comments in syntax.ebnf. The checks run while the compiler resol
 34. [x] The module `fs` (Q61; branch `fs`), and `grep -r`
 35. [x] The module `p9`, step 1: client and server of trees built in Kukel, 9P2000 and 9P2000.L (Q62; branch `p9`)
 36. [x] 9P step 2: a disk directory served (`p9::disk`, read-only by default) and `tree->mount` (Q63; branch `p9disk`); TLS later
-37. [ ] Later, as an experiment on a test branch: a register-based or otherwise faster VM, kept only for at least 10% faster calls
-38. [ ] Later/optional (see also [docs/future.md](docs/future.md): events and Tk; files: the module `fs` and 9P, client and server, section 6): a register-based or otherwise restructured dispatch loop, if call speed matters (the loop of `run` is at its limit for small changes)
+37. [ ] A Docker image of kukel (asked for 2026-10-16): built from the release, published with each tagged release
+38. [ ] Later, as an experiment on a test branch: a register-based or otherwise faster VM, kept only for at least 10% faster calls
+39. [ ] Later/optional (see also [docs/future.md](docs/future.md): events and Tk; files: the module `fs` and 9P, client and server, section 6): a register-based or otherwise restructured dispatch loop, if call speed matters (the loop of `run` is at its limit for small changes)
