@@ -1,0 +1,8 @@
+# Proposes updates of the GitHub Actions in .github/workflows (pinned to
+# commits) once a week.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
