@@ -6,6 +6,10 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"image"
+	"image/color"
+	"image/gif"
+	"image/png"
 	"os"
 	"os/exec"
 	"strings"
@@ -322,6 +326,31 @@ main(args) {
     println(cv, cv->remove(p)->items(), cv->clear()->items());
     draw->close();
 
+    // Images, arcs, tags; the image files are made by the test in args[1].
+    local art = new tk::Window("Art"), png = new tk::Image(args[1] + "/o.png"), gif = new tk::Image(args[1] + "/b.gif");
+    println(png->width(), png->height(), gif->width(), gif->height());
+    new tk::Label(art, "orange", {"image": png, "compound": "left"})->pack();
+    new tk::Button(art, "blue", {"image": gif, "compound": "top"})->pack();
+    local ac = new tk::Canvas(art, {"width": 300, "height": 160});
+    ac->pack();
+    local s1 = ac->arc(10, 10, 110, 110, {"start": 0, "extent": 90, "fill": "red"});
+    local s2 = ac->arc(10, 10, 110, 110, {"start": 180, "extent": 120, "style": "chord", "fill": "green"});
+    local p1 = ac->image(200, 80, png), p2 = ac->image(250, 40, gif, {"anchor": "nw"});
+    println(ac->itemat(90, 40), ac->itemat(30, 40), ac->itemat(40, 90), ac->itemat(200, 80), ac->itemat(260, 50), ac->itemat(300, 150));
+    ac->tag(s1, "slices")->tag(s2, "slices")->tag(p1, "pics")->tag(p2, "pics")->tag(p2, "blue");
+    println(ac->tagged("slices"), ac->tagged("pics"), ac->untag(p2, "pics")->tagged("pics"), ac->tagged("nothing"));
+    ac->move("slices", 5, 5)->configureitem("slices", {"outline": "black"})->raise("slices");
+    println(ac->items(), ac->coords(s1), ac->lower("blue")->items(), ac->remove("pics")->items());
+    try { new tk::Image(args[1] + "/bad.png"); } catch (e) { println(e->kind, find(e->message, "/bad.png is not a PNG or GIF file") > 0); }
+    for (local h in [fn() { new tk::Label(art, "x", {"image": 1}); },
+                     fn() { ac->arc(0, 0, 9, 9, {"extent": 400}); },
+                     fn() { ac->tag(s1, "9x"); },
+                     fn() { ac->configureitem("blue", {"fill": "red"}); },
+                     fn() { ac->binditem(99, "<Button-1>", fn(e) {}); },
+                     fn() { ac->move(1.5, 1, 1); }])
+        try { h(); } catch (e) { println(e->kind + ":", e->message); }
+    art->close();
+
     // A rectangle for click() to drag.
     local area = new tk::Canvas(new tk::Window("Canvas"), {"width": 200, "height": 150});
     area->pack();
@@ -359,6 +388,12 @@ main(args) {
     local choose = new tk::Combobox(new tk::Window("Choose"), ["red", "green", "blue"], {"state": "readonly"});
     choose->pack();
     choose->onselect(fn(text) { println("chose:", text, choose->text()); });
+    local items = new tk::Canvas(new tk::Window("Items"), {"width": 150, "height": 100}), dragging = nil;
+    items->pack();
+    items->tag(items->arc(0, 0, 150, 100, {"start": 0, "extent": 359, "fill": "gray"}), "piece");
+    items->binditem("piece", "<Button-1>", fn(e) { dragging = e; });
+    items->binditem("piece", "<B1-Motion>", fn(e) { items->move(e["item"], e["x"] - dragging["x"], e["y"] - dragging["y"]); dragging = e; });
+    items->binditem("piece", "<ButtonRelease-1>", fn(e) { println("item dragged:", e["item"], items->coords(e["item"])); });
 
     // bind: the clicks on the button; a second bind replaces the handler.
     local bound = [];
@@ -406,6 +441,7 @@ func TestTk(t *testing.T) {
 	if err := os.WriteFile(dir+"/a.kkl", nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	writeImages(t, dir)
 	got, err := runProgram(t, program, true, clicks, dir)
 	if clicks == "clicks" {
 		if cerr := <-clicked; cerr != nil {
@@ -428,7 +464,7 @@ ValueError: tk::Label::Label: the window is closed
 tk::Frame
 tk::Label("Name:") tk::Entry("") tk::Entry("secret") secret
 ValueError: tk::Label::pack: cannot pack: grid already places the widgets beside it (use one of pack and grid in each window or frame)
-ValueError: tk::Label::configure: unknown option "text" (the options are width, font, anchor, justify, wraplength, padding and state)
+ValueError: tk::Label::configure: unknown option "text" (the options are width, font, image, compound, anchor, justify, wraplength, padding and state)
 ValueError: tk::Label::configure: option state: "readonly" is not one of normal, disabled
 ValueError: tk::Entry::configure: option show must be one character, or "" to show the text, not "**"
 ValueError: tk::Frame::configure: option padding must be a number of pixels (0 to 10000) or a vector of 2 or 4 of them, not [1, 2, 3]
@@ -520,10 +556,21 @@ TkError: tk::Canvas::oval: unknown color name "notacolour"
 TkError: tk::Canvas::configureitem: unknown color name "notacolour"
 ValueError: tk::Canvas::move: the item would leave the canvas (coordinates from -1e6 to 1e6)
 tk::Canvas(0 items) [5, 2, 3, 1] []
+40 30 20 20
+1 nil 2 3 4 nil
+[1, 2] [3, 4] [3] []
+[3, 4, 1, 2] [15, 15, 115, 115] [4, 3, 1, 2] [4, 1, 2]
+ValueError true
+ValueError: tk::Label::Label: option image must be a tk::Image, not 1
+ValueError: tk::Canvas::arc: option extent must be a number of degrees (-360 to 360), not 400
+ValueError: tk::Canvas::tag: a tag is a name of letters, digits and _ (not starting with a digit), not "9x"
+ValueError: tk::Canvas::configureitem: unknown option "fill" (the options are anchor)
+ValueError: tk::Canvas::binditem: the canvas has no item 99
+TypeError: tk::Canvas::move: argument 1 must be an item's id or a tag, not float
 `
 	end := map[string]string{
 		"self":   "invoke: three\n",
-		"clicks": "check: true true\nselect: [1] [1]\nradio: picked picked\nmessage: yes\nopen: true\nsave: true\ndir: nil\ndragged: 1 [40, 30, 220, 160]\npop-up: Hello\nslider: int true\nchose: green green\nhandler: three\nenter: [puts hi] {x} $y \\ end 3\n",
+		"clicks": "check: true true\nselect: [1] [1]\nradio: picked picked\nmessage: yes\nopen: true\nsave: true\ndir: nil\ndragged: 1 [40, 30, 220, 160]\nitem dragged: 1 [30, 20, 180, 120]\npop-up: Hello\nslider: int true\nchose: green green\nhandler: three\nenter: [puts hi] {x} $y \\ end 3\n",
 	}[clicks]
 	bound := map[string]string{"self": "[]", "clicks": "[true, true]"}[clicks]
 	picked := map[string]string{"self": "nil", "clicks": "picked"}[clicks]
@@ -535,6 +582,27 @@ tk::Canvas(0 items) [5, 2, 3, 1] []
 	}
 }
 
+// writeImages writes the image files of the program: o.png (40x30,
+// orange), b.gif (20x20, blue) and bad.png (not an image).
+func writeImages(t *testing.T, dir string) {
+	rect := func(w, h int, c color.Color) *image.Paletted {
+		img := image.NewPaletted(image.Rect(0, 0, w, h), color.Palette{c})
+		return img
+	}
+	var png1, gif1 bytes.Buffer
+	if err := png.Encode(&png1, rect(40, 30, color.RGBA{255, 165, 0, 255})); err != nil {
+		t.Fatal(err)
+	}
+	if err := gif.Encode(&gif1, rect(20, 20, color.RGBA{0, 0, 255, 255}), nil); err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{"o.png": png1.Bytes(), "b.gif": gif1.Bytes(), "bad.png": []byte("not an image")} {
+		if err := os.WriteFile(dir+"/"+name, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // click clicks the check button, the middle line of the list box and the
 // radio button of the windows Check, List and Radio, answers the dialogs
 // the radio button's handler opens, then clicks the button of the window
@@ -542,7 +610,7 @@ tk::Canvas(0 items) [5, 2, 3, 1] []
 // focus back).
 func click(t *testing.T) error {
 	wins := map[string]string{}
-	for _, name := range []string{"TkTest", "Check", "List", "Radio", "Canvas", "Popup", "Slider", "Choose"} {
+	for _, name := range []string{"TkTest", "Check", "List", "Radio", "Canvas", "Popup", "Slider", "Choose", "Items"} {
 		for i := 0; i < 100 && wins[name] == ""; i++ {
 			out, _ := exec.Command("xdotool", "search", "--name", "^"+name+"$").Output()
 			wins[name] = strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
@@ -553,7 +621,7 @@ func click(t *testing.T) error {
 		}
 	}
 	// Without a window manager all windows are at 0,0: move them apart.
-	for name, at := range map[string][2]int{"Check": {300, 0}, "List": {0, 300}, "Radio": {300, 300}, "Canvas": {540, 300}, "Popup": {540, 0}, "Slider": {0, 180}, "Choose": {300, 150}} {
+	for name, at := range map[string][2]int{"Check": {300, 0}, "List": {0, 300}, "Radio": {300, 300}, "Canvas": {540, 300}, "Popup": {540, 0}, "Slider": {0, 180}, "Choose": {300, 150}, "Items": {300, 460}} {
 		if err := exec.Command("xdotool", "windowmove", wins[name], fmt.Sprint(at[0]), fmt.Sprint(at[1])).Run(); err != nil {
 			return err
 		}
@@ -570,6 +638,9 @@ func click(t *testing.T) error {
 		}
 	}
 	if err := drag(wins["Canvas"], 30, 20); err != nil {
+		return err
+	}
+	if err := drag(wins["Items"], 30, 20); err != nil { // through binditem
 		return err
 	}
 	// Right-click for the pop-up menu, then click its entry, which opens at

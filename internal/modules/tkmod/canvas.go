@@ -35,6 +35,18 @@ type canvas struct {
 	// above the view: for the coordinates of a position in the widget.
 	region         [4]float64
 	xfirst, yfirst float64
+
+	node    *node                 // of the widget: its event map
+	binds   map[string][]itemBind // binditem's handlers, by event sequence
+	pressed *item                 // the item a mouse button went down on
+}
+
+// itemBind is a handler of binditem: for the item with an id, or the
+// items with a tag.
+type itemBind struct {
+	id  int64
+	tag string
+	f   value.Value
 }
 
 // point turns the position x, y in the widget into canvas coordinates.
@@ -54,13 +66,37 @@ func number(x float64) value.Value {
 	return value.MakeFloat(x)
 }
 
-// item is a canvas item: its kind, coordinates, text and options.
+// item is a canvas item: its kind, coordinates, text or image, options and
+// tags.
 type item struct {
 	id     int64
-	kind   string // line, rect, oval, polygon, text
+	kind   string // line, rect, oval, arc, polygon, text, image
 	coords []float64
 	text   string
+	img    *picture
 	opts   []optionValue // by option, the last value given
+	tags   []string
+}
+
+func (it *item) hasTag(tag string) bool {
+	for _, t := range it.tags {
+		if t == tag {
+			return true
+		}
+	}
+	return false
+}
+
+// option gives the value of the item's option name, or def.
+func (it *item) option(name string, def float64) float64 {
+	for _, v := range it.opts {
+		if v.name == name {
+			if x, ok := v.x.(float64); ok {
+				return x
+			}
+		}
+	}
+	return def
 }
 
 func (it *item) tag() string { return "k" + strconv.FormatInt(it.id, 10) }
@@ -96,6 +132,10 @@ func (cv *canvas) draw(it *item) {
 		cv.c.CreateRectangle(args[0], args[1], args[2], args[3], args[4:]...)
 	case "oval":
 		cv.c.CreateOval(args[0], args[1], args[2], args[3], args[4:]...)
+	case "arc":
+		cv.c.CreateArc(args[0], args[1], args[2], args[3], args[4:]...)
+	case "image":
+		cv.c.CreateImage(args[0], args[1], append([]any{tk.Image(it.img.img)}, args[2:]...)...)
 	case "polygon":
 		cv.c.CreatePolygon(args[0], args[1], args[2:]...)
 	case "text":
@@ -135,6 +175,21 @@ func (cv *canvas) setRegion() {
 	}
 	cv.region = r
 	cv.c.Configure(tk.Scrollregion(fmt.Sprintf("%g %g %g %g", r[0], r[1], r[2], r[3])))
+}
+
+// split takes the items at the positions at (in order) out of the list:
+// those, and the others.
+func (cv *canvas) split(at []int) (moved, rest []*item) {
+	k := 0
+	for i, it := range cv.items {
+		if k < len(at) && at[k] == i {
+			moved = append(moved, it)
+			k++
+		} else {
+			rest = append(rest, it)
+		}
+	}
+	return moved, rest
 }
 
 // change makes a change of the items from position i up and draws them
@@ -199,7 +254,7 @@ func coordsArgs(a native.Args, i int, kind string) ([]float64, error) {
 			return nil, a.Errorf(value.ValueError, "argument %d must be %s, not %s", i+1, want, a.V[i].Repr())
 		}
 	default:
-		n := map[string]int{"rect": 4, "oval": 4, "text": 2}[kind]
+		n := coordsCount[kind]
 		vals = a.V[i : i+n]
 		want = "a number from -1e6 to 1e6"
 	}
@@ -218,7 +273,18 @@ func coordsArgs(a native.Args, i int, kind string) ([]float64, error) {
 }
 
 // coordsCount is how many arguments the coordinates of kind take.
-var coordsCount = map[string]int{"line": 1, "polygon": 1, "rect": 4, "oval": 4, "text": 2}
+var coordsCount = map[string]int{"line": 1, "polygon": 1, "rect": 4, "oval": 4, "arc": 4, "text": 2, "image": 2}
+
+// degrees is an angle: -360 to 360.
+func degrees(v value.Value) (any, string) {
+	x, ok := coordinate(v)
+	if !ok || math.Abs(x) > 360 {
+		return nil, " must be a number of degrees (-360 to 360), not " + v.Repr()
+	}
+	return x, ""
+}
+
+var tagRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 var colorRE = regexp.MustCompile(`^(?:#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{12})|[A-Za-z][A-Za-z0-9 ]*)$`)
 
@@ -250,9 +316,16 @@ var (
 			{"arrow", oneOf("none", "first", "last", "both"), func(x any) tk.Opt { return tk.Linearrow(x) }},
 			{"smooth", boolean, func(x any) tk.Opt { return tk.Smooth(x) }},
 		},
-		"rect":    shapeOptions,
-		"oval":    shapeOptions,
+		"rect": shapeOptions,
+		"oval": shapeOptions,
+		"arc": append(append([]option{}, shapeOptions...),
+			option{"start", degrees, func(x any) tk.Opt { return tk.Start(x) }},
+			option{"extent", degrees, func(x any) tk.Opt { return tk.Extent(x) }},
+			option{"style", oneOf("pieslice", "chord", "arc"), func(x any) tk.Opt { return tk.Style(x) }}),
 		"polygon": shapeOptions,
+		"image": {
+			{"anchor", oneOf("n", "ne", "e", "se", "s", "sw", "w", "nw", "center"), func(x any) tk.Opt { return tk.Anchor(x) }},
+		},
 		"text": {
 			{"color", color(false), func(x any) tk.Opt { return tk.Fill(x) }},
 			{"anchor", oneOf("n", "ne", "e", "se", "s", "sw", "w", "nw", "center"), func(x any) tk.Opt { return tk.Anchor(x) }},
@@ -271,11 +344,11 @@ func canvasMethod(name string, min, max int, fn func(a native.Args, this *value.
 }
 
 // create makes the member function that draws an item of kind: its
-// coordinates, for text the text, then a map of options; it gives the
-// item's id.
+// coordinates, for text the text, for an image the tk::Image, then a map
+// of options; it gives the item's id.
 func create(kind string) value.NativeMethod {
 	n := coordsCount[kind]
-	if kind == "text" {
+	if kind == "text" || kind == "image" {
 		n++
 	}
 	return canvasMethod(kind, n, n+1, func(a native.Args, this *value.ObjectObj, cv *canvas) (value.Value, error) {
@@ -288,6 +361,13 @@ func create(kind string) value.NativeMethod {
 			if it.text, err = tkString(a, n-1); err != nil {
 				return value.NilValue, err
 			}
+		}
+		if kind == "image" {
+			st, err := a.Object(n-1, Image)
+			if err != nil {
+				return value.NilValue, err
+			}
+			it.img = st.(*picture)
 		}
 		if a.Has(n) {
 			values, err := readValues(a, n, canvasItemOptions[kind])
@@ -328,6 +408,26 @@ func (cv *canvas) hit(it *item, x, y float64) bool {
 		}
 		dx, dy := (x-(x1+rx))/rx, (y-(y1+ry))/ry
 		return dx*dx+dy*dy <= 1
+	case "arc": // as the slice: in the oval, and within the angles
+		x1, x2 := math.Min(c[0], c[2]), math.Max(c[0], c[2])
+		y1, y2 := math.Min(c[1], c[3]), math.Max(c[1], c[3])
+		rx, ry := (x2-x1)/2, (y2-y1)/2
+		if rx == 0 || ry == 0 {
+			return false
+		}
+		dx, dy := (x-(x1+rx))/rx, (y-(y1+ry))/ry
+		if dx*dx+dy*dy > 1 {
+			return false
+		}
+		start, extent := it.option("start", 0), it.option("extent", 90)
+		if math.Abs(extent) >= 360 {
+			return true
+		}
+		if extent < 0 {
+			start, extent = start+extent, -extent
+		}
+		angle := math.Atan2(-dy, dx) * 180 / math.Pi // counterclockwise from 3 o'clock, as Tk
+		return math.Mod(angle-start+720, 360) <= extent
 	case "line":
 		reach := 3.0
 		for _, v := range it.opts {
@@ -349,7 +449,7 @@ func (cv *canvas) hit(it *item, x, y float64) bool {
 			}
 		}
 		return inside
-	case "text":
+	case "text", "image":
 		box := cv.c.Bbox(it.tag())
 		if len(box) != 4 {
 			return false
@@ -372,6 +472,83 @@ func segmentDistance(x, y, x1, y1, x2, y2 float64) float64 {
 		t = math.Max(0, math.Min(1, ((x-x1)*dx+(y-y1)*dy)/l))
 	}
 	return math.Hypot(x-(x1+t*dx), y-(y1+t*dy))
+}
+
+// itemAt gives the topmost item at x, y, or nil.
+func (cv *canvas) itemAt(x, y float64) *item {
+	for i := len(cv.items) - 1; i >= 0; i-- {
+		if cv.hit(cv.items[i], x, y) {
+			return cv.items[i]
+		}
+	}
+	return nil
+}
+
+// targets gives the positions of the items argument i names: an id (that
+// item), or a tag (the items with it, bottom to top; maybe none).
+func (cv *canvas) targets(a native.Args, i int) ([]int, error) {
+	if a.V[i].Kind() == value.String {
+		tag, err := tagArg(a, i)
+		if err != nil {
+			return nil, err
+		}
+		var at []int
+		for j, it := range cv.items {
+			if it.hasTag(tag) {
+				at = append(at, j)
+			}
+		}
+		return at, nil
+	}
+	if a.V[i].Kind() != value.Int {
+		return nil, a.TypeError(i, "an item's id or a tag")
+	}
+	j, err := cv.find(a, i)
+	return []int{j}, err
+}
+
+// tagArg reads argument i, a tag: a name of letters, digits and _ that
+// does not start with a digit.
+func tagArg(a native.Args, i int) (string, error) {
+	tag, err := a.String(i)
+	if err == nil && !tagRE.MatchString(tag) {
+		err = a.Errorf(value.ValueError, "a tag is a name of letters, digits and _ (not starting with a digit), not %s", value.Quote(tag))
+	}
+	return tag, err
+}
+
+// dispatch calls the handlers of binditem for event e of sequence seq:
+// those of the item under the mouse, or while a button is down, of the
+// item it went down on (as Tk does for items).
+func (cv *canvas) dispatch(seq string, e *tk.Event) {
+	xv, yv := cv.point(e.X, e.Y)
+	x, _ := coordinate(xv)
+	y, _ := coordinate(yv)
+	const buttons = 0x1f00 // the state bits of mouse buttons 1 to 5
+	it := cv.pressed
+	if int(e.State)&buttons == 0 || it == nil || !cv.has(it) {
+		it = cv.itemAt(x, y)
+		cv.pressed = it
+	}
+	if it == nil {
+		return
+	}
+	for _, b := range cv.binds[seq] {
+		if b.id == it.id || b.tag != "" && it.hasTag(b.tag) {
+			em := cv.node.eventMap(e)
+			em.AsMap().Set(value.MakeString("item"), value.MakeInt(it.id)) // a string key cannot fail
+			call(b.f, em)
+		}
+	}
+}
+
+func (cv *canvas) has(it *item) bool {
+	for _, x := range cv.items {
+		if x == it {
+			return true
+		}
+	}
+	return false
 }
 
 func pointsValue(coords []float64) value.Value {
@@ -401,6 +578,7 @@ func registerCanvas() {
 			}
 		})
 		wd.point = cv.point
+		cv.node = &wd.node
 		cv.setRegion()
 		return nil
 	}}, func(wd *widget) string {
@@ -409,7 +587,7 @@ func registerCanvas() {
 		}
 		return fmt.Sprintf("tk::Canvas(%d items)", len(wd.canvas.items))
 	})
-	for _, kind := range []string{"line", "rect", "oval", "polygon", "text"} {
+	for _, kind := range []string{"line", "rect", "oval", "arc", "polygon", "text", "image"} {
 		Canvas.Methods[kind] = create(kind)
 	}
 	// coords(id): the item's coordinates, as a vector.
@@ -438,12 +616,12 @@ func registerCanvas() {
 		cv.redraw(i)
 		return value.ObjectValue(this), nil
 	})
-	// move(id, dx, dy): the coordinates change; the item stays where it is
-	// among the others.
+	// move(id or tag, dx, dy): the coordinates change; the items stay where
+	// they are among the others.
 	Canvas.Methods["move"] = canvasMethod("move", 3, 3, func(a native.Args, this *value.ObjectObj, cv *canvas) (value.Value, error) {
-		i, err := cv.find(a, 0)
-		if err != nil {
-			return value.NilValue, err
+		at, err := cv.targets(a, 0)
+		if err != nil || len(at) == 0 {
+			return value.ObjectValue(this), err
 		}
 		var d [2]float64
 		for j := range d {
@@ -453,65 +631,178 @@ func registerCanvas() {
 			}
 			d[j] = x
 		}
-		it := cv.items[i]
-		moved := append([]float64(nil), it.coords...)
-		for j := range moved {
-			moved[j] += d[j%2]
-			if math.Abs(moved[j]) > maxCoordinate {
-				return value.NilValue, a.Errorf(value.ValueError, "the item would leave the canvas (coordinates from -1e6 to 1e6)")
+		moved := make([][]float64, len(at))
+		for k, i := range at {
+			moved[k] = append([]float64(nil), cv.items[i].coords...)
+			for j := range moved[k] {
+				moved[k][j] += d[j%2]
+				if math.Abs(moved[k][j]) > maxCoordinate {
+					return value.NilValue, a.Errorf(value.ValueError, "the item would leave the canvas (coordinates from -1e6 to 1e6)")
+				}
 			}
 		}
-		it.coords = moved
-		cv.redraw(i)
+		for k, i := range at {
+			cv.items[i].coords = moved[k]
+		}
+		cv.redraw(at[0])
 		return value.ObjectValue(this), nil
 	})
-	// configureitem(id, options)
+	// configureitem(id or tag, options): each option must be one of every
+	// item's kind.
 	Canvas.Methods["configureitem"] = canvasMethod("configureitem", 2, 2, func(a native.Args, this *value.ObjectObj, cv *canvas) (value.Value, error) {
-		i, err := cv.find(a, 0)
-		if err != nil {
-			return value.NilValue, err
+		at, err := cv.targets(a, 0)
+		if err != nil || len(at) == 0 {
+			return value.ObjectValue(this), err
 		}
-		values, err := readValues(a, 1, canvasItemOptions[cv.items[i].kind])
-		if err != nil {
-			return value.NilValue, err
+		values := make([][]optionValue, len(at))
+		for k, i := range at {
+			if values[k], err = readValues(a, 1, canvasItemOptions[cv.items[i].kind]); err != nil {
+				return value.NilValue, err
+			}
 		}
-		it := cv.items[i]
-		return value.ObjectValue(this), cv.change(a, i, func() func() {
-			old := append([]optionValue(nil), it.opts...)
-			it.set(values)
-			return func() { it.opts = old }
+		return value.ObjectValue(this), cv.change(a, at[0], func() func() {
+			old := make([][]optionValue, len(at))
+			for k, i := range at {
+				old[k] = append([]optionValue(nil), cv.items[i].opts...)
+				cv.items[i].set(values[k])
+			}
+			return func() {
+				for k, i := range at {
+					cv.items[i].opts = old[k]
+				}
+			}
 		})
 	})
-	// raise(id), lower(id): to the top, to the bottom.
+	// raise(id or tag), lower(id or tag): to the top, to the bottom (the
+	// items of a tag keep their order among themselves).
 	Canvas.Methods["raise"] = canvasMethod("raise", 1, 1, func(a native.Args, this *value.ObjectObj, cv *canvas) (value.Value, error) {
-		i, err := cv.find(a, 0)
-		if err != nil {
-			return value.NilValue, err
+		at, err := cv.targets(a, 0)
+		if err != nil || len(at) == 0 {
+			return value.ObjectValue(this), err
 		}
-		it := cv.items[i]
-		cv.items = append(append(cv.items[:i:i], cv.items[i+1:]...), it)
-		cv.redraw(i)
+		moved, rest := cv.split(at)
+		cv.items = append(rest, moved...)
+		cv.redraw(at[0])
 		return value.ObjectValue(this), nil
 	})
 	Canvas.Methods["lower"] = canvasMethod("lower", 1, 1, func(a native.Args, this *value.ObjectObj, cv *canvas) (value.Value, error) {
+		at, err := cv.targets(a, 0)
+		if err != nil || len(at) == 0 {
+			return value.ObjectValue(this), err
+		}
+		moved, rest := cv.split(at)
+		cv.items = append(moved, rest...)
+		cv.redraw(0)
+		return value.ObjectValue(this), nil
+	})
+	// remove(id or tag), clear()
+	Canvas.Methods["remove"] = canvasMethod("remove", 1, 1, func(a native.Args, this *value.ObjectObj, cv *canvas) (value.Value, error) {
+		at, err := cv.targets(a, 0)
+		if err != nil || len(at) == 0 {
+			return value.ObjectValue(this), err
+		}
+		moved, rest := cv.split(at)
+		for _, it := range moved {
+			cv.c.Delete(it.tag())
+		}
+		cv.items = rest
+		cv.setRegion()
+		return value.ObjectValue(this), nil
+	})
+	// tag(id, tag), untag(id, tag), tagged(tag): an item's tags, and the
+	// ids of the items with a tag (bottom to top).
+	Canvas.Methods["tag"] = canvasMethod("tag", 2, 2, func(a native.Args, this *value.ObjectObj, cv *canvas) (value.Value, error) {
 		i, err := cv.find(a, 0)
+		if err != nil {
+			return value.NilValue, err
+		}
+		tag, err := tagArg(a, 1)
+		if err != nil {
+			return value.NilValue, err
+		}
+		if it := cv.items[i]; !it.hasTag(tag) {
+			it.tags = append(it.tags, tag)
+		}
+		return value.ObjectValue(this), nil
+	})
+	Canvas.Methods["untag"] = canvasMethod("untag", 2, 2, func(a native.Args, this *value.ObjectObj, cv *canvas) (value.Value, error) {
+		i, err := cv.find(a, 0)
+		if err != nil {
+			return value.NilValue, err
+		}
+		tag, err := tagArg(a, 1)
 		if err != nil {
 			return value.NilValue, err
 		}
 		it := cv.items[i]
-		cv.items = append([]*item{it}, append(cv.items[:i:i], cv.items[i+1:]...)...)
-		cv.redraw(0)
+		for j, t := range it.tags {
+			if t == tag {
+				it.tags = append(it.tags[:j:j], it.tags[j+1:]...)
+				break
+			}
+		}
 		return value.ObjectValue(this), nil
 	})
-	// remove(id), clear()
-	Canvas.Methods["remove"] = canvasMethod("remove", 1, 1, func(a native.Args, this *value.ObjectObj, cv *canvas) (value.Value, error) {
-		i, err := cv.find(a, 0)
+	Canvas.Methods["tagged"] = canvasMethod("tagged", 1, 1, func(a native.Args, this *value.ObjectObj, cv *canvas) (value.Value, error) {
+		tag, err := tagArg(a, 0)
 		if err != nil {
 			return value.NilValue, err
 		}
-		cv.c.Delete(cv.items[i].tag())
-		cv.items = append(cv.items[:i:i], cv.items[i+1:]...)
-		cv.setRegion()
+		var v []value.Value
+		for _, it := range cv.items {
+			if it.hasTag(tag) {
+				v = append(v, value.MakeInt(it.id))
+			}
+		}
+		return value.MakeVector(v), nil
+	})
+	// binditem(id or tag, sequence, f): f(e) for events of sequence on that
+	// item or those items (nil: none); e also has "item", the id.
+	Canvas.Methods["binditem"] = canvasMethod("binditem", 3, 3, func(a native.Args, this *value.ObjectObj, cv *canvas) (value.Value, error) {
+		b := itemBind{}
+		var err error
+		switch a.V[0].Kind() {
+		case value.Int:
+			if _, err = cv.find(a, 0); err != nil {
+				return value.NilValue, err
+			}
+			b.id = a.V[0].AsInt()
+		case value.String:
+			if b.tag, err = tagArg(a, 0); err != nil {
+				return value.NilValue, err
+			}
+		default:
+			return value.NilValue, a.TypeError(0, "an item's id or a tag")
+		}
+		seq, err := a.String(1)
+		if err != nil {
+			return value.NilValue, err
+		}
+		if !sequenceRE.MatchString(seq) {
+			return value.NilValue, a.Errorf(value.ValueError, "%s is not an event sequence such as \"<Button-1>\" or \"<B1-Motion>\"", value.Quote(seq))
+		}
+		if b.f, err = handlerArg(a, 2); err != nil {
+			return value.NilValue, err
+		}
+		if cv.binds == nil {
+			cv.binds = map[string][]itemBind{}
+		}
+		if _, ok := cv.binds[seq]; !ok {
+			tk.BindAppend(cv.c.Window, seq, tk.Command(func(e *tk.Event) { cv.dispatch(seq, e) }))
+			if err := tkError(); err != nil {
+				return value.NilValue, a.Errorf(TkError, "%v", err)
+			}
+		}
+		list := cv.binds[seq][:0:0]
+		for _, old := range cv.binds[seq] {
+			if old.id != b.id || old.tag != b.tag {
+				list = append(list, old)
+			}
+		}
+		if !b.f.IsNil() {
+			list = append(list, b)
+		}
+		cv.binds[seq] = list
 		return value.ObjectValue(this), nil
 	})
 	Canvas.Methods["clear"] = canvasMethod("clear", 0, 0, func(a native.Args, this *value.ObjectObj, cv *canvas) (value.Value, error) {
@@ -538,10 +829,8 @@ func registerCanvas() {
 			}
 			p[j] = x
 		}
-		for i := len(cv.items) - 1; i >= 0; i-- {
-			if cv.hit(cv.items[i], p[0], p[1]) {
-				return value.MakeInt(cv.items[i].id), nil
-			}
+		if it := cv.itemAt(p[0], p[1]); it != nil {
+			return value.MakeInt(it.id), nil
 		}
 		return value.NilValue, nil
 	})

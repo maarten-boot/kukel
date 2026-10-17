@@ -1704,8 +1704,8 @@ closed)`), a frame as `tk::Frame`.
 
 | Constructor or member function | Description |
 |---|---|
-| `new tk::Label(parent, text [, options])` | A text. Options: `width` (characters), `font`, `anchor` (where the text sits: `"w"`, `"center"`, `"ne"`, ...), `justify` (`"left"`, `"center"`, `"right"`: of several lines), `wraplength` (pixels before a line wraps), `padding`, `state` (`"normal"`, `"disabled"`) |
-| `new tk::Button(parent, text [, options])` | A button. Options: `width`, `padding`, `state`, `font` |
+| `new tk::Label(parent, text [, options])` | A text. Options: `width` (characters), `font`, `image`, `compound` (below), `anchor` (where the text sits: `"w"`, `"center"`, `"ne"`, ...), `justify` (`"left"`, `"center"`, `"right"`: of several lines), `wraplength` (pixels before a line wraps), `padding`, `state` (`"normal"`, `"disabled"`) |
+| `new tk::Button(parent, text [, options])` | A button. Options: `width`, `padding`, `state`, `font`, `image`, `compound` (below) |
 | `b->onclick(f)` | `f()` is called when the button is clicked (nil: nothing) |
 | `b->invoke()` | Calls the `onclick` handler as a click would, at once: its result and exception come back |
 | `new tk::Entry(parent [, text] [, options])` | A field for a line of text. Options: `width`, `font`, `justify`, `show` (a character shown for each typed one, as `"*"` for passwords; `""` shows the text), `state` (also `"readonly"`) |
@@ -1780,6 +1780,19 @@ main() {
 }
 ```
 
+**Images.**
+
+| Constructor or member function | Description |
+|---|---|
+| `new tk::Image(path)` | The picture in a PNG or GIF file (at most 64 MB). The file is read by kukel: an `IOError` when it cannot be, a `ValueError` when it is not PNG or GIF (or Tk cannot read it) |
+| `img->width()`, `img->height()` | Its size in pixels |
+
+Labels and buttons show an image with the option `image`, and the option
+`compound` says where it goes next to the text: `"left"`, `"right"`,
+`"top"`, `"bottom"`, `"center"`, `"image"` (the image only), `"text"`
+(the text only), or `"none"` (the image instead of the text). On a canvas,
+`c->image(x, y, img)`. An image prints as `tk::Image("path", 40x30)`.
+
 **Canvas.** A surface to draw on. Each item drawn has an id (an int);
 coordinates are numbers (pixels, from -1e6 to 1e6), points are vectors
 `[x1, y1, x2, y2, ...]`.
@@ -1789,18 +1802,23 @@ coordinates are numbers (pixels, from -1e6 to 1e6), points are vectors
 | `new tk::Canvas(parent [, options])` | Options: `width`, `height`, `background` (a colour), and in the constructor `scroll` (the scrollbars reach everything drawn) |
 | `c->line(points [, options])` | A line through at least 2 points. Options: `color`, `width`, `arrow` (`"none"`, `"first"`, `"last"`, `"both"`), `smooth` (`true`: a curve) |
 | `c->rect(x1, y1, x2, y2 [, options])`, `c->oval(x1, y1, x2, y2 [, options])` | A rectangle, or the oval in it. Options: `fill`, `outline` (colours; `""`: none), `width` (of the outline) |
+| `c->arc(x1, y1, x2, y2 [, options])` | A part of the oval in that rectangle. Options as for `rect`, and `start` (degrees, counterclockwise from 3 o'clock; 0 when left out), `extent` (degrees; 90 when left out, negative: clockwise), `style` (`"pieslice"`, the default, `"chord"`, `"arc"`: the curve only) |
 | `c->polygon(points [, options])` | A polygon of at least 3 points; options as for `rect` |
 | `c->text(x, y, s [, options])` | A text at `x, y`. Options: `color`, `font`, `anchor` (which point of the text is at `x, y`: `"center"`, the default, `"nw"`, ...), `justify`, `width` (pixels before a line wraps) |
+| `c->image(x, y, img [, options])` | A `tk::Image` at `x, y`. Option: `anchor` (as for `text`) |
 | `c->coords(id)`, `c->setcoords(id, ...)` | An item's coordinates (a vector); set as the item was made (a vector of points, or the numbers) |
-| `c->move(id, dx, dy)` | Moves an item |
-| `c->configureitem(id, options)` | Changes an item's options |
-| `c->raise(id)`, `c->lower(id)` | Puts an item above, or below, all the others |
-| `c->remove(id)`, `c->clear()` | Removes an item, or all |
+| `c->move(item, dx, dy)` | Moves an item; `item` is an id, or a tag for all the items with it (none: nothing happens) |
+| `c->configureitem(item, options)` | Changes the options of an item, or of the items with a tag (each option must be one of every item's kind) |
+| `c->raise(item)`, `c->lower(item)` | Puts an item (or the items with a tag, in their order) above, or below, all the others |
+| `c->remove(item)`, `c->clear()` | Removes an item (or the items with a tag), or all |
+| `c->tag(id, tag)`, `c->untag(id, tag)`, `c->tagged(tag)` | Gives an item a tag, or takes it away; the ids of the items with a tag (bottom to top). A tag is a name of letters, digits and `_` not starting with a digit; an item may have several |
+| `c->binditem(item, sequence, f)` | Calls `f(e)` for events of `sequence` on an item, or on any item with a tag (nil: none); `e` also has `item`, the item's id. The item is the topmost one under the mouse, or while a mouse button is down, the one it went down on (so a drag follows the item). For mouse events: item-level `<Enter>` and `<Leave>` do not exist |
 | `c->items()` | The ids, from the bottom to the top |
-| `c->itemat(x, y)` | The id of the topmost item at that point (on a rectangle, oval or polygon, near a line, on a text), or nil |
+| `c->itemat(x, y)` | The id of the topmost item at that point (on a rectangle, oval, polygon or arc's slice, near a line, on a text or image), or nil |
 
 An unknown colour name is a `TkError`, and changes nothing. Mouse events
-come from `bind` on the canvas; dragging an item:
+come from `bind` on the canvas, or from `binditem` on items; dragging an
+item:
 
 ```
 use tk;

@@ -368,13 +368,15 @@ var (
 		"Label": {
 			optWidth,
 			fontOption(""),
+			optImage,
+			optCompound,
 			{"anchor", oneOf("n", "ne", "e", "se", "s", "sw", "w", "nw", "center"), func(x any) tk.Opt { return tk.Anchor(x) }},
 			optJustify,
 			{"wraplength", pixels, func(x any) tk.Opt { return tk.Wraplength(x) }},
 			optPadding,
 			optState,
 		},
-		"Button": {optWidth, optPadding, optState, fontOption("TButton")},
+		"Button": {optWidth, optPadding, optState, fontOption("TButton"), optImage, optCompound},
 		"Entry": {
 			optWidth,
 			fontOption(""),

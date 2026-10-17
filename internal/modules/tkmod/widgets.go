@@ -333,4 +333,5 @@ func registerWidgets() {
 	registerChoices()
 	registerCanvas()
 	registerInputs()
+	registerImages()
 }
