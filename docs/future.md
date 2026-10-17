@@ -405,8 +405,13 @@ Design notes:
   (`kukel-tk`), so the default `kukel` stays small.
 
 **F-11** Which binding: pure Go (`tk9.0`), cgo, or a `wish` pipe?
+*Answered: pure Go, `modernc.org/tk9.0`.*
 **F-12** Tk specifically, or open to another toolkit (Fyne, a web UI)?
+*Answered: Tk, with themed (ttk) widgets.*
 **F-13** Part of `kukel` behind a build tag, or a separate `kukel-tk`?
+*Answered: behind the build tag `tk`; releases add `kukel-tk` archives
+built with it. The rest of the design (widgets, `configure`, `bind`,
+`grid`, no raw Tcl) is in TODO.md Q67.*
 
 ---
 

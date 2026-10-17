@@ -248,9 +248,14 @@ func Check(name string, args []value.Value, min, max int) (Args, error) {
 // Has reports whether optional argument i was passed.
 func (a Args) Has(i int) bool { return i < len(a.V) }
 
-// TypeError is the error for argument i of the wrong type.
+// TypeError is the error for argument i of the wrong type: it names the
+// kind of the argument, or for an object its class.
 func (a Args) TypeError(i int, want string) error {
-	return value.Errorf(value.TypeError, "%s: argument %d must be %s, not %s", a.Name, i+1, want, a.V[i].Kind())
+	got := a.V[i].Kind().String()
+	if a.V[i].Kind() == value.Object {
+		got = a.V[i].AsObject().Class.Name
+	}
+	return value.Errorf(value.TypeError, "%s: argument %d must be %s, not %s", a.Name, i+1, want, got)
 }
 
 // String returns argument i, which must be a string.

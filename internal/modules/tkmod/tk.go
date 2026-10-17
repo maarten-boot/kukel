@@ -3,7 +3,9 @@
 package tkmod
 
 import (
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,16 +17,16 @@ import (
 )
 
 // TkError is the kind of the exceptions for what Tk cannot do: start
-// without a display, or anything after the first window was closed.
+// without a display, mix pack and grid in one container, or anything after
+// the first window was closed.
 const TkError = "TkError"
 
 // pollEvery is how often events::run() has Tk handle its events.
 const pollEvery = 10 * time.Millisecond
 
-// Tk is used from one goroutine only: that of the interpreter that used it
-// first, locked to its OS thread. Everything below runs there, also the
-// handlers (inside tk.Update, called by the event loop), so there is no
-// locking.
+// Tk is used from one goroutine only: the main goroutine, locked to the
+// main thread. Everything below runs there, also the handlers (inside
+// tk.Update, called by the event loop), so there is no locking.
 var gui struct {
 	env        value.Env // the interpreter that uses Tk
 	loop       *eventsmod.Loop
@@ -46,7 +48,8 @@ func init() {
 	register()
 }
 
-// tkError takes the error Tk collected, if any: its first line.
+// tkError takes the error Tk collected, if any: Tk's message, without the
+// Tcl command tk9.0 puts in front of it.
 func tkError() error {
 	err := tk.Error
 	tk.Error = nil
@@ -54,6 +57,9 @@ func tkError() error {
 		return nil
 	}
 	msg, _, _ := strings.Cut(err.Error(), "\n")
+	if i := strings.LastIndex(msg, " err="); i >= 0 {
+		msg = msg[i+len(" err="):]
+	}
 	return &tkFailure{msg}
 }
 
@@ -118,12 +124,91 @@ func poll() error {
 }
 
 // ----------------------------------------------------------------------
+// What windows and widgets share
+
+// node is the part of a window or widget that bind and the containers'
+// methods use.
+type node struct {
+	w     *tk.Window
+	win   *window                // the window it is in (a window: itself)
+	binds map[string]value.Value // handlers by event sequence
+}
+
+// nodeOf gives the node of a tk object.
+func nodeOf(this *value.ObjectObj) *node {
+	switch st := this.State.(type) {
+	case *window:
+		return &st.node
+	case *widget:
+		return &st.node
+	}
+	return nil
+}
+
+// sequenceRE are the event sequences bind takes: one or more events such
+// as <Key>, <Control-Key-s>, <Double-Button-1>, and virtual events <<Name>>.
+var sequenceRE = regexp.MustCompile(`^(?:<[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*>|<<[A-Za-z0-9_]+>>)+$`)
+
+// bind sets the handler of the event sequence seq (nil: none). The first
+// handler of a sequence adds a Tk binding, after those Tk and the module
+// have (so a widget keeps working as before); later ones replace the
+// handler it calls.
+func (n *node) bind(a native.Args, seq string, f value.Value) error {
+	if !sequenceRE.MatchString(seq) {
+		return a.Errorf(value.ValueError, "%s is not an event sequence such as \"<Key>\", \"<Button-1>\" or \"<Control-Key-s>\"", value.Quote(seq))
+	}
+	if _, ok := n.binds[seq]; !ok {
+		tk.BindAppend(n.w, seq, tk.Command(func(e *tk.Event) {
+			if f := n.binds[seq]; !f.IsNil() {
+				call(f, eventMap(e))
+			}
+		}))
+		if err := tkError(); err != nil {
+			return a.Errorf(TkError, "%v", err)
+		}
+		if n.binds == nil {
+			n.binds = map[string]value.Value{}
+		}
+	}
+	n.binds[seq] = f
+	return nil
+}
+
+// eventMap is what a bind handler gets: key and char (key events), x and
+// y (the mouse, relative to the widget), delta (the mouse wheel), width
+// and height (Configure events). What the event does not have is nil.
+func eventMap(e *tk.Event) value.Value {
+	m := value.NewMap()
+	set := func(k string, v value.Value) { m.Set(value.MakeString(k), v) } // string keys cannot fail
+	text := func(s string) value.Value {
+		if s == "" || s == "??" {
+			return value.NilValue
+		}
+		return value.MakeString(s)
+	}
+	number := func(s string) value.Value {
+		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+			return value.MakeInt(n)
+		}
+		return value.NilValue
+	}
+	set("key", text(e.Keysym))
+	set("char", text(e.Char))
+	set("x", value.MakeInt(int64(e.X)))
+	set("y", value.MakeInt(int64(e.Y)))
+	set("delta", value.MakeInt(int64(e.Delta)))
+	set("width", number(e.Width))
+	set("height", number(e.Height))
+	return value.MakeMap(m)
+}
+
+// ----------------------------------------------------------------------
 // Windows
 
 // window is the state of a tk::Window object: Tk's main window (the
 // first one), or a toplevel window.
 type window struct {
-	w       *tk.Window
+	node
 	title   string
 	root    bool
 	closed  bool
@@ -146,6 +231,7 @@ func newWindow(env value.Env, this *value.ObjectObj, args []value.Value) (value.
 		return value.NilValue, err
 	}
 	win := &window{title: title}
+	win.win = win
 	if !gui.rootUsed {
 		win.w, win.root = tk.App, true
 		gui.rootUsed = true
@@ -203,98 +289,22 @@ func (win *window) gone() {
 // Window is the class tk::Window.
 var Window = &native.Class{Name: "Window"}
 
-// ----------------------------------------------------------------------
-// Widgets
-
-// widget is the state of a tk::Label, tk::Button or tk::Entry object.
-type widget struct {
-	class   string
-	w       *tk.Window
-	win     *window
-	text    string // of a label or button
-	onclick value.Value
-	onenter value.Value
-}
-
-var (
-	// Label is the class tk::Label: a line of text.
-	Label = &native.Class{Name: "Label"}
-	// Button is the class tk::Button.
-	Button = &native.Class{Name: "Button"}
-	// Entry is the class tk::Entry: a field for a line of text.
-	Entry = &native.Class{Name: "Entry"}
-)
-
-// newWidget makes the constructor of a widget class: new tk::Label(window,
-// text), new tk::Button(window, text), new tk::Entry(window [, text]).
-func newWidget(class string, minArgs int) value.NativeMethod {
-	full := "tk::" + class + "::" + class
-	return func(env value.Env, this *value.ObjectObj, args []value.Value) (value.Value, error) {
-		a, err := native.Check(full, args, minArgs, 2)
-		if err != nil {
-			return value.NilValue, err
-		}
-		st, err := a.Object(0, Window)
-		if err != nil {
-			return value.NilValue, err
-		}
-		win := st.(*window)
-		text := ""
-		if a.Has(1) {
-			if text, err = a.String(1); err != nil {
-				return value.NilValue, err
-			}
-		}
-		if err := start(a, env); err != nil {
-			return value.NilValue, err
-		}
-		if win.closed {
-			return value.NilValue, a.Errorf(value.ValueError, "the window is closed")
-		}
-		wd := &widget{class: class, win: win, text: text}
-		switch class {
-		case "Label":
-			wd.w = win.w.Label(tk.Txt(text)).Window
-		case "Button":
-			wd.w = win.w.Button(tk.Txt(text), tk.Command(func() {
-				if !wd.onclick.IsNil() {
-					call(wd.onclick)
-				}
-			})).Window
-		case "Entry":
-			wd.w = win.w.Entry(tk.Textvariable(text)).Window
-			tk.Bind(wd.w, "<Return>", tk.Command(func() {
-				if !wd.onenter.IsNil() {
-					call(wd.onenter, value.MakeString(wd.w.Textvariable()))
-				}
-			}))
-		}
-		if err := tkError(); err != nil {
-			return value.NilValue, a.Errorf(TkError, "%v", err)
-		}
-		this.State = wd
-		return value.NilValue, nil
-	}
-}
-
-// widgetMethod makes a member function of a widget: it refuses a widget
-// whose window is closed.
-func widgetMethod(class, name string, min, max int, fn func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error)) value.NativeMethod {
-	full := "tk::" + class + "::" + name
+// method makes a member function of a window or widget: it checks the
+// argument count, refuses an object whose window is closed, and turns
+// what Tk could not do into a TkError.
+func method(full string, min, max int, fn func(a native.Args, this *value.ObjectObj, n *node) (value.Value, error)) value.NativeMethod {
 	return func(env value.Env, this *value.ObjectObj, args []value.Value) (value.Value, error) {
 		a, err := native.Check(full, args, min, max)
 		if err != nil {
 			return value.NilValue, err
 		}
-		wd := this.State.(*widget)
-		if wd.win.closed {
+		n := nodeOf(this)
+		if n.win.closed {
 			return value.NilValue, a.Errorf(value.ValueError, "the window is closed")
 		}
-		v, err := fn(a, this, wd)
-		if err == nil {
-			if terr := tkError(); terr != nil {
-				err = a.Errorf(TkError, "%v", terr)
-			}
+		v, err := fn(a, this, n)
+		if terr := tkError(); err == nil && terr != nil {
+			err = a.Errorf(TkError, "%v", terr)
 		}
 		return v, err
 	}
@@ -308,108 +318,51 @@ func callable(v value.Value) bool {
 	return false
 }
 
-// handlerArg reads argument 0 as a handler: a function, or nil for none.
-func handlerArg(a native.Args) (value.Value, error) {
-	if !a.V[0].IsNil() && !callable(a.V[0]) {
-		return value.NilValue, a.TypeError(0, "a function or nil")
+// handlerArg reads argument i as a handler: a function, or nil for none.
+func handlerArg(a native.Args, i int) (value.Value, error) {
+	if !a.V[i].IsNil() && !callable(a.V[i]) {
+		return value.NilValue, a.TypeError(i, "a function or nil")
 	}
-	return a.V[0], nil
+	return a.V[i], nil
 }
 
-// The member functions every widget has: text(), settext(s), pack([opts]).
-func commonMethods(class string) map[string]value.NativeMethod {
-	return map[string]value.NativeMethod{
-		"text": widgetMethod(class, "text", 0, 0, func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error) {
-			if wd.class == "Entry" {
-				return value.MakeString(wd.w.Textvariable()), nil
-			}
-			return value.MakeString(wd.text), nil
-		}),
-		"settext": widgetMethod(class, "settext", 1, 1, func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error) {
-			s, err := a.String(0)
-			if err != nil {
-				return value.NilValue, err
-			}
-			if wd.class == "Entry" {
-				wd.w.Configure(tk.Textvariable(s))
-			} else {
-				wd.text = s
-				wd.w.Configure(tk.Txt(s))
-			}
-			return value.ObjectValue(this), nil
-		}),
-		"pack": widgetMethod(class, "pack", 0, 1, func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error) {
-			opts := []tk.Opt{wd.w}
-			if a.Has(0) {
-				more, err := packOptions(a)
-				if err != nil {
-					return value.NilValue, err
-				}
-				opts = append(opts, more...)
-			}
-			tk.Pack(opts...)
-			return value.ObjectValue(this), nil
-		}),
-	}
-}
-
-// packOptions reads the options of pack: side, fill, expand, padx, pady.
-func packOptions(a native.Args) ([]tk.Opt, error) {
-	if a.V[0].Kind() != value.Map {
-		return nil, a.TypeError(0, "a map of options")
-	}
-	var opts []tk.Opt
-	var bad error
-	oneOf := func(key, s string, allowed ...string) bool {
-		for _, x := range allowed {
-			if s == x {
-				return true
-			}
+// bindMethod is bind(sequence, f), which windows and all widgets have.
+func bindMethod(class string) value.NativeMethod {
+	return method("tk::"+class+"::bind", 2, 2, func(a native.Args, this *value.ObjectObj, n *node) (value.Value, error) {
+		seq, err := a.String(0)
+		if err != nil {
+			return value.NilValue, err
 		}
-		bad = a.Errorf(value.ValueError, "option %s: %q is not one of %s", key, s, strings.Join(allowed, ", "))
-		return false
-	}
-	a.V[0].AsMap().Each(func(k, v value.Value) {
-		if bad != nil {
-			return
+		f, err := handlerArg(a, 1)
+		if err != nil {
+			return value.NilValue, err
 		}
-		key := k.String()
-		switch {
-		case k.Kind() != value.String:
-			bad = a.Errorf(value.ValueError, "an option is named by a string, not %s", k.Kind())
-		case key == "side" || key == "fill":
-			if v.Kind() != value.String {
-				bad = a.Errorf(value.TypeError, "option %s must be a string, not %s", key, v.Kind())
-				return
-			}
-			s := v.AsString()
-			if key == "side" && oneOf(key, s, "top", "bottom", "left", "right") {
-				opts = append(opts, tk.Side(s))
-			}
-			if key == "fill" && oneOf(key, s, "none", "x", "y", "both") {
-				opts = append(opts, tk.Fill(s))
-			}
-		case key == "expand":
-			if v.Kind() != value.Bool {
-				bad = a.Errorf(value.TypeError, "option expand must be true or false, not %s", v.Kind())
-				return
-			}
-			opts = append(opts, tk.Expand(v.AsBool()))
-		case key == "padx" || key == "pady":
-			if v.Kind() != value.Int || v.AsInt() < 0 || v.AsInt() > 10000 {
-				bad = a.Errorf(value.ValueError, "option %s must be a number of pixels (0 to 10000), not %s", key, v.String())
-				return
-			}
-			if key == "padx" {
-				opts = append(opts, tk.Padx(v.AsInt()))
-			} else {
-				opts = append(opts, tk.Pady(v.AsInt()))
-			}
-		default:
-			bad = a.Errorf(value.ValueError, "unknown option %q (the options are side, fill, expand, padx and pady)", key)
-		}
+		return value.ObjectValue(this), n.bind(a, seq, f)
 	})
-	return opts, bad
+}
+
+// gridConfigure makes rowconfigure(i, options) or columnconfigure(i,
+// options) of a container (a window or a frame).
+func gridConfigure(class, what string) value.NativeMethod {
+	return method("tk::"+class+"::"+what, 2, 2, func(a native.Args, this *value.ObjectObj, n *node) (value.Value, error) {
+		i, err := a.Int(0)
+		if err != nil {
+			return value.NilValue, err
+		}
+		if i < 0 || i > maxCells {
+			return value.NilValue, a.Errorf(value.ValueError, "%s %d is not from 0 to %d", strings.TrimSuffix(what, "configure"), i, maxCells)
+		}
+		opts, err := readOptions(a, 1, gridConfigureOptions)
+		if err != nil {
+			return value.NilValue, err
+		}
+		if what == "rowconfigure" {
+			tk.GridRowConfigure(n.w, i, opts...)
+		} else {
+			tk.GridColumnConfigure(n.w, i, opts...)
+		}
+		return value.ObjectValue(this), nil
+	})
 }
 
 func register() {
@@ -421,21 +374,21 @@ func register() {
 			}
 			return value.MakeString(this.State.(*window).title), nil
 		},
-		"settitle": windowMethod("settitle", 1, func(a native.Args, this *value.ObjectObj, win *window) (value.Value, error) {
+		"settitle": method("tk::Window::settitle", 1, 1, func(a native.Args, this *value.ObjectObj, n *node) (value.Value, error) {
 			s, err := a.String(0)
 			if err != nil {
 				return value.NilValue, err
 			}
-			win.title = s
-			win.w.WmTitle(s)
+			n.win.title = s
+			n.w.WmTitle(s)
 			return value.ObjectValue(this), nil
 		}),
-		"onclose": windowMethod("onclose", 1, func(a native.Args, this *value.ObjectObj, win *window) (value.Value, error) {
-			f, err := handlerArg(a)
+		"onclose": method("tk::Window::onclose", 1, 1, func(a native.Args, this *value.ObjectObj, n *node) (value.Value, error) {
+			f, err := handlerArg(a, 0)
 			if err != nil {
 				return value.NilValue, err
 			}
-			win.onclose = f
+			n.win.onclose = f
 			return value.NilValue, nil
 		}),
 		"close": func(env value.Env, this *value.ObjectObj, args []value.Value) (value.Value, error) {
@@ -455,6 +408,9 @@ func register() {
 			}
 			return value.MakeBool(this.State.(*window).closed), nil
 		},
+		"bind":            bindMethod("Window"),
+		"rowconfigure":    gridConfigure("Window", "rowconfigure"),
+		"columnconfigure": gridConfigure("Window", "columnconfigure"),
 	}
 	Window.Show = func(o *value.ObjectObj) string {
 		win := o.State.(*window)
@@ -463,56 +419,11 @@ func register() {
 		}
 		return "tk::Window(" + value.Quote(win.title) + ")"
 	}
-
-	Label.New = newWidget("Label", 2)
-	Label.Methods = commonMethods("Label")
-	Button.New = newWidget("Button", 2)
-	Button.Methods = commonMethods("Button")
-	Button.Methods["onclick"] = widgetMethod("Button", "onclick", 1, 1, func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error) {
-		f, err := handlerArg(a)
-		if err != nil {
-			return value.NilValue, err
-		}
-		wd.onclick = f
-		return value.ObjectValue(this), nil
-	})
-	// invoke() calls the onclick handler as a click would, at once: its
-	// result and exception come back to the caller.
-	Button.Methods["invoke"] = widgetMethod("Button", "invoke", 0, 0, func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error) {
-		if wd.onclick.IsNil() {
-			return value.NilValue, nil
-		}
-		return gui.env.Call(wd.onclick, nil)
-	})
-	Entry.New = newWidget("Entry", 1)
-	Entry.Methods = commonMethods("Entry")
-	// focus(): the keys typed go to the entry.
-	Entry.Methods["focus"] = widgetMethod("Entry", "focus", 0, 0, func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error) {
-		tk.Focus(wd.w)
-		return value.ObjectValue(this), nil
-	})
-	Entry.Methods["onenter"] = widgetMethod("Entry", "onenter", 1, 1, func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error) {
-		f, err := handlerArg(a)
-		if err != nil {
-			return value.NilValue, err
-		}
-		wd.onenter = f
-		return value.ObjectValue(this), nil
-	})
-	for _, c := range []*native.Class{Label, Button, Entry} {
-		c.Show = func(o *value.ObjectObj) string {
-			wd := o.State.(*widget)
-			text := wd.text
-			if wd.class == "Entry" && !wd.win.closed {
-				text = wd.w.Textvariable()
-			}
-			return "tk::" + wd.class + "(" + value.Quote(text) + ")"
-		}
-	}
+	registerWidgets()
 
 	native.Register(&native.Module{
 		Name: "tk",
-		Doc:  "desktop windows with Tk widgets (labels, buttons, entries) and Kukel handlers",
+		Doc:  "desktop windows with themed Tk widgets (frames, labels, buttons, entries), pack and grid, and Kukel handlers",
 		Funcs: map[string]native.Func{
 			// available(): whether Tk can start (a display is there); it
 			// starts Tk.
@@ -524,27 +435,6 @@ func register() {
 				return value.MakeBool(start(a, env) == nil), nil
 			},
 		},
-		Classes: []*native.Class{Window, Label, Button, Entry},
+		Classes: []*native.Class{Window, Frame, Label, Button, Entry},
 	})
-}
-
-func windowMethod(name string, n int, fn func(a native.Args, this *value.ObjectObj, win *window) (value.Value, error)) value.NativeMethod {
-	full := "tk::Window::" + name
-	return func(env value.Env, this *value.ObjectObj, args []value.Value) (value.Value, error) {
-		a, err := native.Check(full, args, n, n)
-		if err != nil {
-			return value.NilValue, err
-		}
-		win := this.State.(*window)
-		if win.closed {
-			return value.NilValue, a.Errorf(value.ValueError, "the window is closed")
-		}
-		v, err := fn(a, this, win)
-		if err == nil {
-			if terr := tkError(); terr != nil {
-				err = a.Errorf(TkError, "%v", terr)
-			}
-		}
-		return v, err
-	}
 }
