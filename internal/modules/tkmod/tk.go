@@ -132,6 +132,10 @@ type node struct {
 	w     *tk.Window
 	win   *window                // the window it is in (a window: itself)
 	binds map[string]value.Value // handlers by event sequence
+
+	// point turns a position in the widget into the x and y a handler
+	// gets (a canvas: its coordinates); nil: as they are.
+	point func(x, y int) (value.Value, value.Value)
 }
 
 // nodeOf gives the node of a tk object.
@@ -160,7 +164,7 @@ func (n *node) bind(a native.Args, seq string, f value.Value) error {
 	if _, ok := n.binds[seq]; !ok {
 		tk.BindAppend(n.w, seq, tk.Command(func(e *tk.Event) {
 			if f := n.binds[seq]; !f.IsNil() {
-				call(f, eventMap(e))
+				call(f, n.eventMap(e))
 			}
 		}))
 		if err := tkError(); err != nil {
@@ -177,7 +181,7 @@ func (n *node) bind(a native.Args, seq string, f value.Value) error {
 // eventMap is what a bind handler gets: key and char (key events), x and
 // y (the mouse, relative to the widget), delta (the mouse wheel), width
 // and height (Configure events). What the event does not have is nil.
-func eventMap(e *tk.Event) value.Value {
+func (n *node) eventMap(e *tk.Event) value.Value {
 	m := value.NewMap()
 	set := func(k string, v value.Value) { m.Set(value.MakeString(k), v) } // string keys cannot fail
 	text := func(s string) value.Value {
@@ -194,8 +198,14 @@ func eventMap(e *tk.Event) value.Value {
 	}
 	set("key", text(e.Keysym))
 	set("char", text(e.Char))
-	set("x", value.MakeInt(int64(e.X)))
-	set("y", value.MakeInt(int64(e.Y)))
+	if n.point != nil {
+		x, y := n.point(e.X, e.Y)
+		set("x", x)
+		set("y", y)
+	} else {
+		set("x", value.MakeInt(int64(e.X)))
+		set("y", value.MakeInt(int64(e.Y)))
+	}
 	set("delta", value.MakeInt(int64(e.Delta)))
 	set("width", number(e.Width))
 	set("height", number(e.Height))
@@ -434,8 +444,8 @@ func register() {
 
 	native.Register(&native.Module{
 		Name:    "tk",
-		Doc:     "desktop windows with Tk widgets (frames, labels, buttons, entries, texts, list boxes, check and radio buttons), menus and dialogs, pack and grid, and Kukel handlers",
+		Doc:     "desktop windows with Tk widgets (frames, labels, buttons, entries, texts, list boxes, check and radio buttons, canvases), menus and dialogs, pack and grid, and Kukel handlers",
 		Funcs:   funcs,
-		Classes: []*native.Class{Window, Frame, Label, Button, Entry, Text, Listbox, Checkbutton, Radiobutton, Radiogroup, Menu},
+		Classes: []*native.Class{Window, Frame, Label, Button, Entry, Text, Listbox, Checkbutton, Radiobutton, Radiogroup, Menu, Canvas},
 	})
 }

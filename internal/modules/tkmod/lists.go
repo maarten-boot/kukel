@@ -3,6 +3,8 @@
 package tkmod
 
 import (
+	"strconv"
+
 	tk "modernc.org/tk9.0"
 
 	"github.com/maarten-boot/kukel/internal/native"
@@ -19,8 +21,9 @@ var (
 // scrolled puts what make makes into a frame of its own in parent, with
 // scrollbars for the directions of scroll ("x", "y", "both"); with "none"
 // it makes the widget in parent itself. It gives the widget and what pack
-// and grid place.
-func scrolled(parent *node, scroll string, make func(in *tk.Window, opts ...tk.Opt) *tk.Window) (w, outer *tk.Window) {
+// and grid place. When the view moves, moved (if not nil) gets the axis
+// ('x', 'y') and the fraction of the whole that is left of or above it.
+func scrolled(parent *node, scroll string, make func(in *tk.Window, opts ...tk.Opt) *tk.Window, moved func(axis byte, first float64)) (w, outer *tk.Window) {
 	if scroll == "none" {
 		w = make(parent.w)
 		return w, w
@@ -29,10 +32,10 @@ func scrolled(parent *node, scroll string, make func(in *tk.Window, opts ...tk.O
 	var xbar, ybar *tk.TScrollbarWidget
 	var opts []tk.Opt
 	if scroll == "y" || scroll == "both" {
-		opts = append(opts, tk.Yscrollcommand(func(e *tk.Event) { e.ScrollSet(ybar) }))
+		opts = append(opts, tk.Yscrollcommand(func(e *tk.Event) { e.ScrollSet(ybar); report(moved, 'y', e) }))
 	}
 	if scroll == "x" || scroll == "both" {
-		opts = append(opts, tk.Xscrollcommand(func(e *tk.Event) { e.ScrollSet(xbar) }))
+		opts = append(opts, tk.Xscrollcommand(func(e *tk.Event) { e.ScrollSet(xbar); report(moved, 'x', e) }))
 	}
 	w = make(frame, opts...)
 	tk.Grid(w, tk.Row(0), tk.Column(0), tk.Sticky("nsew"))
@@ -47,6 +50,16 @@ func scrolled(parent *node, scroll string, make func(in *tk.Window, opts ...tk.O
 	tk.GridRowConfigure(frame, 0, tk.Weight(1))
 	tk.GridColumnConfigure(frame, 0, tk.Weight(1))
 	return w, frame
+}
+
+// report passes the view's first fraction, which a scroll command gets, on
+// to moved.
+func report(moved func(byte, float64), axis byte, e *tk.Event) {
+	if moved != nil && len(e.Args) > 0 {
+		if first, err := strconv.ParseFloat(e.Args[0], 64); err == nil {
+			moved(axis, first)
+		}
+	}
 }
 
 // editable runs f, which changes a text or list box, with its state
@@ -108,7 +121,7 @@ func registerLists() {
 		wd.w, wd.outer = scrolled(parent, scroll, func(in *tk.Window, sb ...tk.Opt) *tk.Window {
 			wd.textw = in.Text(append(sb, tk.Undo(true))...)
 			return wd.textw.Window
-		})
+		}, nil)
 		wd.textw.Insert("end", text)
 		wd.configureAfter(a, opts)
 		return nil
@@ -151,7 +164,7 @@ func registerLists() {
 			// The selection stays when text is selected elsewhere.
 			wd.list = in.Listbox(append(sb, tk.Exportselection(false))...)
 			return wd.list.Window
-		})
+		}, nil)
 		for _, s := range wd.items {
 			wd.list.Insert("end", s)
 		}

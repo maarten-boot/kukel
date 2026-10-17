@@ -34,6 +34,8 @@ type widget struct {
 	onchange value.Value // Checkbutton
 	group    *radiogroup // Radiobutton
 	value    string      // Radiobutton
+
+	canvas *canvas // Canvas
 }
 
 // A widgetSpec is how a widget class is made: the arguments between the
@@ -319,4 +321,5 @@ func registerWidgets() {
 
 	registerLists()
 	registerChoices()
+	registerCanvas()
 }

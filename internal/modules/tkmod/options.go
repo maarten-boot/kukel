@@ -32,10 +32,27 @@ type option struct {
 // readOptions reads argument i, a map of options from specs, into Tk
 // options. Nothing is changed when an option is wrong.
 func readOptions(a native.Args, i int, specs []option) ([]tk.Opt, error) {
+	values, err := readValues(a, i, specs)
+	var opts []tk.Opt
+	for _, v := range values {
+		opts = append(opts, v.make(v.x))
+	}
+	return opts, err
+}
+
+// An optionValue is an option of an options map with its checked value.
+type optionValue struct {
+	*option
+	x any
+}
+
+// readValues reads argument i, a map of options from specs, into checked
+// values, in the order of the map.
+func readValues(a native.Args, i int, specs []option) ([]optionValue, error) {
 	if a.V[i].Kind() != value.Map {
 		return nil, a.TypeError(i, "a map of options")
 	}
-	var opts []tk.Opt
+	var values []optionValue
 	var bad error
 	a.V[i].AsMap().Each(func(k, v value.Value) {
 		if bad != nil {
@@ -46,20 +63,23 @@ func readOptions(a native.Args, i int, specs []option) ([]tk.Opt, error) {
 			return
 		}
 		name := k.AsString()
-		for _, o := range specs {
-			if o.name == name {
+		for i := range specs {
+			if o := &specs[i]; o.name == name {
 				x, wrong := o.check(v)
 				if wrong != "" {
 					bad = a.Errorf(value.ValueError, "option %s%s", name, wrong)
 					return
 				}
-				opts = append(opts, o.make(x))
+				values = append(values, optionValue{o, x})
 				return
 			}
 		}
 		bad = a.Errorf(value.ValueError, "unknown option %s (the options are %s)", value.Quote(name), names(specs))
 	})
-	return opts, bad
+	if bad != nil {
+		return nil, bad
+	}
+	return values, nil
 }
 
 // names is "a, b and c" of the options' names.
@@ -238,6 +258,11 @@ var (
 			optState,
 		},
 		"Checkbutton": {optWidth, optPadding, optState},
+		"Canvas": {
+			{"width", pixels, func(x any) tk.Opt { return tk.Width(x) }},
+			{"height", pixels, func(x any) tk.Opt { return tk.Height(x) }},
+			{"background", color(false), func(x any) tk.Opt { return tk.Background(x) }},
+		},
 		"Radiobutton": {optWidth, optPadding, optState},
 	}
 	optHeight = option{"height", intFrom(1, 1000, "a number of lines"), func(x any) tk.Opt { return tk.Height(x) }}

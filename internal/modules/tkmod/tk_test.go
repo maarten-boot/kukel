@@ -238,6 +238,45 @@ main(args) {
     try { file->invoke("Open"); } catch (e) { println(e->kind + ":", e->message); }
     println(g->value()); // a group outlives the window of its buttons
 
+    // A canvas: items, finding them, changing them.
+    local draw = new tk::Window("Drawing");
+    local cv = new tk::Canvas(draw, {"width": 200, "height": 150, "background": "white"});
+    cv->pack();
+    local r = cv->rect(10, 10, 60, 40, {"fill": "#ff8000", "outline": "", "width": 2});
+    local o = cv->oval(80, 10, 140, 50, {"fill": "light blue"});
+    local ln = cv->line([10, 100, 100, 100, 150, 140], {"color": "red", "width": 3, "arrow": "last", "smooth": true});
+    local p = cv->polygon([150, 10, 190, 10, 170, 40], {"fill": "green"});
+    local tx = cv->text(100, 75, "Hello [x] {y} $z", {"anchor": "center", "color": "blue"});
+    println(cv, cv->items(), [r, o, ln, p, tx]);
+    println(cv->itemat(20, 20), cv->itemat(110, 30), cv->itemat(50, 100), cv->itemat(170, 20), cv->itemat(100, 75), cv->itemat(5, 145));
+    println(cv->move(r, 5, 5.5)->coords(r), cv->coords(ln));
+    cv->setcoords(ln, [0, 0, 10, 10])->configureitem(o, {"fill": "pink", "outline": "black"})->raise(r)->lower(tx);
+    println(cv->items(), cv->coords(ln), cv->itemat(20, 20));
+    for (local h in [fn() { cv->rect(0, 0, 1, "x"); },
+                     fn() { cv->line([1, 2, 3]); },
+                     fn() { cv->polygon([1, 2, 3, 4]); },
+                     fn() { cv->rect(0, 0, 1, 1, {"color": "red"}); },
+                     fn() { cv->oval(0, 0, 1, 1, {"fill": "#12"}); },
+                     fn() { cv->line([0, 0, 1, 1], {"color": ""}); },
+                     fn() { cv->move(99, 1, 1); },
+                     fn() { cv->setcoords(r, 1, 2); },
+                     fn() { cv->rect(0, 0, 2e6, 1); },
+                     fn() { cv->oval(0, 0, 1, 1, {"fill": "notacolour"}); },
+                     fn() { cv->configureitem(o, {"fill": "notacolour"}); },
+                     fn() { cv->move(r, 1e6, 0); }])
+        try { h(); } catch (e) { println(e->kind + ":", e->message); }
+    println(cv, cv->remove(p)->items(), cv->clear()->items());
+    draw->close();
+
+    // A rectangle for click() to drag.
+    local area = new tk::Canvas(new tk::Window("Canvas"), {"width": 200, "height": 150});
+    area->pack();
+    area->rect(10, 10, 190, 140, {"fill": "gray"});
+    local dragged = nil, last = nil;
+    area->bind("<Button-1>", fn(e) { dragged = area->itemat(e["x"], e["y"]); last = e; });
+    area->bind("<B1-Motion>", fn(e) { area->move(dragged, e["x"] - last["x"], e["y"] - last["y"]); last = e; });
+    area->bind("<ButtonRelease-1>", fn(e) { println("dragged:", dragged, area->coords(dragged)); });
+
     // What a user does: one widget per window, for click() to find.
     local check = new tk::Checkbutton(new tk::Window("Check"), "Check me");
     check->pack({"padx": 20, "pady": 20});
@@ -371,10 +410,27 @@ ValueError: tk::savefile: option parent must be an open tk::Window, not 3
 ValueError: tk::Checkbutton::checked: the window is closed
 ValueError: tk::Menu::invoke: the window is closed
 nil
+tk::Canvas(5 items) [1, 2, 3, 4, 5] [1, 2, 3, 4, 5]
+1 2 3 4 5 nil
+[15, 15.5, 65, 45.5] [10, 100, 100, 100, 150, 140]
+[5, 2, 3, 4, 1] [0, 0, 10, 10] 1
+ValueError: tk::Canvas::rect: argument 4 must be a number from -1e6 to 1e6, not "x"
+ValueError: tk::Canvas::line: argument 1 must be a vector of at least 2 points [x1, y1, x2, y2, ...] (numbers from -1e6 to 1e6), not [1, 2, 3]
+ValueError: tk::Canvas::polygon: argument 1 must be a vector of at least 3 points [x1, y1, x2, y2, ...] (numbers from -1e6 to 1e6), not [1, 2, 3, 4]
+ValueError: tk::Canvas::rect: unknown option "color" (the options are fill, outline and width)
+ValueError: tk::Canvas::oval: option fill must be a colour, such as "red" or "#ff8000" (or "" for none), not "#12"
+ValueError: tk::Canvas::line: option color must be a colour, such as "red" or "#ff8000", not ""
+ValueError: tk::Canvas::move: the canvas has no item 99
+ValueError: tk::Canvas::setcoords: a rect takes 4 coordinate arguments, not 2
+ValueError: tk::Canvas::rect: argument 3 must be a number from -1e6 to 1e6, not 2e+06
+TkError: tk::Canvas::oval: unknown color name "notacolour"
+TkError: tk::Canvas::configureitem: unknown color name "notacolour"
+ValueError: tk::Canvas::move: the item would leave the canvas (coordinates from -1e6 to 1e6)
+tk::Canvas(0 items) [5, 2, 3, 1] []
 `
 	end := map[string]string{
 		"self":   "invoke: three\n",
-		"clicks": "check: true true\nselect: [1] [1]\nradio: picked picked\nmessage: yes\nopen: true\nsave: true\ndir: nil\nhandler: three\nenter: [puts hi] {x} $y \\ end 3\n",
+		"clicks": "check: true true\nselect: [1] [1]\nradio: picked picked\nmessage: yes\nopen: true\nsave: true\ndir: nil\ndragged: 1 [40, 30, 220, 160]\nhandler: three\nenter: [puts hi] {x} $y \\ end 3\n",
 	}[clicks]
 	bound := map[string]string{"self": "[]", "clicks": "[true, true]"}[clicks]
 	want := common + end + "tk::Window(\"TkTest\", closed) 3 " + bound + "\n"
@@ -390,7 +446,7 @@ nil
 // focus back).
 func click(t *testing.T) error {
 	wins := map[string]string{}
-	for _, name := range []string{"TkTest", "Check", "List", "Radio"} {
+	for _, name := range []string{"TkTest", "Check", "List", "Radio", "Canvas"} {
 		for i := 0; i < 100 && wins[name] == ""; i++ {
 			out, _ := exec.Command("xdotool", "search", "--name", "^"+name+"$").Output()
 			wins[name] = strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
@@ -401,7 +457,7 @@ func click(t *testing.T) error {
 		}
 	}
 	// Without a window manager all windows are at 0,0: move them apart.
-	for name, at := range map[string][2]int{"Check": {300, 0}, "List": {0, 300}, "Radio": {300, 300}} {
+	for name, at := range map[string][2]int{"Check": {300, 0}, "List": {0, 300}, "Radio": {300, 300}, "Canvas": {540, 300}} {
 		if err := exec.Command("xdotool", "windowmove", wins[name], fmt.Sprint(at[0]), fmt.Sprint(at[1])).Run(); err != nil {
 			return err
 		}
@@ -416,6 +472,9 @@ func click(t *testing.T) error {
 		if err := answer(d.title, d.typed, d.key); err != nil {
 			return err
 		}
+	}
+	if err := drag(wins["Canvas"], 30, 20); err != nil {
+		return err
 	}
 	for i := 0; i < 2; i++ { // one click was invoke()
 		if err := clickCenter(wins["TkTest"]); err != nil {
@@ -464,11 +523,33 @@ func answer(title, typed, key string) error {
 	return nil
 }
 
-// clickCenter clicks the middle of window win.
-func clickCenter(win string) error {
-	geo, err := exec.Command("xdotool", "getwindowgeometry", "--shell", win).Output()
+// drag drags the mouse from the middle of window win by dx, dy, in three
+// steps.
+func drag(win string, dx, dy int) error {
+	x, y, err := center(win)
 	if err != nil {
 		return err
+	}
+	steps := [][]string{
+		{"mousemove", fmt.Sprint(x), fmt.Sprint(y), "mousedown", "1"},
+		{"mousemove", fmt.Sprint(x + dx/3), fmt.Sprint(y + dy/3)},
+		{"mousemove", fmt.Sprint(x + dx), fmt.Sprint(y + dy)},
+		{"mouseup", "1"},
+	}
+	for _, step := range steps {
+		if err := exec.Command("xdotool", step...).Run(); err != nil {
+			return err
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return nil
+}
+
+// center gives the middle of window win on the screen.
+func center(win string) (int, int, error) {
+	geo, err := exec.Command("xdotool", "getwindowgeometry", "--shell", win).Output()
+	if err != nil {
+		return 0, 0, err
 	}
 	var x, y, w, h int
 	for _, line := range strings.Split(string(geo), "\n") {
@@ -477,7 +558,16 @@ func clickCenter(win string) error {
 		fmt.Sscanf(line, "WIDTH=%d", &w)
 		fmt.Sscanf(line, "HEIGHT=%d", &h)
 	}
-	if err := exec.Command("xdotool", "mousemove", fmt.Sprint(x+w/2), fmt.Sprint(y+h/2), "click", "1").Run(); err != nil {
+	return x + w/2, y + h/2, nil
+}
+
+// clickCenter clicks the middle of window win.
+func clickCenter(win string) error {
+	x, y, err := center(win)
+	if err != nil {
+		return err
+	}
+	if err := exec.Command("xdotool", "mousemove", fmt.Sprint(x), fmt.Sprint(y), "click", "1").Run(); err != nil {
 		return err
 	}
 	time.Sleep(300 * time.Millisecond)
