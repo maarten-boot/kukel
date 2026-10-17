@@ -705,8 +705,10 @@ ideas above make useful:
   same hook);
 - reading directories: the module `fs` of section 6.1 (*done*, Q61), and
   `examples/grep.kkl` searches trees (`-r`);
-- a faster VM (register-based, or fewer instructions per call): an
-  experiment on a test branch, kept only for at least 10% faster calls;
+- a faster VM (register-based, or fewer instructions per call): *done* by
+  targeted changes (TODO.md Q69: a fast call path, two fused
+  instructions; calls 22-40% faster); a smaller value (16 bytes instead of
+  32) is what could come next;
 - a code formatter (`kukel fmt`): *done* for indentation and spacing
   (TODO.md Q47), and a blank line before `if`, `while`, `do`, `for`,
   `switch`, `try` and `with` (Q53).
