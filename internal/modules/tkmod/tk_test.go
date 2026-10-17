@@ -27,6 +27,10 @@ import (
 var mainFuncs = make(chan func())
 
 func TestMain(m *testing.M) {
+	// TestExamples runs each example in a process of its own: this one.
+	if file := os.Getenv("KUKEL_TK_EXAMPLE"); file != "" {
+		os.Exit(runExample(file))
+	}
 	done := make(chan int)
 	go func() { done <- m.Run() }()
 	for {

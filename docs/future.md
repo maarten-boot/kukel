@@ -725,7 +725,7 @@ Each step is usable on its own and prepares the next:
 | 4 | ZeroMQ (blocking first, then events) | 1, 3 | done (Q43), without security |
 | 5 | SQL: plain queries, transactions (SQLite first) | 1 | done: SQLite (Q44), PostgreSQL and MySQL (Q54) |
 | 6 | Time type; then the ORM on top of SQL | 5 | done: time type (Q36), ORM (Q52), relations (Q56) |
-| 7 | Tk GUI (after a proof of concept for the threading) | 1, 3 | in progress (Q67): a first version on branch `gui`; Tk on the main thread only |
+| 7 | Tk GUI (after a proof of concept for the threading) | 1, 3 | done (Q67): the module `tk` (build tag `tk`), on the main thread only |
 | 8 | Files: the module `fs` (6.1) | 1 | done (Q61) |
 | 9 | 9P client and server (6.2) | 3, 8 | done (Q62, Q63): trees built in Kukel and disk directories; TLS later |
 

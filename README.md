@@ -55,9 +55,11 @@ caught RangeError: index 5 out of range for vector of length 3
   objects in tables), `events` (an event loop with timers), `fs`
   (directories and files), `json`, `p9` (the 9P file protocol: a client,
   and a server of trees the program builds and of disk directories), `re`
-  (regular expressions), `strings` (a string builder), `time`, `uuid`,
-  `worker` (interpreters that run in parallel and exchange messages) and
-  `zmq` (ZeroMQ sockets, to talk with other programs and machines)
+  (regular expressions), `strings` (a string builder), `time`, `tk`
+  (desktop windows with widgets, menus, dialogs and a canvas; in a kukel
+  built with the tag `tk`), `uuid`, `worker` (interpreters that run in
+  parallel and exchange messages) and `zmq` (ZeroMQ sockets, to talk with
+  other programs and machines)
 - 55 built-in functions (strings, collections, math, files, ...)
 
 The full description is in [docs/reference.md](docs/reference.md); the
@@ -93,10 +95,21 @@ make small                    # bin/kukel-small, all five tags
 make small TAGS=nozmq         # other tags
 ```
 
+The module `tk` (desktop windows, see [examples/notes.kkl](examples/notes.kkl))
+is the other way round: it is only in a kukel built with the tag `tk`, as
+it adds about 19 MB. It needs no C compiler and no Tcl/Tk on the system
+(Tcl/Tk 9 come with it); its windows need a display:
+
+```
+go install -tags tk github.com/maarten-boot/kukel/cmd/kukel@latest
+make tk                       # bin/kukel-tk
+```
+
 `kukel version` lists the modules (and databases) a binary has.
 
-Each release on GitHub also has ready-made archives of `kukel` for Linux,
-macOS and Windows (amd64 and arm64), with `SHA256SUMS`.
+Each release on GitHub also has ready-made archives of `kukel`, and of
+`kukel-tk` (with `tk`), for Linux, macOS and Windows (amd64 and arm64),
+with `SHA256SUMS`.
 
 ### Docker
 
@@ -176,7 +189,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/token`, `internal/diag` | token kinds and source positions; the error type all stages share |
 | `internal/lexer`, `internal/parser`, `internal/ast` | source to syntax tree |
 | `internal/loader` | finds and reads the modules a program uses |
-| `internal/native`, `internal/modules/...` | modules written in Go (`db`, `events`, `fs`, `json`, `p9`, `re`, `strings`, `time`, `uuid`, `worker`, `zmq`) and native classes |
+| `internal/native`, `internal/modules/...` | modules written in Go (`db`, `events`, `fs`, `json`, `p9`, `re`, `strings`, `time`, `tk`, `uuid`, `worker`, `zmq`) and native classes |
 | `internal/compiler` | name resolution, the language's rules, code generation |
 | `internal/bytecode` | instruction set, `.kkc` files, the verifier that checks loaded files |
 | `internal/vm` | the stack machine: calls, objects, closures, exceptions (specified in [docs/vm.md](docs/vm.md)) |
@@ -193,13 +206,14 @@ design decisions (Q1–Q66). Ideas for later are in [docs/future.md](docs/future
 | `make` | gofmt check, `go vet`, tests, build (each also on its own: `make vet`, `make test`, `make build`) |
 | `make install` | install `kukel` into `$GOBIN`, else `$(go env GOPATH)/bin` |
 | `make fmt`, `make clean` | `gofmt -w` the sources; remove `bin/` and `dist/`, and the cached test results |
-| `make test-all` | everything: vet, the tests of the full and the smallest build, and the tests with the race detector |
+| `make test-all` | everything: vet, the tests of the full, the smallest and the `tk` build, and the tests with the race detector |
 | `make small`, `make test-small` | build `bin/kukel-small`, or run the tests, without the optional parts (`TAGS=...` picks other tags for `small`; `make vet` also vets the smallest build) |
+| `make tk`, `make test-tk` | build `bin/kukel-tk`, or run the tests, with the module `tk` (`make vet` also vets it). Its tests need a display or Xvfb (else they skip), and click, type and drag with xdotool when it is there |
 | `make fuzz FUZZTIME=1m` | fuzz the lexer, parser, compiler, bytecode loader and verifier (what they accept runs in the VM with a step limit), `json::decode`, time parsing and `kukel fmt` (each for 30s by default) |
 | `make bench` | benchmarks |
 | `make golden` | rewrite the expected outputs in `tests/` after an intended change |
 | `make docker` | the Docker image for this machine, `kukel:dev` (`IMAGE=...` for another name) |
-| `make dist VERSION=v1.2.3` | the archives of a release in `dist/`: `kukel` for Linux, macOS and Windows on amd64 and arm64 (`PLATFORMS=...` picks others), with `SHA256SUMS` |
+| `make dist VERSION=v1.2.3` | the archives of a release in `dist/`: `kukel` and `kukel-tk` for Linux, macOS and Windows on amd64 and arm64 (`PLATFORMS=...` picks others), with `SHA256SUMS` |
 
 **Releases**: pushing a tag `v1.2.3` runs `.github/workflows/release.yml`,
 which first runs the whole CI (`ci.yml`); when that passes, the archives

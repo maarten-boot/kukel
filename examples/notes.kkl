@@ -1,0 +1,116 @@
+// notes: a small text editor in a window (module tk: a kukel built with the
+// build tag tk, and a display).
+//
+//     kukel run examples/notes.kkl [-- file]
+//
+// The File menu (and Ctrl+N, Ctrl+O, Ctrl+S, Ctrl+Q) makes a new text,
+// opens a file, saves it, and quits; before a text with changes is
+// dropped, it asks whether to save them. The line at the bottom counts
+// the lines and characters.
+use tk;
+use events;
+
+global window, text, status, menu;
+global path = nil;  // the file of the text, nil for a new one
+global saved = "";  // the text as it was last opened or saved
+
+main(args) {
+    window = new tk::Window("notes");
+    menu = new tk::Menu(window)->submenu("File");
+    menu->item("New", newnote, {"accelerator": "Ctrl+N"});
+    menu->item("Open...", opennote, {"accelerator": "Ctrl+O"});
+    menu->item("Save", savenote, {"accelerator": "Ctrl+S"});
+    menu->item("Save as...", saveas);
+    menu->separator();
+    menu->item("Quit", quit, {"accelerator": "Ctrl+Q"});
+
+    for (local key, item in {"n": "New", "o": "Open...", "s": "Save", "q": "Quit"})
+        window->bind("<Control-Key-" + key + ">", fn(e) { menu->invoke(item); });
+    text = new tk::Text(window, {"width": 70, "height": 24, "wrap": "word", "scroll": "y"});
+    text->pack({"fill": "both", "expand": true});
+    text->bind("<KeyRelease>", fn(e) { show(); });
+    status = new tk::Label(window, "", {"anchor": "w", "padding": [4, 2]});
+    status->pack({"fill": "x"});
+    window->onclose(asksave);   // false keeps the window open
+
+    if (len(args) > 0) load(args[0]);
+    show();
+    events::run();
+}
+
+// show puts the file's name in the title and counts in the status line.
+show() {
+    local s = text->text(), changed = s != saved;
+    window->settitle((changed ? "*" : "") + (path == nil ? "(new)" : path) + " - notes");
+    status->settext(str(len(split(s, "\n"))) + " lines, " + str(len(s)) + " characters" + (changed ? ", not saved" : ""));
+}
+
+// problem shows what went wrong.
+problem(e) {
+    tk::messagebox(e->message, {"title": "notes", "icon": "error", "parent": window});
+}
+
+load(file) {
+    try {
+        text->settext(readfile(file));
+        saved = text->text();
+        path = file;
+    } catch (e) {
+        problem(e);
+    }
+
+    show();
+}
+
+// asksave asks what to do with changes: true to go on (saved, or not
+// wanted), false to stay.
+asksave() {
+    if (text->text() == saved) return true;
+    local answer = tk::messagebox("Save the changes?", {"title": "notes", "icon": "question", "buttons": "yesnocancel", "parent": window});
+
+    if (answer == "yes") return savenote();
+    return answer == "no";
+}
+
+newnote() {
+    if (!asksave()) return;
+    text->settext("");
+    saved = "";
+    path = nil;
+    show();
+}
+
+opennote() {
+    if (!asksave()) return;
+    local file = tk::openfile({"parent": window, "types": [["Text", ".txt", ".md", ".kkl"], ["All files", "*"]]});
+
+    if (file != nil) load(file);
+}
+
+// savenote and saveas give whether the text was saved.
+savenote() {
+    if (path == nil) return saveas();
+    return write(path);
+}
+
+saveas() {
+    local file = tk::savefile({"parent": window, "ext": ".txt", "file": path == nil ? "notes.txt" : path});
+    return file != nil && write(file);
+}
+
+write(file) {
+    try {
+        writefile(file, text->text());
+        saved = text->text();
+        path = file;
+        show();
+        return true;
+    } catch (e) {
+        problem(e);
+        return false;
+    }
+}
+
+quit() {
+    if (asksave()) window->close();
+}

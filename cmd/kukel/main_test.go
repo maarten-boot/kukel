@@ -316,6 +316,15 @@ func TestASTError(t *testing.T) {
 // fullModules are the modules of a kukel built without tags.
 const fullModules = "db (SQLite, PostgreSQL, MySQL), events, fs, json, p9, re, strings, time, uuid, worker, zmq"
 
+// withTk adds tk to the list of modules when this kukel has it (the build
+// tag tk).
+func withTk(modules string) string {
+	if _, ok := native.Lookup("tk"); ok {
+		return strings.Replace(modules, "time, ", "time, tk, ", 1)
+	}
+	return modules
+}
+
 // fullBuild reports whether this kukel has every module and database
 // (no build tag left one out).
 func fullBuild() bool {
@@ -333,6 +342,14 @@ func unavailable(src string) string {
 	if _, ok := native.Lookup("p9"); !ok && strings.Contains(src, "use p9;") {
 		return "built without p9 (tag no9p)"
 	}
+	if strings.Contains(src, "use tk;") {
+		if _, ok := native.Lookup("tk"); !ok {
+			return "built without tk (tag tk)"
+		}
+		// They need a display, the main thread and a process of their own
+		// (Tk starts once per process): internal/modules/tkmod runs them.
+		return "a tk program (tested in internal/modules/tkmod)"
+	}
 	if !dbmod.Has("SQLite") && strings.Contains(src, "use db;") {
 		return "built without SQLite (tag nosqlite)"
 	}
@@ -343,7 +360,7 @@ func TestVersion(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"version"}, nil, &stdout, &stderr); code != 0 ||
 		!strings.HasPrefix(stdout.String(), "kukel ") || !strings.Contains(stdout.String(), "bytecode format") ||
-		!strings.Contains(stdout.String(), "modules written in Go: "+fullModules+"\n") && fullBuild() {
+		!strings.Contains(stdout.String(), "modules written in Go: "+withTk(fullModules)+"\n") && fullBuild() {
 		t.Errorf("version: exit %d, stdout %q", code, stdout.String())
 	}
 }

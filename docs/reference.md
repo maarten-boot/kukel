@@ -33,7 +33,7 @@ hello, Kukel
 8. [Classes and objects](#8-classes-and-objects)
 9. [Exceptions](#9-exceptions)
 10. [Built-in functions](#10-built-in-functions)
-11. [Modules written in Go](#11-modules-written-in-go): db, events, fs, json, p9, re, strings, time, uuid, worker, zmq
+11. [Modules written in Go](#11-modules-written-in-go): db, events, fs, json, p9, re, strings, time, tk (with the build tag tk), uuid, worker, zmq
 
 ---
 
@@ -1149,7 +1149,8 @@ main() {
 ### events
 
 An event loop: it calls Kukel functions when timers expire, when calls are
-posted, or when other modules deliver events (later: windows, sockets).
+posted, or when other modules deliver events (windows of `tk`, sockets of
+`zmq`, ...).
 
 ```
 use events;
@@ -1522,6 +1523,258 @@ second) is accepted and counts as the first second of the next minute
 (RFC 3339 without a format does not allow it). Parts the format leaves out
 are those of 1970-01-01 00:00:00. A text that does not match, or an
 unknown directive, is a `ValueError`.
+
+### tk
+
+Desktop windows with Tk widgets, whose event handlers are Kukel functions
+(closures, bound methods). Tk comes with kukel itself (Tcl/Tk 9, through
+the Go package `modernc.org/tk9.0`, without a C compiler or Tcl/Tk on the
+system); it is unpacked to the user's cache directory the first time.
+
+The module adds about 19 MB to kukel, so it is only in a kukel built with
+the build tag `tk` (`go build -tags tk ./cmd/kukel`, `make tk`, or the
+`kukel-tk` archives of a release). In another kukel, `use tk;` is a
+compile error that says so.
+
+```
+use tk;
+use events;
+
+main() {
+    local w = new tk::Window("Counter"), n = 0;
+    local label = new tk::Label(w, "clicked 0 times", {"width": 20});
+    local button = new tk::Button(w, "Click me");
+    button->onclick(fn() {
+        n++;
+        label->settext("clicked " + str(n) + " times");
+    });
+    label->pack({"padx": 10, "pady": 5});
+    button->pack({"pady": 5});
+    events::run();          // until the window is closed
+}
+```
+
+**How it runs.** Handlers run in `events::run()` (see [events](#events)),
+one at a time like all handlers, so timers, `zmq` sockets and workers mix
+with the windows. Each open window keeps `run()` going; closing the first
+window (by the user, or with `close()`) closes all windows and ends Tk for
+the rest of the program: making a window then is a `TkError`. An exception
+a handler does not catch goes to the event loop like that of any handler
+(`events::onerror`). Tk runs on the main thread of the process, so only the
+program `kukel` runs can use it, not a worker; a Go program that embeds
+kukel calls `Run` in its main goroutine (else a `ValueError`). Without a
+display (`$DISPLAY` on Linux), the first use of Tk is a `TkError`;
+`tk::available()` tells beforehand.
+
+The widgets are Tk's themed widgets (they look like the desktop's), except
+`Text`, `Listbox` and `Canvas`, which Tk has only in its classic form. Once
+its window is closed, a widget cannot be used any more (a `ValueError`).
+
+**Options.** Widgets take options in a map, as the last argument of the
+constructor or in `w->configure(options)`: `new tk::Label(w, "Name:",
+{"anchor": "w", "width": 10})`. Each class has its own (in the tables
+below); an unknown option, or a value of the wrong kind, is a `ValueError`
+that says what is allowed. Sizes are pixels, except where characters or
+lines are said; colours are names (`"red"`, `"light blue"`) or `"#rgb"`,
+`"#rrggbb"`. The text of a label or button is not an option: `settext`.
+
+**Layout.** A widget appears once its parent places it with `pack` or
+`grid`; each window or frame uses one of the two for its widgets (mixing
+them is a `ValueError`). Frames hold widgets, and nest.
+
+| Layout | Description |
+|---|---|
+| `w->pack([options])` | Places the widget after the ones packed before it. Options: `side` (`"top"`, the default, `"bottom"`, `"left"`, `"right"`), `fill` (`"none"`, `"x"`, `"y"`, `"both"`), `expand` (`true`: the widget gets a share of extra space), `padx`, `pady` |
+| `w->grid([options])` | Places the widget in a cell of a grid: `row`, `column` (from 0), `rowspan`, `columnspan`, `sticky` (the sides of the cell it sticks to, some of `n`, `s`, `e`, `w`: `"w"`, `"ew"`, `"nsew"`), `padx`, `pady` |
+| `c->rowconfigure(i, options)`, `c->columnconfigure(i, options)` | Of a window or frame: how row or column `i` of its grid grows. `weight` (a share of extra space; 0, the default: it does not grow), `minsize`, `uniform` (rows or columns with the same name get the same size) |
+
+```
+use tk;
+use events;
+
+main() {
+    local w = new tk::Window("Login");
+    local f = new tk::Frame(w, {"padding": 10});
+    f->pack({"fill": "both", "expand": true});
+    new tk::Label(f, "Name:")->grid({"row": 0, "column": 0, "sticky": "w"});
+    local name = new tk::Entry(f, {"width": 20});
+    name->grid({"row": 0, "column": 1, "sticky": "ew"});
+    new tk::Label(f, "Password:")->grid({"row": 1, "column": 0, "sticky": "w"});
+    local password = new tk::Entry(f, {"show": "*"});
+    password->grid({"row": 1, "column": 1, "sticky": "ew"});
+    f->columnconfigure(1, {"weight": 1});
+    local ok = new tk::Button(f, "Log in");
+    ok->grid({"row": 2, "column": 1, "sticky": "e", "pady": 5});
+    ok->onclick(fn() {
+        println("hello,", name->text());
+        w->close();
+    });
+    name->focus();
+    events::run();
+}
+```
+
+**Events.** Besides the handlers of the widgets (`onclick`, `onenter`,
+`onselect`, `onchange`), `w->bind(sequence, f)` calls `f(e)` for an event
+of a window or any widget, with Tk's event names: `"<Key>"`,
+`"<Key-Return>"`, `"<Control-Key-s>"`, `"<Button-1>"` (the left mouse
+button), `"<Double-Button-1>"`, `"<ButtonRelease-1>"`, `"<B1-Motion>"`
+(moving with the button down), `"<Motion>"`, `"<Enter>"`, `"<Leave>"`,
+`"<FocusIn>"`, `"<Configure>"` (a new size), and virtual events such as
+`"<<Copy>>"`. `e` is a map: `key` (the key's name, as `"Return"`, `"a"`)
+and `char` (the character typed) for key events, `x` and `y` (the mouse,
+relative to the widget; on a canvas, canvas coordinates), `delta` (the
+mouse wheel), `width` and `height` (for `<Configure>`); what the event does
+not have is nil. A binding comes after what the widget does itself (an entry
+still takes the typed keys); binding a sequence again replaces the handler,
+and `bind(sequence, nil)` removes it. A binding on a window also gets the
+events of the widgets in it (a key binding there works wherever the focus
+is in the window).
+
+The handlers of the widgets run for what the user does, not for the
+program's own changes: `setchecked`, `setvalue` and `setselected` do not
+call them. Note that a button takes the keyboard focus when clicked; an
+entry gets it back with `focus()`.
+
+| Function | Description |
+|---|---|
+| `tk::available()` | Whether Tk can start (a display is there); it starts Tk |
+| `tk::messagebox(text [, options])` | Shows a message and waits for a button; gives its name (`"ok"`, `"cancel"`, `"yes"`, `"no"`, `"retry"`, `"abort"`, `"ignore"`). Options: `title`, `detail` (a second, smaller text), `icon` (`"info"`, `"warning"`, `"error"`, `"question"`), `buttons` (`"ok"`, `"okcancel"`, `"yesno"`, `"yesnocancel"`, `"retrycancel"`, `"abortretryignore"`), `default` (the button Enter presses), `parent` (an open window it shows over) |
+| `tk::openfile([options])` | Lets the user choose a file to open; gives its path, or nil when cancelled. Options: `title`, `dir` (where it starts), `file`, `types` (`[["Kukel", ".kkl"], ["All files", "*"]]`: a name and patterns), `multiple` (`true`: a vector of paths), `parent` |
+| `tk::savefile([options])` | Lets the user choose where to save; gives the path (the file need not exist; the dialog asks before an existing one is chosen), or nil. Options: `title`, `dir`, `file`, `types`, `ext` (added to a name without one, as `".txt"`), `parent` |
+| `tk::choosedir([options])` | Lets the user choose a directory; gives its path, or nil. Options: `title`, `dir`, `mustexist`, `parent` |
+
+The dialogs wait for the user: meanwhile the windows keep working and their
+handlers run, but timers and other events of the event loop wait.
+
+**Windows and frames.**
+
+| Constructor or member function | Description |
+|---|---|
+| `new tk::Window([title])` | A window (the title is `"kukel"` when left out). The first one is Tk's main window: closing it closes all |
+| `w->title()`, `w->settitle(s)` | The title |
+| `w->onclose(f)` | `f()` is called when the user closes the window; when it returns `false`, the window stays open (to ask first). Nil: close at once (the default) |
+| `w->close()` | Closes the window (and, the first window, all); a second `close()` does nothing |
+| `w->closed()` | Whether the window is closed |
+| `w->bind(sequence, f)`, `w->rowconfigure(i, options)`, `w->columnconfigure(i, options)` | See above |
+| `new tk::Frame(parent [, options])` | A container for widgets in a window or frame. Options: `width`, `height`, `padding` (pixels inside the edge: one number, or `[x, y]`, or `[left, top, right, bottom]`), `relief` (`"flat"`, `"raised"`, `"sunken"`, `"groove"`, `"ridge"`, `"solid"`), `borderwidth` |
+| `f->configure(options)`, `f->pack(...)`, `f->grid(...)`, `f->bind(...)`, `f->rowconfigure(...)`, `f->columnconfigure(...)` | See above |
+
+A window prints as `tk::Window("title")` (and `tk::Window("title",
+closed)`), a frame as `tk::Frame`.
+
+**Widgets.** All widgets have `configure(options)`, `pack`, `grid` and
+`bind`; the parent is a window or a frame.
+
+| Constructor or member function | Description |
+|---|---|
+| `new tk::Label(parent, text [, options])` | A text. Options: `width` (characters), `anchor` (where the text sits: `"w"`, `"center"`, `"ne"`, ...), `justify` (`"left"`, `"center"`, `"right"`: of several lines), `wraplength` (pixels before a line wraps), `padding`, `state` (`"normal"`, `"disabled"`) |
+| `new tk::Button(parent, text [, options])` | A button. Options: `width`, `padding`, `state` |
+| `b->onclick(f)` | `f()` is called when the button is clicked (nil: nothing) |
+| `b->invoke()` | Calls the `onclick` handler as a click would, at once: its result and exception come back |
+| `new tk::Entry(parent [, text] [, options])` | A field for a line of text. Options: `width`, `justify`, `show` (a character shown for each typed one, as `"*"` for passwords; `""` shows the text), `state` (also `"readonly"`) |
+| `e->onenter(f)` | `f(text)` is called when Enter is pressed in the entry |
+| `e->focus()` | The keys typed go to the entry |
+| `x->text()`, `x->settext(s)` | The text of a label, button, entry, check button or radio button |
+| `new tk::Checkbutton(parent, text [, options])` | A box that is checked or not. Options: `width`, `padding`, `state` |
+| `c->checked()`, `c->setchecked(b)` | Whether it is checked |
+| `c->onchange(f)` | `f(checked)` is called when the user checks or unchecks it |
+| `new tk::Radiogroup([value])` | Not a widget: the radio buttons of which one is chosen (`value`: the one chosen at first) |
+| `g->value()`, `g->setvalue(s)` | The value of the radio button chosen (nil: none); `setvalue(nil)` chooses none |
+| `g->onchange(f)` | `f(value)` is called when the user chooses a radio button of the group |
+| `new tk::Radiobutton(parent, text, group, value [, options])` | A radio button of `group`, chosen when the group's value is `value` (a string that is not `""`). Options: `width`, `padding`, `state` |
+| `new tk::Text(parent [, text] [, options])` | Several lines of text, which the user can edit. Options: `width` (characters), `height` (lines), `wrap` (`"none"`, `"char"`, `"word"`), `state` (`"disabled"`: the user cannot change it; the program can), and in the constructor `scroll` (`"x"`, `"y"`, `"both"`: scrollbars; `"none"`, the default) |
+| `t->text()`, `t->settext(s)` | The whole text |
+| `t->append(s)` | Adds `s` at the end, and shows the end (for a log) |
+| `new tk::Listbox(parent [, lines] [, options])` | Lines to choose from (a vector of strings). Options: `width`, `height` (lines), `selectmode` (`"browse"`, the default: one line; `"extended"`: several, with Shift and Control; `"single"`, `"multiple"`), `state`, and in the constructor `scroll` |
+| `l->items()`, `l->setitems(v)` | The lines |
+| `l->selected()`, `l->setselected(v)` | The indexes of the lines chosen, a vector (`[]`: none) |
+| `l->onselect(f)` | `f(selected)` is called when the user changes the lines chosen |
+
+A widget prints as its class and text: `tk::Label("Name:")`,
+`tk::Checkbutton("Bold", true)`, `tk::Radiobutton("Red", "red")`,
+`tk::Radiogroup("red")`, `tk::Listbox(3 lines)`, `tk::Text`.
+
+**Menus.**
+
+| Constructor or member function | Description |
+|---|---|
+| `new tk::Menu(window)` | The menu bar of the window (one per window) |
+| `m->submenu(label)` | A `tk::Menu` that opens from this one (in a menu bar: a menu of it) |
+| `m->item(label, f [, options])` | An entry that calls `f()`. Option: `accelerator`, a key shown next to it (`"Ctrl+S"`); the key itself needs a `bind` on the window |
+| `m->separator()` | A line between entries |
+| `m->enable(label, on)` | Whether the entry can be chosen |
+| `m->invoke(label)` | Calls the entry's handler as choosing it would, at once (for a key binding) |
+
+Entries are named by their labels, which are unique in a menu.
+
+```
+use tk;
+use events;
+
+main() {
+    local w = new tk::Window("Editor");
+    local text = new tk::Text(w, {"width": 60, "height": 20, "scroll": "y"});
+    text->pack({"fill": "both", "expand": true});
+    local file = new tk::Menu(w)->submenu("File");
+    file->item("Save as...", fn() {
+        local path = tk::savefile({"ext": ".txt", "parent": w});
+        if (path != nil) writefile(path, text->text());
+    }, {"accelerator": "Ctrl+S"});
+    file->separator();
+    file->item("Quit", fn() { w->close(); });
+    w->bind("<Control-Key-s>", fn(e) { file->invoke("Save as..."); });
+    events::run();
+}
+```
+
+**Canvas.** A surface to draw on. Each item drawn has an id (an int);
+coordinates are numbers (pixels, from -1e6 to 1e6), points are vectors
+`[x1, y1, x2, y2, ...]`.
+
+| Constructor or member function | Description |
+|---|---|
+| `new tk::Canvas(parent [, options])` | Options: `width`, `height`, `background` (a colour), and in the constructor `scroll` (the scrollbars reach everything drawn) |
+| `c->line(points [, options])` | A line through at least 2 points. Options: `color`, `width`, `arrow` (`"none"`, `"first"`, `"last"`, `"both"`), `smooth` (`true`: a curve) |
+| `c->rect(x1, y1, x2, y2 [, options])`, `c->oval(x1, y1, x2, y2 [, options])` | A rectangle, or the oval in it. Options: `fill`, `outline` (colours; `""`: none), `width` (of the outline) |
+| `c->polygon(points [, options])` | A polygon of at least 3 points; options as for `rect` |
+| `c->text(x, y, s [, options])` | A text at `x, y`. Options: `color`, `anchor` (which point of the text is at `x, y`: `"center"`, the default, `"nw"`, ...), `justify`, `width` (pixels before a line wraps) |
+| `c->coords(id)`, `c->setcoords(id, ...)` | An item's coordinates (a vector); set as the item was made (a vector of points, or the numbers) |
+| `c->move(id, dx, dy)` | Moves an item |
+| `c->configureitem(id, options)` | Changes an item's options |
+| `c->raise(id)`, `c->lower(id)` | Puts an item above, or below, all the others |
+| `c->remove(id)`, `c->clear()` | Removes an item, or all |
+| `c->items()` | The ids, from the bottom to the top |
+| `c->itemat(x, y)` | The id of the topmost item at that point (on a rectangle, oval or polygon, near a line, on a text), or nil |
+
+An unknown colour name is a `TkError`, and changes nothing. Mouse events
+come from `bind` on the canvas; dragging an item:
+
+```
+use tk;
+use events;
+
+main() {
+    local w = new tk::Window("Drag");
+    local c = new tk::Canvas(w, {"width": 300, "height": 200, "background": "white"});
+    c->pack();
+    c->rect(20, 20, 100, 70, {"fill": "orange"});
+    c->oval(150, 50, 250, 150, {"fill": "light blue"});
+    local item = nil, last = nil;
+    c->bind("<Button-1>", fn(e) {
+        item = c->itemat(e["x"], e["y"]);
+        last = e;
+        if (item != nil) c->raise(item);
+    });
+    c->bind("<B1-Motion>", fn(e) {
+        if (item != nil) c->move(item, e["x"] - last["x"], e["y"] - last["y"]);
+        last = e;
+    });
+    events::run();
+}
+```
+
+A canvas prints as `tk::Canvas(2 items)`.
 
 ### uuid
 

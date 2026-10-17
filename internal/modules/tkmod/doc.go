@@ -20,7 +20,7 @@
 // milliseconds, so handlers run one at a time like all handlers of the
 // event loop.
 //
-// The module adds about 26 MB, so it is only in a kukel built with the
+// The module adds about 19 MB, so it is only in a kukel built with the
 // build tag tk (go build -tags tk); its code is in the files with the build
 // constraint tk.
 package tkmod

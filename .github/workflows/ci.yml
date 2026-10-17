@@ -30,6 +30,11 @@ jobs:
         run: make test
       - name: Test the smallest build (build tags)
         run: make test-small && make small && ./bin/kukel-small version
+      - name: Test the tk build (windows on Xvfb, clicked with xdotool)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xdotool
+          make test-tk && make tk && ./bin/kukel-tk version
       - name: Build
         run: make build && ./bin/kukel version
       - name: Fuzz briefly
