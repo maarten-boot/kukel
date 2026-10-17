@@ -214,8 +214,28 @@ main(args) {
                      fn() { new tk::Radiobutton(box, "x", c, "v"); },
                      fn() { new tk::Radiogroup(""); }])
         try { h(); } catch (e) { println(e->kind + ":", e->message); }
+
+    // Menus, and what dialogs refuse (click() answers the dialogs).
+    local bar = new tk::Menu(box);
+    local file = bar->submenu("File");
+    file->item("Open", fn() { return "opened"; }, {"accelerator": "Ctrl+O"})->separator()->item("Quit", fn() { throw new Error("quit"); });
+    println(bar, file, file->invoke("Open"), file->enable("Open", false));
+    try { file->invoke("Quit"); } catch (e) { println("invoke:", e->message); }
+    for (local h in [fn() { new tk::Menu(box); },
+                     fn() { file->item("Open", fn() {}); },
+                     fn() { file->invoke("Nope"); },
+                     fn() { bar->invoke("File"); },
+                     fn() { file->item("x", 1); },
+                     fn() { file->item("", fn() {}); },
+                     fn() { file->item("y", fn() {}, {"accel": "x"}); },
+                     fn() { tk::messagebox(1); },
+                     fn() { tk::messagebox("x", {"icon": "smile"}); },
+                     fn() { tk::openfile({"types": [["Kukel"]]}); },
+                     fn() { tk::savefile({"parent": 3}); }])
+        try { h(); } catch (e) { println(e->kind + ":", e->message); }
     box->close();
     try { c->checked(); } catch (e) { println(e->kind + ":", e->message); }
+    try { file->invoke("Open"); } catch (e) { println(e->kind + ":", e->message); }
     println(g->value()); // a group outlives the window of its buttons
 
     // What a user does: one widget per window, for click() to find.
@@ -226,7 +246,15 @@ main(args) {
     list->pack();
     list->onselect(fn(lines) { println("select:", lines, list->selected()); });
     local radios = new tk::Radiogroup();
-    radios->onchange(fn(v) { println("radio:", v, radios->value()); });
+    radios->onchange(fn(v) {
+        println("radio:", v, radios->value());
+        // The dialogs, answered by click(): Return, a file name and Return,
+        // Return, Escape (cancelled).
+        println("message:", tk::messagebox("Proceed?", {"title": "Ask", "icon": "question", "buttons": "yesno", "detail": "more", "parent": w}));
+        println("open:", tk::openfile({"title": "Open", "dir": args[1], "types": [["Kukel", ".kkl"], ["All files", "*"]]}) == args[1] + "/a.kkl");
+        println("save:", tk::savefile({"title": "Save", "dir": args[1], "file": "out.txt"}) == args[1] + "/out.txt");
+        println("dir:", tk::choosedir({"title": "Dir", "dir": args[1]}));
+    });
     new tk::Radiobutton(new tk::Window("Radio"), "Pick me", radios, "picked")->pack({"padx": 20, "pady": 20});
 
     // bind: the clicks on the button; a second bind replaces the handler.
@@ -269,7 +297,11 @@ func TestTk(t *testing.T) {
 	if clicks == "clicks" {
 		go func() { clicked <- click(t) }()
 	}
-	got, err := runProgram(t, program, true, clicks)
+	dir := t.TempDir()
+	if err := os.WriteFile(dir+"/a.kkl", nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := runProgram(t, program, true, clicks, dir)
 	if clicks == "clicks" {
 		if cerr := <-clicked; cerr != nil {
 			t.Errorf("xdotool: %v", cerr)
@@ -323,12 +355,26 @@ TypeError: tk::Checkbutton::setchecked: argument 1 must be true or false, not in
 ValueError: tk::Radiobutton::Radiobutton: the value of a radio button cannot be ""
 TypeError: tk::Radiobutton::Radiobutton: argument 3 must be a tk::Radiogroup, not tk::Checkbutton
 ValueError: tk::Radiogroup::Radiogroup: the value of a radio button cannot be ""
+tk::Menu tk::Menu("File") opened tk::Menu("File")
+invoke: quit
+ValueError: tk::Menu::Menu: the window has a menu bar already
+ValueError: tk::Menu::item: the menu has an entry "Open" already
+ValueError: tk::Menu::invoke: the menu has no entry "Nope"
+ValueError: tk::Menu::invoke: "File" is a submenu, not an item
+TypeError: tk::Menu::item: argument 2 must be a function, not int
+ValueError: tk::Menu::item: the label of an entry cannot be ""
+ValueError: tk::Menu::item: unknown option "accel" (the options are accelerator)
+TypeError: tk::messagebox: argument 1 must be a string, not int
+ValueError: tk::messagebox: option icon: "smile" is not one of info, warning, error, question
+ValueError: tk::openfile: option types must be a vector of [name, pattern...] vectors of strings, such as [["Kukel", ".kkl"], ["All files", "*"]], not [["Kukel"]]
+ValueError: tk::savefile: option parent must be an open tk::Window, not 3
 ValueError: tk::Checkbutton::checked: the window is closed
+ValueError: tk::Menu::invoke: the window is closed
 nil
 `
 	end := map[string]string{
 		"self":   "invoke: three\n",
-		"clicks": "check: true true\nselect: [1] [1]\nradio: picked picked\nhandler: three\nenter: [puts hi] {x} $y \\ end 3\n",
+		"clicks": "check: true true\nselect: [1] [1]\nradio: picked picked\nmessage: yes\nopen: true\nsave: true\ndir: nil\nhandler: three\nenter: [puts hi] {x} $y \\ end 3\n",
 	}[clicks]
 	bound := map[string]string{"self": "[]", "clicks": "[true, true]"}[clicks]
 	want := common + end + "tk::Window(\"TkTest\", closed) 3 " + bound + "\n"
@@ -338,9 +384,10 @@ nil
 }
 
 // click clicks the check button, the middle line of the list box and the
-// radio button of the windows Check, List and Radio, then the button of
-// the window TkTest twice, and presses Enter (the click handler gave the
-// entry the focus back).
+// radio button of the windows Check, List and Radio, answers the dialogs
+// the radio button's handler opens, then clicks the button of the window
+// TkTest twice, and presses Enter (the click handler gave the entry the
+// focus back).
 func click(t *testing.T) error {
 	wins := map[string]string{}
 	for _, name := range []string{"TkTest", "Check", "List", "Radio"} {
@@ -360,8 +407,18 @@ func click(t *testing.T) error {
 		}
 	}
 	time.Sleep(300 * time.Millisecond)
-	for _, name := range []string{"Check", "List", "Radio", "TkTest", "TkTest"} { // one TkTest click was invoke()
+	for _, name := range []string{"Check", "List", "Radio"} {
 		if err := clickCenter(wins[name]); err != nil {
+			return err
+		}
+	}
+	for _, d := range []struct{ title, typed, key string }{{"Ask", "", "Return"}, {"Open", "a.kkl", "Return"}, {"Save", "", "Return"}, {"Dir", "", "Escape"}} {
+		if err := answer(d.title, d.typed, d.key); err != nil {
+			return err
+		}
+	}
+	for i := 0; i < 2; i++ { // one click was invoke()
+		if err := clickCenter(wins["TkTest"]); err != nil {
 			return err
 		}
 	}
@@ -369,6 +426,41 @@ func click(t *testing.T) error {
 	// Enter closes the window, often before xdotool sends the key's release
 	// (which then fails): whether Enter arrived shows in the output.
 	exec.Command("xdotool", "key", "--window", wins["TkTest"], "Return").Run()
+	return nil
+}
+
+// answer answers the dialog with that title: it gives it the focus (no
+// window manager does), types typed and presses key.
+func answer(title, typed, key string) error {
+	var win string
+	for i := 0; i < 100 && win == ""; i++ {
+		out, _ := exec.Command("xdotool", "search", "--name", "^"+title+"$").Output()
+		win = strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
+		time.Sleep(100 * time.Millisecond)
+	}
+	if win == "" {
+		return fmt.Errorf("no dialog %s", title)
+	}
+	time.Sleep(400 * time.Millisecond)
+	exec.Command("xdotool", "windowfocus", win).Run() // may complain about the focus it finds
+	time.Sleep(200 * time.Millisecond)
+	if typed != "" {
+		if err := exec.Command("xdotool", "type", typed).Run(); err != nil {
+			return err
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if err := exec.Command("xdotool", "key", key).Run(); err != nil {
+		return err
+	}
+	// The next dialog may reuse this window (Tk's file dialogs do): wait
+	// until this one is gone.
+	for i := 0; i < 50; i++ {
+		if exec.Command("xdotool", "search", "--onlyvisible", "--name", "^"+title+"$").Run() != nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 	return nil
 }
 

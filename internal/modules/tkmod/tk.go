@@ -214,6 +214,7 @@ type window struct {
 	closed  bool
 	release func() // of the hold on the event loop
 	onclose value.Value
+	menubar bool // it has a tk::Menu
 }
 
 func newWindow(env value.Env, this *value.ObjectObj, args []value.Value) (value.Value, error) {
@@ -420,21 +421,21 @@ func register() {
 		return "tk::Window(" + value.Quote(win.title) + ")"
 	}
 	registerWidgets()
+	registerMenus()
+	funcs := dialogFuncs()
+	// available(): whether Tk can start (a display is there); it starts Tk.
+	funcs["available"] = func(env value.Env, args []value.Value) (value.Value, error) {
+		a, err := native.Check("tk::available", args, 0, 0)
+		if err != nil {
+			return value.NilValue, err
+		}
+		return value.MakeBool(start(a, env) == nil), nil
+	}
 
 	native.Register(&native.Module{
-		Name: "tk",
-		Doc:  "desktop windows with Tk widgets (frames, labels, buttons, entries, texts, list boxes, check and radio buttons), pack and grid, and Kukel handlers",
-		Funcs: map[string]native.Func{
-			// available(): whether Tk can start (a display is there); it
-			// starts Tk.
-			"available": func(env value.Env, args []value.Value) (value.Value, error) {
-				a, err := native.Check("tk::available", args, 0, 0)
-				if err != nil {
-					return value.NilValue, err
-				}
-				return value.MakeBool(start(a, env) == nil), nil
-			},
-		},
-		Classes: []*native.Class{Window, Frame, Label, Button, Entry, Text, Listbox, Checkbutton, Radiobutton, Radiogroup},
+		Name:    "tk",
+		Doc:     "desktop windows with Tk widgets (frames, labels, buttons, entries, texts, list boxes, check and radio buttons), menus and dialogs, pack and grid, and Kukel handlers",
+		Funcs:   funcs,
+		Classes: []*native.Class{Window, Frame, Label, Button, Entry, Text, Listbox, Checkbutton, Radiobutton, Radiogroup, Menu},
 	})
 }
