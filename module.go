@@ -335,6 +335,9 @@ func (e *Error) Error() string {
 // (an Error object) with that kind (or "HostError" if kind is "") and
 // message.
 func Errorf(kind, format string, args ...any) *Error {
+	if kind == "" {
+		kind = "HostError" // so Error() and Kukel code see the same kind
+	}
 	return &Error{Kind: kind, Message: fmt.Sprintf(format, args...)}
 }
 

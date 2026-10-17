@@ -70,6 +70,9 @@ func cmdDebug(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: kukel debug a.kkl ... [-- args]")
 		return 2
 	}
+	if badFiles("debug", files, "kukel debug a.kkl ... [-- args]", stderr) {
+		return 2
+	}
 	prog, err := compileFiles(files)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -274,6 +277,9 @@ func (d *debugger) addBreak(arg string, top vm.DebugFrame) {
 			continue
 		}
 		file = fn.File
+		if fn.Name() == "<init>" && len(fn.Code) == 1 && bytecode.Op(fn.Code[0]) == bytecode.OpReturnNil {
+			continue // no initializers: nothing runs on its line
+		}
 		for _, l := range fn.Lines {
 			if l.Line >= line && (best == 0 || l.Line < best) {
 				best = l.Line

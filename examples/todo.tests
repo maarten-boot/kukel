@@ -1,0 +1,56 @@
+# Tests of todo.kkl, run in examples/ (see examples/README.md), with a
+# database in memory: nothing is left behind.
+
+$ -db sqlite::memory: < testdata/todo.txt
+added 1
+added 2
+added 3
+3 [ ] call Ann  (due 2026-10-18)
+1 [ ] write the report  (due 2026-10-20)
+2 [ ] buy milk
+done 3
+3 [x] call Ann  (due 2026-10-18)
+1 [ ] write the report  (due 2026-10-20)
+2 [ ] buy milk
+removed 2
+3 [x] call Ann  (due 2026-10-18)
+[
+  {
+    "id": 1,
+    "title": "write the report",
+    "due": "2026-10-20",
+    "done": false
+  },
+  {
+    "id": 3,
+    "title": "call Ann",
+    "due": "2026-10-18",
+    "done": true
+  }
+]
+! todo: done: there is no task 9
+! todo: add: a task needs a title
+exit 1
+
+$ -db sqlite::memory: list
+
+$ -db sqlite::memory: add pay rent due 2026-11-01
+added 1
+
+$ -db sqlite::memory: list soon
+! todo: list: list open, done or all, not soon
+exit 1
+
+$ -db sqlite::memory: fly
+! todo: unknown command fly
+! usage: todo [-db url] [add title [due yyyy-mm-dd] | done N | rm N | list [open|done|all] | export]
+exit 2
+
+$ -db nope:x list
+! todo: db::open: "nope:x" is not a database URL: use "sqlite:file.db", "sqlite::memory:", "postgres://user:password@host/database" or "mysql://user:password@host/database"
+exit 2
+
+$ -db
+! todo: -db needs a URL
+! usage: todo [-db url] [add title [due yyyy-mm-dd] | done N | rm N | list [open|done|all] | export]
+exit 2

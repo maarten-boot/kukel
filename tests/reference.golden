@@ -1,0 +1,21 @@
+{
+  "10897441fcfe": "motd 6\nnotes 0\nstats (directory)\nhello\n1 2\n9P2000.L [\"remember the milk\"]\n",
+  "2cfb140762e0": "# log\none\ntwo\n2 true\n",
+  "396ca736a5d1": "rect 9 1 Square{name: \"rect\", w: 3, h: 3}\n",
+  "510509845fbc": "hello, Kukel\n",
+  "59795b356ebe": "2 ink 3.0 false\n1 pen 1.75 true\npen 2\n",
+  "6508e98a1d38": "3\n0 1 2\n",
+  "6e14d8e54fdd": "pen 1.5\n",
+  "768358c33cbb": "true\n[\"ann@example.com\", \"ann\", \"example\"]\nb:a, d:c\n[\"1\", \"22\", \"333\"]\n",
+  "81bc83f3cb5a": "1.5\n",
+  "84dda2a3ea46": "14.10.2026 09:30 3\n71 days\ntime::Time(2026-10-14T18:30:00+09:00)\n",
+  "911c1eb5d566": "nil nil\nAnn 2\nmon Ann pen\n",
+  "a15f02cb751d": "{\"name\":\"Kukel\",\"tags\":[\"fun\"],\"ratio\":2.0}\nfun\n",
+  "ad79dde19934": "ParseError unexpected '}' 12\ncleanup\n",
+  "bbcee7a34bba": "[1, 49]\nworker 1 done\n",
+  "c8fdb0282a82": "{\"n\": 0}\n",
+  "ce0beaf6dc77": "10000 50 0 nil Point{x: 1, y: 2}\n",
+  "d5e3e8d9e03f": "true true\np9::Client::write: /files/new.txt: read-only file system\n",
+  "e11a39fcf4c9": "info: 9 10 6\n",
+  "fc37b7c5dcf4": "0;1;2; 6\n"
+}

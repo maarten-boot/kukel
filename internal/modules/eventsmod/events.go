@@ -350,7 +350,7 @@ func newTimer(name string, repeat bool) native.Func {
 		}
 		switch {
 		case secs != secs || secs < 0 || secs > 1e9:
-			return value.NilValue, a.Errorf(value.ValueError, "%s seconds is not a usable delay", value.FormatFloat(secs))
+			return value.NilValue, a.Errorf(value.ValueError, "%s seconds is not a usable delay", a.V[0].String())
 		case repeat && secs < 0.001:
 			return value.NilValue, a.Errorf(value.ValueError, "an interval must be at least 0.001 seconds, got %s", value.FormatFloat(secs))
 		}

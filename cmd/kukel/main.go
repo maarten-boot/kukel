@@ -153,9 +153,17 @@ func cmdRun(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			break
 		}
 	}
-	if len(files) == 0 {
-		fmt.Fprintln(stderr, "usage: kukel run a.kkl ... [-- args]")
+	if len(files) == 0 || badFiles("run", files, "kukel run a.kkl ... [-- args]", stderr) {
+		if len(files) == 0 {
+			fmt.Fprintln(stderr, "usage: kukel run a.kkl ... [-- args]")
+		}
 		return 2
+	}
+	for _, f := range files {
+		if strings.HasSuffix(f, ".kkc") {
+			fmt.Fprintf(stderr, "kukel run: %s is a compiled program: run it with kukel exec %s (or kukel %s)\n", f, f, f)
+			return 2
+		}
 	}
 	prog, err := compileFiles(files)
 	if err != nil {
@@ -163,6 +171,19 @@ func cmdRun(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return runProgram(prog, progArgs, stdin, stdout, stderr)
+}
+
+// badFiles reports a usage error for an argument taken as a file name that
+// starts with "-": an option the command does not have. A file whose name
+// starts with "-" is given as ./-name.
+func badFiles(cmd string, files []string, usage string, stderr io.Writer) bool {
+	for _, f := range files {
+		if strings.HasPrefix(f, "-") && f != "-" {
+			fmt.Fprintf(stderr, "kukel %s: unknown option %s (a file named so is given as ./%s)\nusage: %s\n", cmd, f, f, usage)
+			return true
+		}
+	}
+	return false
 }
 
 // runProgram runs a compiled program and returns its exit code.
@@ -189,6 +210,9 @@ func runProgram(prog *bytecode.Program, progArgs []string, stdin io.Reader, stdo
 func cmdCheck(files []string, stderr io.Writer) int {
 	if len(files) == 0 {
 		fmt.Fprintln(stderr, "usage: kukel check a.kkl ...")
+		return 2
+	}
+	if badFiles("check", files, "kukel check a.kkl ...", stderr) {
 		return 2
 	}
 	if _, err := compileFiles(files); err != nil {
@@ -221,6 +245,9 @@ func cmdBuild(args []string, stderr io.Writer) int {
 	}
 	if len(files) == 0 {
 		fmt.Fprintln(stderr, "usage: kukel build [-o prog.kkc] a.kkl ...")
+		return 2
+	}
+	if badFiles("build", files, "kukel build [-module] [-o prog.kkc] a.kkl ...", stderr) {
 		return 2
 	}
 	if out == "" {
@@ -323,6 +350,9 @@ func cmdExec(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 func cmdDisasm(files []string, stdout, stderr io.Writer) int {
 	if len(files) == 0 {
 		fmt.Fprintln(stderr, "usage: kukel disasm prog.kkc | a.kkl ...")
+		return 2
+	}
+	if badFiles("disasm", files, "kukel disasm prog.kkc | a.kkl ...", stderr) {
 		return 2
 	}
 	var prog *bytecode.Program
@@ -471,6 +501,9 @@ func cmdFmt(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: kukel fmt [-w | -l] a.kkl ...")
 		return 2
 	}
+	if badFiles("fmt", files, "kukel fmt [-w | -l] a.kkl ...", stderr) {
+		return 2
+	}
 	code := 0
 	for _, file := range files {
 		src, err := os.ReadFile(file)
@@ -509,6 +542,9 @@ func cmdFmt(args []string, stdout, stderr io.Writer) int {
 // initializers, or the statements. A piece shares the program and its
 // state with the pieces before it (compiler.Session, vm.Extend).
 func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if badFiles("repl", files, "kukel repl [a.kkl ...]", stderr) {
+		return 2
+	}
 	config := cliConfig()
 	session, err := compiler.NewSession(builtins.Names(), config)
 	if err != nil {
@@ -644,7 +680,9 @@ func parseInput(name string, src []byte, last bool) (decls *ast.File, stmts []as
 		return nil, stmts, false, nil
 	}
 	if line := bytes.TrimSpace(src); atEnd(serr) && (last || !bytes.Contains(line, []byte("\n"))) {
-		if stmts, err := parser.ParseStmts(name, append(slices.Clip(line), ';')); err == nil {
+		// The ';' must end a statement, not be the body of a header such
+		// as "if (c)" whose statement is on the next line.
+		if stmts, err := parser.ParseStmts(name, append(slices.Clip(line), ';')); err == nil && (last || !emptyBody(stmts[len(stmts)-1])) {
 			return nil, stmts, false, nil
 		}
 	}
@@ -655,6 +693,36 @@ func parseInput(name string, src []byte, last bool) (decls *ast.File, stmts []as
 		err = ferr
 	}
 	return nil, nil, atEnd(ferr) || atEnd(serr), err
+}
+
+// emptyBody reports whether s ends in an empty statement as the body of an
+// if, else, while or for: the ';' the REPL added, where the user's body is
+// still to come.
+func emptyBody(s ast.Stmt) bool {
+	for {
+		var body ast.Stmt
+		switch x := s.(type) {
+		case *ast.IfStmt:
+			body = x.Then
+			if x.Else != nil {
+				body = x.Else
+			}
+		case *ast.WhileStmt:
+			body = x.Body
+		case *ast.ForStmt:
+			body = x.Body
+		case *ast.ForEachStmt:
+			body = x.Body
+		case *ast.LabeledStmt:
+			body = x.Stmt
+		default:
+			return false
+		}
+		if _, empty := body.(*ast.EmptyStmt); empty {
+			return true
+		}
+		s = body
+	}
 }
 
 // atEnd reports whether a syntax error is at the end of the input.

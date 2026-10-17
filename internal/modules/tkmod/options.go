@@ -133,9 +133,18 @@ func fontValue(v value.Value) (any, string) {
 // fonts are the Tk named fonts made, one per font map; styles the ttk
 // styles that carry a font for the classes that take none themselves.
 var (
-	fonts  = map[fontSpec]*tk.FontFace{}
-	styles = map[string]string{}
+	fonts      = map[fontSpec]*tk.FontFace{}
+	styles     = map[string]string{}
+	styleFonts = map[string]*tk.FontFace{} // by style name
 )
+
+// restyle gives the styles their fonts again: a ttk style's settings
+// belong to the theme in use (after tk::settheme).
+func restyle() {
+	for style, face := range styleFonts {
+		tk.StyleConfigure(style, tk.Font(face))
+	}
+}
 
 func fontFace(f fontSpec) *tk.FontFace {
 	if face := fonts[f]; face != nil {
@@ -169,6 +178,7 @@ func fontOption(styleClass string) option {
 		if style == "" {
 			style = fmt.Sprintf("kukel%d.%s", len(styles)+1, styleClass)
 			styles[key] = style
+			styleFonts[style] = face
 			tk.StyleConfigure(style, tk.Font(face))
 		}
 		return tk.Style(style)

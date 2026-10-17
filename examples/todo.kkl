@@ -1,0 +1,157 @@
+// todo: a task list kept in a database (module db, with objects in tables;
+// json, time).
+//
+//     kukel run examples/todo.kkl -- [-db url] [command ...]
+//
+// The command comes from the arguments, or one per line from standard
+// input (lines starting with # are comments):
+//
+//     add title words [due 2026-10-20]   a new task
+//     done N                             task N is done
+//     rm N                               task N goes
+//     list [open | done | all]           the tasks (open: the default), by due date
+//     export                             all tasks as JSON
+//
+// The database is sqlite:todo.db unless -db names another (any URL
+// db::open takes; "sqlite::memory:" is gone at the end). Each command is a
+// transaction: it changes everything it should, or nothing. The exit code
+// is 0, 1 when a command failed, 2 for a wrong command line.
+use db;
+use json;
+use time;
+
+// Task is a row of the table task: the data members are its columns.
+class Task {
+    id, title, due, done;
+    static columns();
+}
+
+Task::columns() {
+    return {"title": "TEXT NOT NULL", "due": "DATE", "done": "BOOLEAN NOT NULL"};
+}
+
+global conn;
+
+usage(why) {
+    eprintln("todo:", why);
+    eprintln("usage: todo [-db url] [add title [due yyyy-mm-dd] | done N | rm N | list [open|done|all] | export]");
+    return 2;
+}
+
+main(args) {
+    local url = "sqlite:todo.db";
+
+    if (len(args) > 0 && args[0] == "-db") {
+        if (len(args) < 2) return usage("-db needs a URL");
+        url = args[1];
+        args = slice(args, 2);
+    }
+
+    try {
+        conn = db::open(url);
+        conn->migrate(Task);
+    } catch (e) {
+        eprintln("todo:", e->message);
+        return 2;
+    }
+
+    local code = 0;
+
+    if (len(args) > 0) {
+        code = command(args);
+    } else {
+        for (local line = readline(); line != nil; line = readline()) {
+            local w = words(line);
+
+            if (len(w) > 0 && w[0][0] != '#') code = max(code, command(w));
+        }
+    }
+    conn->close();
+    return code;
+}
+
+// command runs one command in a transaction, and gives the exit code.
+command(w) {
+    local run = {"add": cmdadd, "done": cmddone, "rm": cmdrm, "list": cmdlist, "export": cmdexport}[w[0]];
+
+    if (run == nil) return usage("unknown command " + w[0]);
+
+    try {
+        conn->begin();
+        run(slice(w, 1));
+        conn->commit();
+        return 0;
+    } catch (e) {
+        if (conn->intransaction()) conn->rollback();
+        eprintln("todo:", w[0] + ":", e->message);
+        return 1;
+    }
+}
+
+cmdadd(w) {
+    local t = new Task(), n = len(w);
+    t->done = false;
+
+    if (n >= 2 && w[n - 2] == "due") {
+        t->due = time::Time::parse(w[n - 1], "%Y-%m-%d", "UTC");
+        n -= 2;
+    }
+    t->title = join(slice(w, 0, n), " ");
+
+    if (t->title == "") throw new Error("a task needs a title", "ValueError");
+    conn->save(t);
+    println("added", t->id);
+}
+
+// task gives the task whose number w[0] is.
+task(w) {
+    if (len(w) != 1) throw new Error("give the task's number", "ValueError");
+    local t = conn->get(Task, int(w[0]));
+
+    if (t == nil) throw new Error("there is no task " + w[0], "ValueError");
+    return t;
+}
+
+cmddone(w) {
+    local t = task(w);
+    t->done = true;
+    conn->save(t);
+    println("done", t->id);
+}
+
+cmdrm(w) {
+    local t = task(w);
+    conn->delete(t);
+    println("removed", t->id);
+}
+
+cmdlist(w) {
+    local which = len(w) > 0 ? w[0] : "open", q = conn->find(Task)->orderby("due IS NULL, due, id");
+
+    if (which == "open" || which == "done") {
+        q = q->where("done = ?", which == "done");
+    } else if (which != "all") {
+        throw new Error("list open, done or all, not " + which, "ValueError");
+    }
+
+    for (local t in q->all()) {
+        local due = t->due == nil ? "" : "  (due " + t->due->format("%Y-%m-%d") + ")";
+        println(str(t->id) + " [" + (t->done ? "x" : " ") + "] " + t->title + due);
+    }
+}
+
+cmdexport(w) {
+    local tasks = [];
+
+    for (local t in conn->find(Task)->orderby("id")->all())
+        push(tasks, {"id": t->id, "title": t->title, "due": t->due == nil ? nil : t->due->format("%Y-%m-%d"), "done": t->done});
+    println(json::encode(tasks, "  "));
+}
+
+// words splits a line at its spaces.
+words(line) {
+    local w = [];
+
+    for (local s in split(trim(line), " ")) if (s != "") push(w, s);
+    return w;
+}

@@ -45,5 +45,5 @@ func StackUse(op Op, operands []int) (pops, pushes int) {
 	case OpIterNext:
 		return 0, arg(1)
 	}
-	return 0, 0 // NOP, JUMP, JUMP_IF_ARG, RETURN_NIL, TRY_PUSH, TRY_POP
+	return 0, 0 // NOP, JUMP, JUMP_IF_ARG, CMP_JUMP_LK, INC_LOCAL, DEC_LOCAL, RETURN_NIL, TRY_PUSH, TRY_POP, BREAK
 }

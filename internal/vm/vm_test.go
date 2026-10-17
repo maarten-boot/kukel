@@ -820,7 +820,7 @@ main() {
 		{"min of nothing", `main() { min([]); }`,
 			"ArgumentError: min: no values\n  at main (t.kkl:1)"},
 		{"max of mixed values", `main() { max(1, "a"); }`,
-			"TypeError: cannot compare string and int with >\n  at main (t.kkl:1)"},
+			"TypeError: max: cannot compare int and string\n  at main (t.kkl:1)"},
 		{"sqrt of a string", `main() { sqrt("4"); }`,
 			"TypeError: sqrt: argument 1 must be a number, not string\n  at main (t.kkl:1)"},
 		{"randint with bounds reversed", `main() { randint(6, 1); }`,
@@ -1000,4 +1000,19 @@ func BenchmarkFieldAccess1M(b *testing.B) {
 		class P { x, y; P(x, y); }
 		P::P(x, y) { this->x = x; this->y = y; }
 		main() { local p = new P(1, 2), s = 0; for (local i = 0; i < 1000000; i++) { s += p->x + p->y; p->x = i; } }`)
+}
+
+// Two bound methods are equal for the same object and member function
+// (reference section 8).
+func TestBoundMethodEquality(t *testing.T) {
+	out, _, err := runSource(t, `class P { m(); n(); }
+P::m() {}
+P::n() {}
+main() {
+    local a = new P(), b = new P();
+    println(a->m == a->m, a->m == b->m, a->m == a->n, a->m != b->m);
+}`)
+	if err != nil || out != "true false false true\n" {
+		t.Errorf("got %q, %v", out, err)
+	}
 }

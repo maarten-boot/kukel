@@ -402,3 +402,28 @@ func mustEncode(t *testing.T, p *bytecode.Program) []byte {
 	}
 	return data
 }
+
+// A local and a constant are one instruction only on one line: else the
+// line of the local would have no code (the debugger could not stop there).
+func TestFusedOnOneLine(t *testing.T) {
+	for src, fused := range map[string]bool{
+		"f(n) { return n / 2; } main() {}":                true,
+		"f(n) {\n    return n\n        / 2;\n} main() {}": false,
+	} {
+		f, err := parser.ParseFile("t.kkl", []byte(src))
+		if err != nil {
+			t.Fatal(err)
+		}
+		prog, err := Compile([]*ast.File{f}, testBuiltins)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, code := false, prog.Funcs[0].Code
+		for pc := 0; pc < len(code); pc += bytecode.Op(code[pc]).Size() {
+			got = got || bytecode.Op(code[pc]) == bytecode.OpArithLK
+		}
+		if got != fused {
+			t.Errorf("%q: ARITH_LK %v, want %v", src, got, fused)
+		}
+	}
+}

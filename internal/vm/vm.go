@@ -839,11 +839,13 @@ func (vm *VM) callMethodFast(f *frame, ip, sp, argc, cache int) bool {
 
 // enter pushes the frame for fn as callFunction does, when nothing needs
 // its slower checks: the number of arguments is right and there is no
-// rest parameter, the stack and the frame list have room, and there is no
-// step limit or cancellation to count. It reports whether it did.
+// rest parameter, the stack and the frame list have room, there is no
+// step limit to count and no cancellation has been asked for (step would
+// then fail; a program that can be cancelled, as every one the Go API
+// runs, still takes this path). It reports whether it did.
 func (vm *VM) enter(f *frame, ip, sp int, fn *bytecode.Function, this *value.ObjectObj, cl *value.ClosureObj, argc int) bool {
 	n := len(vm.frames)
-	if fn.HasRest || argc < fn.NumParams || argc > fn.NumParams+fn.NumOptional || vm.StepLimit > 0 || vm.cancel != nil ||
+	if fn.HasRest || argc < fn.NumParams || argc > fn.NumParams+fn.NumOptional || vm.StepLimit > 0 || vm.cancel != nil && vm.cancel.flag.Load() ||
 		n >= MaxFrames || n == cap(vm.frames) || sp+fn.NumSlots+fn.MaxStack > len(vm.stack) {
 		return false
 	}

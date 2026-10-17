@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"os"
 	"path/filepath"
@@ -235,6 +238,17 @@ func TestReferenceExamples(t *testing.T) {
 		}
 		doc = append(doc, text...)
 	}
+	// What the examples without an output block print is kept in
+	// reference.golden (by a hash of their code; make golden writes it), so
+	// that a change in what one prints is noticed: its comments may say the
+	// old output.
+	goldenFile := filepath.Join(testdir, "reference.golden")
+	golden, printed := map[string]string{}, map[string]string{}
+	if data, err := os.ReadFile(goldenFile); err == nil {
+		if err := json.Unmarshal(data, &golden); err != nil {
+			t.Fatal(err)
+		}
+	}
 	// A block without main that starts with "// name.kkl" is a module: it is
 	// written to the directory the examples run in.
 	dir := t.TempDir()
@@ -275,10 +289,42 @@ func TestReferenceExamples(t *testing.T) {
 		if shown && stdout.String() != want {
 			t.Errorf("example %d prints\n%s\nbut the documentation shows\n%s", n, stdout.String(), want)
 		}
+		if !shown && !varies(code) {
+			out := strings.ReplaceAll(stdout.String(), dir, "$DIR")
+			key := exampleKey(code)
+			printed[key] = out
+			if old, ok := golden[key]; ok && old != out && !*update {
+				t.Errorf("example %d now prints\n%s\nbut printed\n%s\n(check what its comments say, then make golden)\n%s", n, out, old, blocks[i])
+			}
+		}
 	}
 	if n < 4 {
 		t.Errorf("found only %d examples", n)
 	}
+	if *update {
+		data, _ := json.MarshalIndent(printed, "", "  ")
+		if err := os.WriteFile(goldenFile, append(data, '\n'), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// varies reports whether an example's output depends on the clock, random
+// numbers, new UUIDs or the files in the current directory: its output is
+// not kept.
+func varies(code string) bool {
+	for _, s := range []string{"time::now", "time(", "clock(", "random", "randint", "uuid::v", "time::sleep", "events::", "use fs;"} {
+		if strings.Contains(code, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// exampleKey names an example by its code.
+func exampleKey(code string) string {
+	sum := sha256.Sum256([]byte(code))
+	return hex.EncodeToString(sum[:6])
 }
 
 func TestTokensError(t *testing.T) {
@@ -425,6 +471,22 @@ func TestReferenceDocumentsNativeModules(t *testing.T) {
 	}
 }
 
+// An argument that starts with "-" where a file name is expected is an
+// option the command does not have: a usage error. run refuses .kkc files.
+func TestUnknownOptions(t *testing.T) {
+	for _, args := range [][]string{{"fmt", "-d", "a.kkl"}, {"run", "--help"}, {"check", "-x", "a.kkl"}, {"build", "-q", "a.kkl"},
+		{"repl", "-v"}, {"debug", "-g", "a.kkl"}, {"disasm", "-s", "a.kkl"}} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, nil, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "kukel "+args[0]+": unknown option "+args[1]) {
+			t.Errorf("%q: exit %d, %q", args, code, stderr.String())
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"run", "p.kkc"}, nil, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "run it with kukel exec p.kkc") {
+		t.Errorf("run p.kkc: exit %d, %q", code, stderr.String())
+	}
+}
+
 func TestBuildMissingOutputName(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"build", "a.kkl", "-o"}, nil, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "-o needs a file name") {
@@ -494,6 +556,13 @@ exit(3);
 println("not run");
 `
 	var out, errOut bytes.Buffer
+	// A header on a line of its own (if, while, for) takes the statement
+	// on the next line as its body, not the ';' the REPL adds to one line.
+	headers := "if (false)\n  println(\"never\");\nlocal i = 0\nwhile (i < 3)\n  i++;\ni\n"
+	if code := run([]string{"repl"}, strings.NewReader(headers), &out, &errOut); code != 0 || out.String() != "3\n" {
+		t.Errorf("headers: exit %d, %q, %q", code, out.String(), errOut.String())
+	}
+	out.Reset()
 	code := run([]string{"repl"}, strings.NewReader(in), &out, &errOut)
 	want := "20\n100\n40\n31\n\"two\\nlines\"\n[1, 2]\nstill here\n"
 	if code != 3 || out.String() != want {
@@ -704,6 +773,13 @@ func TestDebug(t *testing.T) {
 	if code := run([]string{"debug", "gi.kkl"}, strings.NewReader("s\nbt\nc\n"), &out, &out); code != 0 ||
 		out.String() != "<init> at gm.kkl:4\n    4  global x = g();\n(kdb) gm::g at gm.kkl:2\n    2      return 1;\n(kdb) *0 gm::g (gm.kkl:2)\n 1 <init> (gm.kkl:4)\n 2 <init> (gi.kkl:1)\n(kdb) 1\nthe program ended (exit code 0)\n" {
 		t.Errorf("a global initializer: exit %d:\n%s", code, out.String())
+	}
+	// A comment on line 1 has no code: the empty <init> is not taken for
+	// some.
+	os.WriteFile("c.kkl", []byte("// a comment\n\nmain() {\n    println(1);\n}\n"), 0o644)
+	out.Reset()
+	if run([]string{"debug", "c.kkl"}, strings.NewReader("b 1\nquit\n"), &out, &out); !strings.Contains(out.String(), "(no code on line 1: the next is 4)\nbreakpoint 1 at c.kkl:4") {
+		t.Errorf("a comment on line 1:\n%s", out.String())
 	}
 	// The end of the input quits.
 	out.Reset()

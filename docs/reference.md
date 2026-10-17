@@ -65,7 +65,9 @@ consequences.
 The exit code is `main`'s result when it returns an int, else 0. A compile
 error or an uncaught exception gives exit code 1; `exit(code)` ends the
 program with that code. A wrong command line (an unknown command, a missing
-file name, `-o` without a name) gives exit code 2. The operating system
+file name, `-o` without a name, an option the command does not have, such
+as `kukel fmt -d`: a file whose name starts with `-` is given as `./-name`,
+`kukel run` of a `.kkc` file) gives exit code 2. The operating system
 keeps only the low 8 bits of an exit code: `return 263` exits with 7,
 `return -1` with 255.
 
@@ -102,7 +104,12 @@ state with the pieces before it:
 ```
 
 - A statement without its final `;` gets one when it is one line, or the
-  last line of the piece.
+  last line of the piece. A line that is the header of an `if`, `else`,
+  `while` or `for` (`if (x > 0)` alone) is not taken as a statement with an
+  empty body: its statement comes on the next line. A piece ends where it
+  is complete, so `else` on the line after a `}` starts a new piece (an
+  error): write `} else {` on one line. A definition's `{` goes on the line
+  of its header (`f(x)` alone is a call).
 - A `local` variable declared at the top level of a piece lives as long as
   the session: it is a global variable of the program (declared again, it
   is the same variable). Locals inside blocks are local as usual.
@@ -508,7 +515,9 @@ Operators, from lowest to highest precedence:
 **Numbers**: ints wrap around on overflow. An int with a float gives a
 float. `int / int` truncates toward zero and `%` has the sign of the left
 side; `/` or `%` by integer 0 is a `ZeroDivisionError` (a float division by
-zero gives `inf` or `nan`). Comparing an int with a float is exact.
+zero gives `inf` or `nan`). `%` with a float is the float remainder
+(`7.5 % 2` is `1.5`; `7.0 % 0` is `nan`). Comparing an int with a float is
+exact.
 
 **Strings**: `+` needs two strings: `"n = " + str(n)`. `s[i]` gives a byte
 as an int; strings cannot be changed (`s[i] = x` is an error).
@@ -593,7 +602,9 @@ main() {
   own. In `for (local i ...)` the next iteration's `i` starts with the value
   at the end of the previous one, before the update.
 - In a member function, a literal also sees `this` and the members.
-- In stack traces a literal is called `<function>/fn@<line>`.
+- In stack traces a literal is called `<function>/fn@<line>`. The global
+  initializers of a file run in a function called `<init>`: an exception
+  there shows `at <init> (file.kkl:line)`.
 
 ---
 
@@ -662,9 +673,13 @@ main() {
   data member, not one only declared in a base class).
 - Inside a member function, the class's own name means the class
   (`return A;`, `new A()`); constructors are not found by an unqualified
-  name (call `Base::Base(...)`).
+  name (call `Base::Base(...)`): `A()` there calls the class, a
+  `TypeError` when it runs ("cannot call class A"). `p->C(...)` calls the
+  constructor `C` again on an existing object `p`, as any member function
+  (its data members are set anew; nothing else happens).
 - `p->x` reads or assigns a data member (all members are public). Static
-  data members are reached as `C::x` only; a static member function can
+  data members are reached as `C::x`, or in a member function of the class
+  by their name alone (`count++`), never as `p->x`; a static member function can
   also be called as `p->f(...)` (the static of `p`'s class), and `p->f`
   without a call gives that function itself, not a bound method.
   `p->m` without a call is a *bound method*: a function value that calls
@@ -702,7 +717,9 @@ main() {
   `TypeError`. `catch (e)` catches everything, so `e->kind` and
   `e->message` always work.
 - Runtime errors throw `Error` objects too; programs derive their own
-  classes from it (`new Error([message [, kind]])`).
+  classes from it (`new Error([message [, kind]])`; any values are taken
+  as the message and kind, but strings are what the rest of the program
+  and an uncaught exception's report expect).
 - The first time an `Error` is thrown, `trace` gets the stack trace (a
   vector of strings such as `"f (prog.kkl:3)"`, innermost call first) and,
   if `kind` is nil or `""`, `kind` becomes the name of its class.
@@ -774,7 +791,7 @@ and the order of output and errors stays as written.
 | `typeof(x)` | `"nil"`, `"bool"`, `"int"`, `"float"`, `"string"`, `"vector"`, `"map"`, `"function"`, `"class"` or `"object"` |
 | `str(x)` | `x` as text, as `print` writes it |
 | `int(x)` | An int: floats are truncated toward zero; strings in decimal, `0x` or `0b` form with an optional sign (`"42"`, `"-0x10"`, `"0b11"`), surrounding spaces allowed and every `_` ignored (`"1_000"`); `true` is 1, `false` 0. A string that is not a number is a `ValueError`, one too large a `RangeError`; hexadecimal and binary use all 64 bits, as literals do (`int("0xffffffffffffffff")` is -1) |
-| `float(x)` | A float from an int, float or string (`"2.5"`, `"1e3"`, `"inf"`, also Go's other forms such as `"0x1p3"`). A string beyond the float range is a `RangeError`; one too small gives 0.0 |
+| `float(x)` | A float from an int, float or string (`"2.5"`, `"1e3"`, `"inf"`, also Go's other forms such as `"0x1p3"`; surrounding spaces and `_` between digits are allowed, as for `int`: `" 1_000.5 "`). A string beyond the float range is a `RangeError`; one too small gives 0.0 |
 | `classof(obj)` | The class of an object |
 | `instanceof(x, C)` | Whether `x` is an object of class `C` or of a class derived from it |
 
@@ -953,10 +970,10 @@ same name (from a join) keep the last value, so name them with `AS`.
 |---|---|
 | `db::open(url)` | A `db::Conn`: `"sqlite:path"` opens the file `path` (relative to the current directory; any characters, also `?`, `#` and `%`), creating it if needed; `"sqlite::memory:"` is a database in memory, gone when closed. `"postgres://user:password@host:5432/database?sslmode=disable"` (also `postgresql://`; the options are PostgreSQL's) and `"mysql://user:password@host:3306/database"` (the port defaults to 3306; options such as `?tls=true` are the MySQL driver's) connect to a server; such a URL needs a host. A database that cannot be opened or reached is a `DBError`, another URL a `ValueError`, as is a kind of database this `kukel` was built without ("this kukel was built without PostgreSQL (build tag nopostgres)"; `kukel version` lists the ones it has). A `kukel` built without any of the three has no module `db`: `use db;` says which build tags left it out. In SQLite, foreign keys are enforced and a database another program is writing is waited for up to 5 seconds |
 | `conn->exec(sql, args...)` | Runs a statement that gives no rows (`CREATE`, `INSERT`, `UPDATE`, `DELETE`, ...) and gives the number of rows it touched (for an `UPDATE`, the rows its `WHERE` found, also in MySQL; 0 for a statement that changes no rows, such as `CREATE`) |
-| `conn->lastid()` | The id the database chose for the row the last `INSERT` (or `REPLACE`) added (SQLite's `last_insert_rowid`, MySQL's `LAST_INSERT_ID`), or `nil`: after an `exec` of another statement, and in MySQL for a row whose id the statement gave (`query`, `first` and `cursor`, and an `exec` that fails, leave it as it was). PostgreSQL has none for `exec` (write `INSERT ... RETURNING id` and use `first`); after `save` it is the new row's id on every database |
+| `conn->lastid()` | The id the database chose for the row the last `INSERT` (or `REPLACE`) added (SQLite's `last_insert_rowid`, MySQL's `LAST_INSERT_ID`), or `nil`: after an `exec` of another statement (one that does not start with `INSERT` or `REPLACE`: so also an `INSERT` after a `WITH`), after the object calls `migrate`, `delete(p)` and `query->delete()` (they run statements of their own), and in MySQL for a row whose id the statement gave (`query`, `first` and `cursor`, `get`, `find` and `count`, and an `exec` that fails, leave it as it was). PostgreSQL has none for `exec` (write `INSERT ... RETURNING id` and use `first`); after `save` it is the new row's id on every database |
 | `conn->query(sql, args...)` | All rows of a query, as a vector of maps |
 | `conn->first(sql, args...)` | The first row of a query, or `nil` |
-| `conn->cursor(sql, args...)` | A `db::Cursor` for results too large to hold at once: `cursor->next()` gives the next row, or `nil` at the end (which closes it); `cursor->close()` stops early. While a cursor is open, the other calls that run SQL (`exec`, `query`, `first`, `cursor`, `begin`, `commit`, `rollback`, and those of objects: `migrate`, `save`, `delete`, `get`, `find`, `load` and running a `db::Query`) are a `ValueError`; `lastid`, `intransaction` and `close` still work |
+| `conn->cursor(sql, args...)` | A `db::Cursor` for results too large to hold at once: `cursor->next()` gives the next row, or `nil` at the end (which closes it); `cursor->close()` stops early. While a cursor is open, the other calls that run SQL (`exec`, `query`, `first`, `cursor`, `begin`, `commit`, `rollback`, and those of objects: `migrate`, `save`, `delete`, `get`, `find`, `load`, and the member functions of `db::Query`, also those that only refine it) are a `ValueError`; `lastid`, `intransaction` and `close` still work |
 | `conn->begin()` | Starts a transaction: the statements until `commit()` or `rollback()` count together, or not at all. Transactions do not nest (`ValueError`) |
 | `conn->commit()`, `conn->rollback()` | Ends the transaction, keeping or undoing its changes (`ValueError` without one) |
 | `conn->intransaction()` | Whether a transaction is open |
@@ -1229,7 +1246,7 @@ An **entry** is a map: `name` (the last part of the path), `size` (bytes),
 | `fs::readdir(path)` | The entries of a directory, by name. A symbolic link is an entry of its own (`link` true, and `dir` false), not what it points to |
 | `fs::stat(path)` | The entry of a file or directory; for a symbolic link, of what it points to, with `link` true |
 | `fs::exists(path)` | Whether there is a file or directory there (a link to nothing does not count) |
-| `fs::walk(path, f)` | Calls `f(p, entry)` for `path` and everything below it, depth first and by name; `p` is `path` joined with the names. When `f` returns `false` for a directory, `walk` does not go into it. Symbolic links are reported, never followed (so a link cannot make a loop), also when `path` itself is one. A directory that cannot be read ends the walk with an `IOError`, as does an exception in `f`, which goes on |
+| `fs::walk(path, f)` | Calls `f(p, entry)` for `path` and everything below it, depth first and by name; `p` is `path` joined with the names. When `f` returns `false` for a directory, `walk` does not go into it. Symbolic links are reported, never followed (so a link cannot make a loop), also when `path` itself is one. A directory that cannot be read ends the walk with an `IOError`; an exception in `f` ends it too, and is passed on unchanged |
 | `fs::mkdir(path)`, `fs::mkdirall(path)` | Makes a directory; `mkdirall` also the ones above it that are missing (and is fine when it exists) |
 | `fs::remove(path)` | Removes a file or an empty directory |
 | `fs::removeall(path)` | Removes a file, or a directory with everything in it |
@@ -1560,8 +1577,9 @@ main() {
 one at a time like all handlers, so timers, `zmq` sockets and workers mix
 with the windows. Each open window keeps `run()` going; closing the first
 window (by the user, or with `close()`) closes all windows and ends Tk for
-the rest of the program. After that, making a window, a widget, a menu or a
-`tk::Radiogroup`, a dialog, and changing a group are a `TkError`; what only
+the rest of the program. After that, making a window, a widget, a menu, a
+`tk::Radiogroup` or a `tk::Image`, a dialog, the theme functions, and
+changing a group are a `TkError`; what only
 reads what the program already has still works (`w->title()`,
 `w->closed()`, `g->value()`, printing). An exception a handler does not
 catch goes to the event loop like that of any handler (`events::onerror`),
@@ -1590,15 +1608,16 @@ constructor or in `w->configure(options)`: `new tk::Label(w, "Name:",
 below); an unknown option, or a value of the wrong kind, is a `ValueError`
 that says what is allowed (options that are not a map: a `TypeError`).
 Sizes are pixels, except the `width` of the widgets that show text (labels,
-buttons, entries, check and radio buttons, texts, list boxes), which counts
+buttons, entries, check and radio buttons, texts, list boxes, comboboxes), which counts
 characters (0 to 1000), and the `height` of a text or list box, which
 counts lines (1 to 1000). Colours are names (`"red"`, `"light blue"`) or
 `"#rgb"`, `"#rrggbb"` (also `"#rrrrggggbbbb"`); an unknown name is a
 `TkError`. The text of a label or button is not an option: `settext`.
 
 Widgets with text (labels, buttons, entries, check and radio buttons,
-texts, list boxes) and canvas text take a `font`: a map with some of
-`family` (a font family such as `"DejaVu Sans"`), `size` (points, 1 to
+texts, list boxes, comboboxes) and canvas text take a `font`: a map with
+some of `family` (a font family such as `"DejaVu Sans"`, at most 200
+bytes), `size` (points, 1 to
 500), `bold`, `italic` and `underline` (`true` or `false`), as in
 `{"family": "Helvetica", "size": 12, "bold": true}`; what is left out is
 the platform's default. A family the system does not have gives Tk's
@@ -1674,7 +1693,7 @@ a button takes the keyboard focus when clicked; an entry gets it back with
 | Function | Description |
 |---|---|
 | `tk::available()` | Whether Tk can start (a display is there); it starts Tk |
-| `tk::themes()`, `tk::theme()`, `tk::settheme(name)` | The themes there are (a vector of names), the one in use, and choosing one (an unknown name is a `ValueError`) |
+| `tk::themes()`, `tk::theme()`, `tk::settheme(name)` | The themes there are (a vector of names), the one in use, and choosing one (it gives nil; an unknown name is a `ValueError`); the fonts given to widgets stay |
 | `tk::messagebox(text [, options])` | Shows a message and waits for a button; gives its name (`"ok"`, `"cancel"`, `"yes"`, `"no"`, `"retry"`, `"abort"`, `"ignore"`). Options: `title`, `detail` (a second, smaller text), `icon` (`"info"`, `"warning"`, `"error"`, `"question"`), `buttons` (`"ok"`, `"okcancel"`, `"yesno"`, `"yesnocancel"`, `"retrycancel"`, `"abortretryignore"`), `default` (the button Enter presses), `parent` (an open window it shows over) |
 | `tk::openfile([options])` | Lets the user choose a file to open; gives its path, or nil when cancelled. Options: `title`, `dir` (where it starts), `file`, `types` (`[["Kukel", ".kkl"], ["All files", "*"]]`: a name and patterns), `multiple` (`true`: a vector of paths), `parent` |
 | `tk::savefile([options])` | Lets the user choose where to save; gives the path (the file need not exist; the dialog asks before an existing one is chosen), or nil. Options: `title`, `dir`, `file`, `types`, `ext` (added to a name without one, as `".txt"`), `parent` |
@@ -1727,7 +1746,7 @@ closed)`), a frame as `tk::Frame`.
 | `l->selected()`, `l->setselected(v)` | The indexes of the lines chosen, a vector (`[]`: none); an index that is not a line's is a `ValueError` |
 | `l->onselect(f)` | `f(selected)` is called when the user changes the lines chosen |
 | `new tk::Scale(parent [, options])` | A slider for a number. Options: `from` and `to` (the ends: 0 and 100 when left out; numbers from -1e9 to 1e9), `step` (the values are `from` plus a multiple of it; 0, the default: any value), `orient` (`"horizontal"`, the default, `"vertical"`), `length` (pixels), `state` |
-| `s->value()`, `s->setvalue(x)` | The value: an int when `from` and `step` are ints, else a float; `setvalue` puts `x` within the range and on a step |
+| `s->value()`, `s->setvalue(x)` | The value: an int when a `step` is given and `from` and `step` are whole numbers, else a float; `setvalue` puts `x` (any number) within the range and on a step (the end of the range is a value only when the range holds whole steps: from 0 to 10 in steps of 3, the largest is 9) |
 | `s->onchange(f)` | `f(value)` is called when the user moves the slider to another value |
 | `new tk::Combobox(parent [, lines] [, options])` | A field with a drop-down list of lines to choose from (a vector of strings). Options: `width` (characters), `height` (lines in the list), `font`, `justify`, `state` (`"normal"`, the default: the text can also be typed; `"readonly"`: only chosen; `"disabled"`) |
 | `c->text()`, `c->settext(s)`, `c->items()`, `c->setitems(v)` | The text in the field; the lines of the list |
@@ -1752,12 +1771,14 @@ A widget prints as its class and text: `tk::Label("Name:")`,
 | `m->separator()` | A line between entries |
 | `m->enable(label, on)` | Whether the entry can be chosen |
 | `m->invoke(label)` | Does what choosing the entry does, at once (for a key binding): an item calls its handler, a check entry is toggled and calls its handler, a radio entry is chosen and calls its group's; the handler's result comes back |
-| `m->popup(x, y)` | Shows a pop-up menu with its corner at `x, y` on the screen: `w->bind("<Button-3>", fn(e) { m->popup(e["xroot"], e["yroot"]); })` |
+| `m->popup(x, y)` | Shows a pop-up menu with its corner at `x, y` on the screen (ints, from -10000 to 100000): `w->bind("<Button-3>", fn(e) { m->popup(e["xroot"], e["yroot"]); })` |
 
 Entries are named by their labels, which are unique in a menu (another
 entry with the same label, or a label `""`, is a `ValueError`; so is
-`invoke` or `enable` of a label the menu does not have, and `checked` of
-an entry that is not a check entry). A menu bar prints as `tk::Menu`, a
+`invoke` or `enable` of a label the menu does not have, `invoke` of a
+submenu, and `checked` of an entry that is not a check entry). `invoke` of
+a radio entry calls the group's `onchange` also when that entry was
+chosen already, as clicking it does. A menu bar prints as `tk::Menu`, a
 menu in it as `tk::Menu("File")`, a pop-up menu as `tk::Menu(popup)`.
 
 ```
@@ -1784,7 +1805,7 @@ main() {
 
 | Constructor or member function | Description |
 |---|---|
-| `new tk::Image(path)` | The picture in a PNG or GIF file (at most 64 MB). The file is read by kukel: an `IOError` when it cannot be, a `ValueError` when it is not PNG or GIF (or Tk cannot read it) |
+| `new tk::Image(path)` | The picture in a PNG or GIF file (a regular file, at most 64 MB). The file is read by kukel: an `IOError` when it cannot be (or is not a regular file, such as a pipe or a device), a `ValueError` when it is not PNG or GIF (or Tk cannot read it) |
 | `img->width()`, `img->height()` | Its size in pixels |
 
 Labels and buttons show an image with the option `image`, and the option
@@ -1807,12 +1828,12 @@ coordinates are numbers (pixels, from -1e6 to 1e6), points are vectors
 | `c->text(x, y, s [, options])` | A text at `x, y`. Options: `color`, `font`, `anchor` (which point of the text is at `x, y`: `"center"`, the default, `"nw"`, ...), `justify`, `width` (pixels before a line wraps) |
 | `c->image(x, y, img [, options])` | A `tk::Image` at `x, y`. Option: `anchor` (as for `text`) |
 | `c->coords(id)`, `c->setcoords(id, ...)` | An item's coordinates (a vector); set as the item was made (a vector of points, or the numbers) |
-| `c->move(item, dx, dy)` | Moves an item; `item` is an id, or a tag for all the items with it (none: nothing happens) |
+| `c->move(item, dx, dy)` | Moves an item (`dx`, `dy`: numbers from -1e6 to 1e6, and the item must stay within the coordinates); `item` is an id, or a tag for all the items with it (none: nothing happens) |
 | `c->configureitem(item, options)` | Changes the options of an item, or of the items with a tag (each option must be one of every item's kind) |
 | `c->raise(item)`, `c->lower(item)` | Puts an item (or the items with a tag, in their order) above, or below, all the others |
 | `c->remove(item)`, `c->clear()` | Removes an item (or the items with a tag), or all |
 | `c->tag(id, tag)`, `c->untag(id, tag)`, `c->tagged(tag)` | Gives an item a tag, or takes it away; the ids of the items with a tag (bottom to top). A tag is a name of letters, digits and `_` not starting with a digit; an item may have several |
-| `c->binditem(item, sequence, f)` | Calls `f(e)` for events of `sequence` on an item, or on any item with a tag (nil: none); `e` also has `item`, the item's id. The item is the topmost one under the mouse, or while a mouse button is down, the one it went down on (so a drag follows the item). For mouse events: item-level `<Enter>` and `<Leave>` do not exist |
+| `c->binditem(item, sequence, f)` | Calls `f(e)` for events of `sequence` on an item, or on any item with a tag (nil: none); `e` also has `item`, the item's id. The item is the topmost one under the mouse, or while a mouse button is down, the one it went down on (so a drag follows the item). For mouse events: item-level `<Enter>` and `<Leave>` do not exist. Item handlers run after the canvas's own bindings of the same event (`c->bind`), and neither hides the other |
 | `c->items()` | The ids, from the bottom to the top |
 | `c->itemat(x, y)` | The id of the topmost item at that point (on a rectangle, oval, polygon or arc's slice, near a line, on a text or image), or nil |
 
@@ -1840,6 +1861,42 @@ main() {
         if (item != nil) c->move(item, e["x"] - last["x"], e["y"] - last["y"]);
         last = e;
     });
+    events::run();
+}
+```
+
+Item bindings with a tag apply to every item that has it, also to items
+made later: a drawing program, where a double click adds a circle of the
+size and colour chosen below the canvas, a drag moves one, and the right
+button removes it:
+
+```
+use tk;
+use events;
+
+main() {
+    local w = new tk::Window("Shapes");
+    local c = new tk::Canvas(w, {"width": 300, "height": 200, "background": "white"});
+    local colour = new tk::Combobox(w, ["orange", "light blue", "pink"], {"state": "readonly"});
+    local size = new tk::Scale(w, {"from": 10, "to": 60, "step": 5});
+    c->pack();
+    colour->settext("orange")->pack({"fill": "x"});
+    size->setvalue(30)->pack({"fill": "x"});
+    local last = nil;
+    c->bind("<Double-Button-1>", fn(e) {      // a new circle
+        local r = size->value();
+        c->tag(c->oval(e["x"] - r, e["y"] - r, e["x"] + r, e["y"] + r, {"fill": colour->text()}), "shape");
+    });
+    c->binditem("shape", "<Button-1>", fn(e) {
+        c->raise(e["item"]);
+        last = e;
+    });
+    c->binditem("shape", "<B1-Motion>", fn(e) {
+        c->move(e["item"], e["x"] - last["x"], e["y"] - last["y"]);
+        last = e;
+    });
+    c->binditem("shape", "<Button-3>", fn(e) { c->remove(e["item"]); });
+    colour->onselect(fn(s) { c->configureitem("shape", {"fill": s}); });   // all of them
     events::run();
 }
 ```
@@ -1983,7 +2040,7 @@ on every interface), `"ipc://path"` (a Unix socket file) or `"inproc://name"`
 |---|---|
 | `new zmq::Socket(type [, identity])` | A socket of that type (`ValueError` for another type). The identity (1 to 255 bytes) is how a ROUTER the socket connects to names it; without one the ROUTER makes one up |
 | `s->bind(endpoint)` | Listens on `endpoint`. Port 0 (`"tcp://127.0.0.1:0"`) picks a free port, which `endpoint()` then shows. A busy or forbidden address is a `NetError` |
-| `s->connect(endpoint)` | Connects to a socket bound at `endpoint`. Unlike C ZeroMQ, it waits for the other side: it retries for about 3 seconds, then gives a `NetError`, so bind first |
+| `s->connect(endpoint)` | Connects to a socket bound at `endpoint`. Unlike C ZeroMQ, it waits for the other side: it retries for about 2.5 seconds, then gives a `NetError`, so bind first |
 | `s->send(message)` | Sends a string, or a vector of strings as one message of several parts (`TypeError` for other values, `ValueError` for an empty vector). A PULL or SUB socket cannot send (`ValueError`); a REQ socket that has no peer gives a `NetError` |
 | `s->receive([timeout])` | The next message; waits for it, at most `timeout` seconds if given, then gives `nil`. A message that arrives after the timeout is kept for the next `receive`. A negative or `nan` timeout is a `ValueError`, as is `receive` on a PUSH or PUB socket (they only send); a broken connection a `NetError` |
 | `s->onmessage(f)` | The event loop (`events`) calls `f(message)` for each message, and `events::run()` keeps going until the socket is closed. Afterwards `receive()` is a `ValueError`, as is a second `onmessage`, and `onmessage` on a PUSH or PUB socket; `f` must be a function (`TypeError`) |

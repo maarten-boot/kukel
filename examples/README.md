@@ -13,6 +13,7 @@ kukel run grep.kkl -- -n -i error testdata/log.txt
 | [grep.kkl](grep.kkl) | prints the lines of files (or of standard input) that match a regular expression (module `re`), with `-i`, `-n`, `-v`, `-c`, `-l`, `-o`, `-F`, `-h`, and `-r` for directories (module `fs`) |
 | [ninep.kkl](ninep.kkl) | a 9P file server of a small tree the program makes up (a file that counts its readers, one that keeps notes written to it, a control file that stops the server) and, if given, a directory of the disk (read-only, as `/files`), and a client that lists, reads and writes files of 9P servers (module `p9`); `demo` does both in one process |
 | [notes.kkl](notes.kkl) | a small text editor in a window (module `tk`, so a kukel built with the tag `tk`): a File menu with New, Open, Save, Save as and Quit (also as Ctrl+N, Ctrl+O, Ctrl+S, Ctrl+Q), file dialogs, a question before changes are dropped, and a status line |
+| [todo.kkl](todo.kkl) | a task list kept in a database (module `db` with objects in tables, `json`, `time`): `add` (with a due date), `done`, `rm`, `list` by due date, `export` as JSON; each command a transaction; the commands come from the arguments or one per line from standard input, the database from `-db` (default `sqlite:todo.db`) |
 
 ## Tests
 

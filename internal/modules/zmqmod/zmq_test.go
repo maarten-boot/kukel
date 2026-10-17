@@ -148,7 +148,7 @@ ValueError: zmq::Socket::subscribe: only a SUB socket subscribes, not a PUSH soc
 ValueError: zmq::Socket::bind: "localhost:5555" is not an endpoint such as "tcp://localhost:5555"
 TypeError: zmq::Socket::send: argument 1 must be a string or a vector of strings, not int
 ValueError: zmq::Socket::send: a message needs at least one part
-ValueError: zmq::Socket::receive: -1.0 seconds is not a usable timeout
+ValueError: zmq::Socket::receive: -1 seconds is not a usable timeout
 TypeError: zmq::Socket::onmessage: argument 1 must be a function, not int
 ValueError: zmq::Socket::receive: a PUSH socket cannot receive messages
 ValueError: zmq::Socket::onmessage: a PUB socket cannot receive messages
@@ -238,7 +238,7 @@ handler a2
 ValueError: zmq::poll: no sockets to wait for
 TypeError: zmq::poll: element 1 of argument 1 must be a zmq::Socket, not int
 ValueError: zmq::poll: socket 1 is closed
-ValueError: zmq::poll: -1.0 seconds is not a usable timeout
+ValueError: zmq::poll: -1 seconds is not a usable timeout
 `
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)

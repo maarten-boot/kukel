@@ -403,7 +403,7 @@ func minMax(name string, better value.CmpOp) builtinFn {
 		for _, v := range vals[1:] {
 			b, err := value.Compare(better, v, best)
 			if err != nil {
-				return value.NilValue, err
+				return value.NilValue, value.Errorf(value.TypeError, "%s: cannot compare %s and %s", name, best.Kind(), v.Kind())
 			}
 			if b {
 				best = v

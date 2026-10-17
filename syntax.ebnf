@@ -266,7 +266,8 @@ continue_statement  = "continue" , [ Identifier ] , ";" ;
 
 labelled_statement  = Identifier , ":" , statement ;
                       (* The ":" must follow the identifier on the same line
-                         and must not be part of "::". Rule: a label may not
+                         (spaces and comments may come between them) and
+                         must not be part of "::". Rule: a label may not
                          repeat the label of an enclosing statement. *)
 
 return_statement    = "return" , [ expression ] , ";" ;

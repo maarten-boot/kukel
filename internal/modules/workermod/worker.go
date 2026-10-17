@@ -285,7 +285,7 @@ func receive(a native.Args, env value.Env, q *queue, timeoutArg int) (value.Valu
 			return value.NilValue, err
 		}
 		if s != s || s < 0 {
-			return value.NilValue, a.Errorf(value.ValueError, "%s seconds is not a usable timeout", value.FormatFloat(s))
+			return value.NilValue, a.Errorf(value.ValueError, "%s seconds is not a usable timeout", a.V[timeoutArg].String())
 		}
 		timeout = time.Duration(s * float64(time.Second))
 	}

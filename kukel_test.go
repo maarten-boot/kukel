@@ -640,3 +640,30 @@ func TestGoVersion(t *testing.T) {
 		t.Errorf("go.mod requires Go %s, but the CI matrix does not test \"%s.x\"", minor, minor)
 	}
 }
+
+// BenchmarkCallFib27 runs fib(27) through the Go API: its interpreters can
+// be cancelled, and must still get the VM's fast call path (TODO.md Q71).
+func BenchmarkCallFib27(b *testing.B) {
+	p, err := kukel.CompileSource("b.kkl", `fib(n) { if (n < 2) return n; return fib(n - 1) + fib(n - 2); } main() {}`, kukel.CompileOptions{})
+	if err != nil {
+		b.Fatal(err)
+	}
+	in, err := kukel.New(p, kukel.Options{})
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer in.Close()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := in.Call("fib", kukel.Int(27)); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// Errorf with no kind is a HostError, also in its text.
+func TestErrorfNoKind(t *testing.T) {
+	if e := kukel.Errorf("", "plain %d", 1); e.Kind != "HostError" || e.Error() != "HostError: plain 1" {
+		t.Errorf("kind %q, text %q", e.Kind, e.Error())
+	}
+}

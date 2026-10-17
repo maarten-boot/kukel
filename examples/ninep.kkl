@@ -76,6 +76,12 @@ demo(dir) {
             println(e->message);
         }
 
+        try { // the server's exception: 9P2000 passes on its message
+            c->write("/ctl", "halt");
+        } catch (e) {
+            println(e->message);
+        }
+
         c->close();
     }
 

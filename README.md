@@ -198,7 +198,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `examples/` | demo programs, such as a `grep` ([examples/README.md](examples/README.md)) |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q66). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q71). Ideas for later are in [docs/future.md](docs/future.md).
 
 ## Development
 

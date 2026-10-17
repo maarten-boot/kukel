@@ -29,22 +29,40 @@ type slider struct {
 	last           float64
 }
 
+// numberOf gives v as a float, if it is a number other than nan.
+func numberOf(v value.Value) (float64, bool) {
+	switch v.Kind() {
+	case value.Int:
+		return float64(v.AsInt()), true
+	case value.Float:
+		return v.AsFloat(), !math.IsNaN(v.AsFloat())
+	}
+	return 0, false
+}
+
 // limit is a number option of a scale: from -1e9 to 1e9.
 func limit(v value.Value) (any, string) {
-	x, ok := coordinate(v)
+	x, ok := numberOf(v)
 	if !ok || math.Abs(x) > 1e9 {
 		return nil, " must be a number from -1e9 to 1e9, not " + v.Repr()
 	}
 	return x, ""
 }
 
-// snap gives x on the slider: within its range, and on a step.
+// snap gives x on the slider: within its range, and with a step, on a
+// step (the end of the range is one only when the range holds whole steps:
+// from 0 to 10 in steps of 3, the largest value is 9).
 func (s *slider) snap(x float64) float64 {
-	lo, hi := math.Min(s.from, s.to), math.Max(s.from, s.to)
-	if s.step > 0 {
-		x = s.from + math.Round((x-s.from)/s.step)*s.step
+	if s.step <= 0 {
+		return math.Max(math.Min(s.from, s.to), math.Min(math.Max(s.from, s.to), x))
 	}
-	return math.Max(lo, math.Min(hi, x))
+	dir := 1.0
+	if s.to < s.from {
+		dir = -1
+	}
+	k := math.Round(dir * (x - s.from) / s.step)
+	k = math.Max(0, math.Min(math.Floor(math.Abs(s.to-s.from)/s.step), k))
+	return s.from + dir*k*s.step
 }
 
 func (s *slider) number(x float64) value.Value {
@@ -116,7 +134,7 @@ func registerInputs() {
 		return wd.slider.number(wd.slider.last), nil
 	})
 	Scale.Methods["setvalue"] = widgetMethod("Scale", "setvalue", 1, 1, func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error) {
-		x, ok := coordinate(a.V[0])
+		x, ok := numberOf(a.V[0])
 		if !ok {
 			return value.NilValue, a.TypeError(0, "a number")
 		}

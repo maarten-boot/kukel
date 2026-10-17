@@ -59,3 +59,33 @@ testdata/tree/main.kkl:2:    // TODO: read the settings from a file
 $ -r -l -i todo testdata/tree testdata/words.txt
 testdata/tree/lib/util.kkl
 testdata/tree/main.kkl
+
+# -o prints no empty matches; -l wins over -c; -o -v prints nothing.
+$ -o a* testdata/words.txt
+a
+a
+a
+a
+a
+
+$ -l -c a testdata/words.txt testdata/log.txt
+testdata/words.txt
+testdata/log.txt
+
+$ -o -v alpha testdata/words.txt
+
+$ -c a testdata/words.txt testdata/log.txt
+testdata/words.txt:3
+testdata/log.txt:5
+
+$ -l a < testdata/words.txt
+(standard input)
+
+# -- ends the options: a pattern may then start with -.
+$ -c -- -10- testdata/log.txt
+7
+
+$ 
+! grep: no pattern
+! usage: grep [-icFhlnorv] pattern [file ...]
+exit 2

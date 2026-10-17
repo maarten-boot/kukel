@@ -297,7 +297,7 @@ IDENTIFIER: /(?!(?:break|case|catch|class|const|continue|default|do|else|false|f
 // "name:" with the ":" on the same line, and not the start of "::".
 // Only offered by the contextual lexer where a statement may start, so
 // "a ? b : c", "{k: v}" and "case K:" are unaffected.
-LABEL.2: /(?!(?:break|case|catch|class|const|continue|default|do|else|false|finally|fn|for|global|if|in|local|new|nil|return|static|switch|this|throw|true|try|use|while|with)(?![A-Za-z0-9_]))[A-Za-z_][A-Za-z0-9_]*[ \t]*:(?!:)/
+LABEL.2: /(?!(?:break|case|catch|class|const|continue|default|do|else|false|finally|fn|for|global|if|in|local|new|nil|return|static|switch|this|throw|true|try|use|while|with)(?![A-Za-z0-9_]))[A-Za-z_][A-Za-z0-9_]*(?:[ \t]|\/\*(?:[^*\n]|\*(?!\/))*\*\/)*:(?!:)/
 
 STATIC: "static"
 THIS: "this"

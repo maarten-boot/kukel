@@ -56,9 +56,9 @@ state, which last between calls.
 |---|---|
 | `New(p, opts)` | A new interpreter. `Options`: `Stdout`, `Stderr` (nil: discarded), `Stdin` (nil: empty), `StepLimit` |
 | `in.Run(args...)` | Runs `main` (with `args` as its vector of strings if it has a parameter) and gives the exit code (1 together with the error if the program fails) |
-| `in.Call(name, args...)` | Calls a top-level function (`"discount"`) or a module's (`"util::f"`, also private names such as `"util::_g"`, and `"json::encode"` of any Go module the program may use) and gives its result |
+| `in.Call(name, args...)` | Calls a top-level function (`"discount"`) or a module's (`"util::f"`, also private names such as `"util::_g"`, and `"json::encode"` of any Go module the program may use) and gives its result. Not reachable by name: static member functions (`"C::f"`) and built-ins (`"println"`): call a top-level function that calls them |
 | `in.CallValue(fn, args...)` | Calls a function value, such as a callback a Go function received |
-| `in.Global(name)` | The value of a global variable, function or class |
+| `in.Global(name)` | The value of a global variable, function or class (also a module's). Constants (`const`) and static data members are not globals: an error names them as missing |
 | `in.RunContext(ctx, ...)`, `in.CallContext(ctx, ...)` | The same, stopped when `ctx` ends (section 5) |
 | `in.Close()` | Ends the interpreter: cancels the workers it started that still run and drops their later output; calls afterwards give an error |
 
@@ -231,7 +231,7 @@ A Go function reports a failure by returning an error; the Kukel program
 sees an exception it can catch:
 
 - `kukel.Errorf("KeyError", "no item %q", item)` gives an exception of that
-  kind (`"HostError"` if the kind is `""`);
+  kind (`"HostError"` if the kind is `""`, also in its `Kind` and `Error()`);
 - any other error gives an exception of kind `"HostError"` with the error's
   text;
 - an `*Error` from a call back into Kukel (`in.CallValue`) goes on

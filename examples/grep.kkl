@@ -9,7 +9,8 @@
 //     -o  only the matching parts of the lines
 //     -F  the pattern is plain text, not a regular expression
 //     -h  no file names before the lines (the default for one file)
-//     -r  search the files in the directories given, and below (module fs)
+//     -r  search the files in the directories given (none: the current one),
+//         and below them (module fs)
 //
 // The exit code is 0 when a line matched, 1 when none did, 2 after an error.
 use re;
@@ -53,7 +54,7 @@ main(args) {
 
     local files = slice(args, i + 1), found = false, failed = false;
 
-    if (haskey(opts, "r")) files = below(files);
+    if (haskey(opts, "r")) files = below(len(files) == 0 ? ["."] : files);
 
     if (len(files) == 0) {
         found = search(rx, "(standard input)", stdinLines(), false);
@@ -88,16 +89,19 @@ search(rx, name, lines, showName) {
         if (haskey(opts, "c")) continue;
         local at = prefix + (haskey(opts, "n") ? str(i + 1) + ":" : "");
 
-        if (haskey(opts, "o") && !haskey(opts, "v")) {
-            for (local m in rx->findall(line)) println(at + m);
+        if (haskey(opts, "o")) { // with -v: nothing (no matching parts)
+            for (local m in haskey(opts, "v") ? [] : rx->findall(line))
+                if (m != "") println(at + m); // as GNU grep: no empty matches
         } else {
             println(at + line);
         }
     }
 
-    if (haskey(opts, "l") && count > 0) println(name);
-
-    if (haskey(opts, "c")) println(prefix + str(count));
+    if (haskey(opts, "l")) { // -l wins over -c
+        if (count > 0) println(name);
+    } else if (haskey(opts, "c")) {
+        println(prefix + str(count));
+    }
     return count > 0;
 }
 

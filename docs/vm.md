@@ -393,7 +393,7 @@ is not cached.) The caches belong to the VM, not to the image.
 | code per function, `MaxStack` | 16 MiB and 2<sup>20</sup> (what a `.kkc` file holds; the compiler refuses bigger functions) |
 | slots per function (also hidden ones) | 65536 (compile error beyond) |
 | step limit | off; when set (tests, or a Go program that embeds Kukel: per call from Go), backward jumps, calls of Kukel functions and thrown exceptions are counted, and exceeding it is fatal |
-| cancellation | off; `VM.Cancellable` gives a `Canceller` that any goroutine can use to stop the program at its next step (a fatal `CancelledError`); waiting Go functions watch `Env.Done()` |
+| cancellation | off for `kukel run`; `VM.Cancellable` gives a `Canceller` that any goroutine can use to stop the program at its next step (a fatal `CancelledError`); waiting Go functions watch `Env.Done()`. The Go API (`kukel.New`) makes every interpreter cancellable |
 
 ### 4.12 The debugger
 
@@ -544,8 +544,10 @@ ints, and member instructions with a cache hit avoid the general code. So
 do the most common calls (Kukel v0.22): `CALL` of a function or closure
 written in Kukel, and `CALL_METHOD` whose cache holds the receiver's
 method, with the number of arguments it takes, no rest parameter, room on
-the stack and no step limit or cancellation to count. They behave exactly
-like the general code.
+the stack, fewer than `MaxFrames` frames and room in the frame list, no
+step limit to count and no cancellation asked for (a program that can be
+cancelled, as every one the Go API runs, still takes them). They behave
+exactly like the general code.
 
 ---
 
@@ -602,7 +604,9 @@ one `INC_LOCAL`. (`INDEX_SET` and `SET_MEMBER` always leave the value, so
 
 A binary arithmetic operation whose left operand is a local (not in a
 cell) and whose right one is a literal number or string is one
-`ARITH_LK`: `n - 1` is `ARITH_LK SUB n, 1`.
+`ARITH_LK`: `n - 1` is `ARITH_LK SUB n, 1`. The local must be on the line
+of the operator (where the instruction is marked; else the local's line
+would have no code for the debugger to stop at), as for `CMP_JUMP_LK`.
 
 ### 6.3 Conditions
 
@@ -655,10 +659,8 @@ it in a cell (so a later default sees the cell). Every function ends with
 
 ```
 defs(a, b = a * 2, rest..) {     0  JUMP_IF_ARG   1 -> 17
-    return [a, b, rest..];        7  LOAD_LOCAL    0  ; a
-}                                10  CONST         0  ; 2
-                                 13  MUL
-                                 14  STORE_LOCAL   1  ; b
+    return [a, b, rest..];        7  ARITH_LK      MUL a, 2
+}                                14  STORE_LOCAL   1  ; b
                                  17  LOAD_LOCAL    0  ; a
                                  20  LOAD_LOCAL    1  ; b
                                  23  MAKE_VECTOR   2
@@ -908,8 +910,9 @@ make the VM crash or read outside its data.
 - no `BREAK` (it belongs to the debugger's copies only);
 - every instruction is known and complete, and its operands are in range:
   constants, slots, globals, functions, classes and their statics, upvalues,
-  cache slots, jump tables; member names are string constants; `CMP_JUMP`
-  comparisons, `TRY_PUSH` kinds and `ITER_NEXT` counts are valid;
+  cache slots, jump tables; member names are string constants; `ARITH_LK`
+  operations (`ADD` to `SHR`), `CMP_JUMP` and `CMP_JUMP_LK` comparisons,
+  `TRY_PUSH` kinds and `ITER_NEXT` counts are valid;
 - each inline cache slot is used by one instruction only (as the compiler
   does), so one member name can never get the method found for another;
 - jump targets, also those in jump tables, land on the start of an

@@ -38,8 +38,12 @@ type canvas struct {
 
 	node    *node                 // of the widget: its event map
 	binds   map[string][]itemBind // binditem's handlers, by event sequence
+	itemTag string                // the binding tag they are bound to
 	pressed *item                 // the item a mouse button went down on
 }
+
+// canvases counts the canvases with item bindings, for their tags' names.
+var canvases int
 
 // itemBind is a handler of binditem: for the item with an id, or the
 // items with a tag.
@@ -517,23 +521,56 @@ func tagArg(a native.Args, i int) (string, error) {
 	return tag, err
 }
 
-// dispatch calls the handlers of binditem for event e of sequence seq:
-// those of the item under the mouse, or while a button is down, of the
-// item it went down on (as Tk does for items).
-func (cv *canvas) dispatch(seq string, e *tk.Event) {
+// at gives the item under the mouse at event e.
+func (cv *canvas) at(e *tk.Event) *item {
 	xv, yv := cv.point(e.X, e.Y)
 	x, _ := coordinate(xv)
 	y, _ := coordinate(yv)
+	return cv.itemAt(x, y)
+}
+
+// itemBindings prepares the canvas for binditem: its handlers are bound to
+// a binding tag of their own, after the canvas's own (Tk runs the most
+// specific binding of each tag, so the canvas's "<Double-Button-1>" does
+// not hide an item's "<Button-1>"), and at each press of a mouse button
+// the item under the mouse (none: nil) is noted for the events while the
+// button is down. The press bindings are those of ButtonPress-1 to -5
+// themselves: a general ButtonPress would lose to the program's Button-1.
+func (cv *canvas) itemBindings() {
+	canvases++
+	cv.itemTag = fmt.Sprintf("kukelitems%d", canvases)
+	tags := tk.Bindtags(cv.c.Window)
+	list := []any{cv.c.Window.String(), cv.itemTag}
+	for _, t := range tags {
+		if t != cv.c.Window.String() {
+			list = append(list, t)
+		}
+	}
+	tk.Bindtags(cv.c.Window, list...)
+	for b := 1; b <= 5; b++ {
+		tk.BindAppend(cv.itemTag, fmt.Sprintf("<ButtonPress-%d>", b), tk.Command(func(e *tk.Event) { cv.pressed = cv.at(e) }))
+	}
+}
+
+// dispatch calls the handlers of binditem for event e of sequence seq:
+// those of the item under the mouse, or while a button is down (also at
+// its release), of the item it went down on, as Tk does for items.
+func (cv *canvas) dispatch(seq string, e *tk.Event) {
 	const buttons = 0x1f00 // the state bits of mouse buttons 1 to 5
-	it := cv.pressed
-	if int(e.State)&buttons == 0 || it == nil || !cv.has(it) {
-		it = cv.itemAt(x, y)
-		cv.pressed = it
+	var it *item
+	switch {
+	case int(e.State)&buttons == 0:
+		it = cv.at(e)
+	case cv.pressed != nil && cv.has(cv.pressed):
+		it = cv.pressed
 	}
 	if it == nil {
 		return
 	}
 	for _, b := range cv.binds[seq] {
+		if !cv.has(it) {
+			return // a handler removed it
+		}
 		if b.id == it.id || b.tag != "" && it.hasTag(b.tag) {
 			em := cv.node.eventMap(e)
 			em.AsMap().Set(value.MakeString("item"), value.MakeInt(it.id)) // a string key cannot fail
@@ -786,9 +823,10 @@ func registerCanvas() {
 		}
 		if cv.binds == nil {
 			cv.binds = map[string][]itemBind{}
+			cv.itemBindings()
 		}
 		if _, ok := cv.binds[seq]; !ok {
-			tk.BindAppend(cv.c.Window, seq, tk.Command(func(e *tk.Event) { cv.dispatch(seq, e) }))
+			tk.BindAppend(cv.itemTag, seq, tk.Command(func(e *tk.Event) { cv.dispatch(seq, e) }))
 			if err := tkError(); err != nil {
 				return value.NilValue, a.Errorf(TkError, "%v", err)
 			}

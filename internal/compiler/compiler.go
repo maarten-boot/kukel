@@ -1268,7 +1268,7 @@ func (c *compiler) expr(e ast.Expr) {
 			return
 		}
 		if op := binaryOps[e.Op]; op >= bytecode.OpAdd && op <= bytecode.OpShr {
-			if slot, k, ok := c.localConst(e.X, e.Y); ok { // n - 1: one instruction
+			if slot, k, ok := c.localConst(e.X, e.Y, e.OpPos); ok { // n - 1: one instruction
 				c.mark(e.OpPos)
 				c.emit(bytecode.OpArithLK, int(op), slot, k)
 				return
@@ -1450,7 +1450,7 @@ func (c *compiler) branch(e ast.Expr, jumpIf bool) []int {
 			if jumpIf {
 				cmp |= bytecode.CmpJumpIfTrue
 			}
-			if slot, k, ok := c.localConst(b.X, b.Y); ok { // n < 2: one instruction
+			if slot, k, ok := c.localConst(b.X, b.Y, b.OpPos); ok { // n < 2: one instruction
 				c.mark(b.OpPos)
 				return []int{c.emit(bytecode.OpCmpJumpLK, cmp, slot, k, 0) + 6}
 			}
@@ -1602,10 +1602,13 @@ func (c *compiler) load(id *ast.Ident) {
 
 // localConst reports whether x is a local variable in a slot (not a cell)
 // and y a literal number or string, and gives the slot and the constant:
-// an operation on the two is one instruction (ARITH_LK, CMP_JUMP_LK).
-func (c *compiler) localConst(x, y ast.Expr) (slot, k int, ok bool) {
+// an operation on the two is one instruction (ARITH_LK, CMP_JUMP_LK). The
+// variable must be on the line of the operator op, where the instruction
+// is marked: else the line of the variable would have no code (the
+// debugger could not stop there).
+func (c *compiler) localConst(x, y ast.Expr, op token.Pos) (slot, k int, ok bool) {
 	id, isIdent := x.(*ast.Ident)
-	if !isIdent {
+	if !isIdent || id.NamePos.Line != op.Line {
 		return 0, 0, false
 	}
 	lv, found := c.lookupLocal(id.Name)

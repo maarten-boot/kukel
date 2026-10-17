@@ -5,6 +5,7 @@ package tkmod
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 
@@ -26,6 +27,23 @@ type picture struct {
 	img           *tk.Img
 	path          string
 	width, height int64
+}
+
+// readImageFile reads a regular file (not a device or pipe, which could
+// be endless or block), at most one byte more than maxImageFile.
+func readImageFile(path string) ([]byte, error) {
+	// Before opening: opening a pipe to read waits for a writer.
+	if info, err := os.Stat(path); err != nil {
+		return nil, err
+	} else if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(io.LimitReader(f, maxImageFile+1))
 }
 
 // imageKind tells PNG and GIF data by their signatures ("" for neither).
@@ -50,12 +68,12 @@ func newImage(env value.Env, this *value.ObjectObj, args []value.Value) (value.V
 	if err != nil {
 		return value.NilValue, err
 	}
-	if info, err := os.Stat(path); err == nil && info.Size() > maxImageFile {
-		return value.NilValue, a.Errorf(value.ValueError, "%s is larger than %d MB", path, maxImageFile>>20)
-	}
-	data, err := os.ReadFile(path)
+	data, err := readImageFile(path)
 	if err != nil {
 		return value.NilValue, a.Errorf(value.IOError, "%v", err)
+	}
+	if len(data) > maxImageFile {
+		return value.NilValue, a.Errorf(value.ValueError, "%s is larger than %d MB", path, maxImageFile>>20)
 	}
 	if imageKind(data) == "" {
 		return value.NilValue, a.Errorf(value.ValueError, "%s is not a PNG or GIF file", path)
@@ -65,7 +83,11 @@ func newImage(env value.Env, this *value.ObjectObj, args []value.Value) (value.V
 	}
 	img := tk.NewPhoto(tk.Data(data))
 	if err := tkError(); err != nil || img == nil {
-		return value.NilValue, a.Errorf(value.ValueError, "%s: Tk cannot read it: %v", path, err)
+		why := "Tk cannot read it"
+		if err != nil {
+			why += ": " + err.Error()
+		}
+		return value.NilValue, a.Errorf(value.ValueError, "%s: %s", path, why)
 	}
 	p := &picture{img: img, path: path}
 	p.width, _ = strconv.ParseInt(img.Width(), 10, 64)

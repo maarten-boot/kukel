@@ -264,7 +264,6 @@ func (op Op) Size() int {
 	return n
 }
 
-// ReadU16 and ReadU32 decode operands.
 // ReadU16 reads a little-endian u16 operand (one bounds check, where
 // binary.LittleEndian with a re-slice needs two: it is in every
 // instruction with an operand).

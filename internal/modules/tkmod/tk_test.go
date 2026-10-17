@@ -267,6 +267,10 @@ main(args) {
     println(cb->items(), cb->settext("green")->text(), cb->setitems(["a", "b"])->items(), cb);
     local fs = new tk::Scale(box, {"from": 0.0, "to": 1.0});
     println(fs->setvalue(0.25)->value(), fs->configure({"step": 0.5})->value());
+    // Clamped values stay on a step; ranges up to 1e9; no endless files.
+    local st = new tk::Scale(box, {"from": 0, "to": 10, "step": 3}), sr = new tk::Scale(box, {"from": 10, "to": 0, "step": 3});
+    println(st->setvalue(100)->value(), sr->setvalue(-5)->value(), new tk::Scale(box, {"to": 5000000})->setvalue(2000000)->value());
+    try { new tk::Image("/dev/zero"); } catch (e) { println(e->kind + ":", e->message); }
     for (local h in [fn() { new tk::Scale(box, {"step": -1}); },
                      fn() { new tk::Scale(box, {"orient": "up"}); },
                      fn() { sc->setvalue("x"); },
@@ -394,6 +398,12 @@ main(args) {
     items->binditem("piece", "<Button-1>", fn(e) { dragging = e; });
     items->binditem("piece", "<B1-Motion>", fn(e) { items->move(e["item"], e["x"] - dragging["x"], e["y"] - dragging["y"]); dragging = e; });
     items->binditem("piece", "<ButtonRelease-1>", fn(e) { println("item dragged:", e["item"], items->coords(e["item"])); });
+    // Only a release bound: each click names its own item.
+    local rel = new tk::Canvas(new tk::Window("Release"), {"width": 200, "height": 60});
+    rel->pack();
+    rel->tag(rel->rect(0, 0, 90, 60, {"fill": "red"}), "r");
+    rel->tag(rel->rect(110, 0, 200, 60, {"fill": "blue"}), "r");
+    rel->binditem("r", "<ButtonRelease-1>", fn(e) { println("released on", e["item"]); });
 
     // bind: the clicks on the button; a second bind replaces the handler.
     local bound = [];
@@ -514,6 +524,8 @@ ValueError: tk::settheme: there is no theme "fancy" (the themes are clam, alt, d
 0 7 10 3 tk::Scale(3)
 ["red", "green", "blue"] green ["a", "b"] tk::Combobox("green")
 0.25 0.5
+9 1 2e+06
+IOError: tk::Image::Image: /dev/zero is not a regular file
 ValueError: tk::Scale::Scale: option step must not be negative, not -1
 ValueError: tk::Scale::Scale: option orient: "up" is not one of horizontal, vertical
 TypeError: tk::Scale::setvalue: argument 1 must be a number, not string
@@ -570,7 +582,7 @@ TypeError: tk::Canvas::move: argument 1 must be an item's id or a tag, not float
 `
 	end := map[string]string{
 		"self":   "invoke: three\n",
-		"clicks": "check: true true\nselect: [1] [1]\nradio: picked picked\nmessage: yes\nopen: true\nsave: true\ndir: nil\ndragged: 1 [40, 30, 220, 160]\nitem dragged: 1 [30, 20, 180, 120]\npop-up: Hello\nslider: int true\nchose: green green\nhandler: three\nenter: [puts hi] {x} $y \\ end 3\n",
+		"clicks": "check: true true\nselect: [1] [1]\nradio: picked picked\nmessage: yes\nopen: true\nsave: true\ndir: nil\ndragged: 1 [40, 30, 220, 160]\nitem dragged: 1 [30, 20, 180, 120]\nreleased on 1\nreleased on 2\nreleased on 2\npop-up: Hello\nslider: int true\nchose: green green\nhandler: three\nenter: [puts hi] {x} $y \\ end 3\n",
 	}[clicks]
 	bound := map[string]string{"self": "[]", "clicks": "[true, true]"}[clicks]
 	picked := map[string]string{"self": "nil", "clicks": "picked"}[clicks]
@@ -610,7 +622,7 @@ func writeImages(t *testing.T, dir string) {
 // focus back).
 func click(t *testing.T) error {
 	wins := map[string]string{}
-	for _, name := range []string{"TkTest", "Check", "List", "Radio", "Canvas", "Popup", "Slider", "Choose", "Items"} {
+	for _, name := range []string{"TkTest", "Check", "List", "Radio", "Canvas", "Popup", "Slider", "Choose", "Items", "Release"} {
 		for i := 0; i < 100 && wins[name] == ""; i++ {
 			out, _ := exec.Command("xdotool", "search", "--name", "^"+name+"$").Output()
 			wins[name] = strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
@@ -621,7 +633,7 @@ func click(t *testing.T) error {
 		}
 	}
 	// Without a window manager all windows are at 0,0: move them apart.
-	for name, at := range map[string][2]int{"Check": {300, 0}, "List": {0, 300}, "Radio": {300, 300}, "Canvas": {540, 300}, "Popup": {540, 0}, "Slider": {0, 180}, "Choose": {300, 150}, "Items": {300, 460}} {
+	for name, at := range map[string][2]int{"Check": {300, 0}, "List": {0, 300}, "Radio": {300, 300}, "Canvas": {540, 300}, "Popup": {540, 0}, "Slider": {0, 180}, "Choose": {300, 150}, "Items": {300, 460}, "Release": {0, 460}} {
 		if err := exec.Command("xdotool", "windowmove", wins[name], fmt.Sprint(at[0]), fmt.Sprint(at[1])).Run(); err != nil {
 			return err
 		}
@@ -643,9 +655,19 @@ func click(t *testing.T) error {
 	if err := drag(wins["Items"], 30, 20); err != nil { // through binditem
 		return err
 	}
+	x, y, err := center(wins["Release"]) // the rectangles are left and right of the middle
+	if err != nil {
+		return err
+	}
+	for _, dx := range []int{-55, 55, 55} {
+		if err := exec.Command("xdotool", "mousemove", fmt.Sprint(x+dx), fmt.Sprint(y), "click", "1").Run(); err != nil {
+			return err
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
 	// Right-click for the pop-up menu, then click its entry, which opens at
 	// the pointer.
-	x, y, err := center(wins["Popup"])
+	x, y, err = center(wins["Popup"])
 	if err != nil {
 		return err
 	}

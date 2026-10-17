@@ -299,7 +299,7 @@ func receive(a native.Args, env value.Env, s *socket) (value.Value, error) {
 			return value.NilValue, err
 		}
 		if secs != secs || secs < 0 {
-			return value.NilValue, a.Errorf(value.ValueError, "%s seconds is not a usable timeout", value.FormatFloat(secs))
+			return value.NilValue, a.Errorf(value.ValueError, "%s seconds is not a usable timeout", a.V[0].String())
 		}
 		t := time.NewTimer(time.Duration(secs * float64(time.Second)))
 		defer t.Stop()
@@ -458,7 +458,7 @@ func poll(env value.Env, args []value.Value) (value.Value, error) {
 			return value.NilValue, err
 		}
 		if secs != secs || secs < 0 {
-			return value.NilValue, a.Errorf(value.ValueError, "%s seconds is not a usable timeout", value.FormatFloat(secs))
+			return value.NilValue, a.Errorf(value.ValueError, "%s seconds is not a usable timeout", a.V[1].String())
 		}
 		t := time.NewTimer(time.Duration(secs * float64(time.Second)))
 		defer t.Stop()
