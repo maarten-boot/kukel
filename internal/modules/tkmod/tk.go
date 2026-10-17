@@ -423,7 +423,7 @@ func register() {
 
 	native.Register(&native.Module{
 		Name: "tk",
-		Doc:  "desktop windows with themed Tk widgets (frames, labels, buttons, entries), pack and grid, and Kukel handlers",
+		Doc:  "desktop windows with Tk widgets (frames, labels, buttons, entries, texts, list boxes, check and radio buttons), pack and grid, and Kukel handlers",
 		Funcs: map[string]native.Func{
 			// available(): whether Tk can start (a display is there); it
 			// starts Tk.
@@ -435,6 +435,6 @@ func register() {
 				return value.MakeBool(start(a, env) == nil), nil
 			},
 		},
-		Classes: []*native.Class{Window, Frame, Label, Button, Entry},
+		Classes: []*native.Class{Window, Frame, Label, Button, Entry, Text, Listbox, Checkbutton, Radiobutton, Radiogroup},
 	})
 }

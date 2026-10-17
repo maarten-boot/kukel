@@ -11,15 +11,42 @@ import (
 	"github.com/maarten-boot/kukel/internal/value"
 )
 
-// widget is the state of a widget object: tk::Frame, tk::Label,
-// tk::Button or tk::Entry. They are Tk's themed (ttk) widgets.
+// widget is the state of a widget object. Frame, Label, Button, Entry,
+// Checkbutton and Radiobutton are Tk's themed (ttk) widgets; Text and
+// Listbox are classic ones (ttk has none).
 type widget struct {
 	node
-	class   string
-	text    string // of a label or button
-	onclick value.Value
-	onenter value.Value
+	class string
+	outer *tk.Window // what pack and grid place: w, or the frame around w and its scrollbars
+	text  string     // of a label, button, check or radio button
+
+	onclick value.Value // Button
+	onenter value.Value // Entry
+
+	textw    *tk.TextWidget // Text
+	state    string         // Text: "normal" or "disabled"
+	list     *tk.ListboxWidget
+	items    []string    // Listbox
+	onselect value.Value // Listbox
+
+	checked  bool // Checkbutton
+	check    *tk.VariableOpt
+	onchange value.Value // Checkbutton
+	group    *radiogroup // Radiobutton
+	value    string      // Radiobutton
 }
+
+// A widgetSpec is how a widget class is made: the arguments between the
+// parent and the options (at least min, at most max), whether the
+// constructor takes the option scroll, and make, which makes the Tk
+// widget from them and the other options.
+type widgetSpec struct {
+	min, max int
+	scroll   bool
+	make     func(a native.Args, args []value.Value, parent *node, wd *widget, opts []tk.Opt, scroll string) error
+}
+
+var specs = map[string]widgetSpec{}
 
 var (
 	// Frame is the class tk::Frame: a container for other widgets.
@@ -31,15 +58,6 @@ var (
 	// Entry is the class tk::Entry: a field for a line of text.
 	Entry = &native.Class{Name: "Entry"}
 )
-
-// textArgs is how a widget's constructor takes its text: Label and Button
-// need one, an Entry may have one, a Frame has none.
-var textArgs = map[string]struct{ min, max int }{
-	"Frame":  {0, 0},
-	"Label":  {1, 1},
-	"Button": {1, 1},
-	"Entry":  {0, 1},
-}
 
 // parentArg reads argument 0, the parent of a new widget: a window or a
 // frame.
@@ -53,16 +71,23 @@ func parentArg(a native.Args) (*node, error) {
 	return nil, a.TypeError(0, "a tk::Window or tk::Frame")
 }
 
-// newWidget makes the constructor of a widget class: new tk::Frame(parent
-// [, options]), new tk::Label(parent, text [, options]), new
-// tk::Button(parent, text [, options]), new tk::Entry(parent [, text] [,
-// options]). The parent is a window or a frame; options are those of
-// configure.
+// stringArg reads argument i of the constructor's middle arguments (args),
+// which must be a string; "" when there is none.
+func stringArg(a native.Args, args []value.Value, i int) (string, error) {
+	if i >= len(args) {
+		return "", nil
+	}
+	return a.String(1 + i)
+}
+
+// newWidget makes the constructor of a widget class: new tk::C(parent,
+// arguments... [, options]). The parent is a window or a frame; options
+// are those of configure, and for some classes scroll.
 func newWidget(class string) value.NativeMethod {
 	full := "tk::" + class + "::" + class
-	texts := textArgs[class]
 	return func(env value.Env, this *value.ObjectObj, args []value.Value) (value.Value, error) {
-		a, err := native.Check(full, args, 1+texts.min, 1+texts.max+1)
+		spec := specs[class]
+		a, err := native.Check(full, args, 1+spec.min, 1+spec.max+1)
 		if err != nil {
 			return value.NilValue, err
 		}
@@ -70,21 +95,25 @@ func newWidget(class string) value.NativeMethod {
 		if err != nil {
 			return value.NilValue, err
 		}
-		i, text := 1, ""
-		if texts.max > 0 && a.Has(i) && (i < 1+texts.min || a.V[i].Kind() != value.Map) {
-			if text, err = a.String(i); err != nil {
-				return value.NilValue, err
-			}
-			i++
-		}
+		mid := a.V[1:]
 		var opts []tk.Opt
-		if a.Has(i) {
-			if i < len(a.V)-1 {
-				return value.NilValue, a.TypeError(i, "a string")
+		scroll := "none"
+		if last := len(mid) - 1; last >= spec.min && mid[last].Kind() == value.Map {
+			mid = mid[:last]
+			known := configOptions[class]
+			if spec.scroll {
+				if a, scroll, err = scrollOption(a, 1+last); err != nil {
+					return value.NilValue, err
+				}
+				// Taken out already: here for the list of the options.
+				known = append(known[:len(known):len(known)], option{name: "scroll"})
 			}
-			if opts, err = readOptions(a, i, configOptions[class]); err != nil {
+			if opts, err = readOptions(a, 1+last, known); err != nil {
 				return value.NilValue, err
 			}
+		}
+		if len(mid) > spec.max {
+			return value.NilValue, a.TypeError(1+spec.max, "a map of options")
 		}
 		if err := start(a, env); err != nil {
 			return value.NilValue, err
@@ -92,26 +121,13 @@ func newWidget(class string) value.NativeMethod {
 		if parent.win.closed {
 			return value.NilValue, a.Errorf(value.ValueError, "the window is closed")
 		}
-		wd := &widget{class: class, text: text}
+		wd := &widget{class: class}
 		wd.win = parent.win
-		switch class {
-		case "Frame":
-			wd.w = parent.w.TFrame(opts...).Window
-		case "Label":
-			wd.w = parent.w.TLabel(append(opts, tk.Txt(text))...).Window
-		case "Button":
-			wd.w = parent.w.TButton(append(opts, tk.Txt(text), tk.Command(func() {
-				if !wd.onclick.IsNil() {
-					call(wd.onclick)
-				}
-			}))...).Window
-		case "Entry":
-			wd.w = parent.w.TEntry(append(opts, tk.Textvariable(text))...).Window
-			tk.Bind(wd.w, "<Return>", tk.Command(func() {
-				if !wd.onenter.IsNil() {
-					call(wd.onenter, value.MakeString(wd.w.Textvariable()))
-				}
-			}))
+		if err := spec.make(a, mid, parent, wd, opts, scroll); err != nil {
+			return value.NilValue, err
+		}
+		if wd.outer == nil {
+			wd.outer = wd.w
 		}
 		if err := tkError(); err != nil {
 			return value.NilValue, a.Errorf(TkError, "%v", err)
@@ -133,15 +149,23 @@ func widgetMethod(class, name string, min, max int, fn func(a native.Args, this 
 func commonMethods(class string) map[string]value.NativeMethod {
 	return map[string]value.NativeMethod{
 		"configure": widgetMethod(class, "configure", 1, 1, func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error) {
+			if a.V[0].Kind() == value.Map && specs[class].scroll && !mapGet(a.V[0], "scroll").IsNil() {
+				return value.NilValue, a.Errorf(value.ValueError, "option scroll can only be given to the constructor")
+			}
 			opts, err := readOptions(a, 0, configOptions[class])
 			if err != nil {
 				return value.NilValue, err
 			}
 			wd.w.Configure(opts...)
+			if class == "Text" || class == "Listbox" {
+				if s := mapGet(a.V[0], "state"); s.Kind() == value.String {
+					wd.state = s.AsString()
+				}
+			}
 			return value.ObjectValue(this), nil
 		}),
 		"pack": widgetMethod(class, "pack", 0, 1, func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error) {
-			opts := []tk.Opt{wd.w}
+			opts := []tk.Opt{wd.outer}
 			if a.Has(0) {
 				more, err := readOptions(a, 0, packOptions)
 				if err != nil {
@@ -160,7 +184,7 @@ func commonMethods(class string) map[string]value.NativeMethod {
 					return value.NilValue, err
 				}
 			}
-			tk.Grid(wd.w, opts...)
+			tk.Grid(wd.outer, opts...)
 			return value.ObjectValue(this), mixedManagers(a, "grid")
 		}),
 		"bind": bindMethod(class),
@@ -179,7 +203,8 @@ func mixedManagers(a native.Args, using string) error {
 	return a.Errorf(value.ValueError, "cannot %s: %s already places the widgets beside it (use one of pack and grid in each window or frame)", using, other)
 }
 
-// textMethods are text() and settext(s), of labels, buttons and entries.
+// textMethods are text() and settext(s): of labels, buttons, entries, and
+// check and radio buttons.
 func textMethods(class string, m map[string]value.NativeMethod) {
 	m["text"] = widgetMethod(class, "text", 0, 0, func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error) {
 		if wd.class == "Entry" {
@@ -202,36 +227,66 @@ func textMethods(class string, m map[string]value.NativeMethod) {
 	})
 }
 
-func registerWidgets() {
-	for _, c := range []*native.Class{Frame, Label, Button, Entry} {
-		c.New = newWidget(c.Name)
-		c.Methods = commonMethods(c.Name)
-		if c != Frame {
-			textMethods(c.Name, c.Methods)
-		}
-		c.Show = func(o *value.ObjectObj) string {
-			wd := o.State.(*widget)
-			if wd.class == "Frame" {
-				return "tk::Frame"
-			}
-			text := wd.text
-			if wd.class == "Entry" && !wd.win.closed {
-				text = wd.w.Textvariable()
-			}
-			return "tk::" + wd.class + "(" + value.Quote(text) + ")"
-		}
-	}
-	Frame.Methods["rowconfigure"] = gridConfigure("Frame", "rowconfigure")
-	Frame.Methods["columnconfigure"] = gridConfigure("Frame", "columnconfigure")
-
-	Button.Methods["onclick"] = widgetMethod("Button", "onclick", 1, 1, func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error) {
+// handlerSetter makes a member function that sets a handler, such as
+// onclick(f): f is a function, or nil for none.
+func handlerSetter(class, name string, field func(wd *widget) *value.Value) value.NativeMethod {
+	return widgetMethod(class, name, 1, 1, func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error) {
 		f, err := handlerArg(a, 0)
 		if err != nil {
 			return value.NilValue, err
 		}
-		wd.onclick = f
+		*field(wd) = f
 		return value.ObjectValue(this), nil
 	})
+}
+
+// register adds class c, made as spec says; Show is how it prints.
+func registerWidget(c *native.Class, spec widgetSpec, show func(wd *widget) string) {
+	specs[c.Name] = spec
+	c.New = newWidget(c.Name)
+	c.Methods = commonMethods(c.Name)
+	c.Show = func(o *value.ObjectObj) string { return show(o.State.(*widget)) }
+}
+
+// showText prints a widget as tk::C("its text").
+func showText(wd *widget) string {
+	text := wd.text
+	if wd.class == "Entry" && !wd.win.closed {
+		text = wd.w.Textvariable()
+	}
+	return "tk::" + wd.class + "(" + value.Quote(text) + ")"
+}
+
+func registerWidgets() {
+	registerWidget(Frame, widgetSpec{0, 0, false, func(a native.Args, args []value.Value, parent *node, wd *widget, opts []tk.Opt, _ string) error {
+		wd.w = parent.w.TFrame(opts...).Window
+		return nil
+	}}, func(wd *widget) string { return "tk::Frame" })
+	Frame.Methods["rowconfigure"] = gridConfigure("Frame", "rowconfigure")
+	Frame.Methods["columnconfigure"] = gridConfigure("Frame", "columnconfigure")
+
+	registerWidget(Label, widgetSpec{1, 1, false, func(a native.Args, args []value.Value, parent *node, wd *widget, opts []tk.Opt, _ string) (err error) {
+		if wd.text, err = stringArg(a, args, 0); err != nil {
+			return err
+		}
+		wd.w = parent.w.TLabel(append(opts, tk.Txt(wd.text))...).Window
+		return nil
+	}}, showText)
+	textMethods("Label", Label.Methods)
+
+	registerWidget(Button, widgetSpec{1, 1, false, func(a native.Args, args []value.Value, parent *node, wd *widget, opts []tk.Opt, _ string) (err error) {
+		if wd.text, err = stringArg(a, args, 0); err != nil {
+			return err
+		}
+		wd.w = parent.w.TButton(append(opts, tk.Txt(wd.text), tk.Command(func() {
+			if !wd.onclick.IsNil() {
+				call(wd.onclick)
+			}
+		}))...).Window
+		return nil
+	}}, showText)
+	textMethods("Button", Button.Methods)
+	Button.Methods["onclick"] = handlerSetter("Button", "onclick", func(wd *widget) *value.Value { return &wd.onclick })
 	// invoke() calls the onclick handler as a click would, at once: its
 	// result and exception come back to the caller.
 	Button.Methods["invoke"] = widgetMethod("Button", "invoke", 0, 0, func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error) {
@@ -240,17 +295,28 @@ func registerWidgets() {
 		}
 		return gui.env.Call(wd.onclick, nil)
 	})
+
+	registerWidget(Entry, widgetSpec{0, 1, false, func(a native.Args, args []value.Value, parent *node, wd *widget, opts []tk.Opt, _ string) error {
+		text, err := stringArg(a, args, 0)
+		if err != nil {
+			return err
+		}
+		wd.w = parent.w.TEntry(append(opts, tk.Textvariable(text))...).Window
+		tk.Bind(wd.w, "<Return>", tk.Command(func() {
+			if !wd.onenter.IsNil() {
+				call(wd.onenter, value.MakeString(wd.w.Textvariable()))
+			}
+		}))
+		return nil
+	}}, showText)
+	textMethods("Entry", Entry.Methods)
 	// focus(): the keys typed go to the entry.
 	Entry.Methods["focus"] = widgetMethod("Entry", "focus", 0, 0, func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error) {
 		tk.Focus(wd.w)
 		return value.ObjectValue(this), nil
 	})
-	Entry.Methods["onenter"] = widgetMethod("Entry", "onenter", 1, 1, func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error) {
-		f, err := handlerArg(a, 0)
-		if err != nil {
-			return value.NilValue, err
-		}
-		wd.onenter = f
-		return value.ObjectValue(this), nil
-	})
+	Entry.Methods["onenter"] = handlerSetter("Entry", "onenter", func(wd *widget) *value.Value { return &wd.onenter })
+
+	registerLists()
+	registerChoices()
 }

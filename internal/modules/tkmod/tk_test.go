@@ -182,6 +182,53 @@ main(args) {
     form->close();
     try { f->grid(); } catch (e) { println(e->kind + ":", e->message); }
 
+    // Text, list box, check and radio buttons, in a window of their own.
+    local box = new tk::Window("Choices");
+    local t = new tk::Text(box, "line 1\n[puts x] {y} $z \\", {"width": 30, "height": 4, "wrap": "word", "scroll": "y"});
+    t->pack({"fill": "both", "expand": true});
+    t->append("\nmore");
+    println(t, t->text() == "line 1\n[puts x] {y} $z \\\nmore");
+    t->configure({"state": "disabled"});
+    println(t->settext("set while disabled")->append("!")->text());
+    local l = new tk::Listbox(box, ["one", "two [x]", "{three}", "$four"], {"height": 3, "selectmode": "extended", "scroll": "both", "state": "disabled"});
+    l->pack();
+    println(l, l->items(), l->selected());
+    println(l->setitems(["a", "b", "c"])->setselected([0, 2])->selected(), l);
+    local c = new tk::Checkbutton(box, "Bold");
+    c->pack();
+    println(c->checked(), c->setchecked(true)->checked(), c);
+    local g = new tk::Radiogroup("green");
+    local r1 = new tk::Radiobutton(box, "Red", g, "red"), r2 = new tk::Radiobutton(box, "Green", g, "green");
+    r1->pack();
+    r2->pack({"side": "left"});
+    println(g, g->value());
+    println(g->setvalue("red")->value(), g->setvalue(nil)->value(), g, r1, r2);
+    for (local h in [fn() { t->configure({"scroll": "x"}); },
+                     fn() { new tk::Text(box, {"scroll": "z"}); },
+                     fn() { new tk::Text(box, {"colour": 1}); },
+                     fn() { l->setselected([5]); },
+                     fn() { l->setitems(["a", 1]); },
+                     fn() { new tk::Listbox(box, "x"); },
+                     fn() { c->setchecked(1); },
+                     fn() { new tk::Radiobutton(box, "x", g, ""); },
+                     fn() { new tk::Radiobutton(box, "x", c, "v"); },
+                     fn() { new tk::Radiogroup(""); }])
+        try { h(); } catch (e) { println(e->kind + ":", e->message); }
+    box->close();
+    try { c->checked(); } catch (e) { println(e->kind + ":", e->message); }
+    println(g->value()); // a group outlives the window of its buttons
+
+    // What a user does: one widget per window, for click() to find.
+    local check = new tk::Checkbutton(new tk::Window("Check"), "Check me");
+    check->pack({"padx": 20, "pady": 20});
+    check->onchange(fn(on) { println("check:", on, check->checked()); });
+    local list = new tk::Listbox(new tk::Window("List"), ["a", "b", "c"], {"height": 3});
+    list->pack();
+    list->onselect(fn(lines) { println("select:", lines, list->selected()); });
+    local radios = new tk::Radiogroup();
+    radios->onchange(fn(v) { println("radio:", v, radios->value()); });
+    new tk::Radiobutton(new tk::Window("Radio"), "Pick me", radios, "picked")->pack({"padx": 20, "pady": 20});
+
     // bind: the clicks on the button; a second bind replaces the handler.
     local bound = [];
     button->bind("<Button-1>", fn(e) { push(bound, "old"); });
@@ -259,10 +306,29 @@ TypeError: tk::Label::Label: argument 1 must be a tk::Window or tk::Frame, not t
 TypeError: tk::Frame::Frame: argument 2 must be a map of options, not string
 ValueError: tk::Entry::Entry: unknown option "colour" (the options are width, justify, show and state)
 ValueError: tk::Frame::grid: the window is closed
+tk::Text true
+set while disabled!
+tk::Listbox(4 lines) ["one", "two [x]", "{three}", "$four"] []
+[0, 2] tk::Listbox(3 lines)
+false true tk::Checkbutton("Bold", true)
+tk::Radiogroup("green") green
+red nil tk::Radiogroup(nil) tk::Radiobutton("Red", "red") tk::Radiobutton("Green", "green")
+ValueError: tk::Text::configure: option scroll can only be given to the constructor
+ValueError: tk::Text::Text: option scroll: "z" is not one of none, x, y, both
+ValueError: tk::Text::Text: unknown option "colour" (the options are width, height, wrap, state and scroll)
+ValueError: tk::Listbox::setselected: 5 is not the index of a line (0 to 2)
+TypeError: tk::Listbox::setitems: argument 1: the lines must be strings, not int
+TypeError: tk::Listbox::Listbox: argument 2 must be a vector of strings, not string
+TypeError: tk::Checkbutton::setchecked: argument 1 must be true or false, not int
+ValueError: tk::Radiobutton::Radiobutton: the value of a radio button cannot be ""
+TypeError: tk::Radiobutton::Radiobutton: argument 3 must be a tk::Radiogroup, not tk::Checkbutton
+ValueError: tk::Radiogroup::Radiogroup: the value of a radio button cannot be ""
+ValueError: tk::Checkbutton::checked: the window is closed
+nil
 `
 	end := map[string]string{
 		"self":   "invoke: three\n",
-		"clicks": "handler: three\nenter: [puts hi] {x} $y \\ end 3\n",
+		"clicks": "check: true true\nselect: [1] [1]\nradio: picked picked\nhandler: three\nenter: [puts hi] {x} $y \\ end 3\n",
 	}[clicks]
 	bound := map[string]string{"self": "[]", "clicks": "[true, true]"}[clicks]
 	want := common + end + "tk::Window(\"TkTest\", closed) 3 " + bound + "\n"
@@ -271,19 +337,43 @@ ValueError: tk::Frame::grid: the window is closed
 	}
 }
 
-// click clicks the button of the window TkTest twice, then presses Enter
-// (the click handler gave the entry the focus back).
+// click clicks the check button, the middle line of the list box and the
+// radio button of the windows Check, List and Radio, then the button of
+// the window TkTest twice, and presses Enter (the click handler gave the
+// entry the focus back).
 func click(t *testing.T) error {
-	var win string
-	for i := 0; i < 100 && win == ""; i++ {
-		out, _ := exec.Command("xdotool", "search", "--name", "^TkTest$").Output()
-		win = strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
-		time.Sleep(100 * time.Millisecond)
+	wins := map[string]string{}
+	for _, name := range []string{"TkTest", "Check", "List", "Radio"} {
+		for i := 0; i < 100 && wins[name] == ""; i++ {
+			out, _ := exec.Command("xdotool", "search", "--name", "^"+name+"$").Output()
+			wins[name] = strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
+			time.Sleep(100 * time.Millisecond)
+		}
+		if wins[name] == "" {
+			return fmt.Errorf("no window %s", name)
+		}
 	}
-	if win == "" {
-		return fmt.Errorf("no window TkTest")
+	// Without a window manager all windows are at 0,0: move them apart.
+	for name, at := range map[string][2]int{"Check": {300, 0}, "List": {0, 300}, "Radio": {300, 300}} {
+		if err := exec.Command("xdotool", "windowmove", wins[name], fmt.Sprint(at[0]), fmt.Sprint(at[1])).Run(); err != nil {
+			return err
+		}
 	}
 	time.Sleep(300 * time.Millisecond)
+	for _, name := range []string{"Check", "List", "Radio", "TkTest", "TkTest"} { // one TkTest click was invoke()
+		if err := clickCenter(wins[name]); err != nil {
+			return err
+		}
+	}
+	time.Sleep(200 * time.Millisecond)
+	// Enter closes the window, often before xdotool sends the key's release
+	// (which then fails): whether Enter arrived shows in the output.
+	exec.Command("xdotool", "key", "--window", wins["TkTest"], "Return").Run()
+	return nil
+}
+
+// clickCenter clicks the middle of window win.
+func clickCenter(win string) error {
 	geo, err := exec.Command("xdotool", "getwindowgeometry", "--shell", win).Output()
 	if err != nil {
 		return err
@@ -295,15 +385,9 @@ func click(t *testing.T) error {
 		fmt.Sscanf(line, "WIDTH=%d", &w)
 		fmt.Sscanf(line, "HEIGHT=%d", &h)
 	}
-	for i := 0; i < 2; i++ { // the button is in the middle; one click was invoke()
-		if err := exec.Command("xdotool", "mousemove", fmt.Sprint(x+w/2), fmt.Sprint(y+h/2), "click", "1").Run(); err != nil {
-			return err
-		}
-		time.Sleep(300 * time.Millisecond)
+	if err := exec.Command("xdotool", "mousemove", fmt.Sprint(x+w/2), fmt.Sprint(y+h/2), "click", "1").Run(); err != nil {
+		return err
 	}
-	time.Sleep(200 * time.Millisecond)
-	// Enter closes the window, often before xdotool sends the key's release
-	// (which then fails): whether Enter arrived shows in the output.
-	exec.Command("xdotool", "key", "--window", win, "Return").Run()
+	time.Sleep(300 * time.Millisecond)
 	return nil
 }

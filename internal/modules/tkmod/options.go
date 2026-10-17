@@ -225,5 +225,50 @@ var (
 			{"show", oneChar, func(x any) tk.Opt { return tk.Show(x) }},
 			{"state", oneOf("normal", "disabled", "readonly"), func(x any) tk.Opt { return tk.State(x) }},
 		},
+		"Text": {
+			optWidth,
+			optHeight,
+			{"wrap", oneOf("none", "char", "word"), func(x any) tk.Opt { return tk.Wrap(x) }},
+			optState,
+		},
+		"Listbox": {
+			optWidth,
+			optHeight,
+			{"selectmode", oneOf("browse", "single", "extended", "multiple"), func(x any) tk.Opt { return tk.Selectmode(x) }},
+			optState,
+		},
+		"Checkbutton": {optWidth, optPadding, optState},
+		"Radiobutton": {optWidth, optPadding, optState},
 	}
+	optHeight = option{"height", intFrom(1, 1000, "a number of lines"), func(x any) tk.Opt { return tk.Height(x) }}
 )
+
+// mapGet gives the value of key in the map m (nil when there is none).
+func mapGet(m value.Value, key string) value.Value {
+	v, _, _ := m.AsMap().Get(value.MakeString(key)) // a string key cannot fail
+	return v
+}
+
+// scrollOption takes the option scroll ("none", "x", "y" or "both") out
+// of the options map that is argument i: it gives the arguments with that
+// map without it, for readOptions.
+func scrollOption(a native.Args, i int) (native.Args, string, error) {
+	v := mapGet(a.V[i], "scroll")
+	if v.IsNil() {
+		return a, "none", nil
+	}
+	x, wrong := oneOf("none", "x", "y", "both")(v)
+	if wrong != "" {
+		return a, "", a.Errorf(value.ValueError, "option scroll%s", wrong)
+	}
+	rest := value.NewMap()
+	a.V[i].AsMap().Each(func(k, v value.Value) {
+		if k.Kind() != value.String || k.AsString() != "scroll" {
+			rest.Set(k, v) // keys of a map cannot fail
+		}
+	})
+	b := a
+	b.V = append([]value.Value(nil), a.V...)
+	b.V[i] = value.MakeMap(rest)
+	return b, x.(string), nil
+}
