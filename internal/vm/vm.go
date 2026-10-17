@@ -803,6 +803,62 @@ func (vm *VM) callOp(op bytecode.Op, f *frame, ip, sp int) error {
 	return vm.callValue(argc)
 }
 
+// callFast sets up the frame of a call of a function or closure written in
+// Kukel (callee below the argc arguments at sp; ip just past the
+// instruction) in the common case, and reports whether it did; else
+// callOp must make the call. The run loop reloads its state either way.
+func (vm *VM) callFast(f *frame, ip, sp, argc int) bool {
+	callee := vm.stack[sp-argc-1]
+	switch callee.Kind() {
+	case value.Function:
+		return vm.enter(f, ip, sp, callee.Obj().(*bytecode.Function), nil, nil, argc)
+	case value.Closure:
+		cl := callee.AsClosure()
+		return vm.enter(f, ip, sp, cl.Fn.(*bytecode.Function), cl.This, cl, argc)
+	}
+	return false
+}
+
+// callMethodFast is callFast for CALL_METHOD whose inline cache holds the
+// method of the receiver's class, written in Kukel.
+func (vm *VM) callMethodFast(f *frame, ip, sp, argc, cache int) bool {
+	recv := vm.stack[sp-argc-1]
+	if recv.Kind() != value.Object {
+		return false
+	}
+	c := &vm.cacheOf(f.fn)[cache]
+	if m := c.method; m != nil && recv.AsObject().Class == c.class && m.Fn != nil {
+		var this *value.ObjectObj
+		if !m.Static {
+			this = recv.AsObject()
+		}
+		return vm.enter(f, ip, sp, m.Fn.(*bytecode.Function), this, nil, argc)
+	}
+	return false
+}
+
+// enter pushes the frame for fn as callFunction does, when nothing needs
+// its slower checks: the number of arguments is right and there is no
+// rest parameter, the stack and the frame list have room, and there is no
+// step limit or cancellation to count. It reports whether it did.
+func (vm *VM) enter(f *frame, ip, sp int, fn *bytecode.Function, this *value.ObjectObj, cl *value.ClosureObj, argc int) bool {
+	n := len(vm.frames)
+	if fn.HasRest || argc < fn.NumParams || argc > fn.NumParams+fn.NumOptional || vm.StepLimit > 0 || vm.cancel != nil ||
+		n >= MaxFrames || n == cap(vm.frames) || sp+fn.NumSlots+fn.MaxStack > len(vm.stack) {
+		return false
+	}
+	base := sp - argc
+	for i := sp; i < base+fn.NumSlots; i++ {
+		vm.stack[i] = value.NilValue
+	}
+	f.ip = ip
+	vm.sp = base + fn.NumSlots
+	vm.frames = vm.frames[:n+1]
+	fr := &vm.frames[n]
+	fr.fn, fr.ip, fr.base, fr.argc, fr.this, fr.ctor, fr.cl = fn, 0, base, argc, this, false, cl
+	return true
+}
+
 // callFunction pushes a frame for fn; its arguments are the top argc stack
 // entries, below them is the callee's place.
 func (vm *VM) callFunction(fn *bytecode.Function, this *value.ObjectObj, cl *value.ClosureObj, argc int, ctor bool) error {
@@ -1440,8 +1496,13 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 
 		case bytecode.OpCall, bytecode.OpCallV, bytecode.OpCallMethod, bytecode.OpCallMethodV,
 			bytecode.OpCallDirect, bytecode.OpCallNative, bytecode.OpNew, bytecode.OpNewV:
-			if e := vm.callOp(op, f, ip, sp); e != nil {
-				return vm.fail(f, start, sp, e)
+			// The common calls first, the others (and what the fast ones
+			// do not handle) through callOp.
+			if !(op == bytecode.OpCall && vm.callFast(f, ip+2, sp, bytecode.ReadU16(code, ip)) ||
+				op == bytecode.OpCallMethod && vm.callMethodFast(f, ip+6, sp, bytecode.ReadU16(code, ip+2), bytecode.ReadU16(code, ip+4))) {
+				if e := vm.callOp(op, f, ip, sp); e != nil {
+					return vm.fail(f, start, sp, e)
+				}
 			}
 			// A built-in has finished; a function has a new frame.
 			stack, sp = vm.stack, vm.sp
@@ -1557,6 +1618,68 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 				ip = t
 			} else {
 				ip += 6
+			}
+		case bytecode.OpArithLK:
+			aop := bytecode.Op(bytecode.ReadU16(code, ip))
+			a, b := stack[base+bytecode.ReadU16(code, ip+2)], consts[bytecode.ReadU16(code, ip+4)]
+			var r value.Value
+			if a.Kind() == value.Int && b.Kind() == value.Int && aop <= bytecode.OpMul {
+				x, y := a.AsInt(), b.AsInt()
+				switch aop {
+				case bytecode.OpAdd:
+					r = value.MakeInt(x + y)
+				case bytecode.OpSub:
+					r = value.MakeInt(x - y)
+				default:
+					r = value.MakeInt(x * y)
+				}
+			} else {
+				var e error
+				if r, e = value.Arith(value.ArithOp(aop-bytecode.OpAdd), a, b); e != nil {
+					return vm.fail(f, start, sp, e)
+				}
+			}
+			stack[sp] = r
+			sp++
+			ip += 6
+		case bytecode.OpCmpJumpLK:
+			k := bytecode.ReadU16(code, ip)
+			a, b := stack[base+bytecode.ReadU16(code, ip+2)], consts[bytecode.ReadU16(code, ip+4)]
+			var r bool
+			if a.Kind() == value.Int && b.Kind() == value.Int {
+				x, y := a.AsInt(), b.AsInt()
+				switch k &^ bytecode.CmpJumpIfTrue {
+				case bytecode.CmpLt:
+					r = x < y
+				case bytecode.CmpLe:
+					r = x <= y
+				case bytecode.CmpGt:
+					r = x > y
+				case bytecode.CmpGe:
+					r = x >= y
+				case bytecode.CmpEq:
+					r = x == y
+				default:
+					r = x != y
+				}
+			} else if c := k &^ bytecode.CmpJumpIfTrue; c >= bytecode.CmpEq {
+				r = value.Equal(a, b) == (c == bytecode.CmpEq)
+			} else {
+				var e error
+				if r, e = value.Compare(value.CmpOp(c), a, b); e != nil {
+					return vm.fail(f, start, sp, e)
+				}
+			}
+			if r == (k&bytecode.CmpJumpIfTrue != 0) {
+				t := bytecode.ReadU32(code, ip+6)
+				if t < ip {
+					if e := vm.step(); e != nil {
+						return vm.fail(f, start, sp, e)
+					}
+				}
+				ip = t
+			} else {
+				ip += 10
 			}
 		case bytecode.OpIncLocal, bytecode.OpDecLocal:
 			v := &stack[base+bytecode.ReadU16(code, ip)]

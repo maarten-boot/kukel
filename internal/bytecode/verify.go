@@ -202,6 +202,10 @@ func (v *verifier) function(f *Function) error {
 			if err = visit(in.operands[1], after, it.pc); err == nil {
 				err = visit(next, after, it.pc)
 			}
+		case OpCmpJumpLK:
+			if err = visit(in.operands[3], after, it.pc); err == nil {
+				err = visit(next, after, it.pc)
+			}
 		case OpJumpIfArg:
 			if err = visit(in.operands[1], after, it.pc); err == nil {
 				err = visit(next, after, it.pc)
@@ -270,6 +274,17 @@ func (v *verifier) operands(f *Function, pc int, op Op, x []int) error {
 		if x[0]&^CmpJumpIfTrue > CmpNe {
 			return fail("has unknown comparison %d", x[0])
 		}
+	case OpArithLK, OpCmpJumpLK:
+		if op == OpArithLK && (x[0] < int(OpAdd) || x[0] > int(OpShr)) {
+			return fail("has unknown operation %d", x[0])
+		}
+		if op == OpCmpJumpLK && x[0]&^CmpJumpIfTrue > CmpNe {
+			return fail("has unknown comparison %d", x[0])
+		}
+		if x[2] >= len(f.Consts) {
+			return fail("refers to constant %d of %d", x[2], len(f.Consts))
+		}
+		return slot(x[1])
 	case OpIterNext:
 		if x[1] < 1 || x[1] > 2 {
 			return fail("pushes %d values", x[1])

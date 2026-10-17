@@ -5,8 +5,7 @@ values, the program image, the execution model of the stack machine, every
 instruction, how the compiler translates the language's constructs, the
 `.kkc` file format and what the loader guarantees.
 
-It describes bytecode format version **6** (introduced in kukel v0.9,
-still current in v0.18). The language
+It describes bytecode format version **7** (introduced in kukel v0.22). The language
 itself is described in [reference.md](reference.md), its grammar in
 [syntax.ebnf](../syntax.ebnf).
 
@@ -510,11 +509,19 @@ code: the numbers, names, operands and stack effects.
 | 76 | `ADD_LOCAL` | slot:u16 | 1 | 0 | `x`: `slot = slot + x` (statement `local += x`) |
 | 77 | `CALL_NATIVE` | class:u16, name:u16, argc:u16 | argc+1 | 1 | `this args`: call the member function written in Go named by string constant `name` of the native class in global `class`, on `this` (`Base::m(...)` and `Base::Base(...)` for a native base) |
 | 78 | `BREAK` | | 0 | 0 | the start of a source line in code the debugger copied: the debug hook, then the instruction it replaced (section 4.12) |
+| 79 | `ARITH_LK` | op:u16, slot:u16, k:u16 | 0 | 1 | push `slot op Consts[k]`, where `op` is the opcode of `ADD` to `SHR` (below) |
+| 80 | `CMP_JUMP_LK` | cmp:u16, slot:u16, k:u16, target:u32 | 0 | 0 | compare `slot` with `Consts[k]`; jump as `CMP_JUMP` does |
 
 `CMP_JUMP`'s `cmp` operand is the comparison in its low byte (0 `<`,
 1 `<=`, 2 `>`, 3 `>=`, 4 `==`, 5 `!=`), plus 0x100 to jump when the
 comparison holds (without it: jump when it does not). It is `LT` (and the
 others) followed by `JUMP_IF_TRUE` or `JUMP_IF_FALSE` in one instruction.
+
+`ARITH_LK` and `CMP_JUMP_LK` (Kukel v0.22) take their left operand from a
+local slot and their right one from the constants: `LOAD_LOCAL slot;
+CONST k; SUB` is `ARITH_LK SUB, slot, k`, and `LOAD_LOCAL slot; CONST k;
+CMP_JUMP cmp, target` is `CMP_JUMP_LK cmp, slot, k, target`. They behave
+exactly as those instructions would, errors included.
 
 `SWITCH_TABLE`'s table (`Function.Tables`) maps the ints `min`, `min+1`,
 ... to code offsets, or to none. An int `x` in that range with a target
@@ -531,9 +538,14 @@ also `MemberError` for a name its native class has no member function
 for. Every error becomes
 an exception (section 4.9).
 
-**Fast paths**: arithmetic and comparisons on two ints, `CMP_JUMP`,
-`INC_LOCAL`, `ADD_LOCAL` on two ints, and member instructions with a cache
-hit avoid the general code. They behave exactly like it.
+**Fast paths**: arithmetic and comparisons on two ints (also in
+`ARITH_LK`, `CMP_JUMP` and `CMP_JUMP_LK`), `INC_LOCAL`, `ADD_LOCAL` on two
+ints, and member instructions with a cache hit avoid the general code. So
+do the most common calls (Kukel v0.22): `CALL` of a function or closure
+written in Kukel, and `CALL_METHOD` whose cache holds the receiver's
+method, with the number of arguments it takes, no rest parameter, room on
+the stack and no step limit or cancellation to count. They behave exactly
+like the general code.
 
 ---
 
@@ -588,11 +600,17 @@ value: `x = 1;` is `CONST 1; STORE_LOCAL x`, and `i++;` on a plain local is
 one `INC_LOCAL`. (`INDEX_SET` and `SET_MEMBER` always leave the value, so
 `v[i] = x;` and `p->x = 1;` end with `POP`.)
 
+A binary arithmetic operation whose left operand is a local (not in a
+cell) and whose right one is a literal number or string is one
+`ARITH_LK`: `n - 1` is `ARITH_LK SUB n, 1`.
+
 ### 6.3 Conditions
 
 `if`, `while`, `for` and `do` compile their condition into jumps, never
-into a boolean. A comparison becomes one `CMP_JUMP`; `&&`, `||` and `!`
-become jumps between their operands:
+into a boolean. A comparison becomes one `CMP_JUMP`, or one
+`CMP_JUMP_LK` when it compares a local (not in a cell) with a literal
+number or string (`n < 2`); `&&`, `||` and `!` become jumps between their
+operands:
 
 ```
 if (a && !b) return 1;          0  LOAD_LOCAL    0  ; a
@@ -660,14 +678,13 @@ from the test to the body:
 
 ```
 for (local i = 0; i < n; i++) {     6  CONST 0; STORE_LOCAL i
-    if (i == 2) continue;          12  JUMP -> 44
-    s += i;                        17  LOAD_LOCAL i; CONST 2
-}                                  23  CMP_JUMP unless == -> 35
-                                   30  JUMP -> 41            (continue)
-                                   35  LOAD_LOCAL i; ADD_LOCAL s
-                                   41  INC_LOCAL i
-                                   44  LOAD_LOCAL i; LOAD_LOCAL n
-                                   50  CMP_JUMP if < -> 17
+    if (i == 2) continue;          12  JUMP -> 42
+    s += i;                        17  CMP_JUMP_LK unless i == 2 -> 33
+}                                  28  JUMP -> 39            (continue)
+                                   33  LOAD_LOCAL i; ADD_LOCAL s
+                                   39  INC_LOCAL i
+                                   42  LOAD_LOCAL i; LOAD_LOCAL n
+                                   48  CMP_JUMP if < -> 17
 ```
 
 `break` and `continue` are jumps, patched once the loop's end and its
@@ -797,7 +814,7 @@ noted; `str` is a `uv` length followed by that many bytes.
 
 ```
 "KUKL"                       4 bytes: magic
-uv   format version          6
+uv   format version          7
 uv   flags                   0 (1: a module, below)
 uv   main                    global index of main
 uv   n, then n globals       str name, byte kind (0 variable, 1 function, 2 built-in, 3 class, 4 native),
@@ -829,7 +846,8 @@ uv   n + jump tables         min (a zigzag varint), uv n + targets (uv target+1,
 layout changes (version 2: milestone 12's superinstructions and inline
 cache slots; version 3: native globals; version 4: `THROW` takes only
 `Error` objects; version 5: jump tables, `SWITCH_TABLE`, `ADD_LOCAL`;
-version 6: native base classes, `CALL_NATIVE`). `BREAK` came later
+version 6: native base classes, `CALL_NATIVE`; version 7: `ARITH_LK`,
+`CMP_JUMP_LK`). `BREAK` came later
 without a new version: it is only in the debugger's copy of the code, and a
 file that holds one is refused. A reader refuses any version other
 than its own, telling the user to compile the program again. Built-ins and

@@ -112,6 +112,22 @@ func (d *disasm) constName(f *Function, k int) string {
 	return fmt.Sprintf("const %d", k)
 }
 
+// slotName is a local's name, else "slot s".
+func (d *disasm) slotName(f *Function, s int) string {
+	if s < len(f.SlotNames) {
+		return f.SlotNames[s]
+	}
+	return fmt.Sprintf("slot %d", s)
+}
+
+// constValue is constant k as Kukel writes it, else "const k".
+func (d *disasm) constValue(f *Function, k int) string {
+	if k < len(f.Consts) {
+		return f.Consts[k].Repr()
+	}
+	return fmt.Sprintf("const %d", k)
+}
+
 func (d *disasm) funcName(i int) string {
 	if i < len(d.prog.Funcs) {
 		return fmt.Sprintf("%d  ; %s", i, d.prog.Funcs[i].FuncName)
@@ -201,6 +217,23 @@ func (d *disasm) operand(f *Function, op Op, pc int) string {
 			name = cmpNames[c]
 		}
 		return fmt.Sprintf("%s %s -> %d", when, name, ReadU32(f.Code, pc+3))
+	case OpArithLK:
+		name := "?"
+		if op := Op(ReadU16(f.Code, pc+1)); op >= OpAdd && op <= OpShr {
+			name = op.String()
+		}
+		return fmt.Sprintf("%s %s, %s", name, d.slotName(f, ReadU16(f.Code, pc+3)), d.constValue(f, ReadU16(f.Code, pc+5)))
+	case OpCmpJumpLK:
+		k := ReadU16(f.Code, pc+1)
+		when := "unless"
+		if k&CmpJumpIfTrue != 0 {
+			when = "if"
+		}
+		name := "?"
+		if c := k &^ CmpJumpIfTrue; c < len(cmpNames) {
+			name = cmpNames[c]
+		}
+		return fmt.Sprintf("%s %s %s %s -> %d", when, d.slotName(f, ReadU16(f.Code, pc+3)), name, d.constValue(f, ReadU16(f.Code, pc+5)), ReadU32(f.Code, pc+7))
 	case OpJumpIfArg:
 		return fmt.Sprintf("%d -> %d", ReadU16(f.Code, pc+1), ReadU32(f.Code, pc+3))
 	case OpSwitchTable:

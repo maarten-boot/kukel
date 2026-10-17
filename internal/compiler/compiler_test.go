@@ -257,9 +257,10 @@ func TestMaxStack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// println, a, a, a, a, 2 -> 6 deep while computing the first argument.
-	if got := prog.Funcs[0].MaxStack; got != 6 {
-		t.Errorf("MaxStack = %d, want 6", got)
+	// println, a, a, a, a / 2 (one ARITH_LK) -> 5 deep while computing the
+	// first argument.
+	if got := prog.Funcs[0].MaxStack; got != 5 {
+		t.Errorf("MaxStack = %d, want 5", got)
 	}
 }
 

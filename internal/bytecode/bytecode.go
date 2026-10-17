@@ -127,6 +127,10 @@ const (
 	// The debugger (Kukel v0.15).
 	OpBreak // the start of a source line in code the debugger copied: its hook, then the instruction Function.Saved holds for this pc
 
+	// A local and a constant as the operands (Kukel v0.22): "n - 1", "n < 2".
+	OpArithLK   // op u16, slot u16, const u16: push slot op Consts[const]; op is one of ADD to SHR
+	OpCmpJumpLK // cmp u16, slot u16, const u16, target u32: jump if (slot cmp Consts[const]) == want, as CMP_JUMP
+
 	numOps
 )
 
@@ -219,6 +223,8 @@ var opInfo = [numOps]OpInfo{
 	OpAddLocal:     {"ADD_LOCAL", u16},
 	OpCallNative:   {"CALL_NATIVE", []int{2, 2, 2}},
 	OpBreak:        {"BREAK", nil},
+	OpArithLK:      {"ARITH_LK", []int{2, 2, 2}},
+	OpCmpJumpLK:    {"CMP_JUMP_LK", []int{2, 2, 2, 4}},
 }
 
 // The comparison operand of CMP_JUMP: one of these, plus CmpJumpIfTrue to

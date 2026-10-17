@@ -561,6 +561,8 @@ func peephole(fn *bytecode.Function) {
 			at = pc + 1
 		case bytecode.OpCmpJump, bytecode.OpJumpIfArg:
 			at = pc + 3
+		case bytecode.OpCmpJumpLK:
+			at = pc + 7
 		default:
 			continue
 		}
@@ -1265,6 +1267,13 @@ func (c *compiler) expr(e ast.Expr) {
 			c.boolValue(e)
 			return
 		}
+		if op := binaryOps[e.Op]; op >= bytecode.OpAdd && op <= bytecode.OpShr {
+			if slot, k, ok := c.localConst(e.X, e.Y); ok { // n - 1: one instruction
+				c.mark(e.OpPos)
+				c.emit(bytecode.OpArithLK, int(op), slot, k)
+				return
+			}
+		}
 		c.expr(e.X)
 		c.expr(e.Y)
 		c.mark(e.OpPos)
@@ -1438,6 +1447,14 @@ func (c *compiler) branch(e ast.Expr, jumpIf bool) []int {
 	}
 	if b, ok := e.(*ast.BinaryExpr); ok {
 		if cmp, ok := cmpJumps[b.Op]; ok {
+			if jumpIf {
+				cmp |= bytecode.CmpJumpIfTrue
+			}
+			if slot, k, ok := c.localConst(b.X, b.Y); ok { // n < 2: one instruction
+				c.mark(b.OpPos)
+				return []int{c.emit(bytecode.OpCmpJumpLK, cmp, slot, k, 0) + 6}
+			}
+			cmp &^= bytecode.CmpJumpIfTrue
 			// A comparison and the jump on its result in one instruction.
 			c.expr(b.X)
 			c.expr(b.Y)
@@ -1581,6 +1598,34 @@ func (c *compiler) load(id *ast.Ident) {
 		c.errorf(id.NamePos, "undefined name %s", id.Name)
 	}
 	c.loadGlobal(g, id)
+}
+
+// localConst reports whether x is a local variable in a slot (not a cell)
+// and y a literal number or string, and gives the slot and the constant:
+// an operation on the two is one instruction (ARITH_LK, CMP_JUMP_LK).
+func (c *compiler) localConst(x, y ast.Expr) (slot, k int, ok bool) {
+	id, isIdent := x.(*ast.Ident)
+	if !isIdent {
+		return 0, 0, false
+	}
+	lv, found := c.lookupLocal(id.Name)
+	if !found || lv.cell {
+		return 0, 0, false
+	}
+	var v value.Value
+	switch l := y.(type) {
+	case *ast.IntLit:
+		v = value.MakeInt(l.Value)
+	case *ast.CharLit:
+		v = value.MakeInt(l.Value)
+	case *ast.FloatLit:
+		v = value.MakeFloat(l.Value)
+	case *ast.StringLit:
+		v = value.MakeString(l.Value)
+	default:
+		return 0, 0, false
+	}
+	return lv.slot, c.constIndex(v, y.Pos()), true
 }
 
 // loadGlobal pushes the value of top-level name g (named id).
