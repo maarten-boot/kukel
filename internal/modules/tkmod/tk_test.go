@@ -241,6 +241,19 @@ main(args) {
     new tk::Radiobutton(box, "Large", size, "large")->pack();
     new tk::Radiobutton(box, "Small", size, "small")->pack();
     println(size->value(), tktest::tkvalue(size), new tk::Menu(box, {"popup": true}), view);
+
+    // Fonts (straight to Tk, or through a style for the themed buttons) and
+    // themes (clam on X11).
+    local big = {"family": "DejaVu Sans", "size": 16, "bold": true};
+    new tk::Label(box, "big", {"font": big})->pack();
+    new tk::Button(box, "big", {"font": big})->configure({"font": {"italic": true, "underline": true}})->pack();
+    new tk::Text(box, "big", {"font": big})->pack();
+    println(tk::theme(), len(tk::themes()) > 1, tk::settheme("clam"), tk::theme());
+    for (local h in [fn() { new tk::Label(box, "x", {"font": "Helvetica 12"}); },
+                     fn() { new tk::Label(box, "x", {"font": {"weight": "bold"}}); },
+                     fn() { new tk::Label(box, "x", {"font": {"size": 0}}); },
+                     fn() { tk::settheme("fancy"); }])
+        try { h(); } catch (e) { println(e->kind + ":", e->message); }
     for (local h in [fn() { new tk::Menu(box); },
                      fn() { file->item("Open", fn() {}); },
                      fn() { file->invoke("Nope"); },
@@ -272,7 +285,7 @@ main(args) {
     local o = cv->oval(80, 10, 140, 50, {"fill": "light blue"});
     local ln = cv->line([10, 100, 100, 100, 150, 140], {"color": "red", "width": 3, "arrow": "last", "smooth": true});
     local p = cv->polygon([150, 10, 190, 10, 170, 40], {"fill": "green"});
-    local tx = cv->text(100, 75, "Hello [x] {y} $z", {"anchor": "center", "color": "blue"});
+    local tx = cv->text(100, 75, "Hello [x] {y} $z", {"anchor": "center", "color": "blue", "font": {"size": 9}});
     println(cv, cv->items(), [r, o, ln, p, tx]);
     println(cv->itemat(20, 20), cv->itemat(110, 30), cv->itemat(50, 100), cv->itemat(170, 20), cv->itemat(100, 75), cv->itemat(5, 145));
     println(cv->move(r, 5, 5.5)->coords(r), cv->coords(ln));
@@ -394,7 +407,7 @@ ValueError: tk::Label::Label: the window is closed
 tk::Frame
 tk::Label("Name:") tk::Entry("") tk::Entry("secret") secret
 ValueError: tk::Label::pack: cannot pack: grid already places the widgets beside it (use one of pack and grid in each window or frame)
-ValueError: tk::Label::configure: unknown option "text" (the options are width, anchor, justify, wraplength, padding and state)
+ValueError: tk::Label::configure: unknown option "text" (the options are width, font, anchor, justify, wraplength, padding and state)
 ValueError: tk::Label::configure: option state: "readonly" is not one of normal, disabled
 ValueError: tk::Entry::configure: option show must be one character, or "" to show the text, not "**"
 ValueError: tk::Frame::configure: option padding must be a number of pixels (0 to 10000) or a vector of 2 or 4 of them, not [1, 2, 3]
@@ -407,7 +420,7 @@ TkError: tk::Label::bind: bad event type or keysym "Nonsense"
 TypeError: tk::Label::bind: argument 2 must be a function or nil, not int
 TypeError: tk::Label::Label: argument 1 must be a tk::Window or tk::Frame, not tk::Label
 TypeError: tk::Frame::Frame: argument 2 must be a map of options, not string
-ValueError: tk::Entry::Entry: unknown option "colour" (the options are width, justify, show and state)
+ValueError: tk::Entry::Entry: unknown option "colour" (the options are width, font, justify, show and state)
 ValueError: tk::Frame::grid: the window is closed
 tk::Text true
 set while disabled!
@@ -418,7 +431,7 @@ tk::Radiogroup("green") green
 red nil tk::Radiogroup(nil) tk::Radiobutton("Red", "red") tk::Radiobutton("Green", "green")
 ValueError: tk::Text::configure: option scroll can only be given to the constructor
 ValueError: tk::Text::Text: option scroll: "z" is not one of none, x, y, both
-ValueError: tk::Text::Text: unknown option "colour" (the options are width, height, wrap, state and scroll)
+ValueError: tk::Text::Text: unknown option "colour" (the options are width, height, font, wrap, state and scroll)
 ValueError: tk::Listbox::setselected: 5 is not the index of a line (0 to 2)
 TypeError: tk::Listbox::setitems: argument 1: the lines must be strings, not int
 TypeError: tk::Listbox::Listbox: argument 2 must be a vector of strings, not string
@@ -436,6 +449,11 @@ true nil false true
 size: large
 large large large
 large large tk::Menu(popup) tk::Menu("View")
+clam true nil clam
+ValueError: tk::Label::Label: option font must be a map such as {"family": "Helvetica", "size": 12, "bold": true}, not "Helvetica 12"
+ValueError: tk::Label::Label: option font: unknown part "weight" (the parts are family, size, bold, italic and underline)
+ValueError: tk::Label::Label: option font: size must be a number of points (1 to 500), not 0
+ValueError: tk::settheme: there is no theme "fancy" (the themes are clam, alt, default, classic)
 ValueError: tk::Menu::Menu: the window has a menu bar already
 ValueError: tk::Menu::item: the menu has an entry "Open" already
 ValueError: tk::Menu::invoke: the menu has no entry "Nope"

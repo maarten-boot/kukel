@@ -1596,6 +1596,19 @@ counts lines (1 to 1000). Colours are names (`"red"`, `"light blue"`) or
 `"#rgb"`, `"#rrggbb"` (also `"#rrrrggggbbbb"`); an unknown name is a
 `TkError`. The text of a label or button is not an option: `settext`.
 
+Widgets with text (labels, buttons, entries, check and radio buttons,
+texts, list boxes) and canvas text take a `font`: a map with some of
+`family` (a font family such as `"DejaVu Sans"`), `size` (points, 1 to
+500), `bold`, `italic` and `underline` (`true` or `false`), as in
+`{"family": "Helvetica", "size": 12, "bold": true}`; what is left out is
+the platform's default. A family the system does not have gives Tk's
+nearest one.
+
+**Themes.** On Linux and the BSDs kukel uses Tk's `clam` theme (its
+`default` looks plain); macOS and Windows keep their native themes.
+`tk::themes()` lists the themes there are, `tk::theme()` gives the one in
+use, and `tk::settheme(name)` changes it for all windows.
+
 **Layout.** A widget appears once its parent places it with `pack` or
 `grid`; each window or frame uses one of the two for its widgets (mixing
 them is a `ValueError`). Frames hold widgets, and nest.
@@ -1661,6 +1674,7 @@ a button takes the keyboard focus when clicked; an entry gets it back with
 | Function | Description |
 |---|---|
 | `tk::available()` | Whether Tk can start (a display is there); it starts Tk |
+| `tk::themes()`, `tk::theme()`, `tk::settheme(name)` | The themes there are (a vector of names), the one in use, and choosing one (an unknown name is a `ValueError`) |
 | `tk::messagebox(text [, options])` | Shows a message and waits for a button; gives its name (`"ok"`, `"cancel"`, `"yes"`, `"no"`, `"retry"`, `"abort"`, `"ignore"`). Options: `title`, `detail` (a second, smaller text), `icon` (`"info"`, `"warning"`, `"error"`, `"question"`), `buttons` (`"ok"`, `"okcancel"`, `"yesno"`, `"yesnocancel"`, `"retrycancel"`, `"abortretryignore"`), `default` (the button Enter presses), `parent` (an open window it shows over) |
 | `tk::openfile([options])` | Lets the user choose a file to open; gives its path, or nil when cancelled. Options: `title`, `dir` (where it starts), `file`, `types` (`[["Kukel", ".kkl"], ["All files", "*"]]`: a name and patterns), `multiple` (`true`: a vector of paths), `parent` |
 | `tk::savefile([options])` | Lets the user choose where to save; gives the path (the file need not exist; the dialog asks before an existing one is chosen), or nil. Options: `title`, `dir`, `file`, `types`, `ext` (added to a name without one, as `".txt"`), `parent` |
@@ -1690,25 +1704,25 @@ closed)`), a frame as `tk::Frame`.
 
 | Constructor or member function | Description |
 |---|---|
-| `new tk::Label(parent, text [, options])` | A text. Options: `width` (characters), `anchor` (where the text sits: `"w"`, `"center"`, `"ne"`, ...), `justify` (`"left"`, `"center"`, `"right"`: of several lines), `wraplength` (pixels before a line wraps), `padding`, `state` (`"normal"`, `"disabled"`) |
-| `new tk::Button(parent, text [, options])` | A button. Options: `width`, `padding`, `state` |
+| `new tk::Label(parent, text [, options])` | A text. Options: `width` (characters), `font`, `anchor` (where the text sits: `"w"`, `"center"`, `"ne"`, ...), `justify` (`"left"`, `"center"`, `"right"`: of several lines), `wraplength` (pixels before a line wraps), `padding`, `state` (`"normal"`, `"disabled"`) |
+| `new tk::Button(parent, text [, options])` | A button. Options: `width`, `padding`, `state`, `font` |
 | `b->onclick(f)` | `f()` is called when the button is clicked (nil: nothing) |
 | `b->invoke()` | Calls the `onclick` handler as a click would, at once: its result and exception come back |
-| `new tk::Entry(parent [, text] [, options])` | A field for a line of text. Options: `width`, `justify`, `show` (a character shown for each typed one, as `"*"` for passwords; `""` shows the text), `state` (also `"readonly"`) |
+| `new tk::Entry(parent [, text] [, options])` | A field for a line of text. Options: `width`, `font`, `justify`, `show` (a character shown for each typed one, as `"*"` for passwords; `""` shows the text), `state` (also `"readonly"`) |
 | `e->onenter(f)` | `f(text)` is called when Enter is pressed in the entry |
 | `e->focus()` | The keys typed go to the entry |
 | `x->text()`, `x->settext(s)` | The text of a label, button, entry, check button or radio button |
-| `new tk::Checkbutton(parent, text [, options])` | A box that is checked or not. Options: `width`, `padding`, `state` |
+| `new tk::Checkbutton(parent, text [, options])` | A box that is checked or not. Options: `width`, `padding`, `state`, `font` |
 | `c->checked()`, `c->setchecked(b)` | Whether it is checked |
 | `c->onchange(f)` | `f(checked)` is called when the user checks or unchecks it |
 | `new tk::Radiogroup([value])` | Not a widget: the radio buttons of which one is chosen (`value`: the one chosen at first) |
 | `g->value()`, `g->setvalue(s)` | The value of the radio button chosen (nil: none); `setvalue(nil)` chooses none |
 | `g->onchange(f)` | `f(value)` is called when the user chooses a radio button of the group |
-| `new tk::Radiobutton(parent, text, group, value [, options])` | A radio button of `group`, chosen when the group's value is `value` (a string that is not `""`). Options: `width`, `padding`, `state` |
-| `new tk::Text(parent [, text] [, options])` | Several lines of text, which the user can edit. Options: `width` (characters), `height` (lines), `wrap` (`"none"`, `"char"`, `"word"`), `state` (`"disabled"`: the user cannot change it; the program can), and in the constructor `scroll` (`"x"`, `"y"`, `"both"`: scrollbars; `"none"`, the default) |
+| `new tk::Radiobutton(parent, text, group, value [, options])` | A radio button of `group`, chosen when the group's value is `value` (a string that is not `""`). Options: `width`, `padding`, `state`, `font` |
+| `new tk::Text(parent [, text] [, options])` | Several lines of text, which the user can edit. Options: `width` (characters), `height` (lines), `font`, `wrap` (`"none"`, `"char"`, `"word"`), `state` (`"disabled"`: the user cannot change it; the program can), and in the constructor `scroll` (`"x"`, `"y"`, `"both"`: scrollbars; `"none"`, the default) |
 | `t->text()`, `t->settext(s)` | The whole text |
 | `t->append(s)` | Adds `s` at the end, and shows the end (for a log) |
-| `new tk::Listbox(parent [, lines] [, options])` | Lines to choose from (a vector of strings). Options: `width`, `height` (lines), `selectmode` (`"browse"`, the default: one line; `"extended"`: several, with Shift and Control; `"single"`, `"multiple"`), `state`, and in the constructor `scroll` |
+| `new tk::Listbox(parent [, lines] [, options])` | Lines to choose from (a vector of strings). Options: `width`, `height` (lines), `font`, `selectmode` (`"browse"`, the default: one line; `"extended"`: several, with Shift and Control; `"single"`, `"multiple"`), `state`, and in the constructor `scroll` |
 | `l->items()`, `l->setitems(v)` | The lines |
 | `l->selected()`, `l->setselected(v)` | The indexes of the lines chosen, a vector (`[]`: none); an index that is not a line's is a `ValueError` |
 | `l->onselect(f)` | `f(selected)` is called when the user changes the lines chosen |
@@ -1769,7 +1783,7 @@ coordinates are numbers (pixels, from -1e6 to 1e6), points are vectors
 | `c->line(points [, options])` | A line through at least 2 points. Options: `color`, `width`, `arrow` (`"none"`, `"first"`, `"last"`, `"both"`), `smooth` (`true`: a curve) |
 | `c->rect(x1, y1, x2, y2 [, options])`, `c->oval(x1, y1, x2, y2 [, options])` | A rectangle, or the oval in it. Options: `fill`, `outline` (colours; `""`: none), `width` (of the outline) |
 | `c->polygon(points [, options])` | A polygon of at least 3 points; options as for `rect` |
-| `c->text(x, y, s [, options])` | A text at `x, y`. Options: `color`, `anchor` (which point of the text is at `x, y`: `"center"`, the default, `"nw"`, ...), `justify`, `width` (pixels before a line wraps) |
+| `c->text(x, y, s [, options])` | A text at `x, y`. Options: `color`, `font`, `anchor` (which point of the text is at `x, y`: `"center"`, the default, `"nw"`, ...), `justify`, `width` (pixels before a line wraps) |
 | `c->coords(id)`, `c->setcoords(id, ...)` | An item's coordinates (a vector); set as the item was made (a vector of points, or the numbers) |
 | `c->move(id, dx, dy)` | Moves an item |
 | `c->configureitem(id, options)` | Changes an item's options |

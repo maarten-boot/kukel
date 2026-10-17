@@ -98,7 +98,7 @@ func newWidget(class string) value.NativeMethod {
 			return value.NilValue, err
 		}
 		mid := a.V[1:]
-		var opts []tk.Opt
+		var values []optionValue
 		scroll := "none"
 		if last := len(mid) - 1; last >= spec.min && mid[last].Kind() == value.Map {
 			mid = mid[:last]
@@ -110,7 +110,7 @@ func newWidget(class string) value.NativeMethod {
 				// Taken out already: here for the list of the options.
 				known = append(known[:len(known):len(known)], option{name: "scroll"})
 			}
-			if opts, err = readOptions(a, 1+last, known); err != nil {
+			if values, err = readValues(a, 1+last, known); err != nil {
 				return value.NilValue, err
 			}
 		}
@@ -123,6 +123,7 @@ func newWidget(class string) value.NativeMethod {
 		if parent.win.closed {
 			return value.NilValue, a.Errorf(value.ValueError, "the window is closed")
 		}
+		opts := makeOpts(values) // after start: a font is made in Tk
 		wd := &widget{class: class}
 		wd.win = parent.win
 		if err := spec.make(a, mid, parent, wd, opts, scroll); err != nil {

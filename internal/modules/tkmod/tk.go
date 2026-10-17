@@ -94,6 +94,10 @@ func start(a native.Args, env value.Env) error {
 	}
 	gui.loop = eventsmod.For(env)
 	gui.started = true
+	if runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
+		tk.StyleThemeUse("clam") // Tk's "default" theme on X11 looks plain
+		tkError()
+	}
 	return nil
 }
 
@@ -273,6 +277,25 @@ func newWindow(env value.Env, this *value.ObjectObj, args []value.Value) (value.
 	return value.NilValue, nil
 }
 
+// themeFunc makes a module function about the ttk themes, which needs Tk.
+func themeFunc(name string, n int, fn func(a native.Args) (value.Value, error)) native.Func {
+	full := "tk::" + name
+	return func(env value.Env, args []value.Value) (value.Value, error) {
+		a, err := native.Check(full, args, n, n)
+		if err != nil {
+			return value.NilValue, err
+		}
+		if err := start(a, env); err != nil {
+			return value.NilValue, err
+		}
+		v, err := fn(a)
+		if terr := tkError(); err == nil && terr != nil {
+			err = a.Errorf(TkError, "%v", terr)
+		}
+		return v, err
+	}
+}
+
 // setTitle sets the title of window w. tk9.0 leaves an empty value out of
 // the command, which then only asks for the title: a space shows none.
 func setTitle(w *tk.Window, title string) {
@@ -440,6 +463,32 @@ func register() {
 	registerMenus()
 	funcs := dialogFuncs()
 	// available(): whether Tk can start (a display is there); it starts Tk.
+	// themes(), theme(), settheme(name): the ttk themes there are, the
+	// one in use, and choosing one.
+	funcs["themes"] = themeFunc("themes", 0, func(a native.Args) (value.Value, error) {
+		var v []value.Value
+		for _, name := range tk.StyleThemeNames() {
+			v = append(v, value.MakeString(name))
+		}
+		return value.MakeVector(v), nil
+	})
+	funcs["theme"] = themeFunc("theme", 0, func(a native.Args) (value.Value, error) {
+		return value.MakeString(tk.StyleThemeUse()), nil
+	})
+	funcs["settheme"] = themeFunc("settheme", 1, func(a native.Args) (value.Value, error) {
+		name, err := tkString(a, 0)
+		if err != nil {
+			return value.NilValue, err
+		}
+		names := tk.StyleThemeNames()
+		for _, n := range names {
+			if n == name {
+				tk.StyleThemeUse(name)
+				return value.NilValue, nil
+			}
+		}
+		return value.NilValue, a.Errorf(value.ValueError, "there is no theme %s (the themes are %s)", value.Quote(name), strings.Join(names, ", "))
+	})
 	funcs["available"] = func(env value.Env, args []value.Value) (value.Value, error) {
 		a, err := native.Check("tk::available", args, 0, 0)
 		if err != nil {

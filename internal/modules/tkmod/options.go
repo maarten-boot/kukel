@@ -55,11 +55,122 @@ type option struct {
 // options. Nothing is changed when an option is wrong.
 func readOptions(a native.Args, i int, specs []option) ([]tk.Opt, error) {
 	values, err := readValues(a, i, specs)
+	return makeOpts(values), err
+}
+
+// makeOpts gives the Tk options of checked values. Some need Tk (a font is
+// made), so constructors check their options first and make them once Tk
+// runs.
+func makeOpts(values []optionValue) []tk.Opt {
 	var opts []tk.Opt
 	for _, v := range values {
 		opts = append(opts, v.make(v.x))
 	}
-	return opts, err
+	return opts
+}
+
+// A fontSpec is a checked font map; zero parts are the platform's default.
+type fontSpec struct {
+	family                  string
+	size                    int64
+	bold, italic, underline bool
+}
+
+// fontValue checks a font map: {"family", "size", "bold", "italic",
+// "underline"}, each part optional.
+func fontValue(v value.Value) (any, string) {
+	if v.Kind() != value.Map {
+		return nil, " must be a map such as {\"family\": \"Helvetica\", \"size\": 12, \"bold\": true}, not " + v.Repr()
+	}
+	var f fontSpec
+	var bad string
+	v.AsMap().Each(func(k, x value.Value) {
+		if bad != "" {
+			return
+		}
+		name := ""
+		if k.Kind() == value.String {
+			name = k.AsString()
+		}
+		switch name {
+		case "family":
+			if x.Kind() != value.String || x.AsString() == "" || len(x.AsString()) > 200 || tkUnsafe(x.AsString()) != "" {
+				bad = ": family must be the name of a font family, not " + x.Repr()
+				return
+			}
+			f.family = x.AsString()
+		case "size":
+			if x.Kind() != value.Int || x.AsInt() < 1 || x.AsInt() > 500 {
+				bad = ": size must be a number of points (1 to 500), not " + x.Repr()
+				return
+			}
+			f.size = x.AsInt()
+		case "bold", "italic", "underline":
+			if x.Kind() != value.Bool {
+				bad = ": " + name + " must be true or false, not " + x.Repr()
+				return
+			}
+			switch name {
+			case "bold":
+				f.bold = x.AsBool()
+			case "italic":
+				f.italic = x.AsBool()
+			default:
+				f.underline = x.AsBool()
+			}
+		default:
+			bad = ": unknown part " + k.Repr() + " (the parts are family, size, bold, italic and underline)"
+		}
+	})
+	if bad != "" {
+		return nil, bad
+	}
+	return f, ""
+}
+
+// fonts are the Tk named fonts made, one per font map; styles the ttk
+// styles that carry a font for the classes that take none themselves.
+var (
+	fonts  = map[fontSpec]*tk.FontFace{}
+	styles = map[string]string{}
+)
+
+func fontFace(f fontSpec) *tk.FontFace {
+	if face := fonts[f]; face != nil {
+		return face
+	}
+	opts := []tk.Opt{tk.Weight(map[bool]string{false: "normal", true: "bold"}[f.bold]),
+		tk.Slant(map[bool]string{false: "roman", true: "italic"}[f.italic]),
+		tk.Underline(map[bool]int{false: 0, true: 1}[f.underline])}
+	if f.family != "" {
+		opts = append(opts, tk.Family(f.family))
+	}
+	if f.size > 0 {
+		opts = append(opts, tk.Size(f.size))
+	}
+	face := tk.NewFont(opts...)
+	fonts[f] = face
+	return face
+}
+
+// fontOption is the option font: given straight to Tk, or (styleClass not
+// "": the themed buttons, which take no font) through a ttk style of that
+// class with the font.
+func fontOption(styleClass string) option {
+	return option{"font", fontValue, func(x any) tk.Opt {
+		face := fontFace(x.(fontSpec))
+		if styleClass == "" {
+			return tk.Font(face)
+		}
+		key := styleClass + " " + face.String()
+		style := styles[key]
+		if style == "" {
+			style = fmt.Sprintf("kukel%d.%s", len(styles)+1, styleClass)
+			styles[key] = style
+			tk.StyleConfigure(style, tk.Font(face))
+		}
+		return tk.Style(style)
+	}}
 }
 
 // An optionValue is an option of an options map with its checked value.
@@ -254,15 +365,17 @@ var (
 		},
 		"Label": {
 			optWidth,
+			fontOption(""),
 			{"anchor", oneOf("n", "ne", "e", "se", "s", "sw", "w", "nw", "center"), func(x any) tk.Opt { return tk.Anchor(x) }},
 			optJustify,
 			{"wraplength", pixels, func(x any) tk.Opt { return tk.Wraplength(x) }},
 			optPadding,
 			optState,
 		},
-		"Button": {optWidth, optPadding, optState},
+		"Button": {optWidth, optPadding, optState, fontOption("TButton")},
 		"Entry": {
 			optWidth,
+			fontOption(""),
 			optJustify,
 			{"show", oneChar, func(x any) tk.Opt { return tk.Show(x) }},
 			{"state", oneOf("normal", "disabled", "readonly"), func(x any) tk.Opt { return tk.State(x) }},
@@ -270,22 +383,24 @@ var (
 		"Text": {
 			optWidth,
 			optHeight,
+			fontOption(""),
 			{"wrap", oneOf("none", "char", "word"), func(x any) tk.Opt { return tk.Wrap(x) }},
 			optState,
 		},
 		"Listbox": {
 			optWidth,
 			optHeight,
+			fontOption(""),
 			{"selectmode", oneOf("browse", "single", "extended", "multiple"), func(x any) tk.Opt { return tk.Selectmode(x) }},
 			optState,
 		},
-		"Checkbutton": {optWidth, optPadding, optState},
+		"Checkbutton": {optWidth, optPadding, optState, fontOption("TCheckbutton")},
 		"Canvas": {
 			{"width", pixels, func(x any) tk.Opt { return tk.Width(x) }},
 			{"height", pixels, func(x any) tk.Opt { return tk.Height(x) }},
 			{"background", color(false), func(x any) tk.Opt { return tk.Background(x) }},
 		},
-		"Radiobutton": {optWidth, optPadding, optState},
+		"Radiobutton": {optWidth, optPadding, optState, fontOption("TRadiobutton")},
 	}
 	optHeight = option{"height", intFrom(1, 1000, "a number of lines"), func(x any) tk.Opt { return tk.Height(x) }}
 )

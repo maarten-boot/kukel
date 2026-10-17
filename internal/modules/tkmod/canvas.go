@@ -258,6 +258,7 @@ var (
 			{"anchor", oneOf("n", "ne", "e", "se", "s", "sw", "w", "nw", "center"), func(x any) tk.Opt { return tk.Anchor(x) }},
 			{"justify", oneOf("left", "center", "right"), func(x any) tk.Opt { return tk.Justify(x) }},
 			{"width", pixels, func(x any) tk.Opt { return tk.Width(x) }},
+			fontOption(""),
 		},
 	}
 )
