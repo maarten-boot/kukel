@@ -7,7 +7,6 @@
 package bytecode
 
 import (
-	"encoding/binary"
 	"sort"
 	"strings"
 
@@ -266,8 +265,19 @@ func (op Op) Size() int {
 }
 
 // ReadU16 and ReadU32 decode operands.
-func ReadU16(code []byte, at int) int { return int(binary.LittleEndian.Uint16(code[at:])) }
-func ReadU32(code []byte, at int) int { return int(binary.LittleEndian.Uint32(code[at:])) }
+// ReadU16 reads a little-endian u16 operand (one bounds check, where
+// binary.LittleEndian with a re-slice needs two: it is in every
+// instruction with an operand).
+func ReadU16(code []byte, at int) int {
+	_ = code[at+1]
+	return int(code[at]) | int(code[at+1])<<8
+}
+
+// ReadU32 reads a little-endian u32 operand (a jump target), as ReadU16.
+func ReadU32(code []byte, at int) int {
+	_ = code[at+3]
+	return int(code[at]) | int(code[at+1])<<8 | int(code[at+2])<<16 | int(code[at+3])<<24
+}
 
 // LineInfo maps code from PC onwards to a source line.
 type LineInfo struct {
