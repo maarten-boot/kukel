@@ -23,7 +23,7 @@ var (
 // buttons share, holding the value of the chosen one ("" for none).
 type radiogroup struct {
 	v        *tk.VariableOpt
-	linked   bool   // a radio button uses v (before, v cannot be set)
+	inUse    bool   // a radio button or menu entry uses v (before, v cannot be set)
 	value    string // what v holds
 	onchange value.Value
 }
@@ -31,10 +31,26 @@ type radiogroup struct {
 // set chooses the radio button of value s ("": none).
 func (g *radiogroup) set(s string) {
 	g.value = s
-	if g.linked {
+	if g.inUse {
 		g.v.Set(s)
 	} else {
 		g.v = tk.Variable(s)
+	}
+}
+
+// linked is called after a radio button or menu entry was made with v.
+// tk9.0 then sets the variable to the value v was made with, which is not
+// the group's value after a setvalue or a choice: it is set again.
+func (g *radiogroup) linked() {
+	g.inUse = true
+	g.v.Set(g.value)
+}
+
+// chose is the user choosing the radio button or entry of value s.
+func (g *radiogroup) chose(s string) {
+	g.value = s
+	if !g.onchange.IsNil() {
+		call(g.onchange, value.MakeString(s))
 	}
 }
 
@@ -178,13 +194,8 @@ func registerChoices() {
 		}
 		g := st.(*radiogroup)
 		wd.group = g
-		wd.w = parent.w.TRadiobutton(append(opts, tk.Txt(wd.text), g.v, tk.Value(wd.value), tk.Command(func() {
-			g.value = wd.value
-			if !g.onchange.IsNil() {
-				call(g.onchange, value.MakeString(wd.value))
-			}
-		}))...).Window
-		g.linked = true
+		wd.w = parent.w.TRadiobutton(append(opts, tk.Txt(wd.text), g.v, tk.Value(wd.value), tk.Command(func() { g.chose(wd.value) }))...).Window
+		g.linked()
 		return nil
 	}}, func(wd *widget) string {
 		return "tk::Radiobutton(" + value.Quote(wd.text) + ", " + value.Quote(wd.value) + ")"

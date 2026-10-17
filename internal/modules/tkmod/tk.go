@@ -173,8 +173,9 @@ func (n *node) bind(a native.Args, seq string, f value.Value) error {
 }
 
 // eventMap is what a bind handler gets: key and char (key events), x and
-// y (the mouse, relative to the widget), delta (the mouse wheel), width
-// and height (Configure events). What the event does not have is nil.
+// y (the mouse, relative to the widget), xroot and yroot (on the screen:
+// for a pop-up menu), delta (the mouse wheel), width and height (Configure
+// events). What the event does not have is nil (x, y and delta: 0).
 func (n *node) eventMap(e *tk.Event) value.Value {
 	m := value.NewMap()
 	set := func(k string, v value.Value) { m.Set(value.MakeString(k), v) } // string keys cannot fail
@@ -200,6 +201,8 @@ func (n *node) eventMap(e *tk.Event) value.Value {
 		set("x", value.MakeInt(int64(e.X)))
 		set("y", value.MakeInt(int64(e.Y)))
 	}
+	set("xroot", value.MakeInt(int64(e.XRoot)))
+	set("yroot", value.MakeInt(int64(e.YRoot)))
 	set("delta", value.MakeInt(int64(e.Delta)))
 	set("width", number(e.Width))
 	set("height", number(e.Height))

@@ -1642,7 +1642,8 @@ button), `"<Double-Button-1>"`, `"<ButtonRelease-1>"`, `"<B1-Motion>"`
 `"<<Copy>>"`. `e` is a map: `key` (the key's name, as `"Return"`, `"a"`)
 and `char` (the character typed) for key events, nil for others; `x` and
 `y` (the mouse, relative to the widget; on a canvas, canvas coordinates;
-for `<Configure>`, the widget's position in its parent); `delta` (the
+for `<Configure>`, the widget's position in its parent); `xroot` and
+`yroot` (the mouse on the screen: where a pop-up menu goes); `delta` (the
 mouse wheel; 0 for other events); `width` and `height` (for
 `<Configure>`, else nil). A binding comes after what the widget does itself (an entry
 still takes the typed keys); binding a sequence again replaces the handler,
@@ -1721,17 +1722,22 @@ A widget prints as its class and text: `tk::Label("Name:")`,
 
 | Constructor or member function | Description |
 |---|---|
-| `new tk::Menu(window)` | The menu bar of the window (one per window) |
+| `new tk::Menu(window [, options])` | The menu bar of the window (one per window); with the option `{"popup": true}`, a pop-up menu (any number), shown by `popup` |
 | `m->submenu(label)` | A `tk::Menu` that opens from this one (in a menu bar: a menu of it) |
 | `m->item(label, f [, options])` | An entry that calls `f()`. Option: `accelerator`, a key shown next to it (`"Ctrl+S"`); the key itself needs a `bind` on the window |
+| `m->check(label, f [, checked [, options]])` | An entry that is checked or not (`checked`: at first; `false` when left out); `f(checked)` is called when the user changes it (nil: nothing) |
+| `m->checked(label)`, `m->setchecked(label, b)` | Whether a check entry is checked (`setchecked` calls no handler) |
+| `m->radio(label, group, value [, options])` | An entry of a `tk::Radiogroup`, chosen when the group's value is `value`; a group may hold radio buttons and entries together. The group's `onchange` handler is called when the user chooses it |
 | `m->separator()` | A line between entries |
 | `m->enable(label, on)` | Whether the entry can be chosen |
-| `m->invoke(label)` | Calls the entry's handler as choosing it would, at once (for a key binding) |
+| `m->invoke(label)` | Does what choosing the entry does, at once (for a key binding): an item calls its handler, a check entry is toggled and calls its handler, a radio entry is chosen and calls its group's; the handler's result comes back |
+| `m->popup(x, y)` | Shows a pop-up menu with its corner at `x, y` on the screen: `w->bind("<Button-3>", fn(e) { m->popup(e["xroot"], e["yroot"]); })` |
 
 Entries are named by their labels, which are unique in a menu (another
 entry with the same label, or a label `""`, is a `ValueError`; so is
-`invoke` or `enable` of a label the menu does not have). A menu bar prints
-as `tk::Menu`, a menu in it as `tk::Menu("File")`.
+`invoke` or `enable` of a label the menu does not have, and `checked` of
+an entry that is not a check entry). A menu bar prints as `tk::Menu`, a
+menu in it as `tk::Menu("File")`, a pop-up menu as `tk::Menu(popup)`.
 
 ```
 use tk;

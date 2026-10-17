@@ -117,6 +117,7 @@ func display(t *testing.T) {
 
 const program = `use tk;
 use events;
+use tktest;
 
 main(args) {
     local clicks = args[0] == "clicks";
@@ -228,6 +229,18 @@ main(args) {
     file->item("Open", fn() { return "opened"; }, {"accelerator": "Ctrl+O"})->separator()->item("Quit", fn() { throw new Error("quit"); });
     println(bar, file, file->invoke("Open"), file->enable("Open", false));
     try { file->invoke("Quit"); } catch (e) { println("invoke:", e->message); }
+
+    // Check and radio entries; a group shared with radio buttons keeps its
+    // value when another button joins it (tk9.0 would reset Tk's variable).
+    local view = bar->submenu("View"), size = new tk::Radiogroup("small");
+    view->check("Wrap lines", fn(on) { println("wrap:", on); }, true, {"accelerator": "Ctrl+W"});
+    view->separator()->radio("Small", size, "small")->radio("Large", size, "large");
+    println(view->checked("Wrap lines"), view->invoke("Wrap lines"), view->checked("Wrap lines"), view->setchecked("Wrap lines", true)->checked("Wrap lines"));
+    size->onchange(fn(v) { println("size:", v); return v; });
+    println(view->invoke("Large"), size->value(), tktest::tkvalue(size));
+    new tk::Radiobutton(box, "Large", size, "large")->pack();
+    new tk::Radiobutton(box, "Small", size, "small")->pack();
+    println(size->value(), tktest::tkvalue(size), new tk::Menu(box, {"popup": true}), view);
     for (local h in [fn() { new tk::Menu(box); },
                      fn() { file->item("Open", fn() {}); },
                      fn() { file->invoke("Nope"); },
@@ -239,7 +252,12 @@ main(args) {
                      fn() { tk::messagebox("x", {"icon": "smile"}); },
                      fn() { tk::openfile({"types": [["Kukel"]]}); },
                      fn() { tk::savefile({"parent": 3}); },
-                     fn() { file->invoke(""); }])
+                     fn() { file->invoke(""); },
+                     fn() { view->checked("Small"); },
+                     fn() { view->popup(1, 1); },
+                     fn() { view->radio("x", 1, "v"); },
+                     fn() { view->check("y", 5); },
+                     fn() { new tk::Menu(box, {"popup": 1}); }])
         try { h(); } catch (e) { println(e->kind + ":", e->message); }
     box->close();
     try { c->checked(); } catch (e) { println(e->kind + ":", e->message); }
@@ -303,6 +321,10 @@ main(args) {
         println("dir:", tk::choosedir({"title": "Dir", "dir": args[1]}));
     });
     new tk::Radiobutton(new tk::Window("Radio"), "Pick me", radios, "picked")->pack({"padx": 20, "pady": 20});
+    local popwin = new tk::Window("Popup"), pop = new tk::Menu(popwin, {"popup": true});
+    new tk::Label(popwin, "right-click", {"padding": 20})->pack();
+    pop->item("Hello", fn() { println("pop-up: Hello"); });
+    popwin->bind("<Button-3>", fn(e) { pop->popup(e["xroot"], e["yroot"]); });
 
     // bind: the clicks on the button; a second bind replaces the handler.
     local bound = [];
@@ -409,6 +431,11 @@ ValueError: tk::Window::settitle: argument 1 holds the byte 0x0b (Tk takes no NU
 ValueError: tk::Listbox::setitems: argument 1: a line holds the byte 0x00 (Tk takes no NUL, vertical tab or form feed)
 tk::Menu tk::Menu("File") opened tk::Menu("File")
 invoke: quit
+wrap: false
+true nil false true
+size: large
+large large large
+large large tk::Menu(popup) tk::Menu("View")
 ValueError: tk::Menu::Menu: the window has a menu bar already
 ValueError: tk::Menu::item: the menu has an entry "Open" already
 ValueError: tk::Menu::invoke: the menu has no entry "Nope"
@@ -421,6 +448,11 @@ ValueError: tk::messagebox: option icon: "smile" is not one of info, warning, er
 ValueError: tk::openfile: option types must be a vector of [name, pattern...] vectors of strings, such as [["Kukel", ".kkl"], ["All files", "*"]], not [["Kukel"]]
 ValueError: tk::savefile: option parent must be an open tk::Window, not 3
 ValueError: tk::Menu::invoke: the menu has no entry ""
+ValueError: tk::Menu::checked: "Small" is not a check entry
+ValueError: tk::Menu::popup: this is not a pop-up menu (new tk::Menu(window, {"popup": true}))
+TypeError: tk::Menu::radio: argument 2 must be a tk::Radiogroup, not int
+TypeError: tk::Menu::check: argument 2 must be a function or nil, not int
+ValueError: tk::Menu::Menu: option popup must be true or false, not int
 ValueError: tk::Checkbutton::checked: the window is closed
 ValueError: tk::Menu::invoke: the window is closed
 nil
@@ -444,7 +476,7 @@ tk::Canvas(0 items) [5, 2, 3, 1] []
 `
 	end := map[string]string{
 		"self":   "invoke: three\n",
-		"clicks": "check: true true\nselect: [1] [1]\nradio: picked picked\nmessage: yes\nopen: true\nsave: true\ndir: nil\ndragged: 1 [40, 30, 220, 160]\nhandler: three\nenter: [puts hi] {x} $y \\ end 3\n",
+		"clicks": "check: true true\nselect: [1] [1]\nradio: picked picked\nmessage: yes\nopen: true\nsave: true\ndir: nil\ndragged: 1 [40, 30, 220, 160]\npop-up: Hello\nhandler: three\nenter: [puts hi] {x} $y \\ end 3\n",
 	}[clicks]
 	bound := map[string]string{"self": "[]", "clicks": "[true, true]"}[clicks]
 	picked := map[string]string{"self": "nil", "clicks": "picked"}[clicks]
@@ -463,7 +495,7 @@ tk::Canvas(0 items) [5, 2, 3, 1] []
 // focus back).
 func click(t *testing.T) error {
 	wins := map[string]string{}
-	for _, name := range []string{"TkTest", "Check", "List", "Radio", "Canvas"} {
+	for _, name := range []string{"TkTest", "Check", "List", "Radio", "Canvas", "Popup"} {
 		for i := 0; i < 100 && wins[name] == ""; i++ {
 			out, _ := exec.Command("xdotool", "search", "--name", "^"+name+"$").Output()
 			wins[name] = strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
@@ -474,7 +506,7 @@ func click(t *testing.T) error {
 		}
 	}
 	// Without a window manager all windows are at 0,0: move them apart.
-	for name, at := range map[string][2]int{"Check": {300, 0}, "List": {0, 300}, "Radio": {300, 300}, "Canvas": {540, 300}} {
+	for name, at := range map[string][2]int{"Check": {300, 0}, "List": {0, 300}, "Radio": {300, 300}, "Canvas": {540, 300}, "Popup": {540, 0}} {
 		if err := exec.Command("xdotool", "windowmove", wins[name], fmt.Sprint(at[0]), fmt.Sprint(at[1])).Run(); err != nil {
 			return err
 		}
@@ -492,6 +524,18 @@ func click(t *testing.T) error {
 	}
 	if err := drag(wins["Canvas"], 30, 20); err != nil {
 		return err
+	}
+	// Right-click for the pop-up menu, then click its entry, which opens at
+	// the pointer.
+	x, y, err := center(wins["Popup"])
+	if err != nil {
+		return err
+	}
+	for _, step := range [][]string{{"mousemove", fmt.Sprint(x), fmt.Sprint(y), "click", "3"}, {"mousemove", fmt.Sprint(x + 20), fmt.Sprint(y + 10), "click", "1"}} {
+		if err := exec.Command("xdotool", step...).Run(); err != nil {
+			return err
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
 	for i := 0; i < 2; i++ { // one click was invoke()
 		if err := clickCenter(wins["TkTest"]); err != nil {
