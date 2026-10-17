@@ -254,6 +254,21 @@ main(args) {
                      fn() { new tk::Label(box, "x", {"font": {"size": 0}}); },
                      fn() { tk::settheme("fancy"); }])
         try { h(); } catch (e) { println(e->kind + ":", e->message); }
+
+    // A slider and a drop-down list.
+    local sc = new tk::Scale(box, {"from": 0, "to": 10, "step": 1, "length": 200}), cb = new tk::Combobox(box, ["red", "green", "blue"], {"state": "readonly"});
+    sc->pack();
+    cb->pack();
+    println(sc->value(), sc->setvalue(7.4)->value(), sc->setvalue(99)->value(), sc->setvalue(3)->value(), sc);
+    println(cb->items(), cb->settext("green")->text(), cb->setitems(["a", "b"])->items(), cb);
+    local fs = new tk::Scale(box, {"from": 0.0, "to": 1.0});
+    println(fs->setvalue(0.25)->value(), fs->configure({"step": 0.5})->value());
+    for (local h in [fn() { new tk::Scale(box, {"step": -1}); },
+                     fn() { new tk::Scale(box, {"orient": "up"}); },
+                     fn() { sc->setvalue("x"); },
+                     fn() { new tk::Combobox(box, ["a", 1]); },
+                     fn() { new tk::Combobox(box, {"state": "on"}); }])
+        try { h(); } catch (e) { println(e->kind + ":", e->message); }
     for (local h in [fn() { new tk::Menu(box); },
                      fn() { file->item("Open", fn() {}); },
                      fn() { file->invoke("Nope"); },
@@ -338,6 +353,12 @@ main(args) {
     new tk::Label(popwin, "right-click", {"padding": 20})->pack();
     pop->item("Hello", fn() { println("pop-up: Hello"); });
     popwin->bind("<Button-3>", fn(e) { pop->popup(e["xroot"], e["yroot"]); });
+    local slider = new tk::Scale(new tk::Window("Slider"), {"from": 0, "to": 10, "step": 1, "length": 200});
+    slider->pack();
+    slider->onchange(fn(v) { if (v > 0) println("slider:", typeof(v), v == slider->value()); slider->onchange(nil); });
+    local choose = new tk::Combobox(new tk::Window("Choose"), ["red", "green", "blue"], {"state": "readonly"});
+    choose->pack();
+    choose->onselect(fn(text) { println("chose:", text, choose->text()); });
 
     // bind: the clicks on the button; a second bind replaces the handler.
     local bound = [];
@@ -454,6 +475,14 @@ ValueError: tk::Label::Label: option font must be a map such as {"family": "Helv
 ValueError: tk::Label::Label: option font: unknown part "weight" (the parts are family, size, bold, italic and underline)
 ValueError: tk::Label::Label: option font: size must be a number of points (1 to 500), not 0
 ValueError: tk::settheme: there is no theme "fancy" (the themes are clam, alt, default, classic)
+0 7 10 3 tk::Scale(3)
+["red", "green", "blue"] green ["a", "b"] tk::Combobox("green")
+0.25 0.5
+ValueError: tk::Scale::Scale: option step must not be negative, not -1
+ValueError: tk::Scale::Scale: option orient: "up" is not one of horizontal, vertical
+TypeError: tk::Scale::setvalue: argument 1 must be a number, not string
+TypeError: tk::Combobox::Combobox: argument 2: the lines must be strings, not int
+ValueError: tk::Combobox::Combobox: option state: "on" is not one of normal, readonly, disabled
 ValueError: tk::Menu::Menu: the window has a menu bar already
 ValueError: tk::Menu::item: the menu has an entry "Open" already
 ValueError: tk::Menu::invoke: the menu has no entry "Nope"
@@ -494,7 +523,7 @@ tk::Canvas(0 items) [5, 2, 3, 1] []
 `
 	end := map[string]string{
 		"self":   "invoke: three\n",
-		"clicks": "check: true true\nselect: [1] [1]\nradio: picked picked\nmessage: yes\nopen: true\nsave: true\ndir: nil\ndragged: 1 [40, 30, 220, 160]\npop-up: Hello\nhandler: three\nenter: [puts hi] {x} $y \\ end 3\n",
+		"clicks": "check: true true\nselect: [1] [1]\nradio: picked picked\nmessage: yes\nopen: true\nsave: true\ndir: nil\ndragged: 1 [40, 30, 220, 160]\npop-up: Hello\nslider: int true\nchose: green green\nhandler: three\nenter: [puts hi] {x} $y \\ end 3\n",
 	}[clicks]
 	bound := map[string]string{"self": "[]", "clicks": "[true, true]"}[clicks]
 	picked := map[string]string{"self": "nil", "clicks": "picked"}[clicks]
@@ -513,7 +542,7 @@ tk::Canvas(0 items) [5, 2, 3, 1] []
 // focus back).
 func click(t *testing.T) error {
 	wins := map[string]string{}
-	for _, name := range []string{"TkTest", "Check", "List", "Radio", "Canvas", "Popup"} {
+	for _, name := range []string{"TkTest", "Check", "List", "Radio", "Canvas", "Popup", "Slider", "Choose"} {
 		for i := 0; i < 100 && wins[name] == ""; i++ {
 			out, _ := exec.Command("xdotool", "search", "--name", "^"+name+"$").Output()
 			wins[name] = strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
@@ -524,7 +553,7 @@ func click(t *testing.T) error {
 		}
 	}
 	// Without a window manager all windows are at 0,0: move them apart.
-	for name, at := range map[string][2]int{"Check": {300, 0}, "List": {0, 300}, "Radio": {300, 300}, "Canvas": {540, 300}, "Popup": {540, 0}} {
+	for name, at := range map[string][2]int{"Check": {300, 0}, "List": {0, 300}, "Radio": {300, 300}, "Canvas": {540, 300}, "Popup": {540, 0}, "Slider": {0, 180}, "Choose": {300, 150}} {
 		if err := exec.Command("xdotool", "windowmove", wins[name], fmt.Sprint(at[0]), fmt.Sprint(at[1])).Run(); err != nil {
 			return err
 		}
@@ -554,6 +583,23 @@ func click(t *testing.T) error {
 			return err
 		}
 		time.Sleep(500 * time.Millisecond)
+	}
+	// Drag the slider from its left end to the right; open the drop-down
+	// list and click its second line, just below the field.
+	if x, y, err = center(wins["Slider"]); err != nil {
+		return err
+	}
+	if err := dragFrom(x-90, y, 100, 0); err != nil {
+		return err
+	}
+	if x, y, err = center(wins["Choose"]); err != nil {
+		return err
+	}
+	for _, step := range [][]string{{"mousemove", fmt.Sprint(x), fmt.Sprint(y), "click", "1"}, {"mousemove", fmt.Sprint(x), fmt.Sprint(y + 45), "click", "1"}} {
+		if err := exec.Command("xdotool", step...).Run(); err != nil {
+			return err
+		}
+		time.Sleep(600 * time.Millisecond)
 	}
 	for i := 0; i < 2; i++ { // one click was invoke()
 		if err := clickCenter(wins["TkTest"]); err != nil {
@@ -609,6 +655,11 @@ func drag(win string, dx, dy int) error {
 	if err != nil {
 		return err
 	}
+	return dragFrom(x, y, dx, dy)
+}
+
+// dragFrom drags the mouse from x, y by dx, dy, in three steps.
+func dragFrom(x, y, dx, dy int) error {
 	steps := [][]string{
 		{"mousemove", fmt.Sprint(x), fmt.Sprint(y), "mousedown", "1"},
 		{"mousemove", fmt.Sprint(x + dx/3), fmt.Sprint(y + dy/3)},

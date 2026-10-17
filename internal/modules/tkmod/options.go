@@ -64,7 +64,9 @@ func readOptions(a native.Args, i int, specs []option) ([]tk.Opt, error) {
 func makeOpts(values []optionValue) []tk.Opt {
 	var opts []tk.Opt
 	for _, v := range values {
-		opts = append(opts, v.make(v.x))
+		if v.make != nil { // else an option of the module only (a scale's step)
+			opts = append(opts, v.make(v.x))
+		}
 	}
 	return opts
 }
@@ -395,6 +397,27 @@ var (
 			optState,
 		},
 		"Checkbutton": {optWidth, optPadding, optState, fontOption("TCheckbutton")},
+		"Scale": {
+			{"from", limit, func(x any) tk.Opt { return tk.From(x) }},
+			{"to", limit, func(x any) tk.Opt { return tk.To(x) }},
+			{"step", func(v value.Value) (any, string) {
+				x, wrong := limit(v)
+				if wrong == "" && x.(float64) < 0 {
+					wrong = " must not be negative, not " + v.Repr()
+				}
+				return x, wrong
+			}, nil},
+			{"orient", oneOf("horizontal", "vertical"), func(x any) tk.Opt { return tk.Orient(x) }},
+			{"length", pixels, func(x any) tk.Opt { return tk.Length(x) }},
+			optState,
+		},
+		"Combobox": {
+			optWidth,
+			optHeight,
+			fontOption(""),
+			optJustify,
+			{"state", oneOf("normal", "readonly", "disabled"), func(x any) tk.Opt { return tk.State(x) }},
+		},
 		"Canvas": {
 			{"width", pixels, func(x any) tk.Opt { return tk.Width(x) }},
 			{"height", pixels, func(x any) tk.Opt { return tk.Height(x) }},

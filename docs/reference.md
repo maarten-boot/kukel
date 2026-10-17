@@ -1726,11 +1726,18 @@ closed)`), a frame as `tk::Frame`.
 | `l->items()`, `l->setitems(v)` | The lines |
 | `l->selected()`, `l->setselected(v)` | The indexes of the lines chosen, a vector (`[]`: none); an index that is not a line's is a `ValueError` |
 | `l->onselect(f)` | `f(selected)` is called when the user changes the lines chosen |
+| `new tk::Scale(parent [, options])` | A slider for a number. Options: `from` and `to` (the ends: 0 and 100 when left out; numbers from -1e9 to 1e9), `step` (the values are `from` plus a multiple of it; 0, the default: any value), `orient` (`"horizontal"`, the default, `"vertical"`), `length` (pixels), `state` |
+| `s->value()`, `s->setvalue(x)` | The value: an int when `from` and `step` are ints, else a float; `setvalue` puts `x` within the range and on a step |
+| `s->onchange(f)` | `f(value)` is called when the user moves the slider to another value |
+| `new tk::Combobox(parent [, lines] [, options])` | A field with a drop-down list of lines to choose from (a vector of strings). Options: `width` (characters), `height` (lines in the list), `font`, `justify`, `state` (`"normal"`, the default: the text can also be typed; `"readonly"`: only chosen; `"disabled"`) |
+| `c->text()`, `c->settext(s)`, `c->items()`, `c->setitems(v)` | The text in the field; the lines of the list |
+| `c->onselect(f)` | `f(text)` is called when the user chooses a line |
 
 A widget prints as its class and text: `tk::Label("Name:")`,
 `tk::Entry("typed")` (also once its window is closed: the last text),
 `tk::Checkbutton("Bold", true)`, `tk::Radiobutton("Red", "red")`,
-`tk::Radiogroup("red")`, `tk::Listbox(3 lines)` (`1 line`), `tk::Text`.
+`tk::Radiogroup("red")`, `tk::Listbox(3 lines)` (`1 line`), `tk::Text`,
+`tk::Scale(7)`, `tk::Combobox("green")`.
 
 **Menus.**
 

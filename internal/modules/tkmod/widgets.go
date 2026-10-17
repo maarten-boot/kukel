@@ -36,6 +36,7 @@ type widget struct {
 	value    string      // Radiobutton
 
 	canvas *canvas // Canvas
+	slider *slider // Scale
 }
 
 // A widgetSpec is how a widget class is made: the arguments between the
@@ -160,6 +161,11 @@ func commonMethods(class string) map[string]value.NativeMethod {
 				return value.NilValue, err
 			}
 			wd.w.Configure(opts...)
+			if s := wd.slider; s != nil { // its range or step may change
+				s.apply(a.V[0])
+				s.last = s.snap(s.read())
+				s.scale.Configure(tk.Value(s.last))
+			}
 			if class == "Text" || class == "Listbox" {
 				if s := mapGet(a.V[0], "state"); s.Kind() == value.String {
 					wd.state = s.AsString()
@@ -326,4 +332,5 @@ func registerWidgets() {
 	registerLists()
 	registerChoices()
 	registerCanvas()
+	registerInputs()
 }
