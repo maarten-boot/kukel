@@ -103,3 +103,13 @@ func TestKeywordMember(t *testing.T) {
 	}()
 	Prepare(&Module{Name: "kw", Classes: []*Class{{Name: "C", Methods: map[string]value.NativeMethod{"local": nil}}}})
 }
+
+// A TypeError names the kind of the argument, or for an object its class.
+func TestTypeErrorNamesClass(t *testing.T) {
+	a := Args{Name: "m::f", V: []value.Value{value.MakeInt(1), value.NewObject(&value.ClassObj{Name: "geo::Point"})}}
+	for i, want := range []string{"m::f: argument 1 must be a string, not int", "m::f: argument 2 must be a string, not geo::Point"} {
+		if err := a.TypeError(i, "a string"); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("argument %d: %v, want %q", i+1, err, want)
+		}
+	}
+}

@@ -95,6 +95,9 @@ func itemsArg(a native.Args, i int) ([]string, error) {
 		if v.Kind() != value.String {
 			return nil, a.Errorf(value.TypeError, "argument %d: the lines must be strings, not %s", i+1, v.Kind())
 		}
+		if bad := tkUnsafe(v.AsString()); bad != "" {
+			return nil, a.Errorf(value.ValueError, "argument %d: a line holds %s", i+1, bad)
+		}
 		items = append(items, v.AsString())
 	}
 	return items, nil
@@ -130,7 +133,7 @@ func registerLists() {
 		return value.MakeString(wd.textw.Text()), nil
 	})
 	Text.Methods["settext"] = widgetMethod("Text", "settext", 1, 1, func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error) {
-		s, err := a.String(0)
+		s, err := tkString(a, 0)
 		if err != nil {
 			return value.NilValue, err
 		}
@@ -141,7 +144,7 @@ func registerLists() {
 		return value.ObjectValue(this), nil
 	})
 	Text.Methods["append"] = widgetMethod("Text", "append", 1, 1, func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error) {
-		s, err := a.String(0)
+		s, err := tkString(a, 0)
 		if err != nil {
 			return value.NilValue, err
 		}

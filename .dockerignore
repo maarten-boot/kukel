@@ -1,6 +1,7 @@
 # What the image build does not need (the context stays small).
 .git
 .github
+.claude-sessions
 bin
 dist
 **/*.kkc

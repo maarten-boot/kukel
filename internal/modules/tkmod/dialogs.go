@@ -17,6 +17,9 @@ func text(v value.Value) (any, string) {
 	if v.Kind() != value.String {
 		return nil, " must be a string, not " + v.Kind().String()
 	}
+	if bad := tkUnsafe(v.AsString()); bad != "" {
+		return nil, " holds " + bad
+	}
 	return v.AsString(), ""
 }
 
@@ -43,7 +46,7 @@ func fileTypes(v value.Value) (any, string) {
 		}
 		var s []string
 		for _, e := range t.AsVector().Elems {
-			if e.Kind() != value.String || e.AsString() == "" {
+			if e.Kind() != value.String || e.AsString() == "" || tkUnsafe(e.AsString()) != "" {
 				return nil, want + v.Repr()
 			}
 			s = append(s, e.AsString())
@@ -89,7 +92,7 @@ func dialog(name string, texts int, options []option, show func(a native.Args, o
 			return value.NilValue, err
 		}
 		for i := 0; i < texts; i++ {
-			if _, err := a.String(i); err != nil {
+			if _, err := tkString(a, i); err != nil {
 				return value.NilValue, err
 			}
 		}

@@ -79,7 +79,7 @@ func stringArg(a native.Args, args []value.Value, i int) (string, error) {
 	if i >= len(args) {
 		return "", nil
 	}
-	return a.String(1 + i)
+	return tkString(a, 1+i)
 }
 
 // newWidget makes the constructor of a widget class: new tk::C(parent,
@@ -215,14 +215,14 @@ func textMethods(class string, m map[string]value.NativeMethod) {
 		return value.MakeString(wd.text), nil
 	})
 	m["settext"] = widgetMethod(class, "settext", 1, 1, func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error) {
-		s, err := a.String(0)
+		s, err := tkString(a, 0)
 		if err != nil {
 			return value.NilValue, err
 		}
+		wd.text = s
 		if wd.class == "Entry" {
 			wd.w.Configure(tk.Textvariable(s))
 		} else {
-			wd.text = s
 			wd.w.Configure(tk.Txt(s))
 		}
 		return value.ObjectValue(this), nil
@@ -303,12 +303,15 @@ func registerWidgets() {
 		if err != nil {
 			return err
 		}
+		wd.text = text
 		wd.w = parent.w.TEntry(append(opts, tk.Textvariable(text))...).Window
 		tk.Bind(wd.w, "<Return>", tk.Command(func() {
 			if !wd.onenter.IsNil() {
 				call(wd.onenter, value.MakeString(wd.w.Textvariable()))
 			}
 		}))
+		// The text the user typed, kept for printing after the window closed.
+		tk.Bind(wd.w, "<Destroy>", tk.Command(func() { wd.text = wd.w.Textvariable() }))
 		return nil
 	}}, showText)
 	textMethods("Entry", Entry.Methods)

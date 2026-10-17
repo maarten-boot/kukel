@@ -14,6 +14,28 @@ import (
 	"github.com/maarten-boot/kukel/internal/value"
 )
 
+// tkUnsafe tells which byte of s Tk cannot take ("" when none): NUL, and
+// the vertical tab and form feed, at which Tcl splits words but which
+// tk9.0 does not quote, so that a string with one could add its own
+// options to a Tk command (and through them run Tcl code).
+func tkUnsafe(s string) string {
+	if i := strings.IndexAny(s, "\x00\x0b\x0c"); i >= 0 {
+		return fmt.Sprintf("the byte 0x%02x (Tk takes no NUL, vertical tab or form feed)", s[i])
+	}
+	return ""
+}
+
+// tkString reads argument i, a string for Tk.
+func tkString(a native.Args, i int) (string, error) {
+	s, err := a.String(i)
+	if err == nil {
+		if bad := tkUnsafe(s); bad != "" {
+			err = a.Errorf(value.ValueError, "argument %d holds %s", i+1, bad)
+		}
+	}
+	return s, err
+}
+
 // maxPixels and maxCells bound sizes, and rows and columns of a grid.
 const (
 	maxPixels = 10000
@@ -175,7 +197,7 @@ func sticky(v value.Value) (any, string) {
 // oneChar is the character an entry shows instead of each one typed (for
 // passwords), or "" for the text itself.
 func oneChar(v value.Value) (any, string) {
-	if v.Kind() != value.String || utf8.RuneCountInString(v.AsString()) > 1 || !utf8.ValidString(v.AsString()) {
+	if v.Kind() != value.String || utf8.RuneCountInString(v.AsString()) > 1 || !utf8.ValidString(v.AsString()) || tkUnsafe(v.AsString()) != "" {
 		return nil, " must be one character, or \"\" to show the text, not " + v.Repr()
 	}
 	return v.AsString(), ""

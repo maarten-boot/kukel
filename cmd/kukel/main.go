@@ -518,7 +518,21 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	in := bufio.NewReader(stdin)
 	out := bufio.NewWriter(stdout)
 	defer out.Flush()
-	machine, err := vm.NewWith(session.Program(), builtins.Lookup, config, out, in)
+	interactive := false
+	if f, ok := stdin.(*os.File); ok {
+		if info, err := f.Stat(); err == nil && info.Mode()&os.ModeCharDevice != 0 {
+			interactive = true
+		}
+	}
+	var editor *lineEditor // line editing and history, on a terminal
+	if f, ok := stdout.(*os.File); ok && interactive {
+		editor = newLineEditor(stdin.(*os.File), f)
+	}
+	var programIn io.Reader = in // what readline() reads
+	if editor != nil {
+		programIn = editor.input()
+	}
+	machine, err := vm.NewWith(session.Program(), builtins.Lookup, config, out, programIn)
 	if err == nil {
 		err = machine.Init()
 	}
@@ -544,16 +558,6 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 	}
 
-	interactive := false
-	if f, ok := stdin.(*os.File); ok {
-		if info, err := f.Stat(); err == nil && info.Mode()&os.ModeCharDevice != 0 {
-			interactive = true
-		}
-	}
-	var editor *lineEditor // line editing and history, on a terminal
-	if f, ok := stdout.(*os.File); ok && interactive {
-		editor = newLineEditor(stdin.(*os.File), f)
-	}
 	if interactive {
 		first, _, _ := strings.Cut(versionText(), "\n")
 		fmt.Fprintf(out, "%s\ntype declarations or statements; a blank line ends an incomplete piece, end of input (Ctrl-D) quits\n", first)

@@ -15,14 +15,15 @@ import (
 // the arrow keys, Home and End, Ctrl-A, -E, -K, -U and -W, and the lines
 // typed before (up and down), also those of earlier sessions (the file
 // ~/.kukel_history, or $KUKEL_HISTORY; KUKEL_HISTORY= keeps none). The
-// terminal is in raw mode only while a line is read, so a program's
-// readline() reads as usual.
+// terminal is in raw mode only while a line is read. A program's
+// readline() reads through the editor too (input), so that lines typed
+// ahead reach it, not the prompt; they do not go into the history.
 
 // errInterrupted is what readLine gives for Ctrl-C: the piece being typed
 // is dropped.
 var errInterrupted = errors.New("interrupted")
 
-// historyMax is how many lines the history file keeps.
+// historyMax is how many lines the history (and its file) keeps.
 const historyMax = 1000
 
 type lineEditor struct {
@@ -30,8 +31,31 @@ type lineEditor struct {
 	t       *term.Terminal
 	keys    *keyReader
 	file    string // the history file, or ""
-	history []string
+	history *history
 }
+
+// history is the lines up and down go through: the last historyMax lines
+// that are not blank, without what a program reads (term.Terminal's own
+// keeps 100, and blank lines too).
+type history struct {
+	lines []string // the oldest first
+	off   bool     // a program reads: lines are not added
+}
+
+func (h *history) Add(line string) {
+	if h.off || strings.TrimSpace(line) == "" {
+		return
+	}
+	h.lines = append(h.lines, line)
+	if len(h.lines) > historyMax {
+		h.lines = h.lines[len(h.lines)-historyMax:]
+	}
+}
+
+func (h *history) Len() int { return len(h.lines) }
+
+// At gives entry i, 0 being the newest.
+func (h *history) At(i int) string { return h.lines[len(h.lines)-1-i] }
 
 // newLineEditor gives an editor for the terminal stdin and stdout, or nil
 // when they are not both terminals.
@@ -45,15 +69,14 @@ func newLineEditor(stdin, stdout *os.File) *lineEditor {
 		io.Reader
 		io.Writer
 	}{keys, stdout}, "")
+	e.history = &history{}
+	e.t.History = e.history
 	e.file = historyFile()
 	if e.file != "" {
 		if f, err := os.Open(e.file); err == nil {
 			s := bufio.NewScanner(f)
 			for s.Scan() {
-				if line := s.Text(); line != "" {
-					e.history = append(e.history, line)
-					e.t.History.Add(line)
-				}
+				e.history.Add(s.Text())
 			}
 			f.Close()
 		}
@@ -74,7 +97,8 @@ func historyFile() string {
 
 // readLine reads a line (with its "\n") after prompt. At the end of the
 // input (Ctrl-D on an empty line) it gives io.EOF; for Ctrl-C,
-// errInterrupted.
+// errInterrupted. Lines that are not blank go into the history (unless a
+// program reads them).
 func (e *lineEditor) readLine(prompt string) (string, error) {
 	old, err := term.MakeRaw(e.fd)
 	if err != nil {
@@ -94,28 +118,51 @@ func (e *lineEditor) readLine(prompt string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(line) != "" {
-		e.remember(line)
+	if strings.TrimSpace(line) != "" && !e.history.off {
+		e.save(line)
 	}
 	return line + "\n", nil
 }
 
-// remember adds a line to the history file, which keeps the last
-// historyMax lines.
-func (e *lineEditor) remember(line string) {
+// save adds a line, which the history has just taken, to the history file,
+// which keeps the last historyMax lines too.
+func (e *lineEditor) save(line string) {
 	if e.file == "" {
 		return
 	}
-	e.history = append(e.history, line)
-	if len(e.history) > historyMax {
-		e.history = e.history[len(e.history)-historyMax:]
-		os.WriteFile(e.file, []byte(strings.Join(e.history, "\n")+"\n"), 0o600)
+	if len(e.history.lines) == historyMax { // the oldest may have gone: write it all
+		os.WriteFile(e.file, []byte(strings.Join(e.history.lines, "\n")+"\n"), 0o600)
 		return
 	}
 	if f, err := os.OpenFile(e.file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
 		f.WriteString(line + "\n")
 		f.Close()
 	}
+}
+
+// input is the standard input of the programs the REPL runs: lines read
+// through the editor, without a prompt and not into the history. Ctrl-C
+// or Ctrl-D ends what the program is reading (as the end of the input).
+func (e *lineEditor) input() io.Reader { return &editorInput{e: e} }
+
+type editorInput struct {
+	e    *lineEditor
+	rest []byte // of the last line read
+}
+
+func (in *editorInput) Read(p []byte) (int, error) {
+	if len(in.rest) == 0 {
+		in.e.history.off = true
+		line, err := in.e.readLine("")
+		in.e.history.off = false
+		if err != nil {
+			return 0, io.EOF
+		}
+		in.rest = []byte(line)
+	}
+	n := copy(p, in.rest)
+	in.rest = in.rest[n:]
+	return n, nil
 }
 
 // keyReader passes on the keys typed, except Ctrl-C: the editor would end

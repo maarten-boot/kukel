@@ -216,7 +216,10 @@ main(args) {
                      fn() { c->setchecked(1); },
                      fn() { new tk::Radiobutton(box, "x", g, ""); },
                      fn() { new tk::Radiobutton(box, "x", c, "v"); },
-                     fn() { new tk::Radiogroup(""); }])
+                     fn() { new tk::Radiogroup(""); },
+                     fn() { t->settext("a\x0cb"); },
+                     fn() { box->settitle("x\x0by"); },
+                     fn() { l->setitems(["\x00"]); }])
         try { h(); } catch (e) { println(e->kind + ":", e->message); }
 
     // Menus, and what dialogs refuse (click() answers the dialogs).
@@ -235,7 +238,8 @@ main(args) {
                      fn() { tk::messagebox(1); },
                      fn() { tk::messagebox("x", {"icon": "smile"}); },
                      fn() { tk::openfile({"types": [["Kukel"]]}); },
-                     fn() { tk::savefile({"parent": 3}); }])
+                     fn() { tk::savefile({"parent": 3}); },
+                     fn() { file->invoke(""); }])
         try { h(); } catch (e) { println(e->kind + ":", e->message); }
     box->close();
     try { c->checked(); } catch (e) { println(e->kind + ":", e->message); }
@@ -312,6 +316,8 @@ main(args) {
         });
     events::run();
     println(w, n, bound);
+    try { new tk::Radiogroup(); } catch (e) { println(e->kind + ":", e->message); }
+    println(entry, radios->value()); // what is kept after Tk ended
 }
 `
 
@@ -398,6 +404,9 @@ TypeError: tk::Checkbutton::setchecked: argument 1 must be true or false, not in
 ValueError: tk::Radiobutton::Radiobutton: the value of a radio button cannot be ""
 TypeError: tk::Radiobutton::Radiobutton: argument 3 must be a tk::Radiogroup, not tk::Checkbutton
 ValueError: tk::Radiogroup::Radiogroup: the value of a radio button cannot be ""
+ValueError: tk::Text::settext: argument 1 holds the byte 0x0c (Tk takes no NUL, vertical tab or form feed)
+ValueError: tk::Window::settitle: argument 1 holds the byte 0x0b (Tk takes no NUL, vertical tab or form feed)
+ValueError: tk::Listbox::setitems: argument 1: a line holds the byte 0x00 (Tk takes no NUL, vertical tab or form feed)
 tk::Menu tk::Menu("File") opened tk::Menu("File")
 invoke: quit
 ValueError: tk::Menu::Menu: the window has a menu bar already
@@ -411,6 +420,7 @@ TypeError: tk::messagebox: argument 1 must be a string, not int
 ValueError: tk::messagebox: option icon: "smile" is not one of info, warning, error, question
 ValueError: tk::openfile: option types must be a vector of [name, pattern...] vectors of strings, such as [["Kukel", ".kkl"], ["All files", "*"]], not [["Kukel"]]
 ValueError: tk::savefile: option parent must be an open tk::Window, not 3
+ValueError: tk::Menu::invoke: the menu has no entry ""
 ValueError: tk::Checkbutton::checked: the window is closed
 ValueError: tk::Menu::invoke: the window is closed
 nil
@@ -437,7 +447,10 @@ tk::Canvas(0 items) [5, 2, 3, 1] []
 		"clicks": "check: true true\nselect: [1] [1]\nradio: picked picked\nmessage: yes\nopen: true\nsave: true\ndir: nil\ndragged: 1 [40, 30, 220, 160]\nhandler: three\nenter: [puts hi] {x} $y \\ end 3\n",
 	}[clicks]
 	bound := map[string]string{"self": "[]", "clicks": "[true, true]"}[clicks]
-	want := common + end + "tk::Window(\"TkTest\", closed) 3 " + bound + "\n"
+	picked := map[string]string{"self": "nil", "clicks": "picked"}[clicks]
+	want := common + end + "tk::Window(\"TkTest\", closed) 3 " + bound + "\n" +
+		"TkError: tk::Radiogroup::Radiogroup: Tk has ended: the first window was closed\n" +
+		"tk::Entry(\"[puts hi] {x} $y \\\\ end\") " + picked + "\n"
 	if err != nil || got != want {
 		t.Errorf("%s: %v; got:\n%s\nwant:\n%s", clicks, err, got, want)
 	}

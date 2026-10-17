@@ -17,8 +17,8 @@ import (
 )
 
 // TkError is the kind of the exceptions for what Tk cannot do: start
-// without a display, mix pack and grid in one container, or anything after
-// the first window was closed.
+// without a display, take an unknown colour name, or anything after the
+// first window was closed.
 const TkError = "TkError"
 
 // pollEvery is how often events::run() has Tk handle its events.
@@ -35,7 +35,6 @@ var gui struct {
 	ended      bool  // the first window was closed: Tk is gone
 	rootUsed   bool  // the first window took Tk's main window
 	open       map[*window]bool
-	pending    []error // exceptions of handlers, for the poll to pass on
 	removePoll func()
 }
 
@@ -98,27 +97,22 @@ func start(a native.Args, env value.Env) error {
 	return nil
 }
 
-// call runs a Kukel handler from Tk; its exception waits for the poll,
-// which passes it on to the event loop.
+// call runs a Kukel handler from Tk. Its exception is posted to the event
+// loop, which treats it as one of a handler of its own (also when the
+// handler closed the last window, and so ended the polls).
 func call(fn value.Value, args ...value.Value) value.Value {
 	v, err := gui.env.Call(fn, args)
 	if err != nil {
-		gui.pending = append(gui.pending, err)
+		gui.loop.Post(func() error { return err })
 	}
 	return v
 }
 
-// poll lets Tk handle its events (and so call the handlers) and passes on
-// an exception of a handler.
+// poll lets Tk handle its events, and so call the handlers.
 func poll() error {
 	if !gui.ended {
 		tk.Update()
 		tkError() // nothing a program could do about it
-	}
-	if len(gui.pending) > 0 {
-		err := gui.pending[0]
-		gui.pending = gui.pending[1:]
-		return err
 	}
 	return nil
 }
@@ -234,7 +228,7 @@ func newWindow(env value.Env, this *value.ObjectObj, args []value.Value) (value.
 	}
 	title := "kukel"
 	if a.Has(0) {
-		if title, err = a.String(0); err != nil {
+		if title, err = tkString(a, 0); err != nil {
 			return value.NilValue, err
 		}
 	}
@@ -249,7 +243,7 @@ func newWindow(env value.Env, this *value.ObjectObj, args []value.Value) (value.
 	} else {
 		win.w = tk.App.Toplevel().Window
 	}
-	win.w.WmTitle(title)
+	setTitle(win.w, title)
 	path := win.w.String()
 	tk.Bind(win.w, "<Destroy>", tk.Command(func(e *tk.Event) {
 		if e.EventWindow != nil && e.EventWindow.String() == path { // not a widget in it
@@ -274,6 +268,15 @@ func newWindow(env value.Env, this *value.ObjectObj, args []value.Value) (value.
 	}
 	this.State = win
 	return value.NilValue, nil
+}
+
+// setTitle sets the title of window w. tk9.0 leaves an empty value out of
+// the command, which then only asks for the title: a space shows none.
+func setTitle(w *tk.Window, title string) {
+	if title == "" {
+		title = " "
+	}
+	w.WmTitle(title)
 }
 
 // gone is a window that Tk destroyed (closed by the program, or by the
@@ -386,12 +389,12 @@ func register() {
 			return value.MakeString(this.State.(*window).title), nil
 		},
 		"settitle": method("tk::Window::settitle", 1, 1, func(a native.Args, this *value.ObjectObj, n *node) (value.Value, error) {
-			s, err := a.String(0)
+			s, err := tkString(a, 0)
 			if err != nil {
 				return value.NilValue, err
 			}
 			n.win.title = s
-			n.w.WmTitle(s)
+			setTitle(n.w, s)
 			return value.ObjectValue(this), nil
 		}),
 		"onclose": method("tk::Window::onclose", 1, 1, func(a native.Args, this *value.ObjectObj, n *node) (value.Value, error) {
@@ -400,7 +403,7 @@ func register() {
 				return value.NilValue, err
 			}
 			n.win.onclose = f
-			return value.NilValue, nil
+			return value.ObjectValue(this), nil
 		}),
 		"close": func(env value.Env, this *value.ObjectObj, args []value.Value) (value.Value, error) {
 			if _, err := native.Check("tk::Window::close", args, 0, 0); err != nil {

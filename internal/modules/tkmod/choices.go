@@ -45,16 +45,16 @@ func (g *radiogroup) get() value.Value {
 	return value.MakeString(g.value)
 }
 
-// groupMethod makes a member function of a radio group: Tk must not have
-// ended (the variable is Tk's).
-func groupMethod(name string, min, max int, fn func(a native.Args, this *value.ObjectObj, g *radiogroup) (value.Value, error)) value.NativeMethod {
+// groupMethod makes a member function of a radio group. One that changes
+// it needs Tk, which must not have ended (the variable is Tk's).
+func groupMethod(name string, min, max int, needsTk bool, fn func(a native.Args, this *value.ObjectObj, g *radiogroup) (value.Value, error)) value.NativeMethod {
 	full := "tk::Radiogroup::" + name
 	return func(env value.Env, this *value.ObjectObj, args []value.Value) (value.Value, error) {
 		a, err := native.Check(full, args, min, max)
 		if err != nil {
 			return value.NilValue, err
 		}
-		if gui.ended {
+		if needsTk && gui.ended {
 			return value.NilValue, a.Errorf(TkError, "Tk has ended: the first window was closed")
 		}
 		v, err := fn(a, this, this.State.(*radiogroup))
@@ -68,7 +68,7 @@ func groupMethod(name string, min, max int, fn func(a native.Args, this *value.O
 // valueArg reads argument i, the value of a radio button: a string that is
 // not empty.
 func valueArg(a native.Args, i int) (string, error) {
-	s, err := a.String(i)
+	s, err := tkString(a, i)
 	if err == nil && s == "" {
 		err = a.Errorf(value.ValueError, "the value of a radio button cannot be \"\"")
 	}
@@ -120,6 +120,9 @@ func registerChoices() {
 		if err != nil {
 			return value.NilValue, err
 		}
+		if gui.ended {
+			return value.NilValue, a.Errorf(TkError, "Tk has ended: the first window was closed")
+		}
 		g := &radiogroup{}
 		s := ""
 		if a.Has(0) && !a.V[0].IsNil() {
@@ -132,10 +135,10 @@ func registerChoices() {
 		return value.NilValue, nil
 	}
 	Radiogroup.Methods = map[string]value.NativeMethod{
-		"value": groupMethod("value", 0, 0, func(a native.Args, this *value.ObjectObj, g *radiogroup) (value.Value, error) {
+		"value": groupMethod("value", 0, 0, false, func(a native.Args, this *value.ObjectObj, g *radiogroup) (value.Value, error) {
 			return g.get(), nil
 		}),
-		"setvalue": groupMethod("setvalue", 1, 1, func(a native.Args, this *value.ObjectObj, g *radiogroup) (value.Value, error) {
+		"setvalue": groupMethod("setvalue", 1, 1, true, func(a native.Args, this *value.ObjectObj, g *radiogroup) (value.Value, error) {
 			s := ""
 			if !a.V[0].IsNil() {
 				var err error
@@ -146,7 +149,7 @@ func registerChoices() {
 			g.set(s)
 			return value.ObjectValue(this), nil
 		}),
-		"onchange": groupMethod("onchange", 1, 1, func(a native.Args, this *value.ObjectObj, g *radiogroup) (value.Value, error) {
+		"onchange": groupMethod("onchange", 1, 1, true, func(a native.Args, this *value.ObjectObj, g *radiogroup) (value.Value, error) {
 			f, err := handlerArg(a, 0)
 			if err != nil {
 				return value.NilValue, err

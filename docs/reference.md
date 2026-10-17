@@ -42,7 +42,7 @@ hello, Kukel
 | Command | What it does |
 |---|---|
 | `kukel run a.kkl b.kkl [-- args]` | Compile the files as one program and run it; the arguments after `--` go to `main` |
-| `kukel a.kkl [args]`, `kukel prog.kkc [args]` | The same as `kukel run a.kkl -- args` (`kukel exec` for a `.kkc` file): every argument after the file goes to `main`, also a `--`. So a script whose first line is `#!/usr/bin/env kukel` runs as a command (`./script a b`); a file whose name ends in `.kkl` or `.kkc`, or that exists, is taken for this, a command name first |
+| `kukel a.kkl [args]`, `kukel prog.kkc [args]` | The same as `kukel run a.kkl -- args` (`kukel exec` for a `.kkc` file): every argument after the file goes to `main`, also a `--`. So a script whose first line is `#!/usr/bin/env kukel` runs as a command (`./script a b`); a file whose name ends in `.kkl` or `.kkc`, or that is a regular file, is taken for this, a command name first |
 | `kukel check a.kkl ...` | Compile only and report the errors; prints nothing when the program is fine |
 | `kukel build [-o prog.kkc] a.kkl ...` | Compile to a bytecode file (default name: the first file with `.kkc`) |
 | `kukel build -module [-o m.kkc] m.kkl` | Compile module `m` on its own into `m.kkc`, which programs can use instead of `m.kkl` (see [Modules](#modules)). The file name must be the module's name (`util.kkl`, not `my-util.kkl`); a file with a NUL byte is refused. `-o` and `-module` (also `--module`) may come anywhere among the arguments |
@@ -121,10 +121,12 @@ state with the pieces before it:
   end, to the start), Ctrl-W (the word before). Up and down go through the
   lines typed before, also in earlier sessions: the last 1000 are kept in
   `~/.kukel_history`, or in the file `KUKEL_HISTORY` names
-  (`KUKEL_HISTORY=` keeps none). Ctrl-C drops the line or the incomplete
-  piece; Ctrl-D on an empty line ends the session. While a piece runs, the
-  terminal is as usual (`readline()` reads a plain line, and Ctrl-C stops
-  `kukel`).
+  (`KUKEL_HISTORY=` keeps none; blank lines are not kept). Ctrl-C drops
+  the line or the incomplete piece; Ctrl-D on an empty line ends the
+  session. A program's `readline()` reads its line with the same editing
+  (a line typed ahead goes to the program, not to the next prompt; the
+  lines it reads are not kept), and Ctrl-C or Ctrl-D there is the end of
+  its input. At other times while a piece runs, Ctrl-C stops `kukel`.
 
 ### The debugger
 
@@ -1558,25 +1560,41 @@ main() {
 one at a time like all handlers, so timers, `zmq` sockets and workers mix
 with the windows. Each open window keeps `run()` going; closing the first
 window (by the user, or with `close()`) closes all windows and ends Tk for
-the rest of the program: making a window then is a `TkError`. An exception
-a handler does not catch goes to the event loop like that of any handler
-(`events::onerror`). Tk runs on the main thread of the process, so only the
-program `kukel` runs can use it, not a worker; a Go program that embeds
-kukel calls `Run` in its main goroutine (else a `ValueError`). Without a
-display (`$DISPLAY` on Linux), the first use of Tk is a `TkError`;
-`tk::available()` tells beforehand.
+the rest of the program. After that, making a window, a widget, a menu or a
+`tk::Radiogroup`, a dialog, and changing a group are a `TkError`; what only
+reads what the program already has still works (`w->title()`,
+`w->closed()`, `g->value()`, printing). An exception a handler does not
+catch goes to the event loop like that of any handler (`events::onerror`),
+also when the handler closed the last window. Tk runs on the main thread of
+the process, so only the program `kukel` runs can use it, not a worker; a
+Go program that embeds kukel calls `Run` in its main goroutine (on Linux
+anything else is a `ValueError`; elsewhere it is not checked, and the
+process may crash). Without a display (`$DISPLAY` on Linux), the first use
+of Tk is a `TkError`; `tk::available()` tells beforehand.
 
 The widgets are Tk's themed widgets (they look like the desktop's), except
 `Text`, `Listbox` and `Canvas`, which Tk has only in its classic form. Once
-its window is closed, a widget cannot be used any more (a `ValueError`).
+its window is closed, a widget or menu cannot be used any more (a
+`ValueError`). Member functions that change something give the object
+itself, so calls chain: `new tk::Label(f, "Name:")->grid({"row": 0})`;
+`close()` gives nil.
+
+Strings for Tk (texts, titles, labels, lines, file types) may not hold NUL,
+vertical tab or form feed (`"\x00"`, `"\x0b"`, `"\x0c"`): a `ValueError`.
+Tcl splits words at the latter two, which would let such a string add its
+own options to a Tk command.
 
 **Options.** Widgets take options in a map, as the last argument of the
 constructor or in `w->configure(options)`: `new tk::Label(w, "Name:",
 {"anchor": "w", "width": 10})`. Each class has its own (in the tables
 below); an unknown option, or a value of the wrong kind, is a `ValueError`
-that says what is allowed. Sizes are pixels, except where characters or
-lines are said; colours are names (`"red"`, `"light blue"`) or `"#rgb"`,
-`"#rrggbb"`. The text of a label or button is not an option: `settext`.
+that says what is allowed (options that are not a map: a `TypeError`).
+Sizes are pixels, except the `width` of the widgets that show text (labels,
+buttons, entries, check and radio buttons, texts, list boxes), which counts
+characters (0 to 1000), and the `height` of a text or list box, which
+counts lines (1 to 1000). Colours are names (`"red"`, `"light blue"`) or
+`"#rgb"`, `"#rrggbb"` (also `"#rrrrggggbbbb"`); an unknown name is a
+`TkError`. The text of a label or button is not an option: `settext`.
 
 **Layout.** A widget appears once its parent places it with `pack` or
 `grid`; each window or frame uses one of the two for its widgets (mixing
@@ -1622,10 +1640,11 @@ button), `"<Double-Button-1>"`, `"<ButtonRelease-1>"`, `"<B1-Motion>"`
 (moving with the button down), `"<Motion>"`, `"<Enter>"`, `"<Leave>"`,
 `"<FocusIn>"`, `"<Configure>"` (a new size), and virtual events such as
 `"<<Copy>>"`. `e` is a map: `key` (the key's name, as `"Return"`, `"a"`)
-and `char` (the character typed) for key events, `x` and `y` (the mouse,
-relative to the widget; on a canvas, canvas coordinates), `delta` (the
-mouse wheel), `width` and `height` (for `<Configure>`); what the event does
-not have is nil. A binding comes after what the widget does itself (an entry
+and `char` (the character typed) for key events, nil for others; `x` and
+`y` (the mouse, relative to the widget; on a canvas, canvas coordinates;
+for `<Configure>`, the widget's position in its parent); `delta` (the
+mouse wheel; 0 for other events); `width` and `height` (for
+`<Configure>`, else nil). A binding comes after what the widget does itself (an entry
 still takes the typed keys); binding a sequence again replaces the handler,
 and `bind(sequence, nil)` removes it. A binding on a window also gets the
 events of the widgets in it (a key binding there works wherever the focus
@@ -1633,8 +1652,10 @@ is in the window).
 
 The handlers of the widgets run for what the user does, not for the
 program's own changes: `setchecked`, `setvalue` and `setselected` do not
-call them. Note that a button takes the keyboard focus when clicked; an
-entry gets it back with `focus()`.
+call them. `invoke` of a button or menu entry calls the handler also when
+the button or entry is disabled (it is the program's own call). Note that
+a button takes the keyboard focus when clicked; an entry gets it back with
+`focus()`.
 
 | Function | Description |
 |---|---|
@@ -1653,7 +1674,7 @@ handlers run, but timers and other events of the event loop wait.
 |---|---|
 | `new tk::Window([title])` | A window (the title is `"kukel"` when left out). The first one is Tk's main window: closing it closes all |
 | `w->title()`, `w->settitle(s)` | The title |
-| `w->onclose(f)` | `f()` is called when the user closes the window; when it returns `false`, the window stays open (to ask first). Nil: close at once (the default) |
+| `w->onclose(f)` | `f()` is called when the user closes the window; when it returns `false`, the window stays open (to ask first). Nil: close at once (the default). When `f` throws, the window closes and the exception goes to the event loop |
 | `w->close()` | Closes the window (and, the first window, all); a second `close()` does nothing |
 | `w->closed()` | Whether the window is closed |
 | `w->bind(sequence, f)`, `w->rowconfigure(i, options)`, `w->columnconfigure(i, options)` | See above |
@@ -1688,12 +1709,13 @@ closed)`), a frame as `tk::Frame`.
 | `t->append(s)` | Adds `s` at the end, and shows the end (for a log) |
 | `new tk::Listbox(parent [, lines] [, options])` | Lines to choose from (a vector of strings). Options: `width`, `height` (lines), `selectmode` (`"browse"`, the default: one line; `"extended"`: several, with Shift and Control; `"single"`, `"multiple"`), `state`, and in the constructor `scroll` |
 | `l->items()`, `l->setitems(v)` | The lines |
-| `l->selected()`, `l->setselected(v)` | The indexes of the lines chosen, a vector (`[]`: none) |
+| `l->selected()`, `l->setselected(v)` | The indexes of the lines chosen, a vector (`[]`: none); an index that is not a line's is a `ValueError` |
 | `l->onselect(f)` | `f(selected)` is called when the user changes the lines chosen |
 
 A widget prints as its class and text: `tk::Label("Name:")`,
+`tk::Entry("typed")` (also once its window is closed: the last text),
 `tk::Checkbutton("Bold", true)`, `tk::Radiobutton("Red", "red")`,
-`tk::Radiogroup("red")`, `tk::Listbox(3 lines)`, `tk::Text`.
+`tk::Radiogroup("red")`, `tk::Listbox(3 lines)` (`1 line`), `tk::Text`.
 
 **Menus.**
 
@@ -1706,7 +1728,10 @@ A widget prints as its class and text: `tk::Label("Name:")`,
 | `m->enable(label, on)` | Whether the entry can be chosen |
 | `m->invoke(label)` | Calls the entry's handler as choosing it would, at once (for a key binding) |
 
-Entries are named by their labels, which are unique in a menu.
+Entries are named by their labels, which are unique in a menu (another
+entry with the same label, or a label `""`, is a `ValueError`; so is
+`invoke` or `enable` of a label the menu does not have). A menu bar prints
+as `tk::Menu`, a menu in it as `tk::Menu("File")`.
 
 ```
 use tk;
@@ -1774,7 +1799,8 @@ main() {
 }
 ```
 
-A canvas prints as `tk::Canvas(2 items)`.
+An id the canvas does not have is a `ValueError`. A canvas prints as
+`tk::Canvas(2 items)` (`1 item`).
 
 ### uuid
 

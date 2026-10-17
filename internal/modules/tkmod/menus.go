@@ -36,10 +36,10 @@ func (mn *menu) add(a native.Args, label string) error {
 }
 
 // index is the position of the entry label in the menu (separators
-// count), or -1.
+// count, but are not found: their label is ""), or -1.
 func (mn *menu) index(label string) int {
 	for i, l := range mn.labels {
-		if l == label {
+		if l == label && label != "" {
 			return i
 		}
 	}
@@ -99,7 +99,7 @@ func menuMethod(name string, min, max int, fn func(a native.Args, this *value.Ob
 
 // labelArg reads argument 0, the label of an entry, which must be there.
 func labelArg(a native.Args, mn *menu) (string, int, error) {
-	label, err := a.String(0)
+	label, err := tkString(a, 0)
 	if err != nil {
 		return "", 0, err
 	}
@@ -115,6 +115,9 @@ var itemOptions = []option{
 		if v.Kind() != value.String {
 			return nil, " must be a string, not " + v.Kind().String()
 		}
+		if bad := tkUnsafe(v.AsString()); bad != "" {
+			return nil, " holds " + bad
+		}
 		return v.AsString(), ""
 	}, func(x any) tk.Opt { return tk.Accelerator(x) }},
 }
@@ -124,7 +127,7 @@ func registerMenus() {
 	Menu.Methods = map[string]value.NativeMethod{
 		// submenu(label): a menu that opens from this one.
 		"submenu": menuMethod("submenu", 1, 1, func(a native.Args, this *value.ObjectObj, mn *menu) (value.Value, error) {
-			label, err := a.String(0)
+			label, err := tkString(a, 0)
 			if err != nil {
 				return value.NilValue, err
 			}
@@ -139,7 +142,7 @@ func registerMenus() {
 		}),
 		// item(label, f [, options]): an entry that calls f.
 		"item": menuMethod("item", 2, 3, func(a native.Args, this *value.ObjectObj, mn *menu) (value.Value, error) {
-			label, err := a.String(0)
+			label, err := tkString(a, 0)
 			if err != nil {
 				return value.NilValue, err
 			}

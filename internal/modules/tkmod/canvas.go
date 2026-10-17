@@ -284,7 +284,7 @@ func create(kind string) value.NativeMethod {
 		}
 		it := &item{kind: kind, coords: coords}
 		if kind == "text" {
-			if it.text, err = a.String(n - 1); err != nil {
+			if it.text, err = tkString(a, n-1); err != nil {
 				return value.NilValue, err
 			}
 		}
@@ -388,7 +388,9 @@ func registerCanvas() {
 		cv := &canvas{scroll: scroll}
 		wd.canvas = cv
 		wd.w, wd.outer = scrolled(parent, scroll, func(in *tk.Window, sb ...tk.Opt) *tk.Window {
-			cv.c = in.Canvas(append(sb, opts...)...)
+			// Without a highlight ring or border, a position in the widget
+			// is the same in the drawing (scrolled: plus the view's offset).
+			cv.c = in.Canvas(append(append(sb, tk.Highlightthickness(0), tk.Borderwidth(0)), opts...)...)
 			return cv.c.Window
 		}, func(axis byte, first float64) {
 			if axis == 'x' {

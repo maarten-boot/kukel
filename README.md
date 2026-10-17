@@ -97,7 +97,8 @@ make small TAGS=nozmq         # other tags
 
 The module `tk` (desktop windows, see [examples/notes.kkl](examples/notes.kkl))
 is the other way round: it is only in a kukel built with the tag `tk`, as
-it adds about 19 MB. It needs no C compiler and no Tcl/Tk on the system
+it adds about 19 MB (stripped, as the release archives are; 25 MB with
+`go install`). It needs no C compiler and no Tcl/Tk on the system
 (Tcl/Tk 9 come with it); its windows need a display:
 
 ```
@@ -224,7 +225,8 @@ name. At the same time the Docker image is built for linux/amd64 and
 linux/arm64 and pushed to `ghcr.io` as `:v1.2.3`, and as `:latest` when the
 tag is the newest release (a tag with a `-`, such as `v1.3.0-rc1`, never
 is). The base images and BuildKit are pinned to digests; Dependabot
-proposes updates of them and of the actions.
+proposes updates of the base images and of the actions (BuildKit, named in
+a script of the workflow, is updated by hand).
 
 The tests of `db` also run on database servers when `KUKEL_TEST_POSTGRES`
 and `KUKEL_TEST_MYSQL` name one (a URL as `db::open` takes it; the tables
