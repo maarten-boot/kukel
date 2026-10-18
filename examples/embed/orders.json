@@ -1,0 +1,6 @@
+[
+  {"id": "A1", "customer": "ann", "items": [{"sku": "pen", "qty": 2, "price": 1.5}, {"sku": "ink", "qty": 1, "price": 7.25}]},
+  {"id": "A2", "customer": "bob", "items": [{"sku": "pen", "qty": 12, "price": 1.5}]},
+  {"id": "A3", "customer": "cy", "items": [{"sku": "pad", "qty": 3, "price": 4}]},
+  {"id": "A4", "customer": "zed", "items": [{"sku": "pen", "qty": 1, "price": 1.5}]}
+]

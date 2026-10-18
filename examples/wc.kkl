@@ -1,0 +1,148 @@
+// wc: counts the lines, words and bytes of files, in parallel: workers
+// (module worker) count the files their parent hands them one at a time,
+// as each finishes the one before (module events); a directory counts the
+// files below it (module fs).
+//
+//     kukel run examples/wc.kkl -- [-j N] [-json] path ...
+//
+// -j is how many workers count (4 when left out); the output is the same
+// for any number: the files in the order given (below a directory, by
+// name). -json prints the counts as JSON (module json). The exit code is 0,
+// 1 when a file could not be read, 2 for a wrong command line.
+use events;
+use fs;
+use json;
+use worker;
+
+usage(why) {
+    eprintln("wc:", why);
+    eprintln("usage: wc [-j N] [-json] path ...");
+    return 2;
+}
+
+main(args) {
+    local workers = 4, asJSON = false, i = 0;
+
+    for (; i < len(args) && len(args[i]) > 0 && args[i][0] == '-'; i++) {
+        if (args[i] == "-json") {
+            asJSON = true;
+        } else if (args[i] == "-j" && i + 1 < len(args)) {
+            i++;
+
+            try {
+                workers = int(args[i]);
+            } catch (e) {
+                return usage("-j needs a number, not " + args[i]);
+            }
+
+            if (workers < 1) return usage("-j needs at least 1 worker");
+        } else {
+            return usage("unknown option " + args[i]);
+        }
+    }
+
+    if (i == len(args)) return usage("no files");
+    local files = below(slice(args, i)), counts = [];
+
+    for (local f in files) push(counts, nil);
+    // Each worker gets a file; with its counts back, the next, until none
+    // is left: then stop(), and the worker's count() returns.
+    local next = 0;
+
+    for (local n = 0; n < min(workers, len(files)); n++) {
+        local w = worker::start(count);
+        w->onmessage(fn(m) {
+            counts[m[0]] = m;
+            give(w, files, next);
+            next++;
+        });
+        give(w, files, next);
+        next++;
+    }
+    events::run();
+    return report(files, counts, asJSON);
+}
+
+// give sends worker w file number n of files, or stops it when there is
+// none.
+give(w, files, n) {
+    if (n < len(files)) {
+        w->send([n, files[n]]);
+    } else {
+        w->stop();
+    }
+}
+
+// count runs in each worker: for each [n, path] from the parent it sends
+// back [n, lines, words, bytes], or [n, nil, message] when the file cannot
+// be read.
+count() {
+    for (local m = worker::receive(); m != nil; m = worker::receive()) {
+        try {
+            local text = readfile(m[1]), lines = 0, words = 0, inword = false;
+
+            for (local c in text) {
+                if (c == '\n') lines++;
+                local space = c == ' ' || c == '\t' || c == '\n' || c == '\r';
+
+                if (!space && !inword) words++;
+                inword = !space;
+            }
+            worker::send([m[0], lines, words, len(text)]);
+        } catch (e) {
+            worker::send([m[0], nil, e->message]);
+        }
+    }
+}
+
+// report prints the counts, and gives the exit code.
+report(files, counts, asJSON) {
+    local total = [0, 0, 0], failed = false, out = [];
+
+    for (local n = 0; n < len(files); n++) {
+        local c = counts[n];
+
+        if (c[1] == nil) {
+            eprintln("wc:", c[2]);
+            failed = true;
+            continue;
+        }
+
+        for (local k = 0; k < 3; k++) total[k] += c[1 + k];
+        push(out, {"path": files[n], "lines": c[1], "words": c[2], "bytes": c[3]});
+    }
+
+    if (asJSON) {
+        println(json::encode({"files": out, "total": {"lines": total[0], "words": total[1], "bytes": total[2]}}, "  "));
+    } else {
+        for (local f in out) println(column(f["lines"]), column(f["words"]), column(f["bytes"]), f["path"]);
+
+        if (len(out) > 1) println(column(total[0]), column(total[1]), column(total[2]), "total");
+    }
+    return failed ? 1 : 0;
+}
+
+// column is n right-aligned in 7 places, as wc prints it.
+column(n) {
+    local s = str(n);
+
+    while (len(s) < 7) s = " " + s;
+    return s;
+}
+
+// below gives the files in the directories of paths, and below them, in
+// the order walk finds them (by name); other paths stay as they are.
+below(paths) {
+    local out = [];
+
+    for (local p in paths) {
+        if (fs::exists(p) && fs::stat(p)["dir"]) {
+            fs::walk(p, fn(path, e) {
+                if (!e["dir"] && !e["link"]) push(out, path);
+            });
+        } else {
+            push(out, p);
+        }
+    }
+    return out;
+}

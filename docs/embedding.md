@@ -5,6 +5,9 @@ program: compile a program once, run it in as many interpreters as needed,
 call its functions, and give it Go functions of your own. The examples in
 the package documentation (`go doc github.com/maarten-boot/kukel`) are
 tested; this page explains the parts and how they fit.
+[examples/embed](../examples/embed) is a whole program: it prices orders
+with rules users write in Kukel, with a host module and the limits of
+section 5.
 
 ```go
 import "github.com/maarten-boot/kukel"

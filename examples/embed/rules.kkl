@@ -1,0 +1,30 @@
+// Discount rules for examples/embed: the Go program calls discount(order)
+// for each order, and takes the result as the percentage off (0 to 50).
+use shop;
+
+const BULK = 10;  // units for the bulk discount
+const LOYAL = 5;  // years for the loyalty discount
+
+discount(order) {
+    local c = shop::customer(order["customer"]), off = 0, units = 0;
+
+    for (local it in order["items"]) units += it["qty"];
+
+    if (units >= BULK) {
+        off += 5;
+        shop::note("bulk");
+    }
+
+    if (c["vip"]) {
+        off += 10;
+        shop::note("vip");
+    }
+
+    if (shop::year - c["since"] >= LOYAL) {
+        off += 5;
+        shop::note("customer since " + str(c["since"]));
+    }
+    return off;
+}
+
+main() {}

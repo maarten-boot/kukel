@@ -195,10 +195,10 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/bytecode` | instruction set, `.kkc` files, the verifier that checks loaded files |
 | `internal/vm` | the stack machine: calls, objects, closures, exceptions (specified in [docs/vm.md](docs/vm.md)) |
 | `internal/value`, `internal/builtins` | values with their operators, built-in functions |
-| `examples/` | demo programs, such as a `grep` ([examples/README.md](examples/README.md)) |
+| `examples/` | demo programs, such as a `grep`, and a Go program that embeds kukel ([examples/README.md](examples/README.md)) |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q71). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q72). Ideas for later are in [docs/future.md](docs/future.md).
 
 ## Development
 

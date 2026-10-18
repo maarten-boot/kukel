@@ -1,0 +1,64 @@
+# Tests of wc.kkl, run in examples/ (see examples/README.md). The output is
+# the same for any number of workers.
+
+$ -j 1 testdata/tree testdata/words.txt testdata/log.txt
+      2      11      49 testdata/tree/lib/util.kkl
+      4      12      76 testdata/tree/main.kkl
+      1       3      16 testdata/tree/notes.txt
+      3       4      23 testdata/words.txt
+      7      51     355 testdata/log.txt
+     17      81     519 total
+
+$ -j 3 testdata/tree testdata/words.txt testdata/log.txt
+      2      11      49 testdata/tree/lib/util.kkl
+      4      12      76 testdata/tree/main.kkl
+      1       3      16 testdata/tree/notes.txt
+      3       4      23 testdata/words.txt
+      7      51     355 testdata/log.txt
+     17      81     519 total
+
+$ testdata/words.txt
+      3       4      23 testdata/words.txt
+
+$ -json -j 2 testdata/words.txt testdata/tree/notes.txt
+{
+  "files": [
+    {
+      "path": "testdata/words.txt",
+      "lines": 3,
+      "words": 4,
+      "bytes": 23
+    },
+    {
+      "path": "testdata/tree/notes.txt",
+      "lines": 1,
+      "words": 3,
+      "bytes": 16
+    }
+  ],
+  "total": {
+    "lines": 4,
+    "words": 7,
+    "bytes": 39
+  }
+}
+
+$ testdata/words.txt testdata/nofile.txt
+      3       4      23 testdata/words.txt
+! wc: readfile: testdata/nofile.txt: no such file or directory
+exit 1
+
+$ -j 0 testdata/words.txt
+! wc: -j needs at least 1 worker
+! usage: wc [-j N] [-json] path ...
+exit 2
+
+$ -q testdata/words.txt
+! wc: unknown option -q
+! usage: wc [-j N] [-json] path ...
+exit 2
+
+$ 
+! wc: no files
+! usage: wc [-j N] [-json] path ...
+exit 2
