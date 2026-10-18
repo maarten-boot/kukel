@@ -99,6 +99,8 @@ func TestCompileErrors(t *testing.T) {
 		{"main() { this; }", "1:10", "'this' is only available in member functions"},
 		{"class A : B {}", "1:11", "base class B is not defined (a base class must be defined before the classes derived from it)"},
 		{"class A : A {}", "1:11", "base class A is not defined"},
+		{"class A { A(); } A::A() {} class B : A { B(); } B::B() { A(); } main() {}", "1:59", "A(...) calls the class; call its constructor as A::A(...), or make an object with new A(...)"},
+		{"class A {} main() { return A(); }", "1:29", "A(...) calls the class"},
 		{"global B; class A : B {}", "1:21", "B is not a class"},
 		{"class A { x; x; }", "1:14", "member x is already declared in class A at t.kkl:1:11"},
 		{"class A { x; } class B : A { x; }", "1:30", "member x conflicts with x declared in base class A at t.kkl:1:11"},
@@ -424,6 +426,37 @@ func TestFusedOnOneLine(t *testing.T) {
 		}
 		if got != fused {
 			t.Errorf("%q: ARITH_LK %v, want %v", src, got, fused)
+		}
+	}
+}
+
+// Without Fuse the compiler uses none of the instructions that do the
+// work of several (TestRunGolden runs every program both ways).
+func TestFuse(t *testing.T) {
+	ops := func(fuse bool) map[bytecode.Op]bool {
+		Fuse = fuse
+		defer func() { Fuse = true }()
+		f, err := parser.ParseFile("t.kkl", []byte("g(n) { local i = 0, s = 0; while (i < n) { s += i; i++; i--; i++; if (s > 100) s = 0; } return s * 2; } main() {}"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		prog, err := Compile([]*ast.File{f}, testBuiltins)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen := map[bytecode.Op]bool{}
+		for _, fn := range prog.Funcs {
+			for pc := 0; pc < len(fn.Code); pc += bytecode.Op(fn.Code[pc]).Size() {
+				seen[bytecode.Op(fn.Code[pc])] = true
+			}
+		}
+		return seen
+	}
+	fused := []bytecode.Op{bytecode.OpArithLK, bytecode.OpCmpJumpLK, bytecode.OpAddLocal, bytecode.OpIncLocal, bytecode.OpDecLocal}
+	on, off := ops(true), ops(false)
+	for _, op := range fused {
+		if !on[op] || off[op] {
+			t.Errorf("%v: used %v with Fuse, %v without", op, on[op], off[op])
 		}
 	}
 }

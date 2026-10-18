@@ -27,6 +27,7 @@ type picture struct {
 	img           *tk.Img
 	path          string
 	width, height int64
+	freed         bool // free() deleted it in Tk
 }
 
 // readImageFile reads a regular file (not a device or pipe, which could
@@ -101,7 +102,10 @@ func imageValue(v value.Value) (any, string) {
 	if !Image.Is(v) {
 		return nil, " must be a tk::Image, not " + v.Repr()
 	}
-	return v.AsObject().State.(*picture), ""
+	if p := v.AsObject().State.(*picture); !p.freed {
+		return p, ""
+	}
+	return nil, ": the image is freed"
 }
 
 // The options image and compound (where the image is next to the text) of
@@ -126,9 +130,33 @@ func registerImages() {
 			}
 			return value.MakeInt(this.State.(*picture).height), nil
 		},
+		// free(): deletes the picture in Tk; what shows it goes blank, and
+		// it can no longer be given to a widget or a canvas.
+		"free": func(env value.Env, this *value.ObjectObj, args []value.Value) (value.Value, error) {
+			a, err := native.Check("tk::Image::free", args, 0, 0)
+			if err != nil {
+				return value.NilValue, err
+			}
+			p := this.State.(*picture)
+			if p.freed {
+				return value.NilValue, nil
+			}
+			if !gui.ended { // else Tk, and the picture, are gone already
+				if err := start(a, env); err != nil {
+					return value.NilValue, err
+				}
+				p.img.Delete()
+				tkError()
+			}
+			p.freed = true
+			return value.NilValue, nil
+		},
 	}
 	Image.Show = func(o *value.ObjectObj) string {
 		p := o.State.(*picture)
+		if p.freed {
+			return fmt.Sprintf("tk::Image(%s, freed)", value.Quote(p.path))
+		}
 		return fmt.Sprintf("tk::Image(%s, %dx%d)", value.Quote(p.path), p.width, p.height)
 	}
 }

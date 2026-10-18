@@ -104,6 +104,7 @@ main(args) {
     t->file("/stop", "", fn(data) { s->close(); });
     s = p9::serve(t, "unix://" + args[1]);
     events::run();
+    println(s->closed());
 }`, top, sock)
 		if err != nil {
 			out += err.Error()
@@ -125,7 +126,7 @@ main(args) {
 	f, err = fsys.Open("stop", plan9.OWRITE|plan9.OTRUNC)
 	must(t, err)
 	f.Close()
-	if out := <-done; out != "" {
+	if out := <-done; out != "true\n" {
 		t.Errorf("server: %s", out)
 	}
 }

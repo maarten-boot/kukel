@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"slices"
 	"strconv"
 
 	tk "modernc.org/tk9.0"
@@ -139,6 +140,10 @@ func (cv *canvas) draw(it *item) {
 	case "arc":
 		cv.c.CreateArc(args[0], args[1], args[2], args[3], args[4:]...)
 	case "image":
+		if it.img.freed { // the item stays, without a picture
+			cv.c.CreateImage(args[0], args[1], args[2:]...)
+			break
+		}
 		cv.c.CreateImage(args[0], args[1], append([]any{tk.Image(it.img.img)}, args[2:]...)...)
 	case "polygon":
 		cv.c.CreatePolygon(args[0], args[1], args[2:]...)
@@ -338,7 +343,24 @@ var (
 			fontOption(""),
 		},
 	}
+	// What configureitem changes besides the options: the text of a text
+	// item, the picture of an image item.
+	itemContent = map[string]option{
+		"text":  {"text", textValue, nil},
+		"image": optImage,
+	}
 )
+
+// textValue is an option whose value is a string Tk can take.
+func textValue(v value.Value) (any, string) {
+	if v.Kind() != value.String {
+		return nil, fmt.Sprintf(" must be a string, not %s", v.Kind())
+	}
+	if bad := tkUnsafe(v.AsString()); bad != "" {
+		return nil, " holds " + bad
+	}
+	return v.AsString(), ""
+}
 
 // canvasMethod makes a member function of a canvas.
 func canvasMethod(name string, min, max int, fn func(a native.Args, this *value.ObjectObj, cv *canvas) (value.Value, error)) value.NativeMethod {
@@ -371,7 +393,9 @@ func create(kind string) value.NativeMethod {
 			if err != nil {
 				return value.NilValue, err
 			}
-			it.img = st.(*picture)
+			if it.img = st.(*picture); it.img.freed {
+				return value.NilValue, a.Errorf(value.ValueError, "argument %d: the image is freed", n)
+			}
 		}
 		if a.Has(n) {
 			values, err := readValues(a, n, canvasItemOptions[kind])
@@ -685,27 +709,55 @@ func registerCanvas() {
 		return value.ObjectValue(this), nil
 	})
 	// configureitem(id or tag, options): each option must be one of every
-	// item's kind.
+	// item's kind; text and image change a text item's text and an image
+	// item's picture.
 	Canvas.Methods["configureitem"] = canvasMethod("configureitem", 2, 2, func(a native.Args, this *value.ObjectObj, cv *canvas) (value.Value, error) {
 		at, err := cv.targets(a, 0)
 		if err != nil || len(at) == 0 {
 			return value.ObjectValue(this), err
 		}
 		values := make([][]optionValue, len(at))
+		contents := make([]any, len(at)) // nil: unchanged
 		for k, i := range at {
-			if values[k], err = readValues(a, 1, canvasItemOptions[cv.items[i].kind]); err != nil {
+			kind := cv.items[i].kind
+			specs := canvasItemOptions[kind]
+			content, has := itemContent[kind]
+			if has {
+				specs = append(append([]option(nil), specs...), content)
+			}
+			if values[k], err = readValues(a, 1, specs); err != nil {
 				return value.NilValue, err
+			}
+			if has {
+				values[k] = slices.DeleteFunc(values[k], func(v optionValue) bool {
+					if v.name == content.name {
+						contents[k] = v.x
+					}
+					return v.name == content.name
+				})
 			}
 		}
 		return value.ObjectValue(this), cv.change(a, at[0], func() func() {
-			old := make([][]optionValue, len(at))
+			type saved struct {
+				opts []optionValue
+				text string
+				img  *picture
+			}
+			old := make([]saved, len(at))
 			for k, i := range at {
-				old[k] = append([]optionValue(nil), cv.items[i].opts...)
-				cv.items[i].set(values[k])
+				it := cv.items[i]
+				old[k] = saved{append([]optionValue(nil), it.opts...), it.text, it.img}
+				it.set(values[k])
+				switch x := contents[k].(type) {
+				case string:
+					it.text = x
+				case *picture:
+					it.img = x
+				}
 			}
 			return func() {
 				for k, i := range at {
-					cv.items[i].opts = old[k]
+					cv.items[i].opts, cv.items[i].text, cv.items[i].img = old[k].opts, old[k].text, old[k].img
 				}
 			}
 		})

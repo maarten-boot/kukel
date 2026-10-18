@@ -116,6 +116,9 @@ func init() {
 			}
 			return value.NilValue, nil
 		}),
+		"closed": clientMethod("closed", 0, 0, func(a native.Args, c *client) (value.Value, error) {
+			return value.MakeBool(c.closed), nil
+		}),
 	}
 	Client.Show = func(o *value.ObjectObj) string {
 		c := o.State.(*client)
@@ -163,6 +166,15 @@ func init() {
 			}
 			this.State.(*server).close()
 			return value.NilValue, nil
+		},
+		"closed": func(env value.Env, this *value.ObjectObj, args []value.Value) (value.Value, error) {
+			if _, err := native.Check("p9::Server::closed", args, 0, 0); err != nil {
+				return value.NilValue, err
+			}
+			s := this.State.(*server)
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			return value.MakeBool(s.closed), nil
 		},
 	}
 	Server.Show = func(o *value.ObjectObj) string {
@@ -349,7 +361,7 @@ func (c *client) fail(a native.Args, p string, err error) error {
 
 func clientMethod(name string, min, max int, fn func(a native.Args, c *client) (value.Value, error)) value.NativeMethod {
 	full := "p9::Client::" + name
-	always := name == "close" || name == "version"
+	always := name == "close" || name == "closed" || name == "version"
 	return func(env value.Env, this *value.ObjectObj, args []value.Value) (value.Value, error) {
 		a, err := native.Check(full, args, min, max)
 		if err != nil {

@@ -172,3 +172,18 @@ main() {
 		t.Errorf("got %q", got)
 	}
 }
+
+// closed() works also on a closed connection and while a cursor is open.
+func TestClosed(t *testing.T) {
+	got := run(t, `use db;
+main() {
+    local c = db::open("sqlite::memory:");
+    local cur = c->cursor("SELECT 1");
+    println(c->closed());
+    c->close();
+    println(c->closed());
+}`)
+	if got != "false\ntrue\n" {
+		t.Errorf("got %q", got)
+	}
+}

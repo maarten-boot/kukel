@@ -520,3 +520,23 @@ true
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+// closed() tells whether a client or a server is closed; a client is
+// also closed when its server went away.
+func TestClosed(t *testing.T) {
+	got := run(t, `use p9;
+main() {
+    local s = p9::serve(new p9::Tree(), "tcp://127.0.0.1:0");
+    local c = p9::dial(s->endpoint()), d = p9::dial(s->endpoint());
+    println(s->closed(), c->closed());
+    c->close();
+    println(c->closed());
+    s->close();
+    println(s->closed());
+    try { d->readdir("/"); } catch (e) { println(e->kind); }
+    println(d->closed());
+}`)
+	if want := "false false\ntrue\ntrue\nNetError\ntrue\n"; got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}

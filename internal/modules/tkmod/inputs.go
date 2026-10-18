@@ -5,6 +5,7 @@ package tkmod
 import (
 	"math"
 	"strconv"
+	"strings"
 
 	tk "modernc.org/tk9.0"
 
@@ -27,6 +28,36 @@ type slider struct {
 	from, to, step float64
 	ints           bool // from and step are ints: the values are ints
 	last           float64
+	shown          *tk.TLabelWidget // the value beside the slider (showvalue), or nil
+}
+
+// constructorOptions are options of a class that only its constructor
+// takes (and configure refuses); the constructor reads them itself.
+var constructorOptions = map[string][]option{
+	"Scale": {{"label", textValue, nil}, {"showvalue", boolean, nil}},
+}
+
+// show puts the value on the label beside the slider, if it has one.
+func (s *slider) show() {
+	if s.shown != nil {
+		s.shown.Configure(tk.Txt(s.text(s.last)))
+	}
+}
+
+// text gives x as the label beside the slider shows it: an int, or with
+// as many decimals as the step has (2 without a step).
+func (s *slider) text(x float64) string {
+	if s.ints {
+		return strconv.FormatInt(int64(math.Round(x)), 10)
+	}
+	decimals := 2
+	if s.step > 0 {
+		decimals = 0
+		if _, frac, ok := strings.Cut(strconv.FormatFloat(s.step, 'f', -1, 64), "."); ok {
+			decimals = len(frac)
+		}
+	}
+	return strconv.FormatFloat(x, 'f', decimals, 64)
 }
 
 // numberOf gives v as a float, if it is a number other than nan.
@@ -107,18 +138,32 @@ func registerInputs() {
 	// new tk::Scale(parent [, options]): value(), setvalue(x), onchange(f)
 	// (f gets value() when the user moves the slider); the options from
 	// and to (0 and 100 when left out), step (0: any value), orient,
-	// length, state.
+	// length, state, and for the constructor label (a text above the
+	// slider) and showvalue (its value beside it): with either, the slider
+	// sits in a frame of its own with them, which pack and grid place.
 	registerWidget(Scale, widgetSpec{0, 0, false, func(a native.Args, args []value.Value, parent *node, wd *widget, opts []tk.Opt, _ string) error {
 		s := &slider{to: 100}
+		label, showvalue := "", false
 		if len(a.V) > 1 {
-			s.apply(a.V[len(a.V)-1])
+			o := a.V[len(a.V)-1]
+			s.apply(o)
+			if v := mapGet(o, "label"); !v.IsNil() {
+				label = v.AsString() // checked already
+			}
+			showvalue = mapGet(o, "showvalue").Truthy()
 		}
 		wd.slider = s
-		s.scale = parent.w.TScale(append([]tk.Opt{tk.From(s.from), tk.To(s.to), tk.Value(s.from)}, append(opts, tk.Command(func() {
+		in := parent.w
+		if label != "" || showvalue {
+			wd.outer = parent.w.TFrame().Window
+			in = wd.outer
+		}
+		s.scale = in.TScale(append([]tk.Opt{tk.From(s.from), tk.To(s.to), tk.Value(s.from)}, append(opts, tk.Command(func() {
 			x := s.read()
 			if x != s.last {
 				s.last = x
 				s.scale.Configure(tk.Value(x)) // on its step
+				s.show()
 				if !wd.onchange.IsNil() {
 					call(wd.onchange, s.number(x))
 				}
@@ -126,6 +171,21 @@ func registerInputs() {
 		}))...)...)
 		s.last = s.from
 		wd.w = s.scale.Window
+		if wd.outer != nil {
+			if label != "" {
+				tk.Grid(in.TLabel(tk.Txt(label)), tk.Row(0), tk.Column(0), tk.Columnspan(2), tk.Sticky("w"))
+			}
+			tk.Grid(wd.w, tk.Row(1), tk.Column(0), tk.Sticky("nsew"))
+			if showvalue {
+				// As wide as the widest end, so the slider does not move.
+				width := max(len(s.text(s.from)), len(s.text(s.to)))
+				s.shown = in.TLabel(tk.Width(width), tk.Anchor("e"))
+				tk.Grid(s.shown, tk.Row(1), tk.Column(1), tk.Sticky("e"), tk.Padx(4))
+				s.show()
+			}
+			tk.GridRowConfigure(in, 1, tk.Weight(1))
+			tk.GridColumnConfigure(in, 0, tk.Weight(1))
+		}
 		return nil
 	}}, func(wd *widget) string {
 		return "tk::Scale(" + wd.slider.number(wd.slider.last).String() + ")"
@@ -141,6 +201,7 @@ func registerInputs() {
 		s := wd.slider
 		s.last = s.snap(x)
 		s.scale.Configure(tk.Value(s.last))
+		s.show()
 		return value.ObjectValue(this), nil
 	})
 	Scale.Methods["onchange"] = handlerSetter("Scale", "onchange", func(wd *widget) *value.Value { return &wd.onchange })

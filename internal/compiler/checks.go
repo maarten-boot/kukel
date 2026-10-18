@@ -82,6 +82,44 @@ func (c *compiler) staticCallee(fun ast.Expr) *paramShape {
 	return nil
 }
 
+// checkClassCall refuses a call of a class by its name, C(...) or m::C(...):
+// it always fails when it runs. Inside a constructor it is most likely
+// meant as a call of the base class's constructor.
+func (c *compiler) checkClassCall(e *ast.CallExpr) {
+	var name, short string
+	switch fun := e.Fun.(type) {
+	case *ast.Ident:
+		if _, ok := c.lookupLocal(fun.Name); ok {
+			return
+		}
+		if _, ok := c.upvalue(c.fs, fun.Name); ok {
+			return
+		}
+		if c.memberOf(fun.Name) != nil {
+			return
+		}
+		if g, ok := c.lookup(fun.Name); !ok || g.kind != symClass {
+			return
+		}
+		name, short = fun.Name, fun.Name
+	case *ast.StaticRef:
+		if !c.isModuleRef(fun) {
+			return
+		}
+		m := c.usedModule(fun.Class)
+		if m == nil {
+			return
+		}
+		if g, ok := m.names[fun.Name.Name]; !ok || g.kind != symClass {
+			return
+		}
+		name, short = fun.Class.Name+"::"+fun.Name.Name, fun.Name.Name
+	default:
+		return
+	}
+	c.errorf(e.Lparen, "%s(...) calls the class; call its constructor as %s::%s(...), or make an object with new %s(...)", name, name, short, name)
+}
+
 // checkNew checks new C(...) when C names a class directly (not a variable
 // holding one): the parameters of the constructor that runs (C's own, else
 // the nearest base class's, Q33), or no arguments at all when there is none.

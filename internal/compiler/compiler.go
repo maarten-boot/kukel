@@ -1308,6 +1308,7 @@ func (c *compiler) expr(e ast.Expr) {
 		if c.memberCall(e) {
 			return
 		}
+		c.checkClassCall(e)
 		c.checkArgs(c.staticCallee(e.Fun), e.Args, e.Lparen)
 		c.expr(e.Fun)
 		if hasSpread(e.Args) {
@@ -1600,6 +1601,11 @@ func (c *compiler) load(id *ast.Ident) {
 	c.loadGlobal(g, id)
 }
 
+// Fuse makes the compiler use the instructions that do the work of
+// several (ARITH_LK, CMP_JUMP_LK, ADD_LOCAL, INC_LOCAL, DEC_LOCAL). Tests
+// turn it off to check that a program does the same without them.
+var Fuse = true
+
 // localConst reports whether x is a local variable in a slot (not a cell)
 // and y a literal number or string, and gives the slot and the constant:
 // an operation on the two is one instruction (ARITH_LK, CMP_JUMP_LK). The
@@ -1608,7 +1614,7 @@ func (c *compiler) load(id *ast.Ident) {
 // debugger could not stop there).
 func (c *compiler) localConst(x, y ast.Expr, op token.Pos) (slot, k int, ok bool) {
 	id, isIdent := x.(*ast.Ident)
-	if !isIdent || id.NamePos.Line != op.Line {
+	if !Fuse || !isIdent || id.NamePos.Line != op.Line {
 		return 0, 0, false
 	}
 	lv, found := c.lookupLocal(id.Name)
@@ -1706,7 +1712,7 @@ func (c *compiler) globalVariable(g *global, name string, pos token.Pos) variabl
 
 func (c *compiler) assign(e *ast.AssignExpr, keep bool) {
 	v := c.lvalue(e.LHS)
-	if e.Op == token.ADD_ASSIGN && v.kind == lvLocal && !keep && !assigns(e.RHS) {
+	if Fuse && e.Op == token.ADD_ASSIGN && v.kind == lvLocal && !keep && !assigns(e.RHS) {
 		// x += e as a statement: one instruction after e. It reads x after
 		// e, which is the same as long as e assigns nothing.
 		c.expr(e.RHS)
@@ -1744,7 +1750,7 @@ func (c *compiler) incDec(e *ast.IncDecExpr, keep bool) {
 	if e.Op == token.DEC {
 		op = bytecode.OpDec
 	}
-	if v.kind == lvLocal && !keep { // i++ as a statement: one instruction
+	if Fuse && v.kind == lvLocal && !keep { // i++ as a statement: one instruction
 		c.mark(e.OpPos)
 		if e.Op == token.DEC {
 			c.emit(bytecode.OpDecLocal, v.index)

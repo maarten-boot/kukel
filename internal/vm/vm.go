@@ -1044,6 +1044,21 @@ func (vm *VM) wrap(err error) error {
 	return vm.throwValue(obj)
 }
 
+// checkErrorObject checks an object new has made: an Error (or an object
+// of a class derived from it) must have a string or nil as its message and
+// kind.
+func (vm *VM) checkErrorObject(o *value.ObjectObj) error {
+	if !o.Class.IsSubclassOf(vm.errorClass) {
+		return nil
+	}
+	for _, field := range [...]string{"message", "kind"} {
+		if v := o.Fields[o.Class.FieldIndex[field]]; v.Kind() != value.Nil && v.Kind() != value.String {
+			return value.Errorf(value.TypeError, "%s: the %s is a string, not %s", o.Class.Name, field, v.Kind())
+		}
+	}
+	return nil
+}
+
 func (vm *VM) setField(obj value.Value, name string, v value.Value) {
 	o := obj.AsObject()
 	o.Fields[o.Class.FieldIndex[name]] = v
@@ -1515,6 +1530,9 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			r := value.NilValue
 			if f.ctor {
 				r = value.ObjectValue(f.this) // new C(...) gives the object
+				if e := vm.checkErrorObject(f.this); e != nil {
+					return vm.fail(f, start, sp, e)
+				}
 			} else if op == bytecode.OpReturn {
 				r = stack[sp-1]
 			}

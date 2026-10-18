@@ -87,6 +87,9 @@ func init() {
 		"subscribe":   method("subscribe", 1, 1, subscription(zmq4.OptionSubscribe)),
 		"unsubscribe": method("unsubscribe", 1, 1, subscription(zmq4.OptionUnsubscribe)),
 		"close":       method("close", 0, 0, closeSocket),
+		"closed": method("closed", 0, 0, func(a native.Args, env value.Env, s *socket) (value.Value, error) {
+			return value.MakeBool(s.closed), nil
+		}),
 	}
 	Socket.Show = func(o *value.ObjectObj) string {
 		s := o.State.(*socket)
@@ -107,10 +110,10 @@ func init() {
 }
 
 // method makes a member function that checks its arguments and refuses a
-// closed socket (except for close, type and endpoint).
+// closed socket (except for close, closed, type and endpoint).
 func method(name string, min, max int, fn func(a native.Args, env value.Env, s *socket) (value.Value, error)) value.NativeMethod {
 	full := "zmq::Socket::" + name
-	always := name == "close" || name == "type" || name == "endpoint"
+	always := name == "close" || name == "closed" || name == "type" || name == "endpoint"
 	return func(env value.Env, this *value.ObjectObj, args []value.Value) (value.Value, error) {
 		a, err := native.Check(full, args, min, max)
 		if err != nil {

@@ -598,6 +598,24 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		first, _, _ := strings.Cut(versionText(), "\n")
 		fmt.Fprintf(out, "%s\ntype declarations or statements; a blank line ends an incomplete piece, end of input (Ctrl-D) quits\n", first)
 	}
+	// read reads a line with prompt, or gives back the line held over from
+	// the last piece.
+	var held *string
+	read := func(prompt string) (string, error) {
+		if held != nil {
+			line := *held
+			held = nil
+			return line, nil
+		}
+		if interactive && editor == nil {
+			fmt.Fprint(out, prompt)
+		}
+		out.Flush()
+		if editor != nil {
+			return editor.readLine(prompt)
+		}
+		return in.ReadString('\n')
+	}
 	for n := 1; ; n++ {
 		var src []byte
 		var stmts []ast.Stmt
@@ -608,20 +626,10 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			if len(src) > 0 {
 				prompt = "... "
 			}
-			if interactive && editor == nil {
-				fmt.Fprint(out, prompt)
-			}
-			out.Flush()
-			var line string
-			var rerr error
-			if editor != nil {
-				line, rerr = editor.readLine(prompt)
-				if rerr == errInterrupted { // Ctrl-C: the piece is dropped
-					src = nil
-					continue
-				}
-			} else {
-				line, rerr = in.ReadString('\n')
+			line, rerr := read(prompt)
+			if rerr == errInterrupted { // Ctrl-C: the piece is dropped
+				src = nil
+				continue
 			}
 			end := rerr != nil && line == ""
 			if end && len(src) == 0 {
@@ -637,6 +645,24 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			src = append(src, line...)
 			var incomplete bool
 			decls, stmts, incomplete, err = parseInput(name, src, blank)
+			if err == nil && !blank && !end && endsInIf(stmts, src) {
+				// An else may follow on the next line: an empty line, or
+				// any other, runs the if (that other line then starts the
+				// next piece).
+				next, rerr := read("... ")
+				if rerr == errInterrupted {
+					src = nil
+					continue
+				}
+				if startsWithElse(next) {
+					src = append(src, next...)
+					continue
+				}
+				if strings.TrimSpace(next) != "" || rerr != nil {
+					held = &next // the end of the input is read again
+				}
+				break
+			}
 			if err == nil || !incomplete || blank {
 				break
 			}
@@ -723,6 +749,25 @@ func emptyBody(s ast.Stmt) bool {
 		}
 		s = body
 	}
+}
+
+// endsInIf reports whether a piece ends in an if statement without an else
+// whose last line is a '}': an else may follow on the next line.
+func endsInIf(stmts []ast.Stmt, src []byte) bool {
+	if len(stmts) == 0 || !bytes.HasSuffix(bytes.TrimSpace(src), []byte("}")) {
+		return false
+	}
+	s, ok := stmts[len(stmts)-1].(*ast.IfStmt)
+	for ok && s.Else != nil {
+		s, ok = s.Else.(*ast.IfStmt)
+	}
+	return ok
+}
+
+// startsWithElse reports whether line starts with the keyword else.
+func startsWithElse(line string) bool {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(line), "else")
+	return ok && (rest == "" || !isIdentByte(rest[0]))
 }
 
 // atEnd reports whether a syntax error is at the end of the input.

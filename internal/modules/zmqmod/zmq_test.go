@@ -263,3 +263,16 @@ ValueError zmq::Socket::bind: "foo://x": the transports are tcp://, ipc:// and i
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+func TestClosed(t *testing.T) {
+	got := run(t, `use zmq;
+main() {
+    local s = new zmq::Socket("PULL");
+    println(s->closed());
+    s->close();
+    println(s->closed());
+}`)
+	if got != "false\ntrue\n" {
+		t.Errorf("got %q", got)
+	}
+}

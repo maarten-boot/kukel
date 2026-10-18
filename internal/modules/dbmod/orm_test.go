@@ -20,7 +20,7 @@ Shared::table() { return "x"; }
 `+mainOfMapping)
 	want := `[{"name": "id", "type": "INTEGER"}, {"name": "text", "type": "TEXT"}, {"name": "seen", "type": "BOOLEAN"}]
 Note{id: 1, text: "old", seen: nil}
-true
+true nil 0
 ValueError: db::Conn::migrate: class NoId has no data member id (the primary key)
 ValueError: db::Conn::migrate: Bad::columns() names y, which is not a data member of Bad
 ValueError: db::Conn::migrate: Odd::table() must give a table name (letters, digits and _), not "drop table x"
@@ -50,7 +50,7 @@ const mainOfMapping = `main() {
     println(n);
     n->seen = true;
     conn->save(n);
-    println(conn->find(Note)->first()->seen);
+    println(conn->find(Note)->first()->seen, conn->find(Note)->limit(0)->first(), len(conn->find(Note)->limit(0)->all()));
     for (local f in [fn() { conn->migrate(NoId); }, fn() { conn->migrate(Bad); }, fn() { conn->migrate(Odd); },
                      fn() { conn->migrate(Shared); },
                      fn() { conn->save(42); }, fn() { local x = new Note(); x->text = [1]; conn->save(x); },

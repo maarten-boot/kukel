@@ -271,7 +271,13 @@ main(args) {
     local st = new tk::Scale(box, {"from": 0, "to": 10, "step": 3}), sr = new tk::Scale(box, {"from": 10, "to": 0, "step": 3});
     println(st->setvalue(100)->value(), sr->setvalue(-5)->value(), new tk::Scale(box, {"to": 5000000})->setvalue(2000000)->value());
     try { new tk::Image("/dev/zero"); } catch (e) { println(e->kind + ":", e->message); }
+    // A label above the slider, and its value beside it.
+    local lv = new tk::Scale(box, {"from": 0, "to": 1, "step": 0.25, "label": "Volume", "showvalue": true});
+    lv->pack({"fill": "x"});
+    println(lv->setvalue(0.6)->value(), lv->configure({"to": 2})->setvalue(1.8)->value(), lv);
     for (local h in [fn() { new tk::Scale(box, {"step": -1}); },
+                     fn() { lv->configure({"label": "x"}); },
+                     fn() { new tk::Scale(box, {"showvalue": 1}); },
                      fn() { new tk::Scale(box, {"orient": "up"}); },
                      fn() { sc->setvalue("x"); },
                      fn() { new tk::Combobox(box, ["a", 1]); },
@@ -346,11 +352,22 @@ main(args) {
     ac->move("slices", 5, 5)->configureitem("slices", {"outline": "black"})->raise("slices");
     println(ac->items(), ac->coords(s1), ac->lower("blue")->items(), ac->remove("pics")->items());
     try { new tk::Image(args[1] + "/bad.png"); } catch (e) { println(e->kind, find(e->message, "/bad.png is not a PNG or GIF file") > 0); }
+    // A text item's text and an image item's picture change; a freed
+    // image goes blank where it is shown, and cannot be shown again.
+    local t1 = ac->text(20, 140, "before"), p3 = ac->image(150, 140, png);
+    ac->configureitem(t1, {"text": "after", "color": "blue"})->configureitem(p3, {"image": gif});
+    png->free();
+    png->free();
+    println(find(str(png), "/o.png\", freed)") > 0, png->width(), ac->items(), ac->itemat(150, 140));
     for (local h in [fn() { new tk::Label(art, "x", {"image": 1}); },
                      fn() { ac->arc(0, 0, 9, 9, {"extent": 400}); },
                      fn() { ac->tag(s1, "9x"); },
                      fn() { ac->configureitem("blue", {"fill": "red"}); },
                      fn() { ac->binditem(99, "<Button-1>", fn(e) {}); },
+                     fn() { ac->image(0, 0, png); },
+                     fn() { ac->configureitem(p3, {"image": png}); },
+                     fn() { ac->configureitem(t1, {"text": 5}); },
+                     fn() { new tk::Label(art, "x", {"image": png}); },
                      fn() { ac->move(1.5, 1, 1); }])
         try { h(); } catch (e) { println(e->kind + ":", e->message); }
     art->close();
@@ -526,7 +543,10 @@ ValueError: tk::settheme: there is no theme "fancy" (the themes are clam, alt, d
 0.25 0.5
 9 1 2e+06
 IOError: tk::Image::Image: /dev/zero is not a regular file
+0.5 1.75 tk::Scale(1.75)
 ValueError: tk::Scale::Scale: option step must not be negative, not -1
+ValueError: tk::Scale::configure: option label can only be given to the constructor
+ValueError: tk::Scale::Scale: option showvalue must be true or false, not int
 ValueError: tk::Scale::Scale: option orient: "up" is not one of horizontal, vertical
 TypeError: tk::Scale::setvalue: argument 1 must be a number, not string
 TypeError: tk::Combobox::Combobox: argument 2: the lines must be strings, not int
@@ -573,11 +593,16 @@ tk::Canvas(0 items) [5, 2, 3, 1] []
 [1, 2] [3, 4] [3] []
 [3, 4, 1, 2] [15, 15, 115, 115] [4, 3, 1, 2] [4, 1, 2]
 ValueError true
+true 40 [4, 1, 2, 5, 6] 6
 ValueError: tk::Label::Label: option image must be a tk::Image, not 1
 ValueError: tk::Canvas::arc: option extent must be a number of degrees (-360 to 360), not 400
 ValueError: tk::Canvas::tag: a tag is a name of letters, digits and _ (not starting with a digit), not "9x"
-ValueError: tk::Canvas::configureitem: unknown option "fill" (the options are anchor)
+ValueError: tk::Canvas::configureitem: unknown option "fill" (the options are anchor and image)
 ValueError: tk::Canvas::binditem: the canvas has no item 99
+ValueError: tk::Canvas::image: argument 3: the image is freed
+ValueError: tk::Canvas::configureitem: option image: the image is freed
+ValueError: tk::Canvas::configureitem: option text must be a string, not int
+ValueError: tk::Label::Label: option image: the image is freed
 TypeError: tk::Canvas::move: argument 1 must be an item's id or a tag, not float
 `
 	end := map[string]string{

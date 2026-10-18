@@ -111,6 +111,9 @@ func newWidget(class string) value.NativeMethod {
 				// Taken out already: here for the list of the options.
 				known = append(known[:len(known):len(known)], option{name: "scroll"})
 			}
+			if extra := constructorOptions[class]; extra != nil {
+				known = append(known[:len(known):len(known)], extra...)
+			}
 			if values, err = readValues(a, 1+last, known); err != nil {
 				return value.NilValue, err
 			}
@@ -156,6 +159,11 @@ func commonMethods(class string) map[string]value.NativeMethod {
 			if a.V[0].Kind() == value.Map && specs[class].scroll && !mapGet(a.V[0], "scroll").IsNil() {
 				return value.NilValue, a.Errorf(value.ValueError, "option scroll can only be given to the constructor")
 			}
+			for _, o := range constructorOptions[class] {
+				if a.V[0].Kind() == value.Map && !mapGet(a.V[0], o.name).IsNil() {
+					return value.NilValue, a.Errorf(value.ValueError, "option %s can only be given to the constructor", o.name)
+				}
+			}
 			opts, err := readOptions(a, 0, configOptions[class])
 			if err != nil {
 				return value.NilValue, err
@@ -165,6 +173,7 @@ func commonMethods(class string) map[string]value.NativeMethod {
 				s.apply(a.V[0])
 				s.last = s.snap(s.read())
 				s.scale.Configure(tk.Value(s.last))
+				s.show()
 			}
 			if class == "Text" || class == "Listbox" {
 				if s := mapGet(a.V[0], "state"); s.Kind() == value.String {

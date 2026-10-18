@@ -98,7 +98,9 @@ func ormInit() {
 		}),
 		"first": queryMethod("first", 0, 0, func(a native.Args, env value.Env, q *finder) (value.Value, error) {
 			r := q.copy()
-			r.limit = 1
+			if r.limit != 0 { // limit(0) finds nothing
+				r.limit = 1
+			}
 			objs, err := r.load(a, env)
 			if err != nil || len(objs) == 0 {
 				return value.NilValue, err

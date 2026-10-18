@@ -261,7 +261,9 @@ An object is its class plus an array of data member slots (all nil when
 created). `new C(args)` (`NEW`) creates the object, puts it in the callee's
 place and calls the constructor with `this` = the object; without a
 constructor it takes no arguments. The constructor's frame returns the
-object.
+object; for an `Error` (or an object of a class derived from it), that
+`RETURN` first checks that `message` and `kind` are strings or nil, else
+it throws a `TypeError` from the constructor's frame.
 
 **Native classes** (written in Go, package `internal/native`) are not in the
 image: a native global names them, and the VM uses the run-time class the
@@ -521,7 +523,10 @@ others) followed by `JUMP_IF_TRUE` or `JUMP_IF_FALSE` in one instruction.
 local slot and their right one from the constants: `LOAD_LOCAL slot;
 CONST k; SUB` is `ARITH_LK SUB, slot, k`, and `LOAD_LOCAL slot; CONST k;
 CMP_JUMP cmp, target` is `CMP_JUMP_LK cmp, slot, k, target`. They behave
-exactly as those instructions would, errors included.
+exactly as those instructions would, errors included. The compiler's
+switch `Fuse` (on) controls these and `ADD_LOCAL`, `INC_LOCAL` and
+`DEC_LOCAL`: the tests run every program of `tests/run` also with it off,
+and expect the same output and exit code.
 
 `SWITCH_TABLE`'s table (`Function.Tables`) maps the ints `min`, `min+1`,
 ... to code offsets, or to none. An int `x` in that range with a target

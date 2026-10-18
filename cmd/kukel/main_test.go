@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/maarten-boot/kukel/internal/compiler"
 	"github.com/maarten-boot/kukel/internal/modules/dbmod"
 	"github.com/maarten-boot/kukel/internal/native"
 )
@@ -124,6 +125,16 @@ func TestRunGolden(t *testing.T) {
 			}
 			if b, e := strings.ReplaceAll(bOut.String(), dirPrefix, ""), strings.ReplaceAll(bErr.String(), dirPrefix, ""); b != gotOut || e != gotErr || bCode != code {
 				t.Errorf("build+exec differs from run:\n stdout %q\n stderr %q\n exit %d", b, e, bCode)
+			}
+
+			// The same without the instructions that do the work of
+			// several (Q69): the plain ones must give the same results.
+			var pOut, pErr bytes.Buffer
+			compiler.Fuse = false
+			pCode := run(append([]string{"run", src, "--"}, args...), bytes.NewReader(stdin), &pOut, &pErr)
+			compiler.Fuse = true
+			if p, e := strings.ReplaceAll(pOut.String(), dirPrefix, ""), strings.ReplaceAll(pErr.String(), dirPrefix, ""); p != gotOut || e != gotErr || pCode != code {
+				t.Errorf("without fused instructions:\n stdout %s\n stderr %q\n exit %d", firstDiff(p, gotOut), e, pCode)
 			}
 			if *update {
 				if err := os.WriteFile(base+".out", []byte(gotOut), 0o644); err != nil {
@@ -563,6 +574,20 @@ println("not run");
 		t.Errorf("headers: exit %d, %q, %q", code, out.String(), errOut.String())
 	}
 	out.Reset()
+	// An if ending in '}' waits for one more line: an else there joins it,
+	// another line runs it and starts the next piece; so does the end of
+	// the input.
+	elses := "local x = 1;\nif (x > 1) {\n  println(\"big\");\n}\nelse {\n  println(\"small\");\n}\n" +
+		"if (x == 1) {\n  println(\"one\");\n}\nprintln(\"two\");\nif (x) { println(\"a\"); }\n\n" +
+		"if (x == 2) {\n}\nelse if (x == 1) {\n  println(\"1\");\n}\nelse\n  println(\"never\");\n" +
+		"elsewhere = 1\nif (x) {\n  println(\"last\");\n}\n"
+	wantElse := "small\none\ntwo\na\n1\nlast\n"
+	if code := run([]string{"repl"}, strings.NewReader(elses), &out, &errOut); code != 0 || out.String() != wantElse ||
+		!strings.Contains(errOut.String(), "undefined name elsewhere") {
+		t.Errorf("else on the next line: exit %d, %q, %q", code, out.String(), errOut.String())
+	}
+	out.Reset()
+	errOut.Reset()
 	code := run([]string{"repl"}, strings.NewReader(in), &out, &errOut)
 	want := "20\n100\n40\n31\n\"two\\nlines\"\n[1, 2]\nstill here\n"
 	if code != 3 || out.String() != want {

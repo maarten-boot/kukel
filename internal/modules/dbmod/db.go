@@ -79,6 +79,9 @@ func init() {
 			return value.MakeBool(c.tx != nil), nil
 		}),
 		"close": connMethod("close", 0, 0, closeConn),
+		"closed": connMethod("closed", 0, 0, func(a native.Args, env value.Env, c *conn) (value.Value, error) {
+			return value.MakeBool(c.closed), nil
+		}),
 	}
 	Conn.Show = func(o *value.ObjectObj) string {
 		c := o.State.(*conn)
@@ -179,7 +182,7 @@ func connMethod(name string, min, max int, fn func(a native.Args, env value.Env,
 		}
 		c := this.State.(*conn)
 		switch {
-		case name == "close":
+		case name == "close" || name == "closed":
 		case c.closed:
 			return value.NilValue, a.Errorf(value.ValueError, "the connection is closed")
 		case c.cursor != nil && name != "intransaction" && name != "lastid":

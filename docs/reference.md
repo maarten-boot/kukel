@@ -107,9 +107,11 @@ state with the pieces before it:
   last line of the piece. A line that is the header of an `if`, `else`,
   `while` or `for` (`if (x > 0)` alone) is not taken as a statement with an
   empty body: its statement comes on the next line. A piece ends where it
-  is complete, so `else` on the line after a `}` starts a new piece (an
-  error): write `} else {` on one line. A definition's `{` goes on the line
-  of its header (`f(x)` alone is a call).
+  is complete, except an `if` without an `else` whose last line is a `}`:
+  it waits for the next line, which joins it when it starts with `else`.
+  Any other line runs the `if` and starts the next piece, and so does an
+  empty line (or the end of the input) at once. A definition's `{` goes on
+  the line of its header (`f(x)` alone is a call).
 - A `local` variable declared at the top level of a piece lives as long as
   the session: it is a global variable of the program (declared again, it
   is the same variable). Locals inside blocks are local as usual.
@@ -673,8 +675,11 @@ main() {
   data member, not one only declared in a base class).
 - Inside a member function, the class's own name means the class
   (`return A;`, `new A()`); constructors are not found by an unqualified
-  name (call `Base::Base(...)`): `A()` there calls the class, a
-  `TypeError` when it runs ("cannot call class A"). `p->C(...)` calls the
+  name (call `Base::Base(...)`): `A(...)`, anywhere, would call the class,
+  so it is a compile error ("A(...) calls the class; call its constructor
+  as A::A(...), or make an object with new A(...)"; also `m::C(...)` for a
+  module's class). A class in a variable is called only when it runs, a
+  `TypeError` ("cannot call class A"). `p->C(...)` calls the
   constructor `C` again on an existing object `p`, as any member function
   (its data members are set anew; nothing else happens).
 - `p->x` reads or assigns a data member (all members are public). Static
@@ -717,9 +722,11 @@ main() {
   `TypeError`. `catch (e)` catches everything, so `e->kind` and
   `e->message` always work.
 - Runtime errors throw `Error` objects too; programs derive their own
-  classes from it (`new Error([message [, kind]])`; any values are taken
-  as the message and kind, but strings are what the rest of the program
-  and an uncaught exception's report expect).
+  classes from it (`new Error([message [, kind]])`). The message and the
+  kind are strings or `nil`: when `new` has made an `Error`, or an object
+  of a class derived from it, another value in `message` or `kind` is a
+  `TypeError` ("Error: the message is a string, not int"; the class's own
+  name for a derived class).
 - The first time an `Error` is thrown, `trace` gets the stack trace (a
   vector of strings such as `"f (prog.kkl:3)"`, innermost call first) and,
   if `kind` is nil or `""`, `kind` becomes the name of its class.
@@ -977,7 +984,8 @@ same name (from a join) keep the last value, so name them with `AS`.
 | `conn->begin()` | Starts a transaction: the statements until `commit()` or `rollback()` count together, or not at all. Transactions do not nest (`ValueError`) |
 | `conn->commit()`, `conn->rollback()` | Ends the transaction, keeping or undoing its changes (`ValueError` without one) |
 | `conn->intransaction()` | Whether a transaction is open |
-| `conn->close()` | Closes the connection; an open transaction is rolled back. Closing again has no effect; any other call afterwards is a `ValueError` |
+| `conn->close()` | Closes the connection; an open transaction is rolled back. Closing again has no effect; any other call afterwards is a `ValueError`, except `closed()` |
+| `conn->closed()` | Whether the connection is closed (also while a cursor is open) |
 
 Errors the database reports are a `DBError` with its message, after the
 member function's name and with SQLite's error code
@@ -1037,7 +1045,7 @@ main() {
 | `q->orderby(sql)` | A query that sorts by the SQL text (`"name"`, `"price DESC, name"`) |
 | `q->limit(n [, offset])` | A query for at most `n` rows, after skipping `offset` |
 | `q->include(name, ...)` | A query that also fills the relation members `name`, ... of the objects it finds: one more query per relation, not one per object |
-| `q->all()`, `q->first()` | The objects the query finds (a vector), or the first one (or `nil`) |
+| `q->all()`, `q->first()` | The objects the query finds (a vector), or the first one (or `nil`, also after `limit(0)`, which finds none) |
 | `q->count()` | How many rows it finds |
 | `q->delete()` | Deletes the rows `where` selects; gives how many (`orderby` and `limit` are a `ValueError` here) |
 
@@ -1326,7 +1334,8 @@ and `"/a/b"` are the same, and `..` stops at the top.
 | `c->mkdir(path)`, `c->remove(path)` | Makes a directory; removes a file or an empty directory |
 | `c->rename(from, to)` | Renames (moves) a file or directory. 9P2000 can only rename within a directory (another directory is an `IOError`); 9P2000.L can also move |
 | `c->version()` | The version spoken: `"9P2000.L"` or `"9P2000"` |
-| `c->close()` | Closes the connection (closing again has no effect). Using a closed client is a `ValueError`, except `version()` and `close()` |
+| `c->close()` | Closes the connection (closing again has no effect). Using a closed client is a `ValueError`, except `version()`, `close()` and `closed()` |
+| `c->closed()` | Whether the client is closed: by `close()`, or because the connection was lost |
 | `new p9::Tree()` | An empty tree, for `p9::serve` |
 | `t->file(path, content [, write])` | A file at `path`; the directories above it are made. `content` is a string, or a function that gives the content as a string; it is called each time a client opens the file. With `write`, a function, clients may write the file: when a client closes it, `write(data)` gets what the client wrote. A file already at `path` is replaced (clients see the new content the next time they open it). A path through a file, a file where a directory is (or the other way round), `"/"` as a file, and removing `"/"` or what is not there are a `ValueError` |
 | `t->dir(path)` | A directory at `path`, and those above it |
@@ -1336,6 +1345,7 @@ and `"/a/b"` are the same, and `..` stops at the top.
 | `p9::serve(tree, address)` | Serves the tree (or a `p9::Disk` on its own) at `address`, in both versions (each client picks one), and gives a `p9::Server`. An address that cannot be listened on (in use, no permission) is a `NetError` |
 | `s->endpoint()` | The address served, with the port that port 0 picked (`"tcp://127.0.0.1:43127"`); for every interface, the address the system reports (`"tcp://[::]:5640"`) |
 | `s->close()` | Stops the server: it no longer listens, and closes each connection once the request it is answering is answered (so a function of the tree may close its own server). Closing again has no effect |
+| `s->closed()` | Whether the server is closed |
 
 A file whose content is a string has that size; a file with a content
 function has size 0 (it has no content until it is opened), as files that
@@ -1745,7 +1755,7 @@ closed)`), a frame as `tk::Frame`.
 | `l->items()`, `l->setitems(v)` | The lines |
 | `l->selected()`, `l->setselected(v)` | The indexes of the lines chosen, a vector (`[]`: none); an index that is not a line's is a `ValueError` |
 | `l->onselect(f)` | `f(selected)` is called when the user changes the lines chosen |
-| `new tk::Scale(parent [, options])` | A slider for a number. Options: `from` and `to` (the ends: 0 and 100 when left out; numbers from -1e9 to 1e9), `step` (the values are `from` plus a multiple of it; 0, the default: any value), `orient` (`"horizontal"`, the default, `"vertical"`), `length` (pixels), `state` |
+| `new tk::Scale(parent [, options])` | A slider for a number. Options: `from` and `to` (the ends: 0 and 100 when left out; numbers from -1e9 to 1e9), `step` (the values are `from` plus a multiple of it; 0, the default: any value), `orient` (`"horizontal"`, the default, `"vertical"`), `length` (pixels), `state`; and in the constructor only, `label` (a text above the slider) and `showvalue` (`true`: the value beside it, as an int or with as many decimals as the step has, 2 without a step). With either, the slider sits in a frame of its own with them, which `pack` and `grid` place |
 | `s->value()`, `s->setvalue(x)` | The value: an int when a `step` is given and `from` and `step` are whole numbers, else a float; `setvalue` puts `x` (any number) within the range and on a step (the end of the range is a value only when the range holds whole steps: from 0 to 10 in steps of 3, the largest is 9) |
 | `s->onchange(f)` | `f(value)` is called when the user moves the slider to another value |
 | `new tk::Combobox(parent [, lines] [, options])` | A field with a drop-down list of lines to choose from (a vector of strings). Options: `width` (characters), `height` (lines in the list), `font`, `justify`, `state` (`"normal"`, the default: the text can also be typed; `"readonly"`: only chosen; `"disabled"`) |
@@ -1807,12 +1817,14 @@ main() {
 |---|---|
 | `new tk::Image(path)` | The picture in a PNG or GIF file (a regular file, at most 64 MB). The file is read by kukel: an `IOError` when it cannot be (or is not a regular file, such as a pipe or a device), a `ValueError` when it is not PNG or GIF (or Tk cannot read it) |
 | `img->width()`, `img->height()` | Its size in pixels |
+| `img->free()` | Frees the picture in Tk (a program that makes many images frees those it no longer shows). Labels, buttons and canvas items that show it go blank (a canvas item stays, without a picture); giving it to a widget or canvas afterwards is a `ValueError`; `width()` and `height()` still give its size. Freeing again, or after Tk ended, has no effect |
 
 Labels and buttons show an image with the option `image`, and the option
 `compound` says where it goes next to the text: `"left"`, `"right"`,
 `"top"`, `"bottom"`, `"center"`, `"image"` (the image only), `"text"`
 (the text only), or `"none"` (the image instead of the text). On a canvas,
-`c->image(x, y, img)`. An image prints as `tk::Image("path", 40x30)`.
+`c->image(x, y, img)`. An image prints as `tk::Image("path", 40x30)`, once
+freed as `tk::Image("path", freed)`.
 
 **Canvas.** A surface to draw on. Each item drawn has an id (an int);
 coordinates are numbers (pixels, from -1e6 to 1e6), points are vectors
@@ -1829,7 +1841,7 @@ coordinates are numbers (pixels, from -1e6 to 1e6), points are vectors
 | `c->image(x, y, img [, options])` | A `tk::Image` at `x, y`. Option: `anchor` (as for `text`) |
 | `c->coords(id)`, `c->setcoords(id, ...)` | An item's coordinates (a vector); set as the item was made (a vector of points, or the numbers) |
 | `c->move(item, dx, dy)` | Moves an item (`dx`, `dy`: numbers from -1e6 to 1e6, and the item must stay within the coordinates); `item` is an id, or a tag for all the items with it (none: nothing happens) |
-| `c->configureitem(item, options)` | Changes the options of an item, or of the items with a tag (each option must be one of every item's kind) |
+| `c->configureitem(item, options)` | Changes the options of an item, or of the items with a tag (each option must be one of every item's kind); also `text`, a text item's text, and `image`, an image item's `tk::Image` |
 | `c->raise(item)`, `c->lower(item)` | Puts an item (or the items with a tag, in their order) above, or below, all the others |
 | `c->remove(item)`, `c->clear()` | Removes an item (or the items with a tag), or all |
 | `c->tag(id, tag)`, `c->untag(id, tag)`, `c->tagged(tag)` | Gives an item a tag, or takes it away; the ids of the items with a tag (bottom to top). A tag is a name of letters, digits and `_` not starting with a digit; an item may have several |
@@ -2047,7 +2059,8 @@ on every interface), `"ipc://path"` (a Unix socket file) or `"inproc://name"`
 | `s->subscribe(prefix)`, `s->unsubscribe(prefix)` | A SUB socket receives the messages that start with one of its prefixes (`""`: all of them); other socket types give a `ValueError`. Subscriptions take a moment to reach the PUB socket: messages published right after `subscribe` may be missed |
 | `s->type()`, `s->endpoint()` | The type, and the last endpoint bound to or connected to (`""` if none; after a bind, the address as bound, with the port that port 0 picked) |
 | `zmq::poll(sockets [, timeout])` | Waits until one of the sockets (a vector) has a message and gives that socket, whose `receive()` then gives the message at once; `nil` after `timeout` seconds. When several have one, the earliest in the vector wins. No message is lost: the others stay with their sockets. An empty vector, a closed socket, one with an `onmessage` handler, or a PUSH or PUB socket is a `ValueError` |
-| `s->close()` | Closes the socket (closing again has no effect). If the socket sent a message less than 0.1 seconds before, `close` waits until 0.1 seconds have passed, so that the message still leaves. Using a closed socket is a `ValueError`, except `type()`, `endpoint()` and `close()` |
+| `s->close()` | Closes the socket (closing again has no effect). If the socket sent a message less than 0.1 seconds before, `close` waits until 0.1 seconds have passed, so that the message still leaves. Using a closed socket is a `ValueError`, except `type()`, `endpoint()`, `close()` and `closed()` |
+| `s->closed()` | Whether the socket is closed |
 
 A socket prints as `zmq::Socket(REQ, tcp://localhost:5555)`, without an
 endpoint as `zmq::Socket(REQ)`, and once closed as `zmq::Socket(REQ,

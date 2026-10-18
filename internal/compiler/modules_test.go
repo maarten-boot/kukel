@@ -57,6 +57,7 @@ func TestModules(t *testing.T) {
 		{"use util; main() { util::_g(); }", "t.kkl:1:26: util::_g is private to module util (names starting with '_' are)"},
 		{"use util; class X : util::_Hidden {} main() {}", "t.kkl:1:27: util::_Hidden is private to module util"},
 		{"use util; main() { util::h(); }", "t.kkl:1:26: module util has no h"},
+		{"use util; class D : util::Base { D(); } D::D() { util::Base(1); } main() {}", "t.kkl:1:60: util::Base(...) calls the class; call its constructor as util::Base::Base(...)"},
 		{"main() { util::f(1); }", "t.kkl:1:10: util is not a module used by this file (add 'use util;' at the top)"},
 		{"use util; main() { util::f(); }", "t.kkl:1:27: util::f expects 1 argument(s), got 0"},
 		{"use util; main() { new util::Base(); }", "t.kkl:1:20: util::Base::Base expects 1 argument(s), got 0"},
