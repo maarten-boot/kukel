@@ -8,9 +8,12 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/maarten-boot/kukel/internal/compiler"
 	"github.com/maarten-boot/kukel/internal/modules/dbmod"
@@ -710,25 +713,55 @@ type exampleCase struct {
 	code                 int
 }
 
-// exampleCases reads a .tests file: "$ args" starts a case; then the
-// standard output, "! " lines of standard error and an "exit N" line.
-// Comments (#) and blank lines between cases are skipped.
+// exampleCases reads a .tests file: "$ args" (or "$" alone: no
+// arguments) starts a case; then the standard output, "! " lines of
+// standard error and a last "exit N" line. Blank lines and comments (#) at
+// the end of a case, before the next one, are skipped; inside the output
+// they belong to it.
 func exampleCases(text string) []exampleCase {
 	var cases []exampleCase
+	var bodies [][]string
 	for _, line := range strings.Split(text, "\n") {
 		switch {
-		case strings.HasPrefix(line, "$ "):
-			cases = append(cases, exampleCase{args: line[2:]})
-		case len(cases) == 0 || strings.HasPrefix(line, "#") || line == "":
-		case strings.HasPrefix(line, "! "):
-			cases[len(cases)-1].stderr += line[2:] + "\n"
-		case strings.HasPrefix(line, "exit "):
-			cases[len(cases)-1].code, _ = strconv.Atoi(line[5:])
-		default:
-			cases[len(cases)-1].stdout += line + "\n"
+		case line == "$" || strings.HasPrefix(line, "$ "):
+			cases = append(cases, exampleCase{args: strings.TrimPrefix(line[1:], " ")})
+			bodies = append(bodies, nil)
+		case len(cases) > 0:
+			bodies[len(bodies)-1] = append(bodies[len(bodies)-1], line)
+		}
+	}
+	for i, lines := range bodies {
+		for n := len(lines); n > 0 && (lines[n-1] == "" || strings.HasPrefix(lines[n-1], "#")); n = len(lines) {
+			lines = lines[:n-1]
+		}
+		c := &cases[i]
+		if n := len(lines); n > 0 && strings.HasPrefix(lines[n-1], "exit ") {
+			if code, err := strconv.Atoi(lines[n-1][5:]); err == nil {
+				c.code, lines = code, lines[:n-1]
+			}
+		}
+		for _, line := range lines {
+			if line == "!" || strings.HasPrefix(line, "! ") {
+				c.stderr += strings.TrimPrefix(line[1:], " ") + "\n"
+			} else {
+				c.stdout += line + "\n"
+			}
 		}
 	}
 	return cases
+}
+
+// Blank lines and comments belong to the output inside a case, and are
+// skipped between cases; "$" alone is a case without arguments.
+func TestExampleCases(t *testing.T) {
+	text := "# header\n\n$\n! no args\nexit 2\n\n# next\n$ a 'b c'\none\n\n# not a comment\ntwo\n!\nexit 1\n\n\n# end\n"
+	want := []exampleCase{
+		{args: "", stderr: "no args\n", code: 2},
+		{args: "a 'b c'", stdout: "one\n\n# not a comment\ntwo\n", stderr: "\n", code: 1},
+	}
+	if got := exampleCases(text); !slices.Equal(got, want) {
+		t.Errorf("got %+v\nwant %+v", got, want)
+	}
 }
 
 // splitArgs splits the arguments of a case at spaces; '...' quotes one, and
@@ -771,6 +804,39 @@ func TestExamplesFormatted(t *testing.T) {
 	var out, errOut bytes.Buffer
 	if code := run(append([]string{"fmt", "-l"}, files...), nil, &out, &errOut); code != 0 || out.Len() > 0 {
 		t.Errorf("kukel fmt -l: exit %d, %s%s", code, out.String(), errOut.String())
+	}
+}
+
+// grep -r and wc report a directory they cannot read and go on with the
+// others (the .tests files cannot make one).
+func TestExamplesUnreadableDirectory(t *testing.T) {
+	examples, err := filepath.Abs("../../examples")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(t.TempDir())
+	os.MkdirAll("tree/locked", 0o777)
+	os.WriteFile("tree/a.txt", []byte("one error\n"), 0o644)
+	os.WriteFile("tree/locked/b.txt", []byte("two errors\n"), 0o644)
+	os.WriteFile("c.txt", []byte("an error\n"), 0o644)
+	os.Chmod("tree/locked", 0)
+	defer os.Chmod("tree/locked", 0o777)
+	if _, err := os.ReadDir("tree/locked"); err == nil {
+		t.Skip("permissions are not enforced here (root?)")
+	}
+	for _, tc := range []struct {
+		args         []string
+		stdout, want string
+		code         int
+	}{
+		{[]string{"grep.kkl", "-r", "error", "tree", "c.txt"}, "tree/a.txt:one error\nc.txt:an error\n", "grep: fs::walk: tree/locked: permission denied\n", 2},
+		{[]string{"wc.kkl", "tree", "c.txt"}, "      1       2      10 tree/a.txt\n      1       2       9 c.txt\n      2       4      19 total\n", "wc: fs::walk: tree/locked: permission denied\n", 1},
+	} {
+		var out, errOut bytes.Buffer
+		args := append([]string{"run", filepath.Join(examples, tc.args[0]), "--"}, tc.args[1:]...)
+		if code := run(args, nil, &out, &errOut); code != tc.code || out.String() != tc.stdout || errOut.String() != tc.want {
+			t.Errorf("%s: exit %d, stdout %q, stderr %q; want exit %d, %q, %q", tc.args[0], code, out.String(), errOut.String(), tc.code, tc.stdout, tc.want)
+		}
 	}
 }
 
@@ -868,5 +934,66 @@ func TestScript(t *testing.T) {
 	errOut.Reset()
 	if code := run([]string{"frobnicate"}, nil, &out, &errOut); code != 2 || !strings.Contains(errOut.String(), "unknown command") {
 		t.Errorf("an unknown command: exit %d, %q", code, errOut.String())
+	}
+}
+
+// timedWriter notes when each line arrives.
+type timedWriter struct {
+	mu    sync.Mutex
+	lines []string
+	at    []time.Time
+}
+
+func (w *timedWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, line := range strings.SplitAfter(string(p), "\n") {
+		if line != "" {
+			w.lines = append(w.lines, line)
+			w.at = append(w.at, time.Now())
+		}
+	}
+	return len(p), nil
+}
+
+// Standard output is buffered, but written out before the program waits:
+// each line is seen while the wait after it runs, not at the end.
+func TestOutputBeforeWait(t *testing.T) {
+	src := `use time;
+use events;
+use worker;
+busy() { // without a wait of its own, which would write out the output
+    local t = clock();
+    while (clock() - t < 0.6) {}
+}
+main() {
+    println("sleep");
+    time::sleep(0.3);
+    println("run");
+    events::after(0.3, fn() {});
+    events::run();
+    println("receive");
+    local w = worker::start(busy);
+    w->receive(0.3);
+    println("wait");
+    w->wait();
+    println("end");
+}
+`
+	path := filepath.Join(t.TempDir(), "wait.kkl")
+	os.WriteFile(path, []byte(src), 0o644)
+	var out timedWriter
+	var errOut bytes.Buffer
+	if code := run([]string{"run", path}, nil, &out, &errOut); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	want := []string{"sleep\n", "run\n", "receive\n", "wait\n", "end\n"}
+	if !slices.Equal(out.lines, want) {
+		t.Fatalf("output %q, want %q", out.lines, want)
+	}
+	for i := 1; i < len(out.at); i++ {
+		if d := out.at[i].Sub(out.at[i-1]); d < 200*time.Millisecond {
+			t.Errorf("%q came %v after %q: written out only after the wait", out.lines[i], d, out.lines[i-1])
+		}
 	}
 }

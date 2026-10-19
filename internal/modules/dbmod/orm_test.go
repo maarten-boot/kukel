@@ -155,3 +155,44 @@ nil
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+// lastid() is nil after an INSERT that adds no row, after migrate of a
+// complete table and after delete(p) of an object without an id; after
+// save of a row already there, it is that row's id.
+func TestLastIDCrossCheck9(t *testing.T) {
+	got := run(t, `use db;
+class Pen { id, name; }
+main() {
+    local conn = db::open("sqlite::memory:");
+    conn->exec("CREATE TABLE t (id INTEGER PRIMARY KEY, a UNIQUE)");
+    local statements = ["INSERT INTO t (a) VALUES (1)", "INSERT OR IGNORE INTO t (a) VALUES (1)",
+                        "INSERT INTO t (a) VALUES (2)", "INSERT INTO t (a) VALUES (2) ON CONFLICT DO NOTHING",
+                        "INSERT INTO t (a) VALUES (3)", "INSERT INTO t (a) SELECT a FROM t WHERE a > 9"];
+    for (local s in statements) println(conn->exec(s), conn->lastid());
+    conn->migrate(Pen);
+    local p = conn->save(new Pen());
+    println(conn->lastid());
+    conn->migrate(Pen);
+    println(conn->lastid());
+    conn->save(new Pen());
+    p->name = "red";
+    conn->save(p);
+    println(conn->lastid());
+    conn->save(new Pen());
+    println(conn->delete(new Pen()), conn->lastid());
+}`)
+	want := `1 1
+0 nil
+1 2
+0 nil
+1 3
+0 nil
+1
+nil
+1
+false nil
+`
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}

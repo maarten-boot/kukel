@@ -13,14 +13,14 @@ import (
 //	%Y year (2026)          %m month (01-12)        %d day (01-31)
 //	%e day, space-padded    %H hour (00-23)         %I hour (01-12)
 //	%M minute (00-59)       %S second (00-60)       %f microseconds (000000-999999)
-//	%p AM or PM             %y year (00-99)         %j day of the year (001-366)
+//	%p AM or PM             %y year % 100 (00-99)   %j day of the year (001-366)
 //	%b month (Jan)          %B month (January)      %a weekday (Mon)
 //	%A weekday (Monday)     %z offset (+0200)       %Z zone abbreviation (CEST)
 //	%% a "%"
 //
 // Parsing takes the same directives except %Z (zone abbreviations are
 // ambiguous; use %z). Numbers may have fewer digits than shown (%Y at most
-// 4); %f reads 1 to 9 digits as a fraction of a second; %z also reads "Z",
+// 4 when another directive follows at once, else more); %f reads 1 to 9 digits as a fraction of a second; %z also reads "Z",
 // "+02" and "+02:00"; %y reads 69-99 as 1969-1999 and 00-68 as 2000-2068;
 // %Y may have a sign. %I and %p come together (%H for 00-23). A weekday
 // (%a, %A) and a day of the year (%j, next to a date) must match the date.
@@ -61,8 +61,8 @@ func format(t stdtime.Time, f string) (string, error) {
 			} else {
 				b.WriteString("PM")
 			}
-		case 'y':
-			fmt.Fprintf(&b, "%02d", t.Year()%100)
+		case 'y': // also for years before 1: -5 is 95
+			fmt.Fprintf(&b, "%02d", (t.Year()%100+100)%100)
 		case 'j':
 			fmt.Fprintf(&b, "%03d", t.YearDay())
 		case 'b':
@@ -168,7 +168,13 @@ func parseFormat(text, f string, loc *stdtime.Location) (stdtime.Time, error) {
 		}
 		switch f[i] {
 		case 'Y':
-			year, err = p.number(4, true, "a year")
+			// At most 4 digits before another directive (%Y%m%d), else
+			// all of them, as format writes years after 9999.
+			digits := 4
+			if i+1 == len(f) || f[i+1] != '%' {
+				digits = 12
+			}
+			year, err = p.number(digits, true, "a year")
 		case 'y':
 			if year, err = p.number(2, false, "a two-digit year"); year < 69 {
 				year += 2000

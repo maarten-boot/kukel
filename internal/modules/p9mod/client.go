@@ -4,10 +4,12 @@ package p9mod
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -91,7 +93,13 @@ func dial(network, addr string, o dialOptions) (remote, error) {
 		}
 		r, err := dialL(c, o.aname)
 		var refused *attachError
-		if err == nil || o.version == "9P2000.L" || errors.As(err, &refused) || time.Now().After(deadline) {
+		if err == nil || errors.As(err, &refused) {
+			return r, err
+		}
+		if time.Now().After(deadline) {
+			return nil, silent(o)
+		}
+		if o.version == "9P2000.L" {
 			return r, err
 		}
 		errL = err
@@ -102,10 +110,19 @@ func dial(network, addr string, o dialOptions) (remote, error) {
 	}
 	r, err := dial2000(c, o.user, o.aname)
 	var refused *attachError
+	if err != nil && !errors.As(err, &refused) && time.Now().After(deadline) {
+		return nil, silent(o)
+	}
 	if err != nil && errL != nil && !errors.As(err, &refused) {
 		return nil, errors.New("the server speaks neither 9P2000.L (" + errL.Error() + ") nor 9P2000 (" + err.Error() + ")")
 	}
 	return r, err
+}
+
+// silent is the error for a server that took the connection but gave no
+// 9P answer in time (it may speak another protocol).
+func silent(o dialOptions) error {
+	return fmt.Errorf("no 9P answer within %s seconds", strconv.FormatFloat(o.timeout.Seconds(), 'g', -1, 64))
 }
 
 // lost reports whether err is the connection failing, not a refusal of
@@ -154,6 +171,13 @@ func dialL(c net.Conn, aname string) (remote, error) {
 		return nil, err
 	}
 	root, err := pc.Attach(aname)
+	if err == nil { // the top must be a directory (the server's library cannot refuse a file)
+		var q p9.QID
+		if q, _, _, err = root.GetAttr(p9.AttrMask{Mode: true}); err == nil && q.Type&p9.TypeDir == 0 {
+			root.Close()
+			err = linux.ENOTDIR
+		}
+	}
 	if err != nil {
 		pc.Close()
 		if !lost(err) {
@@ -167,8 +191,14 @@ func dialL(c net.Conn, aname string) (remote, error) {
 
 func (r *clientL) version() string { return "9P2000.L" }
 
+// walk walks to the file at p. A walk through a file fails with EINVAL or
+// ENOTDIR (depending on the server): the file is not there, as 9P2000
+// says.
 func (r *clientL) walk(p string) (p9.File, error) {
 	_, f, err := r.root.Walk(names(p))
+	if errors.Is(err, linux.EINVAL) || errors.Is(err, linux.ENOTDIR) {
+		err = linux.ENOENT
+	}
 	return f, err
 }
 

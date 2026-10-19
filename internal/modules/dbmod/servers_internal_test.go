@@ -21,12 +21,20 @@ func TestSourceOf(t *testing.T) {
 			t.Errorf("%s: got %+v, %v", tc.url, s, err)
 		}
 	}
-	for _, bad := range []string{"shop.db", "sqlite:", "oracle://u:pw@h/db", "postgres:///db"} {
+	for _, bad := range []string{"shop.db", "sqlite:", "oracle://u:pw@h/db", "postgres:///db", "mysql://u:pw@/db"} {
 		if _, err := sourceOf(bad); err == nil {
 			t.Errorf("%s: no error", bad)
 		} else if s := err.Error(); strings.Contains(s, "pw@") {
 			t.Errorf("%s: the message shows the password: %s", bad, s)
 		}
+	}
+}
+
+// A server URL without a host says so.
+func TestSourceNoHost(t *testing.T) {
+	_, err := sourceOf("postgres://u:pw@/shop")
+	if want := `"postgres://u:***@/shop" has no host: a postgres:// URL needs one (postgres://user:password@host/database)`; err == nil || err.Error() != want {
+		t.Errorf("got %v, want %s", err, want)
 	}
 }
 
@@ -40,6 +48,9 @@ func TestSQLForPostgres(t *testing.T) {
 		{"SELECT ? -- what?\n, ? /* why? */ , ?", "SELECT $1 -- what?\n, $2 /* why? */ , $3"},
 		{"SELECT $$a?b$$, $tag$?$tag$, ?::text", "SELECT $$a?b$$, $tag$?$tag$, $1::text"},
 		{"SELECT $1", "SELECT $1"},
+		{"SELECT ?, $2, ? + $1", "SELECT $3, $2, $4 + $1"}, // after the highest $n
+		{"SELECT a$1, '$9', ?", "SELECT a$1, '$9', $1"},    // not parameters
+
 		{`SELECT E'it\'s ?', e'\\', ?, name'?'`, `SELECT E'it\'s ?', e'\\', $1, name'?'`},
 		{"SELECT 'unterminated ?", "SELECT 'unterminated ?"},
 	}

@@ -57,10 +57,15 @@ $ -x a
 exit 2
 ```
 
-A case starts with `$ ` and the program's arguments: `'...'` quotes an
-argument with spaces or backslashes, and `< file` gives the file as
-standard input. The lines after it are the expected standard output, lines
-starting with `! ` the expected standard error, and `exit N` the expected
-exit code (0 when there is none). The files the programs read are in
-`testdata/`. The programs are also kept formatted (`kukel fmt -l` lists
-none).
+A case starts with `$ ` and the program's arguments (`$` alone: none):
+`'...'` quotes an argument with spaces or backslashes (`''` is an empty
+one; a `'` inside an argument cannot be written), and `< file` gives the
+file as standard input. The lines after it are the expected standard
+output, lines starting with `! ` the expected standard error (`!` alone:
+an empty line), and a last line `exit N` the expected exit code (0 when
+there is none). Blank lines and comments (`#`) at the end of a case,
+before the next `$`, are skipped; inside the output they are part of it.
+So the output cannot end with a blank line or a line starting with `#`,
+no output line can start with `$ ` or `! `, and the last one cannot be
+`exit N`. The files the programs read are in `testdata/`. The programs
+are also kept formatted (`kukel fmt -l` lists none).

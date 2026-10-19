@@ -477,7 +477,7 @@ main(args) {
     for (local v in [nil, "9P2000", "9P2000.L"]) {
         local o = {"timeout": 0.5}, t0 = clock();
         if (v != nil) o["version"] = v;
-        try { p9::dial("tcp://" + args[0], o); } catch (e) { println(e->kind, clock() - t0 < 3); }
+        try { p9::dial("tcp://" + args[0], o); } catch (e) { println(e->kind, replace(e->message, args[0], "ADDR"), clock() - t0 < 3); }
     }
     local t = new p9::Tree();
     t->file("/a/b", "x");
@@ -486,8 +486,10 @@ main(args) {
     local s = p9::serve(t, "tcp://127.0.0.1:0");
     for (local v in ["9P2000", "9P2000.L"]) {
         try { p9::dial(s->endpoint(), {"aname": "/nope", "version": v}); } catch (e) { println(e->kind, find(e->message, "the server refuses the attach to \"/nope\"") > 0); }
+        try { p9::dial(s->endpoint(), {"aname": "/a/b", "version": v}); } catch (e) { println(e->kind, slice(e->message, find(e->message, "the server"))); }
         local c = p9::dial(s->endpoint(), {"version": v});
-        println(c->exists("/a/b"), c->exists("/a/nope"), c->exists("/nope/x"));
+        try { c->rename("/a/b", "/"); } catch (e) { println(e->kind, e->message); }
+        println(c->exists("/a/b"), c->exists("/a/nope"), c->exists("/nope/x"), c->exists("/a/b/x"), c->exists("/m/p9.go/x"));
         try { c->read("/m/nope/deeper"); } catch (e) { println(e->kind); }
         try { c->mkdir("/"); } catch (e) { println(e->kind, e->message); }
         local s2 = p9::serve(t, "tcp://127.0.0.1:0");
@@ -499,18 +501,22 @@ main(args) {
     }
     s->close();
 }`, ln.Addr().String())
-	want := `NetError true
-NetError true
-NetError true
+	want := `NetError p9::dial: tcp://ADDR: no 9P answer within 0.5 seconds true
+NetError p9::dial: tcp://ADDR: no 9P answer within 0.5 seconds true
+NetError p9::dial: tcp://ADDR: no 9P answer within 0.5 seconds true
 p9::Tree::remove: /m is a mounted disk directory: the tree does not reach into it
 IOError true
-true false false
+IOError the server refuses the attach to "/a/b": not a directory
+IOError p9::Client::rename: /: the top directory cannot be written, made, renamed or removed
+true false false false false
 IOError
 IOError p9::Client::mkdir: /: the top directory cannot be written, made, renamed or removed
 NetError true
 true
 IOError true
-true false false
+IOError the server refuses the attach to "/a/b": not a directory
+IOError p9::Client::rename: /: the top directory cannot be written, made, renamed or removed
+true false false false false
 IOError
 IOError p9::Client::mkdir: /: the top directory cannot be written, made, renamed or removed
 NetError true

@@ -48,6 +48,10 @@ func init() {
 				}, 5*time.Millisecond)
 				return value.NilValue, nil
 			},
+			// heap(): the number of timers in the loop's heap.
+			"heap": func(env value.Env, args []value.Value) (value.Value, error) {
+				return value.MakeInt(int64(eventsmod.HeapLen(eventsmod.For(env)))), nil
+			},
 			"spawn": func(env value.Env, args []value.Value) (value.Value, error) {
 				a, err := native.Check("evtest::spawn", args, 2, 2)
 				if err != nil {
@@ -148,5 +152,29 @@ main() {
 }`)
 	if got != "7 1 5 true true\n" {
 		t.Errorf("got %q", got)
+	}
+}
+
+// A cancelled timer leaves the heap at once, not at its deadline (300,000
+// cancelled timers took 62 MB). Fixes of cross-check 9: a timer shows its
+// interval as written, onerror names nil as allowed.
+func TestCrossCheck9(t *testing.T) {
+	got := run(t, `use events; use evtest;
+main() {
+    for (local i = 0; i < 1000; i++) events::after(1e8, println)->cancel();
+    local keep = events::after(1e8, println), tick = events::every(1, println), half = events::every(0.5, println);
+    for (local i = 0; i < 1000; i++) events::every(1e8, println)->cancel();
+    println(evtest::heap(), events::pending(), tick, half);
+    keep->cancel(); tick->cancel(); half->cancel();
+    println(evtest::heap(), events::pending(), tick);
+    events::run();
+    try { events::onerror(3); } catch (e) { println(e->message); }
+}`)
+	want := `3 3 events::Timer(every 1s) events::Timer(every 0.5s)
+0 0 events::Timer(cancelled)
+events::onerror: argument 1 must be a function or nil, not int
+`
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }

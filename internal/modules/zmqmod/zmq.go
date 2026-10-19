@@ -4,8 +4,11 @@ package zmqmod
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log"
+	"net"
+	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -193,7 +196,7 @@ func bind(a native.Args, env value.Env, s *socket) (value.Value, error) {
 		return value.NilValue, err
 	}
 	if err := s.s.Listen(ep); err != nil {
-		return value.NilValue, a.Errorf(NetError, "%v", err)
+		return value.NilValue, a.Errorf(NetError, "%s: %s", ep, netMessage(err))
 	}
 	s.endpoint = ep
 	if addr := s.s.Addr(); addr != nil && strings.HasPrefix(ep, "tcp://") {
@@ -208,11 +211,29 @@ func connect(a native.Args, env value.Env, s *socket) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, err
 	}
+	native.Flush(env) // it may retry for a while
 	if err := s.s.Dial(ep); err != nil {
-		return value.NilValue, a.Errorf(NetError, "%v", err)
+		return value.NilValue, a.Errorf(NetError, "%s: %s", ep, netMessage(err))
 	}
 	s.endpoint = ep
 	return value.NilValue, nil
+}
+
+// netMessage is what went wrong in a bind or connect, without zmq4's and
+// Go's words around it ("connection refused", "address already in use").
+func netMessage(err error) string {
+	var dns *net.DNSError
+	var sys *os.SyscallError
+	var op *net.OpError
+	switch {
+	case errors.As(err, &dns):
+		return "host " + dns.Name + " not found"
+	case errors.As(err, &sys):
+		return sys.Err.Error()
+	case errors.As(err, &op):
+		return op.Err.Error()
+	}
+	return err.Error()
 }
 
 // s->send(message): a string, or a vector of strings for a message of
@@ -297,14 +318,11 @@ func receive(a native.Args, env value.Env, s *socket) (value.Value, error) {
 	}
 	var expired <-chan time.Time
 	if a.Has(0) {
-		secs, err := a.Number(0)
+		d, err := a.Seconds(0, "a usable timeout")
 		if err != nil {
 			return value.NilValue, err
 		}
-		if secs != secs || secs < 0 {
-			return value.NilValue, a.Errorf(value.ValueError, "%s seconds is not a usable timeout", a.V[0].String())
-		}
-		t := time.NewTimer(time.Duration(secs * float64(time.Second)))
+		t := time.NewTimer(d)
 		defer t.Stop()
 		expired = t.C
 	}
@@ -312,6 +330,13 @@ func receive(a native.Args, env value.Env, s *socket) (value.Value, error) {
 		s.got = nil
 		return received(a, *r)
 	}
+	select {
+	case r := <-s.startRecv(): // there already
+		s.pending = nil
+		return received(a, r)
+	default:
+	}
+	native.Flush(env)
 	select {
 	case r := <-s.startRecv():
 		s.pending = nil
@@ -367,7 +392,10 @@ func onmessage(a native.Args, env value.Env, s *socket) (value.Value, error) {
 		r := <-first
 		for r.err == nil {
 			msg := message(r.msg)
-			loop.Post(func() error {
+			loop.Post(func() error { // on the interpreter's goroutine
+				if s.closed { // by a handler: the messages queued after that are dropped
+					return nil
+				}
 				_, err := env.Call(f, []value.Value{msg})
 				return err
 			})
@@ -445,6 +473,12 @@ func poll(env value.Env, args []value.Value) (value.Value, error) {
 		}
 		socks[i] = s
 	}
+	timeout := time.Duration(-1)
+	if a.Has(1) {
+		if timeout, err = a.Seconds(1, "a usable timeout"); err != nil {
+			return value.NilValue, err
+		}
+	}
 	for i, s := range socks { // a message poll found earlier, not yet received
 		if s.got != nil {
 			return elems[i], nil
@@ -455,18 +489,12 @@ func poll(env value.Env, args []value.Value) (value.Value, error) {
 		cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(s.startRecv())})
 	}
 	cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(env.Done())})
-	if a.Has(1) {
-		secs, err := a.Number(1)
-		if err != nil {
-			return value.NilValue, err
-		}
-		if secs != secs || secs < 0 {
-			return value.NilValue, a.Errorf(value.ValueError, "%s seconds is not a usable timeout", a.V[1].String())
-		}
-		t := time.NewTimer(time.Duration(secs * float64(time.Second)))
+	if timeout >= 0 {
+		t := time.NewTimer(timeout)
 		defer t.Stop()
 		cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.C)})
 	}
+	native.Flush(env)
 	chosen, recv, _ := reflect.Select(cases)
 	switch {
 	case chosen < len(socks):

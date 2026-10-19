@@ -50,15 +50,25 @@ exit 1
 
 $ -j 0 testdata/words.txt
 ! wc: -j needs at least 1 worker
-! usage: wc [-j N] [-json] path ...
+! usage: wc [-j N] [-json] [--] path ...
 exit 2
 
 $ -q testdata/words.txt
 ! wc: unknown option -q
-! usage: wc [-j N] [-json] path ...
+! usage: wc [-j N] [-json] [--] path ...
 exit 2
 
-$ 
+$ -j
+! wc: -j needs a number
+! usage: wc [-j N] [-json] [--] path ...
+exit 2
+
+$ -j 2 -- -j testdata/words.txt
+      3       4      23 testdata/words.txt
+! wc: readfile: -j: no such file or directory
+exit 1
+
+$
 ! wc: no files
-! usage: wc [-j N] [-json] path ...
+! usage: wc [-j N] [-json] [--] path ...
 exit 2

@@ -3,20 +3,24 @@
 // as each finishes the one before (module events); a directory counts the
 // files below it (module fs).
 //
-//     kukel run examples/wc.kkl -- [-j N] [-json] path ...
+//     kukel run examples/wc.kkl -- [-j N] [-json] [--] path ...
 //
 // -j is how many workers count (4 when left out); the output is the same
 // for any number: the files in the order given (below a directory, by
-// name). -json prints the counts as JSON (module json). The exit code is 0,
-// 1 when a file could not be read, 2 for a wrong command line.
+// name). -json prints the counts as JSON (module json); -- ends the
+// options. The exit code is 0, 1 when a file or directory could not be
+// read (the others are counted), 2 for a wrong command line.
 use events;
 use fs;
 use json;
 use worker;
 
+// Whether a directory could not be read (exit code 1).
+global failed = false;
+
 usage(why) {
     eprintln("wc:", why);
-    eprintln("usage: wc [-j N] [-json] path ...");
+    eprintln("usage: wc [-j N] [-json] [--] path ...");
     return 2;
 }
 
@@ -24,10 +28,15 @@ main(args) {
     local workers = 4, asJSON = false, i = 0;
 
     for (; i < len(args) && len(args[i]) > 0 && args[i][0] == '-'; i++) {
+        if (args[i] == "--") {
+            i++;
+            break;
+        }
+
         if (args[i] == "-json") {
             asJSON = true;
-        } else if (args[i] == "-j" && i + 1 < len(args)) {
-            i++;
+        } else if (args[i] == "-j") {
+            if (++i == len(args)) return usage("-j needs a number");
 
             try {
                 workers = int(args[i]);
@@ -97,7 +106,7 @@ count() {
 
 // report prints the counts, and gives the exit code.
 report(files, counts, asJSON) {
-    local total = [0, 0, 0], failed = false, out = [];
+    local total = [0, 0, 0], out = [];
 
     for (local n = 0; n < len(files); n++) {
         local c = counts[n];
@@ -131,17 +140,23 @@ column(n) {
 }
 
 // below gives the files in the directories of paths, and below them, in
-// the order walk finds them (by name); other paths stay as they are.
+// the order walk finds them (by name); other paths stay as they are. A
+// directory that cannot be read is reported, and the others are counted.
 below(paths) {
     local out = [];
 
     for (local p in paths) {
-        if (fs::exists(p) && fs::stat(p)["dir"]) {
-            fs::walk(p, fn(path, e) {
-                if (!e["dir"] && !e["link"]) push(out, path);
-            });
-        } else {
-            push(out, p);
+        try {
+            if (fs::exists(p) && fs::stat(p)["dir"]) {
+                fs::walk(p, fn(path, e) {
+                    if (!e["dir"] && !e["link"]) push(out, path);
+                });
+            } else {
+                push(out, p);
+            }
+        } catch (e) {
+            eprintln("wc:", e->message);
+            failed = true;
         }
     }
     return out;

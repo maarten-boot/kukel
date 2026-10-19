@@ -87,15 +87,16 @@ main() {
 }
 
 // Push and pull through the event loop; closing the socket in the handler
-// ends events::run().
+// ends events::run(), and the messages queued after it are not handled.
 func TestPushPullEvents(t *testing.T) {
-	got := run(t, `use zmq; use events;
+	got := run(t, `use zmq; use events; use time;
 main() {
     local pull = new zmq::Socket("PULL"), push = new zmq::Socket("PUSH"), n = 0;
     pull->bind("inproc://jobs");
     push->connect("inproc://jobs");
     pull->onmessage(fn(m) { println("job", m); if (++n == 3) pull->close(); });
-    for (local i = 1; i <= 3; i++) push->send(str(i));
+    for (local i = 1; i <= 6; i++) push->send(str(i));   // 4 to 6: not after the close
+    time::sleep(0.1);                                     // all arrive, queued for the handler
     events::run();
     push->close();
     println(pull);
@@ -239,6 +240,57 @@ ValueError: zmq::poll: no sockets to wait for
 TypeError: zmq::poll: element 1 of argument 1 must be a zmq::Socket, not int
 ValueError: zmq::poll: socket 1 is closed
 ValueError: zmq::poll: -1 seconds is not a usable timeout
+`
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// A timeout beyond what a Go duration holds (about 292 years) is no
+// limit; poll checks its timeout also when a socket is ready.
+func TestLongTimeouts(t *testing.T) {
+	got := run(t, `use zmq; use worker; use time;
+later() {
+    local push = new zmq::Socket("PUSH");
+    push->connect("inproc://long");
+    for (local m in ["one", "two", "three"]) { time::sleep(0.05); push->send(m); }
+    time::sleep(0.1);
+    push->close();
+}
+main() {
+    local pull = new zmq::Socket("PULL");
+    pull->bind("inproc://long");
+    local w = worker::start(later);
+    println(pull->receive(1e10));
+    println(zmq::poll([pull], 1e300) == pull, pull->receive(0));
+    println(zmq::poll([pull], float("inf")) == pull);
+    try { zmq::poll([pull], -1); } catch (e) { println(e->message); }
+    println(pull->receive(0));
+    w->wait();
+    pull->close();
+}`)
+	want := "one\ntrue two\ntrue\nzmq::poll: -1 seconds is not a usable timeout\nthree\n"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// Messages of bind and connect: the endpoint and what went wrong, not the
+// words of the library.
+func TestNetMessages(t *testing.T) {
+	got := run(t, `use zmq;
+main() {
+    local b = new zmq::Socket("REP");
+    b->bind("tcp://127.0.0.1:0");
+    local ep = b->endpoint();
+    for (local f in [fn() { new zmq::Socket("REP")->bind(ep); }, fn() { new zmq::Socket("REQ")->connect("ipc:///nonexistent/x"); },
+                     fn() { new zmq::Socket("REQ")->receive(1); }])
+        try { f(); } catch (e) { println(e->kind, replace(e->message, ep, "EP")); }
+    b->close();
+}`)
+	want := `NetError zmq::Socket::bind: EP: address already in use
+NetError zmq::Socket::connect: ipc:///nonexistent/x: no such file or directory
+NetError zmq::Socket::receive: no peer is connected (a REQ socket receives only after it sent a request)
 `
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)

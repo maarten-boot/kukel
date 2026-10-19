@@ -150,7 +150,9 @@ func open(env value.Env, args []value.Value) (value.Value, error) {
 		err = d.PingContext(ctx) // open the file or reach the server now, so that a bad URL fails here
 		done()
 	}
-	if err != nil {
+	if err != nil && src.dialect == sqlite { // its messages do not name the file
+		return value.NilValue, a.Errorf(DBError, "%s: %v", src.shown, err)
+	} else if err != nil {
 		return value.NilValue, a.Errorf(DBError, "%v", err)
 	}
 	return Conn.Object(&conn{url: src.shown, dialect: src.dialect, db: d, lastID: value.NilValue}), nil
@@ -217,6 +219,10 @@ func contextOf(env value.Env) (context.Context, func()) {
 func dbError(a native.Args, env value.Env, err error) error {
 	if e := env.Err(); e != nil && errors.Is(err, context.Canceled) {
 		return e
+	}
+	// SQLite's driver counts the parameters from 1, in its own words.
+	if n, ok := strings.CutPrefix(err.Error(), "missing argument with index "); ok {
+		return a.Errorf(DBError, "parameter %s has no value: the statement has more parameters (?) than the %d value(s) given", n, len(a.V)-1)
 	}
 	return a.Errorf(DBError, "%v", err)
 }
@@ -297,18 +303,21 @@ func exec(a native.Args, env value.Env, c *conn) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, dbError(a, env, err)
 	}
-	// Only an insert sets it: SQLite keeps an earlier insert's id over an
-	// UPDATE.
-	c.lastID = value.NilValue
-	if id, err := res.LastInsertId(); err == nil && id != 0 && inserts(text) {
-		c.lastID = value.MakeInt(id)
-	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return value.NilValue, nil
-	}
-	if c.dialect == sqlite && !changesRows(text) {
+		n = -1 // not known
+	} else if c.dialect == sqlite && !changesRows(text) {
 		n = 0
+	}
+	// Only an insert that added rows sets it: SQLite keeps an earlier
+	// insert's id over an UPDATE, and over an INSERT OR IGNORE that
+	// ignored its row.
+	c.lastID = value.NilValue
+	if id, err := res.LastInsertId(); err == nil && id != 0 && n != 0 && inserts(text) {
+		c.lastID = value.MakeInt(id)
+	}
+	if n < 0 {
+		return value.NilValue, nil
 	}
 	return value.MakeInt(n), nil
 }

@@ -217,6 +217,7 @@ func (l *Loop) run(a native.Args) error {
 			wait = time.NewTimer(time.Until(deadline))
 			due = wait.C
 		}
+		native.Flush(l.env)
 		select {
 		case <-l.wake:
 		case <-due:
@@ -257,6 +258,8 @@ type timer struct {
 	fn        value.Value
 	args      []value.Value
 	seq       uint64 // timers with the same deadline fire in the order they were made
+	index     int    // in the heap; -1 when not in it
+	every     string // the interval as written, for Show
 	cancelled bool
 	fired     bool // an after() timer that has run
 }
@@ -270,11 +273,20 @@ func (h timerHeap) Less(i, j int) bool {
 	}
 	return h[i].seq < h[j].seq
 }
-func (h timerHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
-func (h *timerHeap) Push(x any)   { *h = append(*h, x.(*timer)) }
+func (h timerHeap) Swap(i, j int) {
+	h[i], h[j] = h[j], h[i]
+	h[i].index, h[j].index = i, j
+}
+func (h *timerHeap) Push(x any) {
+	t := x.(*timer)
+	t.index = len(*h)
+	*h = append(*h, t)
+}
 func (h *timerHeap) Pop() any {
 	old := *h
 	t := old[len(old)-1]
+	old[len(old)-1] = nil
+	t.index = -1
 	*h = old[:len(old)-1]
 	return t
 }
@@ -298,7 +310,11 @@ var Timer = &native.Class{
 			t := this.State.(*timer)
 			if !t.cancelled && !t.fired {
 				t.cancelled = true
-				For(env).active--
+				l := For(env)
+				l.active--
+				if t.index >= 0 { // out of the heap now, not at its deadline
+					heap.Remove(&l.timers, t.index)
+				}
 			}
 			return value.NilValue, nil
 		},
@@ -319,7 +335,7 @@ var Timer = &native.Class{
 		case t.fired:
 			return "events::Timer(fired)"
 		case t.interval > 0:
-			return "events::Timer(every " + value.FormatFloat(t.interval.Seconds()) + "s)"
+			return "events::Timer(every " + t.every + "s)"
 		}
 		return "events::Timer(once)"
 	},
@@ -357,7 +373,7 @@ func newTimer(name string, repeat bool) native.Func {
 		d := time.Duration(secs * float64(time.Second))
 		t := &timer{deadline: time.Now().Add(d), fn: args[1], args: append([]value.Value(nil), args[2:]...)}
 		if repeat {
-			t.interval = d
+			t.interval, t.every = d, a.V[0].String()
 		}
 		l := For(env)
 		l.push(t)
@@ -418,10 +434,8 @@ func init() {
 				if err != nil {
 					return value.NilValue, err
 				}
-				if !args[0].IsNil() {
-					if err := callable(a, 0); err != nil {
-						return value.NilValue, err
-					}
+				if !args[0].IsNil() && callable(a, 0) != nil {
+					return value.NilValue, a.TypeError(0, "a function or nil")
 				}
 				For(env).onerror = args[0]
 				return value.NilValue, nil

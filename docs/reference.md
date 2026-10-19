@@ -783,7 +783,10 @@ work with an `ArgumentError`.
 
 `kukel` buffers standard output; `eprint`, `eprintln` and `readline` write
 out what is buffered first, so a prompt appears before the input is read
-and the order of output and errors stays as written.
+and the order of output and errors stays as written. So do the
+functions of modules that wait (`time::sleep`, `events::run`, `receive`,
+`wait` and `poll` of `worker` and `zmq`, the calls of a `p9` client): what
+a program printed before a wait is seen during it.
 
 | Function | Description |
 |---|---|
@@ -950,7 +953,9 @@ Values always go into SQL as parameters: each `?` takes the next argument
 which ignores them). PostgreSQL
 numbers its parameters (`$1`, `$2`); the module turns each `?` into the
 next one, except a `?` inside a quoted string (also `E'...'`) or name, a
-comment or `$$` text (`$1` written directly works too). PostgreSQL's JSON operators that
+comment or `$$` text. `$1` written directly works too; a `?` in the
+same statement then counts on from the highest `$n` written
+(`"WHERE a = $1 OR b = ?"` takes two arguments). PostgreSQL's JSON operators that
 are written with `?` must use their function form there
 (`jsonb_exists(doc, 'key')`).
 They are never glued into the SQL text, so text from a user cannot change
@@ -977,7 +982,7 @@ same name (from a join) keep the last value, so name them with `AS`.
 |---|---|
 | `db::open(url)` | A `db::Conn`: `"sqlite:path"` opens the file `path` (relative to the current directory; any characters, also `?`, `#` and `%`), creating it if needed; `"sqlite::memory:"` is a database in memory, gone when closed. `"postgres://user:password@host:5432/database?sslmode=disable"` (also `postgresql://`; the options are PostgreSQL's) and `"mysql://user:password@host:3306/database"` (the port defaults to 3306; options such as `?tls=true` are the MySQL driver's) connect to a server; such a URL needs a host. A database that cannot be opened or reached is a `DBError`, another URL a `ValueError`, as is a kind of database this `kukel` was built without ("this kukel was built without PostgreSQL (build tag nopostgres)"; `kukel version` lists the ones it has). A `kukel` built without any of the three has no module `db`: `use db;` says which build tags left it out. In SQLite, foreign keys are enforced and a database another program is writing is waited for up to 5 seconds |
 | `conn->exec(sql, args...)` | Runs a statement that gives no rows (`CREATE`, `INSERT`, `UPDATE`, `DELETE`, ...) and gives the number of rows it touched (for an `UPDATE`, the rows its `WHERE` found, also in MySQL; 0 for a statement that changes no rows, such as `CREATE`) |
-| `conn->lastid()` | The id the database chose for the row the last `INSERT` (or `REPLACE`) added (SQLite's `last_insert_rowid`, MySQL's `LAST_INSERT_ID`), or `nil`: after an `exec` of another statement (one that does not start with `INSERT` or `REPLACE`: so also an `INSERT` after a `WITH`), after the object calls `migrate`, `delete(p)` and `query->delete()` (they run statements of their own), and in MySQL for a row whose id the statement gave (`query`, `first` and `cursor`, `get`, `find` and `count`, and an `exec` that fails, leave it as it was). PostgreSQL has none for `exec` (write `INSERT ... RETURNING id` and use `first`); after `save` it is the new row's id on every database |
+| `conn->lastid()` | The id the database chose for the row the last `INSERT` (or `REPLACE`) added (SQLite's `last_insert_rowid`, MySQL's `LAST_INSERT_ID`), or `nil`: after an `exec` of another statement (one that does not start with `INSERT` or `REPLACE`: so also an `INSERT` after a `WITH`) or of one that added no row (`INSERT OR IGNORE` of a row already there, `ON CONFLICT DO NOTHING`, `INSERT ... SELECT` that selects nothing), after the object calls `migrate`, `delete(p)` and `query->delete()` (they run statements of their own), and in MySQL for a row whose id the statement gave (`query`, `first` and `cursor`, `get`, `find` and `count`, and an `exec` that fails, leave it as it was). PostgreSQL has none for `exec` (write `INSERT ... RETURNING id` and use `first`); after `save` it is the id of the saved row, new or not, on every database |
 | `conn->query(sql, args...)` | All rows of a query, as a vector of maps |
 | `conn->first(sql, args...)` | The first row of a query, or `nil` |
 | `conn->cursor(sql, args...)` | A `db::Cursor` for results too large to hold at once: `cursor->next()` gives the next row, or `nil` at the end (which closes it); `cursor->close()` stops early. While a cursor is open, the other calls that run SQL (`exec`, `query`, `first`, `cursor`, `begin`, `commit`, `rollback`, and those of objects: `migrate`, `save`, `delete`, `get`, `find`, `load`, and the member functions of `db::Query`, also those that only refine it) are a `ValueError`; `lastid`, `intransaction` and `close` still work |
@@ -1085,8 +1090,9 @@ main() {
 - `where` and `orderby` take SQL text: put values in with `?`, never by
   joining strings. A query is never changed by its member functions (they
   give new queries), so it can be refined in several ways and reused. Its
-  values are checked when it runs (`all`, `first`, `count`, `delete`), not
-  by `where`. `first` reads one row whatever the `limit`; `count` counts
+  values are checked by `where` (one the database cannot store is a
+  `TypeError` there); that there is one for each `?` only when it runs
+  (`all`, `first`, `count`, `delete`). `first` reads one row whatever the `limit`; `count` counts
   what `limit` and the offset leave. A negative limit or offset is a
   `ValueError`.
 - `delete(p)` of an object without an id gives `false`; after a delete
@@ -1161,7 +1167,8 @@ main() {
   load on first use, so `load` and `include` say when. `include` loads the
   related objects of all the results of a query with one query per
   relation (`WHERE orderid IN (...)`, in parts of 500 values).
-- The key data member must exist on the right side, and a relation member
+- The key data member must exist on the right side and may not be `id`,
+  and a relation member
   may not be named in `columns()` (`ValueError`); an unknown name for
   `load` or `include` is a `ValueError` too, and `db::many`/`db::one` of
   something that is not a class a `TypeError`. Keys match by value (`"1"`
@@ -1222,7 +1229,7 @@ in the order they were made). A late timer fires late, never early.
 | `t->cancel()` | The timer does not fire again (no effect on a timer that is done) |
 | `t->active()` | Whether the timer will still fire |
 
-A timer prints as `events::Timer(once)`, `events::Timer(every 0.5s)`,
+A timer prints as `events::Timer(once)`, `events::Timer(every 0.5s)` (the interval as written),
 `events::Timer(fired)` or `events::Timer(cancelled)`.
 
 ### fs
@@ -1253,7 +1260,7 @@ An **entry** is a map: `name` (the last part of the path), `size` (bytes),
 |---|---|
 | `fs::readdir(path)` | The entries of a directory, by name. A symbolic link is an entry of its own (`link` true, and `dir` false), not what it points to |
 | `fs::stat(path)` | The entry of a file or directory; for a symbolic link, of what it points to, with `link` true |
-| `fs::exists(path)` | Whether there is a file or directory there (a link to nothing does not count) |
+| `fs::exists(path)` | Whether there is a file or directory there (a link to nothing does not count). It is `false` when the path, or a directory on the way, is missing or a file (`"notes.txt/x"`); another failure, such as a directory that cannot be searched, is an `IOError` |
 | `fs::walk(path, f)` | Calls `f(p, entry)` for `path` and everything below it, depth first and by name; `p` is `path` joined with the names. When `f` returns `false` for a directory, `walk` does not go into it. Symbolic links are reported, never followed (so a link cannot make a loop), also when `path` itself is one. A directory that cannot be read ends the walk with an `IOError`; an exception in `f` ends it too, and is passed on unchanged |
 | `fs::mkdir(path)`, `fs::mkdirall(path)` | Makes a directory; `mkdirall` also the ones above it that are missing (and is fine when it exists) |
 | `fs::remove(path)` | Removes a file or an empty directory |
@@ -1263,7 +1270,8 @@ An **entry** is a map: `name` (the last part of the path), `size` (bytes),
 
 What the file system refuses (a missing path, a directory that is not
 empty for `remove`, no permission) is an `IOError` whose message names the
-function and the path. A Go program that embeds Kukel keeps a program away
+function and the path (`fs::readdir: nope: no such file or directory`;
+`fs::rename: old -> new: ...`). A Go program that embeds Kukel keeps a program away
 from files by leaving `fs` out of `StandardModules` (and the file
 built-ins in `DenyBuiltins`).
 
@@ -1318,7 +1326,8 @@ main() {
 ```
 
 Addresses are `"tcp://host:port"` (the port is 564 when left out) and
-`"unix:///path"` (a Unix socket file). For `p9::serve`, `"tcp://*:5640"` or
+`"unix:///path"` (a Unix socket file; `"unix://name"` is a path relative
+to the current directory). For `p9::serve`, `"tcp://*:5640"` or
 `"tcp://:5640"` listens on every interface (`"tcp://"` alone: on port 564),
 and port 0 picks a free port.
 Paths on the server start at the directory the client attached to; `"a/b"`
@@ -1326,9 +1335,9 @@ and `"/a/b"` are the same, and `..` stops at the top.
 
 | Function or member function | Description |
 |---|---|
-| `p9::dial(address [, options])` | Connects to a 9P server and gives a `p9::Client`. The options are a map: `"version"` (`"9P2000.L"` or `"9P2000"`; without it 9P2000.L is tried first, then 9P2000), `"aname"` (the tree to attach to, for a server that has several; for a Kukel server, a directory of its tree), `"user"` (the user name sent with 9P2000; the user running the program by default) and `"timeout"` (seconds for the connection, the agreement on the version and the attach together, 10 by default). A server that cannot be reached, or does not answer in time, is a `NetError`; one that refuses the attach (an `aname` it does not have) an `IOError`; a wrong address or option a `ValueError` (`TypeError` for an option of the wrong type) |
+| `p9::dial(address [, options])` | Connects to a 9P server and gives a `p9::Client`. The options are a map: `"version"` (`"9P2000.L"` or `"9P2000"`; without it 9P2000.L is tried first, then 9P2000), `"aname"` (the tree to attach to, for a server that has several; for a Kukel server, a directory of its tree), `"user"` (the user name sent with 9P2000; the user running the program by default) and `"timeout"` (seconds for the connection, the agreement on the version and the attach together, 10 by default; the requests after `dial` have none: a server that stops answering keeps the program waiting until it is stopped). A server that cannot be reached is a `NetError`, and so is one that takes the connection but gives no 9P answer in time ("no 9P answer within 10 seconds"); one that refuses the attach (an `aname` it does not have, or one that names a file: the top must be a directory) an `IOError`; a wrong address or option a `ValueError` (`TypeError` for an option of the wrong type) |
 | `c->readdir(path)` | The entries of a directory, by name. An **entry** is a map as for `fs`: `name`, `size`, `dir`, `link`, `mode` (`"-rw-r--r--"`) and `time` (a `time::Time`; 9P2000 has whole seconds only). `link` is true only for a symbolic link a server shows as one: a Kukel server follows links |
-| `c->stat(path)`, `c->exists(path)` | The entry of a file or directory (the top is named `"/"`); whether there is one (`false` only for "not there": other failures are exceptions, as for `stat`) |
+| `c->stat(path)`, `c->exists(path)` | The entry of a file or directory (the top is named `"/"`); whether there is one (`false` only for "not there", also for a path through a file: other failures are exceptions, as for `stat`) |
 | `c->read(path)` | The content of a file, as a string |
 | `c->write(path, s)` | Makes the content of a file `s`: the file is truncated first, or made if it is not there (when the server allows that) |
 | `c->mkdir(path)`, `c->remove(path)` | Makes a directory; removes a file or an empty directory |
@@ -1449,7 +1458,7 @@ In a Kukel string, a backslash is written `\\`: `"\\d+"` is the pattern
 | `r->find(s)` | The first match, or `nil` |
 | `r->findall(s [, n])` | All the matches (a vector, empty for none), or the first `n` (0 gives none, a negative `n` all) |
 | `r->groups(s)` | The first match and its groups: `[match, group1, ...]` (a group that took no part is `nil`), or `nil` for no match |
-| `r->names()` | The names of the groups, `""` for one without (`(?P<year>\d+)` is named `year`) |
+| `r->names()` | The names of the groups, `""` for one without (`(?P<year>\d+)` is named `year`). The whole match has no entry: `names()[k]` names `groups(s)[k + 1]` |
 | `r->replace(s, repl)` | `s` with every match replaced: `repl` is a string in which `$1`, `${1}` and `${name}` stand for groups (`$$` for a `$`; a name goes on as far as letters, digits and `_` go, so write `${1}x`, not `$1x`, which names the group `1x`), or a function that gets the match and gives its replacement (a string) |
 | `r->split(s [, n])` | The parts of `s` between the matches (at most `n`, the last one holding the rest; 0 gives none, a negative `n` all) |
 | `r->pattern()` | The pattern, with the flags in front (`(?i)...`) |
@@ -1506,7 +1515,7 @@ when it has one: `2026-10-14T09:30:01.5Z`).
 
 | Function | Description |
 |---|---|
-| `time::now()` | The current time, in the local time zone (its `zone()` is `"Local"`, unless the environment variable `TZ` names a zone) |
+| `time::now()` | The current time, in the local time zone (its `zone()` is `"Local"`, unless the environment variable `TZ` names a zone; when `TZ` is set but empty, the zone is `"UTC"`) |
 | `time::sleep(seconds)` | Waits that long (`ValueError` if negative or `nan`; beyond about 292 years it waits as long as the program runs) |
 | `new time::Time(year, month, day [, hour [, minute [, second [, zone]]]])` | That time in `zone` (default `"UTC"`, as is `""`; an unknown zone is a `ValueError`); `year` to `minute` are ints, `second` may have a fraction. Values out of range carry over (month 13 is January of the next year); a `second` of `nan` or `inf`, or a time beyond about 2.9e11 years from 1970, is a `ValueError` |
 | `time::Time::parse(text [, format [, zone]])` | The time `text` stands for: without `format` in RFC 3339 (`"2026-10-14T09:30:00+02:00"`), else by `format` (below). A text without an offset is in `zone` (default `"UTC"`; `zone` needs a `format`, since RFC 3339 text has an offset; an offset in the text, `%z`, wins over `zone`). A text that does not match, or a date that does not exist (`"2026-02-30"`), is a `ValueError`. A local time that a daylight-saving change skips or repeats is not an error: it gets the offset of one of the two sides (in Europe/Amsterdam, 02:30 on the day clocks jump from 02:00 to 03:00 becomes 03:30); which side is not specified |
@@ -1535,14 +1544,15 @@ when it has one: `2026-10-14T09:30:01.5Z`).
 | `%Y` year (2026) | `%m` month (01-12) | `%d` day (01-31) |
 | `%e` day, padded with a space | `%H` hour (00-23) | `%I` hour (01-12) |
 | `%M` minute (00-59) | `%S` second (00-60) | `%f` microseconds (000000-999999) |
-| `%p` AM or PM | `%y` year (00-99) | `%j` day of the year (001-366) |
+| `%p` AM or PM | `%y` year (00-99: the last two digits; 95 for the year -5) | `%j` day of the year (001-366) |
 | `%b` month (Jan) | `%B` month (January) | `%a` weekday (Mon) |
 | `%A` weekday (Monday) | `%z` offset (+0200) | `%Z` zone abbreviation (CEST; empty for a time parsed with an offset) |
 | `%%` a `%` | | |
 
 `parse` takes the same directives, except `%Z` (abbreviations are
-ambiguous; use `%z`). Numbers may have fewer digits than shown (`%Y` at
-most 4, and it may have a sign), `%f` reads 1 to 9 digits as a fraction of
+ambiguous; use `%z`). Numbers may have fewer digits than shown (`%Y` may have a sign, and
+reads at most 4 digits when another directive follows at once, as in
+`%Y%m%d`, else all of them, so that a year after 9999 is read back), `%f` reads 1 to 9 digits as a fraction of
 a second, `%z` also reads `Z`, `+02` and `+02:00` (hours up to 23, minutes
 up to 59), `%y` reads 69-99 as 1969-1999 and 00-68 as 2000-2068, and names
 are read in any case. `%I` (01-12) and `%p` come together; `%H` is the
@@ -2066,7 +2076,7 @@ gives a `WorkerError`.
 | `worker::start(f, args...)` | Runs `f(args...)` in a new interpreter of this program; `f` is a top-level or static member function (not a function literal, bound method or built-in: `TypeError`). Gives a `worker::Worker` |
 | `worker::startfile(path, args...)` | Compiles the program in `path` (a `.kkl` file with the modules it uses, found as `kukel run` finds them; or a `.kkc` file) and runs its `main` with the vector of the arguments. `path` is relative to the current directory, as for `readfile`. A compile error (also a module not found) is a `CompileError`, a missing file an `IOError`, a damaged `.kkc` file or a module compiled on its own (`kukel build -module`) a `ValueError`; so is `startfile` in a program run by a Go program that does not allow it to read program files ([embedding.md](embedding.md)) |
 | `worker::send(v)` | In a worker: a copy of `v` goes to the parent |
-| `worker::receive([timeout])` | In a worker: the next message from the parent; waits for it, at most `timeout` seconds if given. `nil` after the parent's `stop()` (once the messages sent before are taken) or when the time is up. A negative or `nan` timeout is a `ValueError`, and so is `receive()` after `worker::onmessage` |
+| `worker::receive([timeout])` | In a worker: the next message from the parent; waits for it, at most `timeout` seconds if given (beyond about 292 years: no limit). `nil` after the parent's `stop()` (once the messages sent before are taken) or when the time is up. A negative or `nan` timeout is a `ValueError`, and so is `receive()` after `worker::onmessage` |
 | `worker::onmessage(f)` | In a worker: the event loop (`events`) calls `f(message)` for each message from the parent, and `events::run()` keeps going until the parent's `stop()`. `f` must be a function (`TypeError`); a second `onmessage` is a `ValueError` |
 | `worker::isworker()` | Whether this interpreter is a worker |
 
@@ -2076,7 +2086,7 @@ Outside a worker, `worker::send`, `receive` and `onmessage` are a
 | Member function | Description |
 |---|---|
 | `w->send(v)` | A copy of `v` goes to the worker (`ValueError` after `stop()` or when the worker has ended) |
-| `w->receive([timeout])` | The next message from the worker; `nil` when it has ended (and its messages are taken) or when the time is up. A negative or `nan` timeout is a `ValueError` |
+| `w->receive([timeout])` | The next message from the worker; `nil` when it has ended (and its messages are taken) or when the time is up (a timeout beyond about 292 years: no limit). A negative or `nan` timeout is a `ValueError` |
 | `w->onmessage(f)` | The event loop calls `f(message)` for each message from the worker, and `events::run()` keeps going until the worker ends. Afterwards `receive()` is a `ValueError`, as is a second `onmessage`; `f` must be a function (`TypeError`) |
 | `w->stop()` | No more messages to the worker: its `receive()` gives `nil` once it has taken those sent before |
 | `w->wait()` | Waits until the worker ends and gives a copy of what its function returned (a new copy each time). A worker that failed gives a `WorkerError` with the worker's error in its message |
@@ -2135,13 +2145,13 @@ on every interface), `"ipc://path"` (a Unix socket file) or `"inproc://name"`
 |---|---|
 | `new zmq::Socket(type [, identity])` | A socket of that type (`ValueError` for another type). The identity (1 to 255 bytes) is how a ROUTER the socket connects to names it; without one the ROUTER makes one up |
 | `s->bind(endpoint)` | Listens on `endpoint`. Port 0 (`"tcp://127.0.0.1:0"`) picks a free port, which `endpoint()` then shows. A busy or forbidden address is a `NetError` |
-| `s->connect(endpoint)` | Connects to a socket bound at `endpoint`. Unlike C ZeroMQ, it waits for the other side: it retries for about 2.5 seconds, then gives a `NetError`, so bind first |
+| `s->connect(endpoint)` | Connects to a socket bound at `endpoint`. Unlike C ZeroMQ, it waits for the other side: it retries for about 2.5 seconds, then gives a `NetError` (`zmq::Socket::connect: tcp://localhost:5555: connection refused`), so bind first |
 | `s->send(message)` | Sends a string, or a vector of strings as one message of several parts (`TypeError` for other values, `ValueError` for an empty vector). A PULL or SUB socket cannot send (`ValueError`); a REQ socket that has no peer gives a `NetError` |
-| `s->receive([timeout])` | The next message; waits for it, at most `timeout` seconds if given, then gives `nil`. A message that arrives after the timeout is kept for the next `receive`. A negative or `nan` timeout is a `ValueError`, as is `receive` on a PUSH or PUB socket (they only send); a broken connection a `NetError` |
-| `s->onmessage(f)` | The event loop (`events`) calls `f(message)` for each message, and `events::run()` keeps going until the socket is closed. Afterwards `receive()` is a `ValueError`, as is a second `onmessage`, and `onmessage` on a PUSH or PUB socket; `f` must be a function (`TypeError`) |
+| `s->receive([timeout])` | The next message; waits for it, at most `timeout` seconds if given (beyond about 292 years: no limit), then gives `nil`. A message that arrives after the timeout is kept for the next `receive`. A negative or `nan` timeout is a `ValueError`, as is `receive` on a PUSH or PUB socket (they only send); a broken connection a `NetError`, and so is `receive` on a REQ socket that has not sent a request |
+| `s->onmessage(f)` | The event loop (`events`) calls `f(message)` for each message, and `events::run()` keeps going until the socket is closed. Afterwards `receive()` is a `ValueError`, as is a second `onmessage`, and `onmessage` on a PUSH or PUB socket; `f` must be a function (`TypeError`). When a handler closes the socket, messages that arrived but were not handled yet are dropped |
 | `s->subscribe(prefix)`, `s->unsubscribe(prefix)` | A SUB socket receives the messages that start with one of its prefixes (`""`: all of them); other socket types give a `ValueError`. Subscriptions take a moment to reach the PUB socket: messages published right after `subscribe` may be missed |
-| `s->type()`, `s->endpoint()` | The type, and the last endpoint bound to or connected to (`""` if none; after a bind, the address as bound, with the port that port 0 picked) |
-| `zmq::poll(sockets [, timeout])` | Waits until one of the sockets (a vector) has a message and gives that socket, whose `receive()` then gives the message at once; `nil` after `timeout` seconds. When several have one, the earliest in the vector wins. No message is lost: the others stay with their sockets. An empty vector, a closed socket, one with an `onmessage` handler, or a PUSH or PUB socket is a `ValueError` |
+| `s->type()`, `s->endpoint()` | The type, and the last endpoint bound to or connected to (`""` if none; after a bind, the address as bound, with the port that port 0 picked; for every interface, the address the system reports: `"tcp://[::]:5555"` after `bind("tcp://*:5555")`) |
+| `zmq::poll(sockets [, timeout])` | Waits until one of the sockets (a vector) has a message and gives that socket, whose `receive()` then gives the message at once; `nil` after `timeout` seconds (beyond about 292 years: no limit). When several have one, the earliest in the vector wins. No message is lost: the others stay with their sockets. An empty vector, a closed socket, one with an `onmessage` handler, or a PUSH or PUB socket is a `ValueError` |
 | `s->close()` | Closes the socket (closing again has no effect). If the socket sent a message less than 0.1 seconds before, `close` waits until 0.1 seconds have passed, so that the message still leaves. Using a closed socket is a `ValueError`, except `type()`, `endpoint()`, `close()` and `closed()` |
 | `s->closed()` | Whether the socket is closed |
 
