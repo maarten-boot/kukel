@@ -270,8 +270,8 @@ it throws a `TypeError` from the constructor's frame.
 image: a native global names them, and the VM uses the run-time class the
 Go module built once, shared by all programs. Such a class has no data
 members and no statics. Its member functions are Go functions:
-`CALL_METHOD`, `GET_MEMBER` and bound methods run them like built-ins, with
-the object; a static one is a built-in (`p->parse` gives it). Its
+`CALL_METHOD`, `GET_MEMBER`, `GET_MEMBER_L` and bound methods run them
+like built-ins, with the object; a static one is a built-in (`p->parse` gives it). Its
 constructor is a Go function that `NEW` runs at once to fill in the
 object's Go value, after which `NEW` leaves the object (there is no
 constructor frame). A native class without a constructor cannot be used
@@ -368,13 +368,14 @@ which skip all handlers: `finally` blocks do not run.
 
 ### 4.10 Inline caches
 
-`CALL_METHOD`, `CALL_METHOD_V`, `GET_MEMBER` and `SET_MEMBER` each have a
-cache slot (an operand). The slot remembers the class of the last object
-the instruction saw, and what it found there: the member function for the
-call instructions, the data member's slot for `GET_MEMBER`/`SET_MEMBER`.
-The next time an object of the same class comes along, the lookup is
-skipped. (`GET_MEMBER` of a member function, which makes a bound method,
-is not cached.) The caches belong to the VM, not to the image.
+`CALL_METHOD`, `CALL_METHOD_V`, `GET_MEMBER`, `GET_MEMBER_L` and
+`SET_MEMBER` each have a cache slot (an operand). The slot remembers the
+class of the last object the instruction saw, and what it found there: the
+member function for the call instructions, the data member's slot for the
+others. The next time an object of the same class comes along, the lookup
+is skipped. (`GET_MEMBER` or `GET_MEMBER_L` of a member function, which
+makes a bound method, is not cached.) The caches belong to the VM, not to
+the image.
 
 ### 4.11 Limits
 
@@ -601,7 +602,8 @@ exactly like the general code.
 
 ## 6. How the compiler translates programs
 
-The listings below are real compiler output (`kukel disasm`), shortened.
+The listings below are real compiler output (`kukel disasm`), shortened;
+`kukel disasm -nofuse` gives the code without `Fuse` (section 5).
 
 ### 6.1 Names and slots
 
@@ -656,9 +658,10 @@ the name of a constant, also a module's) is one `ARITH_LK`: `n - 1` is
 `ARITH_LK SUB n, 1`. With two locals it is one `ARITH_LL` (`a * b`), with
 any other left operand and such a right one, the left operand and one
 `ARITH_K` (`x * y + 1`). Likewise `v[i]` with two locals is one `INDEX_LL`,
-and `p->x` with `p` a local one `GET_MEMBER_L`. A local must be on the line
-of the operator (where the instruction is marked; else the local's line
-would have no code for the debugger to stop at), as for `CMP_JUMP_LK`.
+and `p->x` with `p` a local one `GET_MEMBER_L`. The compiler does this only
+where it leaves every line that has code without it with code (section 5,
+after the table of these instructions): a local must be on the line of
+the operator, for one.
 
 ### 6.3 Conditions
 
@@ -690,7 +693,7 @@ temporary slot:
 
 ```
 v[i] += 1;                      LOAD_LOCAL v; LOAD_LOCAL i; DUP2; INDEX_GET
-                                CONST 1; ADD; INDEX_SET; POP
+                                ARITH_K ADD 1; INDEX_SET; POP
 return v[i]++;                  LOAD_LOCAL v; LOAD_LOCAL i; DUP2; INDEX_GET
                                 DUP; STORE_LOCAL (temp); INC; INDEX_SET; POP
                                 LOAD_LOCAL (temp); RETURN
@@ -701,7 +704,11 @@ needs nothing extra.
 
 `x += e` as a statement, with `x` a local (not in a cell) and no
 assignment or `++`/`--` inside `e`, is `e; ADD_LOCAL x`; `i++` and `i--` as
-statements are `INC_LOCAL i` and `DEC_LOCAL i`.
+statements are `INC_LOCAL i` and `DEC_LOCAL i`. Other compound
+assignments to a local, with a known value or a local on the right, are
+`ARITH_LK` or `ARITH_LL` and `STORE_LOCAL` (`x -= 1`, `x *= y`). Without
+`Fuse` (section 5) all of these are the plain instructions: `CONST 1; ADD`
+and `LOAD_LOCAL x; ...; STORE_LOCAL x`.
 
 ### 6.5 Functions
 
@@ -782,17 +789,23 @@ The body comes first and the dispatch after it, because `case` labels may
 sit anywhere inside the body:
 
 ```
-switch (x) {                     LOAD_LOCAL x; STORE_LOCAL (switch); JUMP dispatch
+switch (x) {                     JUMP dispatch
   case 1: return "one";      L1: CONST "one"; RETURN
   case 2: case 3: ...        L2: ...
   default: ...               L3: ...
 }                                JUMP end
-                       dispatch: LOAD_LOCAL (switch); CONST 1; EQ; JUMP_IF_TRUE L1
-                                 LOAD_LOCAL (switch); CONST 2; EQ; JUMP_IF_TRUE L2
-                                 LOAD_LOCAL (switch); CONST 3; EQ; JUMP_IF_TRUE L2
+                       dispatch: CMP_JUMP_LK if x == 1 -> L1
+                                 CMP_JUMP_LK if x == 2 -> L2
+                                 CMP_JUMP_LK if x == 3 -> L2
                                  JUMP L3            (default; without one: fall to end)
                             end:
 ```
+
+A tag that is not a local (not in a cell) is evaluated first and kept in
+a hidden slot, which the dispatch reads: `switch (v[0])` starts with
+`LOAD_LOCAL v; CONST 0; INDEX_GET; STORE_LOCAL (switch); JUMP dispatch`,
+and its cases are `CMP_JUMP_LK if (switch) == 1 -> L1`. A local needs no
+copy: nothing runs between the jump and the dispatch.
 
 When there are at least 4 cases, all with int values, and the range from
 the smallest to the largest holds at most twice as many values as there are
@@ -800,15 +813,16 @@ cases, the dispatch is one jump through a table instead (Kukel v0.8). With
 a fourth case, `case 5:` (`L4`), the switch above becomes:
 
 ```
-                       dispatch: LOAD_LOCAL (switch); SWITCH_TABLE t, miss -> L3
+                       dispatch: LOAD_LOCAL x; SWITCH_TABLE t, miss -> L3
                                  (table t: 1 -> L1, 2 -> L2, 3 -> L2, 5 -> L4; none for 4)
 ```
 
-With `Fuse` (Kukel v0.26), each case of the dispatch is one `CMP_JUMP_LK`
-(`CMP_JUMP_LK if (switch) == 1 -> L1`), and a value that is a local (not
-in a cell), as `x` above, is not copied to the hidden slot: nothing runs
-between the copy and the dispatch, which reads `x` itself
-(`CMP_JUMP_LK if x == 1 -> L1`, `LOAD_LOCAL x; SWITCH_TABLE t`).
+The `CMP_JUMP_LK` cases and the tag read in place come with `Fuse` (Kukel
+v0.26). Without it, every tag goes to the hidden slot, and each case is
+`LOAD_LOCAL (switch); CONST 1; EQ; JUMP_IF_TRUE L1`.
+
+The dispatch has the line of the `switch`, but its entry in `Lines` is
+marked `Cont`: the debugger stops on that line once, before the tag.
 
 ### 6.9 Try, catch and finally
 
@@ -842,7 +856,7 @@ runs their `finally` copies, innermost first.
 
 ```
 b->m();          LOAD_LOCAL b; CALL_METHOD m, 0 (cache 0)          virtual call
-A::m() + 1       LOAD_THIS; CALL_DIRECT A::m, 0; CONST 1; ADD      Base::m(...) on this
+A::m() + 1       LOAD_THIS; CALL_DIRECT A::m, 0; ARITH_K ADD 1     Base::m(...) on this
 strings::Builder::add(x)
                  LOAD_THIS; LOAD_LOCAL x;                          the same for a native base
                  CALL_NATIVE 3, add, 1  ; strings::Builder          (global 3 is the class; the Go function by name)
