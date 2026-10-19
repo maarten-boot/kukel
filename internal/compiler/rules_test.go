@@ -153,11 +153,12 @@ var ruleCases = map[string]struct {
 		bad: [][2]string{{"main() { ++1; }", "cannot assign to this expression"}, {"class A { m(); } A::m() { --this; } main() {}", "cannot assign to this expression"}},
 	},
 	"postfix_operator": {
-		ok: []string{"main() { local x; x = [1]; x[0]++; x--; }", "f(a) {} main() { local g; g = f; g(); }"},
+		ok: []string{"main() { local x; x = [1]; x[0]++; x--; }", "f(a) {} main() { local g; g = f; g(); }", "class A { } main() { local k = A; try { k(); } catch (e) {} }"},
 		bad: [][2]string{
 			{"f() {} main() { f()++; }", "cannot assign to this expression"},
 			{"f(a) {} main() { f(); }", "f expects 1 argument(s), got 0"},
 			{"class A { A(x); } A::A(x) {} class B : A { } main() { new B(); }", "A::A expects 1 argument(s), got 0"},
+			{"class A { } main() { A(); }", "A(...) calls the class"},
 		},
 	},
 	"argument": {elsewhere: "internal/vm TestRuntimeErrors: \"spread of a non-vector\""},
