@@ -26,6 +26,8 @@ jobs:
           go-version: ${{ matrix.go }}
       - name: Vet (gofmt and go vet)
         run: make vet
+      - name: Lark, for the test of syntax.lark (TestLarkGrammar)
+        run: python3 -m pip install --user --break-system-packages lark
       - name: Test
         run: make test
       - name: Test the smallest build (build tags)

@@ -204,7 +204,7 @@ design decisions (Q1–Q75). Ideas for later are in [docs/future.md](docs/future
 
 | Make target | |
 |---|---|
-| `make` | gofmt check, `go vet`, tests, build (each also on its own: `make vet`, `make test`, `make build`) |
+| `make` | gofmt check, `go vet`, tests, build (each also on its own: `make vet`, `make test`, `make build`). The test of `syntax.lark` (it parses the examples, the test programs and the programs of the documents) needs Python with [lark](https://github.com/lark-parser/lark) (`pip install lark`), else it skips |
 | `make install` | install `kukel` into `$GOBIN`, else `$(go env GOPATH)/bin` |
 | `make fmt`, `make clean` | `gofmt -w` the sources; remove `bin/` and `dist/`, and the cached test results |
 | `make test-all` | everything: vet, the tests of the full, the smallest and the `tk` build, and the tests with the race detector |
