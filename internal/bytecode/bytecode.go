@@ -325,10 +325,15 @@ type Function struct {
 	Code        []byte
 	Consts      []value.Value
 	Lines       []LineInfo  // sorted by PC
-	SlotNames   []string    // for the disassembler
+	SlotNames   []string    // for the disassembler ("i/w": a slot two blocks share)
 	Upvalues    []Upvalue   // a function literal's captured variables
 	NumCaches   int         // inline cache slots of member instructions (the VM keeps the caches)
 	Tables      []JumpTable // of SWITCH_TABLE instructions
+
+	// Locals are the named parameters and locals with the code where each
+	// is in scope, for the debugger. Only the compiler sets them (not in
+	// files: the debugger runs from source).
+	Locals []LocalInfo
 
 	// Saved holds the opcodes that BREAK instructions replaced, by pc: only
 	// in a copy of the code the debugger made (never in files).
@@ -337,6 +342,14 @@ type Function struct {
 	// Index is the function's position in Program.Funcs (-1 for Init). It is
 	// not stored in files: the compiler and Decode set it.
 	Index int
+}
+
+// LocalInfo is a parameter or local: slot Slot holds it in the code from
+// Start (after its initialization) to End (the end of its block).
+type LocalInfo struct {
+	Name       string
+	Slot       int
+	Start, End int
 }
 
 // JumpTable maps the ints Min, Min+1, ... to code offsets (-1: none, the

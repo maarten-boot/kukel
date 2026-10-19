@@ -806,6 +806,14 @@ func TestDebug(t *testing.T) {
 	if run([]string{"debug", "c.kkl"}, strings.NewReader("b 1\nquit\n"), &out, &out); !strings.Contains(out.String(), "(no code on line 1: the next is 4)\nbreakpoint 1 at c.kkl:4") {
 		t.Errorf("a comment on line 1:\n%s", out.String())
 	}
+	// The variables in scope where the program is: a local whose slot a
+	// later one reuses, and a catch variable.
+	os.WriteFile("v.kkl", []byte("main() {\n    for (local i = 0; i < 1; i++) {\n        println(i);\n    }\n    local w = 5;\n    try {\n        throw new Error(\"boom\");\n    } catch (e) {\n        println(e->message);\n    }\n}\n"), 0o644)
+	out.Reset()
+	if run([]string{"debug", "v.kkl"}, strings.NewReader("b 3\nb 9\nc\nlocals\np i\nc\nlocals\np i\n"), &out, &out); !strings.Contains(out.String(),
+		"(kdb) i = 0\n(kdb) 0\n(kdb) 0\nbreakpoint 2, main at v.kkl:9\n    9          println(e->message);\n(kdb) w = 5\ne = Error{message: \"boom\", kind: \"Error\", trace: [\"main (v.kkl:7)\"]}\n(kdb) no variable i here\n") {
+		t.Errorf("variables in scope:\n%s", out.String())
+	}
 	// The end of the input quits.
 	out.Reset()
 	if code := run([]string{"debug", "w.kkl"}, strings.NewReader(""), &out, &out); code != 0 || !strings.HasSuffix(out.String(), "(kdb) \nthe program ended (exit code 0)\n") {

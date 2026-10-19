@@ -473,6 +473,7 @@ type funcState struct {
 type localVar struct {
 	slot int
 	cell bool
+	info int // index in Function.Locals; -1 for a hidden slot
 }
 
 // function compiles one function; body emits the code of its body, and
@@ -527,6 +528,11 @@ func (c *compiler) function(name string, pos token.Pos, params *ast.ParamList, c
 
 	body()
 	c.emit(bytecode.OpReturnNil)
+	for i := range fs.fn.Locals {
+		if fs.fn.Locals[i].End < 0 { // the parameters
+			fs.fn.Locals[i].End = c.here()
+		}
+	}
 	peephole(fs.fn)
 
 	fs.fn.MaxStack = fs.maxDepth
@@ -596,7 +602,11 @@ func (c *compiler) declare(id *ast.Ident, what string) localVar {
 	}
 	slot := fs.nslots
 	fs.nslots++
-	lv := localVar{slot: slot, cell: fs.captured[id.Name]}
+	lv := localVar{slot: slot, cell: fs.captured[id.Name], info: -1}
+	if !strings.HasPrefix(id.Name, "(") { // not (switch), (iterator), ...
+		lv.info = len(fs.fn.Locals)
+		fs.fn.Locals = append(fs.fn.Locals, bytecode.LocalInfo{Name: id.Name, Slot: slot, Start: len(fs.fn.Code), End: -1})
+	}
 	scope[id.Name] = lv
 	if slot == len(fs.fn.SlotNames) {
 		fs.fn.SlotNames = append(fs.fn.SlotNames, id.Name)
@@ -619,6 +629,9 @@ func (c *compiler) declareInit(id *ast.Ident) {
 	} else {
 		c.emit(bytecode.OpStoreLocal, lv.slot)
 	}
+	if lv.info >= 0 {
+		c.fs.fn.Locals[lv.info].Start = c.here()
+	}
 }
 
 func (c *compiler) pushScope() { c.fs.scopes = append(c.fs.scopes, map[string]localVar{}) }
@@ -626,7 +639,13 @@ func (c *compiler) pushScope() { c.fs.scopes = append(c.fs.scopes, map[string]lo
 // popScope ends the innermost block; its slots are reused afterwards.
 func (c *compiler) popScope() {
 	fs := c.fs
-	fs.nslots -= len(fs.scopes[len(fs.scopes)-1])
+	scope := fs.scopes[len(fs.scopes)-1]
+	for _, lv := range scope {
+		if lv.info >= 0 {
+			fs.fn.Locals[lv.info].End = c.here()
+		}
+	}
+	fs.nslots -= len(scope)
 	fs.scopes = fs.scopes[:len(fs.scopes)-1]
 }
 

@@ -119,8 +119,9 @@ A **function** (`bytecode.Function`) has:
 | `MaxStack` | the deepest the operand stack gets above the slots |
 | `Code` | the instructions (section 5) |
 | `Consts` | constants: nil, booleans, ints, floats, strings |
-| `Lines` | (pc, line) pairs: from that pc on, the code belongs to that source line |
-| `SlotNames` | names of the slots, for the disassembler |
+| `Lines` | (pc, line) pairs: from that pc on, the code belongs to that source line. A pair the compiler marks `Cont` continues its line (the dispatch of a `switch`, after the body): the debugger does not stop there (not in files) |
+| `SlotNames` | names of the slots, for the disassembler (`i/w`: a slot two blocks share) |
+| `Locals` | for the debugger: each named parameter and local with its slot and the code where it is in scope, from after its initialization to the end of its block; set by the compiler, not in files (the debugger runs from source) |
 | `Upvalues` | for a function literal: where each captured cell comes from (section 4.8) |
 | `NumCaches` | the number of inline cache slots its member instructions use (section 4.10) |
 | `Tables` | the jump tables of its `SWITCH_TABLE` instructions: the first int and a target per int (section 6.8) |
@@ -401,12 +402,13 @@ is not cached.) The caches belong to the VM, not to the image.
 
 `kukel debug` runs a copy of the program (`bytecode.Debuggable`): each
 function gets its own copy of its code, in which the first instruction of
-each source line (each entry of `Lines`) is replaced by `BREAK`, with the
+each source line (each entry of `Lines` not marked `Cont`) is replaced by `BREAK`, with the
 replaced instruction kept in `Function.Saved`. `BREAK` calls the VM's
 `Debug` hook, if it has one, with the frame's `ip` at the line's start, and
 then runs the saved instruction. The hook looks at the frames
-(`Frames`: function and line of each call; `Vars`: the parameters, locals
-and captured variables of one) and decides whether to stop; while it reads
+(`Frames`: function and line of each call; `Vars`: the parameters and
+locals in scope at its pc, by `Locals`, and the captured variables of
+one) and decides whether to stop; while it reads
 commands the program waits. An error from the hook stops the program
 (quitting is an `exit`).
 

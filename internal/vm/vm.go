@@ -12,6 +12,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1950,13 +1951,18 @@ type DebugFrame struct {
 func (vm *VM) Frames() []DebugFrame {
 	out := make([]DebugFrame, len(vm.frames))
 	for i, f := range vm.frames {
-		pc := f.ip
-		if i < len(vm.frames)-1 && pc > 0 {
-			pc-- // a caller's ip is past its call instruction
-		}
-		out[i] = DebugFrame{Func: f.fn, Line: f.fn.LineAt(pc), This: f.this}
+		out[i] = DebugFrame{Func: f.fn, Line: f.fn.LineAt(vm.framePC(i)), This: f.this}
 	}
 	return out
+}
+
+// framePC is the pc frame i is at.
+func (vm *VM) framePC(i int) int {
+	pc := vm.frames[i].ip
+	if i < len(vm.frames)-1 && pc > 0 {
+		pc-- // a caller's ip is past its call instruction
+	}
+	return pc
 }
 
 // DebugVar is a variable of a frame: a parameter, local or captured one.
@@ -1965,22 +1971,38 @@ type DebugVar struct {
 	Value value.Value
 }
 
-// Vars gives the variables of frame i (an index into Frames): parameters
-// and locals by their slots (a slot that two blocks share has the name of
-// the later one), then captured variables.
+// Vars gives the variables of frame i (an index into Frames): the
+// parameters and locals in scope where it is, by their slots, then captured
+// variables. A function without Locals (from a .kkc file) gives all its
+// slots by SlotNames (a slot that two blocks share has both names).
 func (vm *VM) Vars(i int) []DebugVar {
 	f := vm.frames[i]
 	var vars []DebugVar
-	for s := 0; s < f.fn.NumSlots && s < len(f.fn.SlotNames); s++ {
-		name := f.fn.SlotNames[s]
-		if name == "" || name[0] == '(' { // hidden slots: (switch), (iterator), (temp), ...
-			continue
-		}
+	add := func(name string, s int) {
 		v := vm.stack[f.base+s]
 		if v.Kind() == value.Cell {
 			v = v.AsCell().V
 		}
 		vars = append(vars, DebugVar{name, v})
+	}
+	if f.fn.Locals != nil {
+		pc := vm.framePC(i)
+		var live []bytecode.LocalInfo
+		for _, l := range f.fn.Locals {
+			if l.Start <= pc && pc < l.End {
+				live = append(live, l)
+			}
+		}
+		slices.SortFunc(live, func(a, b bytecode.LocalInfo) int { return a.Slot - b.Slot })
+		for _, l := range live {
+			add(l.Name, l.Slot)
+		}
+	} else {
+		for s := 0; s < f.fn.NumSlots && s < len(f.fn.SlotNames); s++ {
+			if name := f.fn.SlotNames[s]; name != "" && name[0] != '(' { // not (switch), (iterator), (temp), ...
+				add(name, s)
+			}
+		}
 	}
 	if f.cl != nil {
 		for j, u := range f.fn.Upvalues {
