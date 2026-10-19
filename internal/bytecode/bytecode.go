@@ -130,6 +130,14 @@ const (
 	OpArithLK   // op u16, slot u16, const u16: push slot op Consts[const]; op is one of ADD to SHR
 	OpCmpJumpLK // cmp u16, slot u16, const u16, target u32: jump if (slot cmp Consts[const]) == want, as CMP_JUMP
 
+	// More of the same (Kukel v0.26), for the patterns programs run most.
+	OpIndexLL    // x u16, i u16: push x[i], both locals: "v[i]"
+	OpGetMemberL // slot u16, name u16, cache u16: push slot->name, as GET_MEMBER: "p->next"
+	OpArithLL    // op u16, slot u16, slot u16: push slot1 op slot2, as ARITH_LK: "a * b"
+	OpCmpJumpLL  // cmp u16, slot u16, slot u16, target u32: as CMP_JUMP_LK, with a local on the right: "i < n"
+	OpArithK     // op u16, const u16: x -> x op Consts[const]: "x * y + 1"
+	OpCmpJumpK   // cmp u16, const u16, target u32: x -> ; as CMP_JUMP, with Consts[const] on the right: "s[i] >= '0'"
+
 	numOps
 )
 
@@ -224,6 +232,12 @@ var opInfo = [numOps]OpInfo{
 	OpBreak:        {"BREAK", nil},
 	OpArithLK:      {"ARITH_LK", []int{2, 2, 2}},
 	OpCmpJumpLK:    {"CMP_JUMP_LK", []int{2, 2, 2, 4}},
+	OpIndexLL:      {"INDEX_LL", []int{2, 2}},
+	OpGetMemberL:   {"GET_MEMBER_L", []int{2, 2, 2}},
+	OpArithLL:      {"ARITH_LL", []int{2, 2, 2}},
+	OpCmpJumpLL:    {"CMP_JUMP_LL", []int{2, 2, 2, 4}},
+	OpArithK:       {"ARITH_K", []int{2, 2}},
+	OpCmpJumpK:     {"CMP_JUMP_K", []int{2, 2, 4}},
 }
 
 // The comparison operand of CMP_JUMP: one of these, plus CmpJumpIfTrue to

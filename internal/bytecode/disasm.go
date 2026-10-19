@@ -234,6 +234,44 @@ func (d *disasm) operand(f *Function, op Op, pc int) string {
 			name = cmpNames[c]
 		}
 		return fmt.Sprintf("%s %s %s %s -> %d", when, d.slotName(f, ReadU16(f.Code, pc+3)), name, d.constValue(f, ReadU16(f.Code, pc+5)), ReadU32(f.Code, pc+7))
+	case OpArithK:
+		name := "?"
+		if op := Op(ReadU16(f.Code, pc+1)); op >= OpAdd && op <= OpShr {
+			name = op.String()
+		}
+		return fmt.Sprintf("%s %s", name, d.constValue(f, ReadU16(f.Code, pc+3)))
+	case OpCmpJumpK:
+		k := ReadU16(f.Code, pc+1)
+		when := "unless"
+		if k&CmpJumpIfTrue != 0 {
+			when = "if"
+		}
+		name := "?"
+		if c := k &^ CmpJumpIfTrue; c < len(cmpNames) {
+			name = cmpNames[c]
+		}
+		return fmt.Sprintf("%s %s %s -> %d", when, name, d.constValue(f, ReadU16(f.Code, pc+3)), ReadU32(f.Code, pc+5))
+	case OpArithLL:
+		name := "?"
+		if op := Op(ReadU16(f.Code, pc+1)); op >= OpAdd && op <= OpShr {
+			name = op.String()
+		}
+		return fmt.Sprintf("%s %s, %s", name, d.slotName(f, ReadU16(f.Code, pc+3)), d.slotName(f, ReadU16(f.Code, pc+5)))
+	case OpCmpJumpLL:
+		k := ReadU16(f.Code, pc+1)
+		when := "unless"
+		if k&CmpJumpIfTrue != 0 {
+			when = "if"
+		}
+		name := "?"
+		if c := k &^ CmpJumpIfTrue; c < len(cmpNames) {
+			name = cmpNames[c]
+		}
+		return fmt.Sprintf("%s %s %s %s -> %d", when, d.slotName(f, ReadU16(f.Code, pc+3)), name, d.slotName(f, ReadU16(f.Code, pc+5)), ReadU32(f.Code, pc+7))
+	case OpGetMemberL:
+		return fmt.Sprintf("%s->%s  ; cache %d", d.slotName(f, ReadU16(f.Code, pc+1)), d.constName(f, ReadU16(f.Code, pc+3)), ReadU16(f.Code, pc+5))
+	case OpIndexLL:
+		return fmt.Sprintf("%s[%s]", d.slotName(f, ReadU16(f.Code, pc+1)), d.slotName(f, ReadU16(f.Code, pc+3)))
 	case OpJumpIfArg:
 		return fmt.Sprintf("%d -> %d", ReadU16(f.Code, pc+1), ReadU32(f.Code, pc+3))
 	case OpSwitchTable:

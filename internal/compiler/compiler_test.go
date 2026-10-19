@@ -436,7 +436,16 @@ func TestFuse(t *testing.T) {
 	ops := func(fuse bool) map[bytecode.Op]bool {
 		Fuse = fuse
 		defer func() { Fuse = true }()
-		f, err := parser.ParseFile("t.kkl", []byte("g(n) { local i = 0, s = 0; while (i < n) { s += i; i++; i--; i++; if (s > 100) s = 0; } return s * 2; } main() {}"))
+		f, err := parser.ParseFile("t.kkl", []byte(`class N { next; }
+g(n, v, p, s) {
+    local i = 0, t = 0;
+    while (i < n) { t += v[i]; i++; i--; i++; if (t > 100) t = 0; }
+    while (p != nil) p = p->next;
+    if (s[0] >= '0') t = t * 3 + 1;
+    switch (s) { case "a": t = n * t; break; }
+    return t;
+}
+main() {}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -452,7 +461,8 @@ func TestFuse(t *testing.T) {
 		}
 		return seen
 	}
-	fused := []bytecode.Op{bytecode.OpArithLK, bytecode.OpCmpJumpLK, bytecode.OpAddLocal, bytecode.OpIncLocal, bytecode.OpDecLocal}
+	fused := []bytecode.Op{bytecode.OpArithLK, bytecode.OpCmpJumpLK, bytecode.OpAddLocal, bytecode.OpIncLocal, bytecode.OpDecLocal,
+		bytecode.OpIndexLL, bytecode.OpGetMemberL, bytecode.OpArithLL, bytecode.OpCmpJumpLL, bytecode.OpArithK, bytecode.OpCmpJumpK}
 	on, off := ops(true), ops(false)
 	for _, op := range fused {
 		if !on[op] || off[op] {

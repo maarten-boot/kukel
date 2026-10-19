@@ -1399,6 +1399,14 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			}
 			sp--
 			stack[sp-1] = r
+		case bytecode.OpIndexLL:
+			r, e := value.Index(stack[base+bytecode.ReadU16(code, ip)], stack[base+bytecode.ReadU16(code, ip+2)])
+			if e != nil {
+				return vm.fail(f, start, sp, e)
+			}
+			ip += 4
+			stack[sp] = r
+			sp++
 		case bytecode.OpIndexSet:
 			if e := value.SetIndex(stack[sp-3], stack[sp-2], stack[sp-1]); e != nil {
 				return vm.fail(f, start, sp, e)
@@ -1483,6 +1491,26 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			cacheField(c, obj, name)
 			ip += 4
 			stack[sp-1] = r
+		case bytecode.OpGetMemberL:
+			obj := stack[base+bytecode.ReadU16(code, ip)]
+			c := &vm.cacheOf(f.fn)[bytecode.ReadU16(code, ip+4)]
+			if obj.Kind() == value.Object {
+				if o := obj.AsObject(); o.Class == c.class && c.field >= 0 {
+					stack[sp] = o.Fields[c.field] // the cached data member slot
+					sp++
+					ip += 6
+					break
+				}
+			}
+			name := consts[bytecode.ReadU16(code, ip+2)].AsString()
+			r, e := value.Member(obj, name, makeFunction)
+			if e != nil {
+				return vm.fail(f, start, sp, e)
+			}
+			cacheField(c, obj, name)
+			ip += 6
+			stack[sp] = r
+			sp++
 		case bytecode.OpSetMember:
 			obj := stack[sp-2]
 			c := &vm.cacheOf(f.fn)[bytecode.ReadU16(code, ip+2)]
@@ -1662,9 +1690,133 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			stack[sp] = r
 			sp++
 			ip += 6
+		case bytecode.OpArithK: // as ARITH_LK, the left operand on the stack
+			aop := bytecode.Op(bytecode.ReadU16(code, ip))
+			a, b := stack[sp-1], consts[bytecode.ReadU16(code, ip+2)]
+			var r value.Value
+			if a.Kind() == value.Int && b.Kind() == value.Int && aop <= bytecode.OpMul {
+				x, y := a.AsInt(), b.AsInt()
+				switch aop {
+				case bytecode.OpAdd:
+					r = value.MakeInt(x + y)
+				case bytecode.OpSub:
+					r = value.MakeInt(x - y)
+				default:
+					r = value.MakeInt(x * y)
+				}
+			} else {
+				var e error
+				if r, e = value.Arith(value.ArithOp(aop-bytecode.OpAdd), a, b); e != nil {
+					return vm.fail(f, start, sp, e)
+				}
+			}
+			stack[sp-1] = r
+			ip += 4
+		case bytecode.OpArithLL: // as ARITH_LK, the right operand a local
+			aop := bytecode.Op(bytecode.ReadU16(code, ip))
+			a, b := stack[base+bytecode.ReadU16(code, ip+2)], stack[base+bytecode.ReadU16(code, ip+4)]
+			var r value.Value
+			if a.Kind() == value.Int && b.Kind() == value.Int && aop <= bytecode.OpMul {
+				x, y := a.AsInt(), b.AsInt()
+				switch aop {
+				case bytecode.OpAdd:
+					r = value.MakeInt(x + y)
+				case bytecode.OpSub:
+					r = value.MakeInt(x - y)
+				default:
+					r = value.MakeInt(x * y)
+				}
+			} else {
+				var e error
+				if r, e = value.Arith(value.ArithOp(aop-bytecode.OpAdd), a, b); e != nil {
+					return vm.fail(f, start, sp, e)
+				}
+			}
+			stack[sp] = r
+			sp++
+			ip += 6
 		case bytecode.OpCmpJumpLK:
 			k := bytecode.ReadU16(code, ip)
 			a, b := stack[base+bytecode.ReadU16(code, ip+2)], consts[bytecode.ReadU16(code, ip+4)]
+			var r bool
+			if a.Kind() == value.Int && b.Kind() == value.Int {
+				x, y := a.AsInt(), b.AsInt()
+				switch k &^ bytecode.CmpJumpIfTrue {
+				case bytecode.CmpLt:
+					r = x < y
+				case bytecode.CmpLe:
+					r = x <= y
+				case bytecode.CmpGt:
+					r = x > y
+				case bytecode.CmpGe:
+					r = x >= y
+				case bytecode.CmpEq:
+					r = x == y
+				default:
+					r = x != y
+				}
+			} else if c := k &^ bytecode.CmpJumpIfTrue; c >= bytecode.CmpEq {
+				r = value.Equal(a, b) == (c == bytecode.CmpEq)
+			} else {
+				var e error
+				if r, e = value.Compare(value.CmpOp(c), a, b); e != nil {
+					return vm.fail(f, start, sp, e)
+				}
+			}
+			if r == (k&bytecode.CmpJumpIfTrue != 0) {
+				t := bytecode.ReadU32(code, ip+6)
+				if t < ip {
+					if e := vm.step(); e != nil {
+						return vm.fail(f, start, sp, e)
+					}
+				}
+				ip = t
+			} else {
+				ip += 10
+			}
+		case bytecode.OpCmpJumpK: // as CMP_JUMP_LK, the left operand popped
+			k := bytecode.ReadU16(code, ip)
+			a, b := stack[sp-1], consts[bytecode.ReadU16(code, ip+2)]
+			sp--
+			var r bool
+			if a.Kind() == value.Int && b.Kind() == value.Int {
+				x, y := a.AsInt(), b.AsInt()
+				switch k &^ bytecode.CmpJumpIfTrue {
+				case bytecode.CmpLt:
+					r = x < y
+				case bytecode.CmpLe:
+					r = x <= y
+				case bytecode.CmpGt:
+					r = x > y
+				case bytecode.CmpGe:
+					r = x >= y
+				case bytecode.CmpEq:
+					r = x == y
+				default:
+					r = x != y
+				}
+			} else if c := k &^ bytecode.CmpJumpIfTrue; c >= bytecode.CmpEq {
+				r = value.Equal(a, b) == (c == bytecode.CmpEq)
+			} else {
+				var e error
+				if r, e = value.Compare(value.CmpOp(c), a, b); e != nil {
+					return vm.fail(f, start, sp, e)
+				}
+			}
+			if r == (k&bytecode.CmpJumpIfTrue != 0) {
+				t := bytecode.ReadU32(code, ip+4)
+				if t < ip {
+					if e := vm.step(); e != nil {
+						return vm.fail(f, start, sp, e)
+					}
+				}
+				ip = t
+			} else {
+				ip += 8
+			}
+		case bytecode.OpCmpJumpLL: // as CMP_JUMP_LK, the right operand a local
+			k := bytecode.ReadU16(code, ip)
+			a, b := stack[base+bytecode.ReadU16(code, ip+2)], stack[base+bytecode.ReadU16(code, ip+4)]
 			var r bool
 			if a.Kind() == value.Int && b.Kind() == value.Int {
 				x, y := a.AsInt(), b.AsInt()

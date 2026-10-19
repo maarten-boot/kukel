@@ -173,6 +173,14 @@ func TestVerifyRejects(t *testing.T) {
 		{"bad iterator count", program(code(op(bytecode.OpIterNext, 0, 3, 0), ret)), "pushes 3 values"},
 		{"TRY_POP without a handler", program(code(op(bytecode.OpTryPop), ret)), "TRY_POP without a handler"},
 		{"return inside a try", program(code(op(bytecode.OpTryPush, 0, 7), ret, ret)), "returns with 1 try handlers registered"},
+		// The fused forms of Kukel v0.26.
+		{"INDEX_LL slot", program(code(op(bytecode.OpIndexLL, 0, 1), ret)), "uses slot 1 of 1"},
+		{"GET_MEMBER_L cache", program(code(op(bytecode.OpGetMemberL, 0, 0, 1), ret), value.MakeString("x")), "uses cache 1 of 1"},
+		{"GET_MEMBER_L name", program(code(op(bytecode.OpGetMemberL, 0, 0, 0), ret), value.MakeInt(1)), "needs a string constant"},
+		{"ARITH_LL operation", program(code(op(bytecode.OpArithLL, 99, 0, 0), ret)), "has unknown operation 99"},
+		{"CMP_JUMP_LL comparison", program(code(op(bytecode.OpCmpJumpLL, 7, 0, 0, 11), ret)), "has unknown comparison 7"},
+		{"ARITH_K constant", program(code(op(bytecode.OpNil), op(bytecode.OpArithK, int(bytecode.OpAdd), 3), ret)), "refers to constant 3 of 0"},
+		{"CMP_JUMP_K target", program(code(op(bytecode.OpNil), op(bytecode.OpCmpJumpK, bytecode.CmpEq, 0, 99), ret), value.MakeInt(1)), "not an instruction"},
 	}
 	for _, tt := range tests {
 		err := bytecode.Verify(tt.p)
@@ -293,13 +301,17 @@ func TestSharedCacheSlot(t *testing.T) {
 	}
 	patched := false
 	for pc := 0; pc < len(main.Code); pc += bytecode.Op(main.Code[pc]).Size() {
-		if bytecode.Op(main.Code[pc]) == bytecode.OpGetMember {
+		switch bytecode.Op(main.Code[pc]) {
+		case bytecode.OpGetMember:
 			binary.LittleEndian.PutUint16(main.Code[pc+3:], 0) // the CALL_METHOD's slot
+			patched = true
+		case bytecode.OpGetMemberL: // k->m, k a local
+			binary.LittleEndian.PutUint16(main.Code[pc+5:], 0)
 			patched = true
 		}
 	}
 	if !patched {
-		t.Fatal("no GET_MEMBER in main")
+		t.Fatal("no GET_MEMBER or GET_MEMBER_L in main")
 	}
 	// The verifier refuses it (a shared entry could make one name use
 	// another's method); the VM must not crash on it either.

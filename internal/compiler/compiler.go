@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/maarten-boot/kukel/internal/ast"
 	"github.com/maarten-boot/kukel/internal/bytecode"
@@ -561,8 +562,10 @@ func peephole(fn *bytecode.Function) {
 			at = pc + 1
 		case bytecode.OpCmpJump, bytecode.OpJumpIfArg:
 			at = pc + 3
-		case bytecode.OpCmpJumpLK:
+		case bytecode.OpCmpJumpLK, bytecode.OpCmpJumpLL:
 			at = pc + 7
+		case bytecode.OpCmpJumpK:
+			at = pc + 5
 		default:
 			continue
 		}
@@ -1069,12 +1072,20 @@ type switchCase struct {
 //	dispatch: for each case: LOAD hidden; CONST v; EQ; JUMP_IF_TRUE case
 //	          JUMP default (if any)
 //	end:
+//
+// With Fuse, a case is one CMP_JUMP_LK, and a tag that is a local is not
+// copied: nothing runs between the copy and the dispatch, so the dispatch
+// reads the local itself.
 func (c *compiler) switchStmt(s *ast.SwitchStmt, labels []*ast.Ident) {
 	c.pushScope()
 	tag := c.declare(&ast.Ident{NamePos: s.Switch, Name: "(switch)"}, "hidden").slot
 	c.mark(s.Tag.Pos())
-	c.expr(s.Tag)
-	c.emit(bytecode.OpStoreLocal, tag)
+	if slot, ok := c.fusableLocal(s.Tag, s.Tag.Pos()); ok {
+		tag = slot
+	} else {
+		c.expr(s.Tag)
+		c.emit(bytecode.OpStoreLocal, tag)
+	}
 	toDispatch := c.jump(bytecode.OpJump)
 
 	t := c.pushTarget(targetSwitch, labels)
@@ -1114,6 +1125,10 @@ func (c *compiler) switchStmt(s *ast.SwitchStmt, labels []*ast.Ident) {
 		return
 	}
 	for _, cs := range sw.cases {
+		if Fuse {
+			c.emit(bytecode.OpCmpJumpLK, bytecode.CmpEq|bytecode.CmpJumpIfTrue, tag, c.constIndex(cs.value, cs.pos), cs.addr)
+			continue
+		}
 		c.emit(bytecode.OpLoadLocal, tag)
 		c.pushValue(cs.value, cs.pos)
 		c.emit(bytecode.OpEq)
@@ -1273,6 +1288,17 @@ func (c *compiler) expr(e ast.Expr) {
 				c.emit(bytecode.OpArithLK, int(op), slot, k)
 				return
 			}
+			if x, y, ok := c.twoLocals(e.X, e.Y, e.OpPos); ok { // a * b
+				c.mark(e.OpPos)
+				c.emit(bytecode.OpArithLL, int(op), x, y)
+				return
+			}
+			if k, ok := c.constOperand(e.Y); ok { // x * y + 1
+				c.expr(e.X)
+				c.mark(e.OpPos)
+				c.emit(bytecode.OpArithK, int(op), k)
+				return
+			}
 		}
 		c.expr(e.X)
 		c.expr(e.Y)
@@ -1346,6 +1372,13 @@ func (c *compiler) expr(e ast.Expr) {
 		c.mark(e.Lbrace)
 		c.emit(bytecode.OpMakeMap, len(e.Entries))
 	case *ast.IndexExpr:
+		if x, ok := c.fusableLocal(e.X, e.Lbrack); ok {
+			if i, ok := c.fusableLocal(e.Index, e.Lbrack); ok { // v[i]: one instruction
+				c.mark(e.Lbrack)
+				c.emit(bytecode.OpIndexLL, x, i)
+				return
+			}
+		}
 		c.expr(e.X)
 		c.expr(e.Index)
 		c.mark(e.Lbrack)
@@ -1355,6 +1388,11 @@ func (c *compiler) expr(e ast.Expr) {
 	case *ast.MemberExpr:
 		if f := c.thisField(e); f != nil {
 			c.emit(bytecode.OpLoadMember, f.field)
+			return
+		}
+		if x, ok := c.fusableLocal(e.X, e.Name.NamePos); ok { // p->next: one instruction
+			c.mark(e.Name.NamePos)
+			c.emit(bytecode.OpGetMemberL, x, c.nameConst(e.Name), c.cache(e.Name.NamePos))
 			return
 		}
 		c.expr(e.X)
@@ -1454,6 +1492,15 @@ func (c *compiler) branch(e ast.Expr, jumpIf bool) []int {
 			if slot, k, ok := c.localConst(b.X, b.Y, b.OpPos); ok { // n < 2: one instruction
 				c.mark(b.OpPos)
 				return []int{c.emit(bytecode.OpCmpJumpLK, cmp, slot, k, 0) + 6}
+			}
+			if x, y, ok := c.twoLocals(b.X, b.Y, b.OpPos); ok { // i < n
+				c.mark(b.OpPos)
+				return []int{c.emit(bytecode.OpCmpJumpLL, cmp, x, y, 0) + 6}
+			}
+			if k, ok := c.constOperand(b.Y); ok { // s[i] >= '0'
+				c.expr(b.X)
+				c.mark(b.OpPos)
+				return []int{c.emit(bytecode.OpCmpJumpK, cmp, k, 0) + 4}
 			}
 			cmp &^= bytecode.CmpJumpIfTrue
 			// A comparison and the jump on its result in one instruction.
@@ -1602,39 +1649,112 @@ func (c *compiler) load(id *ast.Ident) {
 }
 
 // Fuse makes the compiler use the instructions that do the work of
-// several (ARITH_LK, CMP_JUMP_LK, ADD_LOCAL, INC_LOCAL, DEC_LOCAL). Tests
+// several (ARITH_LK, CMP_JUMP_LK, ARITH_LL, CMP_JUMP_LL, ARITH_K, CMP_JUMP_K, INDEX_LL, GET_MEMBER_L, ADD_LOCAL, INC_LOCAL, DEC_LOCAL). Tests
 // turn it off to check that a program does the same without them.
 var Fuse = true
 
 // localConst reports whether x is a local variable in a slot (not a cell)
-// and y a literal number or string, and gives the slot and the constant:
+// and y a value known when compiling (operandConst), and gives the slot and
+// the constant:
 // an operation on the two is one instruction (ARITH_LK, CMP_JUMP_LK). The
 // variable must be on the line of the operator op, where the instruction
 // is marked: else the line of the variable would have no code (the
 // debugger could not stop there).
 func (c *compiler) localConst(x, y ast.Expr, op token.Pos) (slot, k int, ok bool) {
+	slot, ok = c.fusableLocal(x, op)
+	if !ok {
+		return 0, 0, false
+	}
+	v, ok := c.operandConst(y)
+	if !ok {
+		return 0, 0, false
+	}
+	return slot, c.constIndex(v, y.Pos()), true
+}
+
+// operandConst reports whether e is a value known when compiling, as an
+// operand of an instruction that takes a constant: a literal, or the name
+// of a constant (also a module's: "i < MAX", "p != nil", "n % util::SIZE").
+// A name that is an error (a private one of another module) is left to
+// the plain code to report.
+func (c *compiler) operandConst(e ast.Expr) (value.Value, bool) {
+	switch e := e.(type) {
+	case *ast.IntLit:
+		return value.MakeInt(e.Value), true
+	case *ast.CharLit:
+		return value.MakeInt(e.Value), true
+	case *ast.FloatLit:
+		return value.MakeFloat(e.Value), true
+	case *ast.StringLit:
+		return value.MakeString(e.Value), true
+	case *ast.BoolLit:
+		return value.MakeBool(e.Value), true
+	case *ast.NilLit:
+		return value.NilValue, true
+	case *ast.Ident:
+		if _, ok := c.lookupLocal(e.Name); ok {
+			return value.NilValue, false
+		}
+		if _, ok := c.upvalue(c.fs, e.Name); ok {
+			return value.NilValue, false
+		}
+		if c.memberOf(e.Name) != nil {
+			return value.NilValue, false
+		}
+		if g, ok := c.lookup(e.Name); ok && g.kind == symConst {
+			return g.value, true
+		}
+	case *ast.StaticRef:
+		if !c.isModuleRef(e) || strings.HasPrefix(e.Name.Name, "_") {
+			return value.NilValue, false
+		}
+		if m := c.usedModule(e.Class); m != nil {
+			if g, ok := m.names[e.Name.Name]; ok && g.kind == symConst {
+				return g.value, true
+			}
+		}
+	}
+	return value.NilValue, false
+}
+
+// constOperand reports whether y is a value known when compiling
+// (operandConst) that an instruction can take as its right operand, and
+// gives its constant index.
+func (c *compiler) constOperand(y ast.Expr) (int, bool) {
+	if !Fuse {
+		return 0, false
+	}
+	v, ok := c.operandConst(y)
+	if !ok {
+		return 0, false
+	}
+	return c.constIndex(v, y.Pos()), true
+}
+
+// twoLocals reports whether x and y are both locals an instruction can
+// take as its operands (fusableLocal), and gives their slots.
+func (c *compiler) twoLocals(x, y ast.Expr, op token.Pos) (int, int, bool) {
+	a, ok := c.fusableLocal(x, op)
+	if !ok {
+		return 0, 0, false
+	}
+	b, ok := c.fusableLocal(y, op)
+	return a, b, ok
+}
+
+// fusableLocal reports whether x is a local variable in a slot (not a
+// cell) on the line of the operator op, and gives its slot: an operand an
+// instruction that does the work of several can take (see localConst).
+func (c *compiler) fusableLocal(x ast.Expr, op token.Pos) (int, bool) {
 	id, isIdent := x.(*ast.Ident)
 	if !Fuse || !isIdent || id.NamePos.Line != op.Line {
-		return 0, 0, false
+		return 0, false
 	}
 	lv, found := c.lookupLocal(id.Name)
 	if !found || lv.cell {
-		return 0, 0, false
+		return 0, false
 	}
-	var v value.Value
-	switch l := y.(type) {
-	case *ast.IntLit:
-		v = value.MakeInt(l.Value)
-	case *ast.CharLit:
-		v = value.MakeInt(l.Value)
-	case *ast.FloatLit:
-		v = value.MakeFloat(l.Value)
-	case *ast.StringLit:
-		v = value.MakeString(l.Value)
-	default:
-		return 0, 0, false
-	}
-	return lv.slot, c.constIndex(v, y.Pos()), true
+	return lv.slot, true
 }
 
 // loadGlobal pushes the value of top-level name g (named id).

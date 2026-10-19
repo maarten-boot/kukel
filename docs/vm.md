@@ -5,7 +5,7 @@ values, the program image, the execution model of the stack machine, every
 instruction, how the compiler translates the language's constructs, the
 `.kkc` file format and what the loader guarantees.
 
-It describes bytecode format version **7** (introduced in kukel v0.22). The language
+It describes bytecode format version **8** (introduced in kukel v0.26). The language
 itself is described in [reference.md](reference.md), its grammar in
 [syntax.ebnf](../syntax.ebnf).
 
@@ -513,6 +513,12 @@ code: the numbers, names, operands and stack effects.
 | 78 | `BREAK` | | 0 | 0 | the start of a source line in code the debugger copied: the debug hook, then the instruction it replaced (section 4.12) |
 | 79 | `ARITH_LK` | op:u16, slot:u16, k:u16 | 0 | 1 | push `slot op Consts[k]`, where `op` is the opcode of `ADD` to `SHR` (below) |
 | 80 | `CMP_JUMP_LK` | cmp:u16, slot:u16, k:u16, target:u32 | 0 | 0 | compare `slot` with `Consts[k]`; jump as `CMP_JUMP` does |
+| 81 | `INDEX_LL` | x:u16, i:u16 | 0 | 1 | push `x[i]`, of the locals in slots `x` and `i` (`LOAD_LOCAL x; LOAD_LOCAL i; INDEX_GET`) |
+| 82 | `GET_MEMBER_L` | slot:u16, name:u16, cache:u16 | 0 | 1 | push the member `name` of the local in `slot`, as `GET_MEMBER` (`LOAD_LOCAL slot; GET_MEMBER name, cache`) |
+| 83 | `ARITH_LL` | op:u16, a:u16, b:u16 | 0 | 1 | push `a op b`, of the locals in slots `a` and `b`, as `ARITH_LK` |
+| 84 | `CMP_JUMP_LL` | cmp:u16, a:u16, b:u16, target:u32 | 0 | 0 | compare the locals in slots `a` and `b`; jump as `CMP_JUMP` does |
+| 85 | `ARITH_K` | op:u16, k:u16 | 1 | 1 | `x`: push `x op Consts[k]`, as `ARITH_LK` |
+| 86 | `CMP_JUMP_K` | cmp:u16, k:u16, target:u32 | 1 | 0 | `x`: compare `x` with `Consts[k]`; jump as `CMP_JUMP` does |
 
 `CMP_JUMP`'s `cmp` operand is the comparison in its low byte (0 `<`,
 1 `<=`, 2 `>`, 3 `>=`, 4 `==`, 5 `!=`), plus 0x100 to jump when the
@@ -523,9 +529,25 @@ others) followed by `JUMP_IF_TRUE` or `JUMP_IF_FALSE` in one instruction.
 local slot and their right one from the constants: `LOAD_LOCAL slot;
 CONST k; SUB` is `ARITH_LK SUB, slot, k`, and `LOAD_LOCAL slot; CONST k;
 CMP_JUMP cmp, target` is `CMP_JUMP_LK cmp, slot, k, target`. They behave
-exactly as those instructions would, errors included. The compiler's
-switch `Fuse` (on) controls these and `ADD_LOCAL`, `INC_LOCAL` and
-`DEC_LOCAL`: the tests run every program of `tests/run` also with it off,
+exactly as those instructions would, errors included.
+
+Kukel v0.26 (format version 8) added more of the same, for the patterns that
+programs run most (counted on typical programs: sorting, a sieve, a
+tokenizer, linked lists, an interpreter, float arithmetic):
+
+| Instruction | Is | Source |
+|---|---|---|
+| `INDEX_LL x, i` | `LOAD_LOCAL x; LOAD_LOCAL i; INDEX_GET` | `v[i]` |
+| `GET_MEMBER_L slot, name, cache` | `LOAD_LOCAL slot; GET_MEMBER name, cache` | `p->next` |
+| `ARITH_LL op, a, b` | `LOAD_LOCAL a; LOAD_LOCAL b; op` | `a * b` |
+| `CMP_JUMP_LL cmp, a, b, target` | `LOAD_LOCAL a; LOAD_LOCAL b; CMP_JUMP cmp, target` | `i < n` |
+| `ARITH_K op, k` | `CONST k; op` | `x * y + 1` |
+| `CMP_JUMP_K cmp, k, target` | `CONST k; CMP_JUMP cmp, target` | `s[i] >= '0'` |
+
+They too behave exactly as the instructions they replace. The compiler's
+switch `Fuse` (on) controls all of them, and `ADD_LOCAL`, `INC_LOCAL` and
+`DEC_LOCAL`: the tests run every program of `tests/run` also with it off
+(`tests/run/fused.kkl` uses each form, with the errors each can raise),
 and expect the same output and exit code.
 
 `SWITCH_TABLE`'s table (`Function.Tables`) maps the ints `min`, `min+1`,
@@ -544,8 +566,8 @@ for. Every error becomes
 an exception (section 4.9).
 
 **Fast paths**: arithmetic and comparisons on two ints (also in
-`ARITH_LK`, `CMP_JUMP` and `CMP_JUMP_LK`), `INC_LOCAL`, `ADD_LOCAL` on two
-ints, and member instructions with a cache hit avoid the general code. So
+`ARITH_LK`, `ARITH_LL`, `ARITH_K`, `CMP_JUMP` and the `CMP_JUMP_` forms), `INC_LOCAL`, `ADD_LOCAL` on two
+ints, and member instructions (also `GET_MEMBER_L`) with a cache hit avoid the general code. So
 do the most common calls (Kukel v0.22): `CALL` of a function or closure
 written in Kukel, and `CALL_METHOD` whose cache holds the receiver's
 method, with the number of arguments it takes, no rest parameter, room on
@@ -608,8 +630,12 @@ one `INC_LOCAL`. (`INDEX_SET` and `SET_MEMBER` always leave the value, so
 `v[i] = x;` and `p->x = 1;` end with `POP`.)
 
 A binary arithmetic operation whose left operand is a local (not in a
-cell) and whose right one is a literal number or string is one
-`ARITH_LK`: `n - 1` is `ARITH_LK SUB n, 1`. The local must be on the line
+cell) and whose right one is a value known when compiling (a literal, or
+the name of a constant, also a module's) is one `ARITH_LK`: `n - 1` is
+`ARITH_LK SUB n, 1`. With two locals it is one `ARITH_LL` (`a * b`), with
+any other left operand and such a right one, the left operand and one
+`ARITH_K` (`x * y + 1`). Likewise `v[i]` with two locals is one `INDEX_LL`,
+and `p->x` with `p` a local one `GET_MEMBER_L`. A local must be on the line
 of the operator (where the instruction is marked; else the local's line
 would have no code for the debugger to stop at), as for `CMP_JUMP_LK`.
 
@@ -617,9 +643,11 @@ would have no code for the debugger to stop at), as for `CMP_JUMP_LK`.
 
 `if`, `while`, `for` and `do` compile their condition into jumps, never
 into a boolean. A comparison becomes one `CMP_JUMP`, or one
-`CMP_JUMP_LK` when it compares a local (not in a cell) with a literal
-number or string (`n < 2`); `&&`, `||` and `!` become jumps between their
-operands:
+`CMP_JUMP_LK` when it compares a local (not in a cell) with a value known
+when compiling (`n < 2`, `i < MAX`, `p != nil`), one `CMP_JUMP_LL` for two
+locals (`i < n`), and its left operand and one `CMP_JUMP_K` for another
+left operand and a known value (`s[i] >= '0'`); `&&`, `||` and `!` become
+jumps between their operands:
 
 ```
 if (a && !b) return 1;          0  LOAD_LOCAL    0  ; a
@@ -690,8 +718,7 @@ for (local i = 0; i < n; i++) {     6  CONST 0; STORE_LOCAL i
 }                                  28  JUMP -> 39            (continue)
                                    33  LOAD_LOCAL i; ADD_LOCAL s
                                    39  INC_LOCAL i
-                                   42  LOAD_LOCAL i; LOAD_LOCAL n
-                                   48  CMP_JUMP if < -> 17
+                                   42  CMP_JUMP_LL if i < n -> 17
 ```
 
 `break` and `continue` are jumps, patched once the loop's end and its
@@ -755,6 +782,12 @@ a fourth case, `case 5:` (`L4`), the switch above becomes:
                        dispatch: LOAD_LOCAL (switch); SWITCH_TABLE t, miss -> L3
                                  (table t: 1 -> L1, 2 -> L2, 3 -> L2, 5 -> L4; none for 4)
 ```
+
+With `Fuse` (Kukel v0.26), each case of the dispatch is one `CMP_JUMP_LK`
+(`CMP_JUMP_LK if (switch) == 1 -> L1`), and a value that is a local (not
+in a cell), as `x` above, is not copied to the hidden slot: nothing runs
+between the copy and the dispatch, which reads `x` itself
+(`CMP_JUMP_LK if x == 1 -> L1`, `LOAD_LOCAL x; SWITCH_TABLE t`).
 
 ### 6.9 Try, catch and finally
 
@@ -821,7 +854,7 @@ noted; `str` is a `uv` length followed by that many bytes.
 
 ```
 "KUKL"                       4 bytes: magic
-uv   format version          7
+uv   format version          8
 uv   flags                   0 (1: a module, below)
 uv   main                    global index of main
 uv   n, then n globals       str name, byte kind (0 variable, 1 function, 2 built-in, 3 class, 4 native),
@@ -854,7 +887,8 @@ layout changes (version 2: milestone 12's superinstructions and inline
 cache slots; version 3: native globals; version 4: `THROW` takes only
 `Error` objects; version 5: jump tables, `SWITCH_TABLE`, `ADD_LOCAL`;
 version 6: native base classes, `CALL_NATIVE`; version 7: `ARITH_LK`,
-`CMP_JUMP_LK`). `BREAK` came later
+`CMP_JUMP_LK`; version 8: `INDEX_LL`, `GET_MEMBER_L`, `ARITH_LL`,
+`CMP_JUMP_LL`, `ARITH_K`, `CMP_JUMP_K`). `BREAK` came later
 without a new version: it is only in the debugger's copy of the code, and a
 file that holds one is refused. A reader refuses any version other
 than its own, telling the user to compile the program again. Built-ins and
@@ -915,8 +949,9 @@ make the VM crash or read outside its data.
 - no `BREAK` (it belongs to the debugger's copies only);
 - every instruction is known and complete, and its operands are in range:
   constants, slots, globals, functions, classes and their statics, upvalues,
-  cache slots, jump tables; member names are string constants; `ARITH_LK`
-  operations (`ADD` to `SHR`), `CMP_JUMP` and `CMP_JUMP_LK` comparisons,
+  cache slots, jump tables; member names are string constants; the
+  operations of `ARITH_LK`, `ARITH_LL` and `ARITH_K` (`ADD` to `SHR`), the
+  comparisons of `CMP_JUMP` and the `CMP_JUMP_` forms,
   `TRY_PUSH` kinds and `ITER_NEXT` counts are valid;
 - each inline cache slot is used by one instruction only (as the compiler
   does), so one member name can never get the method found for another;

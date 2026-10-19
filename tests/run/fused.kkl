@@ -1,0 +1,114 @@
+// The instructions that do the work of several (Kukel v0.22 and v0.26):
+// each form with ints, floats, strings, nil and objects, and the errors
+// each can raise. TestRunGolden also runs this without them: the output
+// must be the same.
+const LIMIT = 5, NAME = "kukel", HALF = 0.5;
+
+class Node {
+    value, next;
+    Node(v, n);
+}
+
+Node::Node(v, n) {
+    value = v;
+    next = n;
+}
+
+// report prints an error's kind, message and where it was raised.
+report(e) { println(e->kind + ":", e->message, "at", e->trace[0]); }
+
+// Each form once, with the values given.
+forms(v, i, a, b, s, p) {
+    local out = [];
+
+    push(out, v[i]);                    // INDEX_LL
+    push(out, p->value);                // GET_MEMBER_L
+    push(out, a + b, a * b, a - b);     // ARITH_LL
+    push(out, a * 2 + 1, s + "!");      // ARITH_LK, ARITH_K
+    push(out, a % LIMIT);               // ARITH_LK with a named constant
+    push(out, i < LIMIT, a < b);        // as values: not fused
+
+    if (a < b) push(out, "a<b");        // CMP_JUMP_LL
+
+    if (a == b) push(out, "a==b");
+
+    if (s == NAME) push(out, "name");   // CMP_JUMP_LK with a named constant
+
+    if (p != nil) push(out, "p");       // CMP_JUMP_LK with nil
+
+    if (v[i] >= 2) push(out, "big");    // CMP_JUMP_K
+
+    if (a * HALF > 1) push(out, "half"); // ARITH_LK, CMP_JUMP_K
+    return out;
+}
+
+// Functions that fail, each in a fused instruction.
+index(v, i) { return v[i]; }            // INDEX_LL
+member(p) { return p->value; }          // GET_MEMBER_L
+times(a, b) { return a * b; }           // ARITH_LL
+
+below(a, b) {
+    if (a < b) return true;             // CMP_JUMP_LL
+    return false;
+}
+
+minus(a) { return a - 1; }              // ARITH_LK
+
+first(v) {
+    if (v[0] < LIMIT) return true;      // CMP_JUMP_K
+    return false;
+}
+
+half(a) { return a / 0; }               // ARITH_LK
+rest(v, k) { return v[k] % 0; }         // INDEX_LL, ARITH_K
+
+// A switch over strings, and over a local.
+kind(cmd) {
+    switch (cmd) {
+        case "add":
+            return 1;
+        case "sub":
+            return 2;
+        case nil:
+            return 0;
+        case 3:
+            return 3;
+        default:
+            return -1;
+    }
+}
+
+main() {
+    local list = new Node(1, new Node(2, nil)), n = 0;
+
+    for (local p = list; p != nil; p = p->next) n += p->value;
+    println(n);
+    println(forms([1, 2, 3], 1, 3, 4, "kukel", list));
+    println(forms([0.5, 1.5], 1, 2.5, 2.5, "other", list->next));
+    println(forms("abc", 2, -1, 0, "", list));
+    println(kind("add"), kind("sub"), kind(nil), kind(3), kind(3.0), kind("x"));
+
+    for (local i = 0; i < LIMIT; i++)
+        if (i == 3) println("three");
+
+    // The errors, as without fused instructions (the values are
+    // parameters: locals the closures capture are in cells, not fused).
+    local tries = [fn() { index([1, 2], 5); },
+        fn() { member(nil); },
+        fn() { member(3); },
+        fn() { times("x", 1); },
+        fn() { below("x", 1); },
+        fn() { minus("x"); },
+        fn() { first(["z"]); },
+        fn() { half(1); },
+        fn() { rest([1, 2], 1); },
+        fn() { index([1, 2], "1"); },
+        fn() { index(nil, 0); }];
+
+    for (local f in tries)
+        try {
+            f();
+        } catch (e) {
+            report(e);
+        }
+}

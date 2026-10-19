@@ -122,7 +122,7 @@ func (v *verifier) function(f *Function) error {
 			return err
 		}
 		switch op {
-		case OpGetMember, OpSetMember, OpCallMethod, OpCallMethodV:
+		case OpGetMember, OpSetMember, OpCallMethod, OpCallMethodV, OpGetMemberL:
 			// A cache entry belongs to one instruction: shared, it could
 			// give one member name the method found for another.
 			c := operands[len(operands)-1]
@@ -202,8 +202,12 @@ func (v *verifier) function(f *Function) error {
 			if err = visit(in.operands[1], after, it.pc); err == nil {
 				err = visit(next, after, it.pc)
 			}
-		case OpCmpJumpLK:
+		case OpCmpJumpLK, OpCmpJumpLL:
 			if err = visit(in.operands[3], after, it.pc); err == nil {
+				err = visit(next, after, it.pc)
+			}
+		case OpCmpJumpK:
+			if err = visit(in.operands[2], after, it.pc); err == nil {
 				err = visit(next, after, it.pc)
 			}
 		case OpJumpIfArg:
@@ -285,6 +289,40 @@ func (v *verifier) operands(f *Function, pc int, op Op, x []int) error {
 			return fail("refers to constant %d of %d", x[2], len(f.Consts))
 		}
 		return slot(x[1])
+	case OpIndexLL:
+		if err := slot(x[0]); err != nil {
+			return err
+		}
+		return slot(x[1])
+	case OpArithK, OpCmpJumpK:
+		if op == OpArithK && (x[0] < int(OpAdd) || x[0] > int(OpShr)) {
+			return fail("has unknown operation %d", x[0])
+		}
+		if op == OpCmpJumpK && x[0]&^CmpJumpIfTrue > CmpNe {
+			return fail("has unknown comparison %d", x[0])
+		}
+		if x[1] >= len(f.Consts) {
+			return fail("refers to constant %d of %d", x[1], len(f.Consts))
+		}
+	case OpArithLL, OpCmpJumpLL:
+		if op == OpArithLL && (x[0] < int(OpAdd) || x[0] > int(OpShr)) {
+			return fail("has unknown operation %d", x[0])
+		}
+		if op == OpCmpJumpLL && x[0]&^CmpJumpIfTrue > CmpNe {
+			return fail("has unknown comparison %d", x[0])
+		}
+		if err := slot(x[1]); err != nil {
+			return err
+		}
+		return slot(x[2])
+	case OpGetMemberL:
+		if x[2] >= f.NumCaches {
+			return fail("uses cache %d of %d", x[2], f.NumCaches)
+		}
+		if err := slot(x[0]); err != nil {
+			return err
+		}
+		return name(x[1])
 	case OpIterNext:
 		if x[1] < 1 || x[1] > 2 {
 			return fail("pushes %d values", x[1])
