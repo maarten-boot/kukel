@@ -45,7 +45,7 @@ func TestNativeModules(t *testing.T) {
 		{"use nat; class B : nat::Handle {} main() {}", "1:25: class B cannot derive from native class nat::Handle: it has no constructor"},
 		{"use nat; class B : nat::Box { get; } main() {}", "1:31: member get conflicts with member function get of native base class nat::Box"},
 		{"use nat; class B : nat::Box { static get(); } main() {}", "member get conflicts with member function get of native base class nat::Box"},
-		{"use nat; class B : nat::Box { f(); } B::f() { nat::Box::get([1]..); } main() {}", "spread arguments are not supported in a nat::Box::get(...) call"},
+		{"use nat; class B : nat::Box { f(); } B::f() { nat::Box::get([1]..); } main() {}", "spread arguments are not supported in a call of nat::Box::get(...)"},
 		{"use nat; main() { nat::Box::Box(1); }", "nat::Box::Box is not static"},
 		{"use nat; main() { new nat::Handle(); }", "1:19: native class nat::Handle has no constructor: its objects come from the functions of its module"},
 		{"use nat; main() { nat::g(); }", "1:24: module nat has no g"},

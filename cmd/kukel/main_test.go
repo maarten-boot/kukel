@@ -348,7 +348,7 @@ func TestTokensError(t *testing.T) {
 	if code := run([]string{"tokens", src}, nil, &stdout, &stderr); code != 1 {
 		t.Errorf("exit code %d, want 1", code)
 	}
-	want := src + ":2:9: unknown escape sequence \\'q'\n"
+	want := src + ":2:9: unknown escape sequence \\q\n"
 	if stderr.String() != want {
 		t.Errorf("stderr = %q, want %q", stderr.String(), want)
 	}

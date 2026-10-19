@@ -128,7 +128,7 @@ func TestCompileErrors(t *testing.T) {
 		{"class A { x; } main() { A::x = 1; }", "1:28", "cannot assign to A::x: only static data members can be assigned this way"},
 		{"main() { new println(); }", "1:14", "println is not a class"},
 		{"main() { new Nope(); }", "1:14", "undefined class Nope"},
-		{"class A { f(); } A::f() {} class B : A { g(); } B::g() { A::f(main..); } main() {}", "1:62", "spread arguments are not supported in a A::f(...) call"},
+		{"class A { f(); } A::f() {} class B : A { g(); } B::g() { A::f(main..); } main() {}", "1:62", "spread arguments are not supported in a call of A::f(...)"},
 		// exceptions
 		{"main() { while (1) { try { } finally { break; } } }", "1:40", "break out of a finally block is not allowed"},
 		{"main() { a: { try { } finally { while (1) { continue a; } } } }", "1:54", "continue a: a does not label a loop"},

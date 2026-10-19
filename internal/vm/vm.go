@@ -243,10 +243,11 @@ func (vm *VM) makeClasses(from int) error {
 	for i := from; i < len(vm.prog.Classes); i++ {
 		c := vm.prog.Classes[i]
 		k := &value.ClassObj{
-			Name:       c.Name,
-			FieldIndex: map[string]int{},
-			Methods:    map[string]*value.MethodObj{},
-			Statics:    make([]value.Value, len(c.Statics)),
+			Name:        c.Name,
+			FieldIndex:  map[string]int{},
+			Methods:     map[string]*value.MethodObj{},
+			Statics:     make([]value.Value, len(c.Statics)),
+			StaticNames: c.Statics,
 		}
 		if c.Native != "" {
 			// A native base class, linked by name like the other names of

@@ -485,7 +485,7 @@ func (c *compiler) memberCall(e *ast.CallExpr) bool {
 				k.name, m.name, m.name, k.name, m.name, k.name)
 		}
 		if hasSpread(e.Args) {
-			c.errorf(e.Lparen, "spread arguments are not supported in a %s::%s(...) call", k.name, m.name)
+			c.errorf(e.Lparen, "spread arguments are not supported in a call of %s::%s(...)", k.name, m.name)
 		}
 		if m.class.native {
 			// A member function written in Go, also a native constructor

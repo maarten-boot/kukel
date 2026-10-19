@@ -1,14 +1,17 @@
 package value
 
+import "fmt"
+
 // ClassObj is a class at run time.
 type ClassObj struct {
-	Name       string
-	Base       *ClassObj
-	FieldNames []string              // instance data members, inherited ones first
-	FieldIndex map[string]int        // name -> slot in ObjectObj.Fields
-	Methods    map[string]*MethodObj // own and inherited member functions (overrides resolved)
-	Statics    []Value               // the class's own static data members
-	Ctor       *MethodObj            // C::C, else the nearest base class's constructor, or nil
+	Name        string
+	Base        *ClassObj
+	FieldNames  []string              // instance data members, inherited ones first
+	FieldIndex  map[string]int        // name -> slot in ObjectObj.Fields
+	Methods     map[string]*MethodObj // own and inherited member functions (overrides resolved)
+	Statics     []Value               // the class's own static data members
+	StaticNames []string              // their names
+	Ctor        *MethodObj            // C::C, else the nearest base class's constructor, or nil
 
 	// Native classes (written in Go) only: Native is set, and Show is how
 	// str() shows an object (a native class has no data members).
@@ -104,7 +107,20 @@ func Member(p Value, name string, function func(Named) Value) (Value, error) {
 		}
 		return MakeBoundMethod(p, m), nil
 	}
-	return NilValue, Errorf(MemberError, "class %s has no member %s", o.Class.Name, name)
+	return NilValue, Errorf(MemberError, "class %s has no member %s%s", o.Class.Name, name, o.Class.staticHint(name))
+}
+
+// staticHint is the hint for p->name when name is a static data member of
+// the class or a base class: ": name is a static data member: use C::name".
+func (c *ClassObj) staticHint(name string) string {
+	for ; c != nil; c = c.Base {
+		for _, s := range c.StaticNames {
+			if s == name {
+				return fmt.Sprintf(" (%s is a static data member: use %s::%s)", name, c.Name, name)
+			}
+		}
+	}
+	return ""
 }
 
 // SetMember does p->name = v; name must be a data member.
@@ -120,7 +136,7 @@ func SetMember(p Value, name string, v Value) error {
 	if _, ok := o.Class.Methods[name]; ok {
 		return Errorf(MemberError, "cannot assign to member function %s of class %s", name, o.Class.Name)
 	}
-	return Errorf(MemberError, "class %s has no data member %s", o.Class.Name, name)
+	return Errorf(MemberError, "class %s has no data member %s%s", o.Class.Name, name, o.Class.staticHint(name))
 }
 
 // Method finds the member function p->name(...) calls.
