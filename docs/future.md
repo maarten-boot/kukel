@@ -707,8 +707,11 @@ ideas above make useful:
   `examples/grep.kkl` searches trees (`-r`);
 - a faster VM (register-based, or fewer instructions per call): *done* by
   targeted changes (TODO.md Q69: a fast call path, two fused
-  instructions; calls 22-40% faster); a smaller value (16 bytes instead of
-  32) is what could come next;
+  instructions; calls 22-40% faster), and more fused instructions chosen by
+  counting what programs run (TODO.md Q74; typical programs 5-36% faster);
+  a smaller value (16 bytes instead of 32) was tried and not kept (Q75: the
+  garbage collector then has a pointer to check for every number in a
+  vector);
 - a code formatter (`kukel fmt`): *done* for indentation and spacing
   (TODO.md Q47), and a blank line before `if`, `while`, `do`, `for`,
   `switch`, `try` and `with` (Q53).
