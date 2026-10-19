@@ -411,7 +411,11 @@ then runs the saved instruction. The hook looks at the frames
 locals in scope at its pc, by `Locals`, and the captured variables of
 one) and decides whether to stop; while it reads
 commands the program waits. An error from the hook stops the program
-(quitting is an `exit`).
+(quitting is an `exit`). A second hook, `DebugUncaught` (Kukel v0.27),
+runs when an exception is thrown that no `try` of the program catches (a
+`finally` does not count), before the frames are dropped: the debugger
+stops there, at the line that threw, and an error the hook gives ends
+the program instead.
 
 A program that is not being debugged contains no `BREAK`, so the debugger
 costs nothing then (the extra case in the dispatch loop measured within

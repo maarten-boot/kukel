@@ -198,7 +198,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `examples/` | demo programs, such as a `grep`, and a Go program that embeds kukel ([examples/README.md](examples/README.md)) |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q75). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q76). Ideas for later are in [docs/future.md](docs/future.md).
 
 ## Development
 
