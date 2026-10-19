@@ -28,6 +28,7 @@ type slider struct {
 	from, to, step float64
 	ints           bool // from and step are ints: the values are ints
 	last           float64
+	label          *tk.TLabelWidget // the text above the slider (label), or nil
 	shown          *tk.TLabelWidget // the value beside the slider (showvalue), or nil
 }
 
@@ -42,6 +43,32 @@ func (s *slider) show() {
 	if s.shown != nil {
 		s.shown.Configure(tk.Txt(s.text(s.last)))
 	}
+}
+
+// configured follows configure(opts) (checked already, and given to the
+// slider): the range or step may change, so the value and the width of
+// the label with it; a state also greys the labels, or not.
+func (s *slider) configured(opts value.Value) {
+	s.apply(opts)
+	s.last = s.snap(s.read())
+	s.scale.Configure(tk.Value(s.last))
+	if s.shown != nil {
+		s.shown.Configure(tk.Width(s.width()))
+	}
+	s.show()
+	if st := mapGet(opts, "state"); st.Kind() == value.String {
+		for _, l := range []*tk.TLabelWidget{s.label, s.shown} {
+			if l != nil {
+				l.Configure(tk.State(st.AsString()))
+			}
+		}
+	}
+}
+
+// width is that of the label beside the slider: as wide as the widest
+// end, so the slider does not move.
+func (s *slider) width() int {
+	return max(len(s.text(s.from)), len(s.text(s.to)))
 }
 
 // text gives x as the label beside the slider shows it: an int, or with
@@ -172,14 +199,19 @@ func registerInputs() {
 		s.last = s.from
 		wd.w = s.scale.Window
 		if wd.outer != nil {
+			state := []tk.Opt{}
+			if len(a.V) > 1 {
+				if st := mapGet(a.V[len(a.V)-1], "state"); st.Kind() == value.String {
+					state = append(state, tk.State(st.AsString()))
+				}
+			}
 			if label != "" {
-				tk.Grid(in.TLabel(tk.Txt(label)), tk.Row(0), tk.Column(0), tk.Columnspan(2), tk.Sticky("w"))
+				s.label = in.TLabel(append(state, tk.Txt(label))...)
+				tk.Grid(s.label, tk.Row(0), tk.Column(0), tk.Columnspan(2), tk.Sticky("w"))
 			}
 			tk.Grid(wd.w, tk.Row(1), tk.Column(0), tk.Sticky("nsew"))
 			if showvalue {
-				// As wide as the widest end, so the slider does not move.
-				width := max(len(s.text(s.from)), len(s.text(s.to)))
-				s.shown = in.TLabel(tk.Width(width), tk.Anchor("e"))
+				s.shown = in.TLabel(append(state, tk.Width(s.width()), tk.Anchor("e"))...)
 				tk.Grid(s.shown, tk.Row(1), tk.Column(1), tk.Sticky("e"), tk.Padx(4))
 				s.show()
 			}

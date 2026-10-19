@@ -446,15 +446,20 @@ func mapGet(m value.Value, key string) value.Value {
 	return v
 }
 
+// mapHas tells whether the map m has the key (with any value, also nil).
+func mapHas(m value.Value, key string) bool {
+	_, ok, _ := m.AsMap().Get(value.MakeString(key)) // a string key cannot fail
+	return ok
+}
+
 // scrollOption takes the option scroll ("none", "x", "y" or "both") out
 // of the options map that is argument i: it gives the arguments with that
 // map without it, for readOptions.
 func scrollOption(a native.Args, i int) (native.Args, string, error) {
-	v := mapGet(a.V[i], "scroll")
-	if v.IsNil() {
+	if !mapHas(a.V[i], "scroll") {
 		return a, "none", nil
 	}
-	x, wrong := oneOf("none", "x", "y", "both")(v)
+	x, wrong := scrollValue(mapGet(a.V[i], "scroll"))
 	if wrong != "" {
 		return a, "", a.Errorf(value.ValueError, "option scroll%s", wrong)
 	}
@@ -469,3 +474,6 @@ func scrollOption(a native.Args, i int) (native.Args, string, error) {
 	b.V[i] = value.MakeMap(rest)
 	return b, x.(string), nil
 }
+
+// scrollValue is the value of the option scroll.
+var scrollValue = oneOf("none", "x", "y", "both")

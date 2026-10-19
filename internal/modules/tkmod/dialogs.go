@@ -3,6 +3,9 @@
 package tkmod
 
 import (
+	"slices"
+	"strings"
+
 	tk "modernc.org/tk9.0"
 
 	"github.com/maarten-boot/kukel/internal/native"
@@ -83,8 +86,9 @@ var (
 )
 
 // dialog makes a module function that shows a dialog: its arguments are
-// the strings named in texts, then a map of options; show shows it.
-func dialog(name string, texts int, options []option, show func(a native.Args, opts []tk.Opt) (value.Value, error)) native.Func {
+// the strings named in texts, then a map of options; check (if not nil)
+// checks what the options cannot alone, and show shows it.
+func dialog(name string, texts int, options []option, check func(a native.Args) error, show func(a native.Args, opts []tk.Opt) (value.Value, error)) native.Func {
 	full := "tk::" + name
 	return func(env value.Env, args []value.Value) (value.Value, error) {
 		a, err := native.Check(full, args, texts, texts+1)
@@ -101,6 +105,11 @@ func dialog(name string, texts int, options []option, show func(a native.Args, o
 			if opts, err = readOptions(a, texts, options); err != nil {
 				return value.NilValue, err
 			}
+			if check != nil {
+				if err := check(a); err != nil {
+					return value.NilValue, err
+				}
+			}
 		}
 		if err := start(a, env); err != nil {
 			return value.NilValue, err
@@ -111,6 +120,34 @@ func dialog(name string, texts int, options []option, show func(a native.Args, o
 		}
 		return v, err
 	}
+}
+
+// messageButtons are the buttons of a message box, by its option buttons.
+var messageButtons = map[string][]string{
+	"ok":               {"ok"},
+	"okcancel":         {"ok", "cancel"},
+	"yesno":            {"yes", "no"},
+	"yesnocancel":      {"yes", "no", "cancel"},
+	"retrycancel":      {"retry", "cancel"},
+	"abortretryignore": {"abort", "retry", "ignore"},
+}
+
+// defaultButton checks that the option default of a message box (its
+// options are argument 1) is one of its buttons: Tk's message would name
+// Tcl's options.
+func defaultButton(a native.Args) error {
+	def := mapGet(a.V[1], "default")
+	if def.IsNil() {
+		return nil
+	}
+	kind := "ok"
+	if b := mapGet(a.V[1], "buttons"); !b.IsNil() {
+		kind = b.AsString() // checked already
+	}
+	if buttons := messageButtons[kind]; !slices.Contains(buttons, def.AsString()) {
+		return a.Errorf(value.ValueError, "option default: %s is not one of the buttons %s", value.Quote(def.AsString()), strings.Join(buttons, ", "))
+	}
+	return nil
 }
 
 // pathOrNil is the answer of a file dialog: nil when cancelled.
@@ -124,12 +161,12 @@ func pathOrNil(s string) value.Value {
 func dialogFuncs() map[string]native.Func {
 	return map[string]native.Func{
 		// messagebox(text [, options]): the name of the button pressed.
-		"messagebox": dialog("messagebox", 1, messageboxOptions, func(a native.Args, opts []tk.Opt) (value.Value, error) {
+		"messagebox": dialog("messagebox", 1, messageboxOptions, defaultButton, func(a native.Args, opts []tk.Opt) (value.Value, error) {
 			return value.MakeString(tk.MessageBox(append(opts, tk.Msg(a.V[0].AsString()))...)), nil
 		}),
 		// openfile([options]): the path of the file chosen; with multiple, a
 		// vector of paths; nil when cancelled.
-		"openfile": dialog("openfile", 0, openfileOptions, func(a native.Args, opts []tk.Opt) (value.Value, error) {
+		"openfile": dialog("openfile", 0, openfileOptions, nil, func(a native.Args, opts []tk.Opt) (value.Value, error) {
 			paths := tk.GetOpenFile(opts...)
 			multiple := a.Has(0) && mapGet(a.V[0], "multiple").Kind() == value.Bool && mapGet(a.V[0], "multiple").AsBool()
 			if len(paths) == 0 || len(paths) == 1 && paths[0] == "" {
@@ -145,11 +182,11 @@ func dialogFuncs() map[string]native.Func {
 			return value.MakeVector(v), nil
 		}),
 		// savefile([options]): the path to save to; nil when cancelled.
-		"savefile": dialog("savefile", 0, savefileOptions, func(a native.Args, opts []tk.Opt) (value.Value, error) {
+		"savefile": dialog("savefile", 0, savefileOptions, nil, func(a native.Args, opts []tk.Opt) (value.Value, error) {
 			return pathOrNil(tk.GetSaveFile(opts...)), nil
 		}),
 		// choosedir([options]): the directory chosen; nil when cancelled.
-		"choosedir": dialog("choosedir", 0, choosedirOptions, func(a native.Args, opts []tk.Opt) (value.Value, error) {
+		"choosedir": dialog("choosedir", 0, choosedirOptions, nil, func(a native.Args, opts []tk.Opt) (value.Value, error) {
 			return pathOrNil(tk.ChooseDirectory(opts...)), nil
 		}),
 	}

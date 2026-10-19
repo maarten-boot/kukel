@@ -109,7 +109,7 @@ func newWidget(class string) value.NativeMethod {
 					return value.NilValue, err
 				}
 				// Taken out already: here for the list of the options.
-				known = append(known[:len(known):len(known)], option{name: "scroll"})
+				known = append(known[:len(known):len(known)], option{"scroll", scrollValue, nil})
 			}
 			if extra := constructorOptions[class]; extra != nil {
 				known = append(known[:len(known):len(known)], extra...)
@@ -156,11 +156,11 @@ func widgetMethod(class, name string, min, max int, fn func(a native.Args, this 
 func commonMethods(class string) map[string]value.NativeMethod {
 	return map[string]value.NativeMethod{
 		"configure": widgetMethod(class, "configure", 1, 1, func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error) {
-			if a.V[0].Kind() == value.Map && specs[class].scroll && !mapGet(a.V[0], "scroll").IsNil() {
+			if a.V[0].Kind() == value.Map && specs[class].scroll && mapHas(a.V[0], "scroll") {
 				return value.NilValue, a.Errorf(value.ValueError, "option scroll can only be given to the constructor")
 			}
 			for _, o := range constructorOptions[class] {
-				if a.V[0].Kind() == value.Map && !mapGet(a.V[0], o.name).IsNil() {
+				if a.V[0].Kind() == value.Map && mapHas(a.V[0], o.name) {
 					return value.NilValue, a.Errorf(value.ValueError, "option %s can only be given to the constructor", o.name)
 				}
 			}
@@ -169,11 +169,8 @@ func commonMethods(class string) map[string]value.NativeMethod {
 				return value.NilValue, err
 			}
 			wd.w.Configure(opts...)
-			if s := wd.slider; s != nil { // its range or step may change
-				s.apply(a.V[0])
-				s.last = s.snap(s.read())
-				s.scale.Configure(tk.Value(s.last))
-				s.show()
+			if wd.slider != nil {
+				wd.slider.configured(a.V[0])
 			}
 			if class == "Text" || class == "Listbox" {
 				if s := mapGet(a.V[0], "state"); s.Kind() == value.String {

@@ -215,6 +215,10 @@ main(args) {
     for (local h in [fn() { t->configure({"scroll": "x"}); },
                      fn() { new tk::Text(box, {"scroll": "z"}); },
                      fn() { new tk::Text(box, {"colour": 1}); },
+                     fn() { new tk::Text(box, {"scroll": nil}); },
+                     fn() { new tk::Listbox(box, {"scroll": nil}); },
+                     fn() { new tk::Canvas(box, {"scroll": nil}); },
+                     fn() { t->configure({"scroll": nil}); },
                      fn() { l->setselected([5]); },
                      fn() { l->setitems(["a", 1]); },
                      fn() { new tk::Listbox(box, "x"); },
@@ -275,8 +279,12 @@ main(args) {
     local lv = new tk::Scale(box, {"from": 0, "to": 1, "step": 0.25, "label": "Volume", "showvalue": true});
     lv->pack({"fill": "x"});
     println(lv->setvalue(0.6)->value(), lv->configure({"to": 2})->setvalue(1.8)->value(), lv);
+    // The value's label widens with the range; a state greys the labels too.
+    println(tktest::scalelabels(lv), tktest::scalelabels(lv->configure({"from": -1000, "state": "disabled"})), tktest::scalelabels(sc));
     for (local h in [fn() { new tk::Scale(box, {"step": -1}); },
                      fn() { lv->configure({"label": "x"}); },
+                     fn() { lv->configure({"showvalue": nil}); },
+                     fn() { new tk::Scale(box, {"label": nil}); },
                      fn() { new tk::Scale(box, {"showvalue": 1}); },
                      fn() { new tk::Scale(box, {"orient": "up"}); },
                      fn() { sc->setvalue("x"); },
@@ -292,6 +300,8 @@ main(args) {
                      fn() { file->item("y", fn() {}, {"accel": "x"}); },
                      fn() { tk::messagebox(1); },
                      fn() { tk::messagebox("x", {"icon": "smile"}); },
+                     fn() { tk::messagebox("x", {"buttons": "yesno", "default": "ok"}); },
+                     fn() { tk::messagebox("x", {"default": "no"}); },
                      fn() { tk::openfile({"types": [["Kukel"]]}); },
                      fn() { tk::savefile({"parent": 3}); },
                      fn() { file->invoke(""); },
@@ -363,6 +373,10 @@ main(args) {
                      fn() { ac->arc(0, 0, 9, 9, {"extent": 400}); },
                      fn() { ac->tag(s1, "9x"); },
                      fn() { ac->configureitem("blue", {"fill": "red"}); },
+                     fn() { ac->tag(s1, "mixed")->tag(t1, "mixed")->configureitem("mixed", {"text": "x"}); },
+                     fn() { ac->configureitem(s1, {"text": "x"}); },
+                     fn() { ac->configureitem("nothing", {"fill": "pink"})->configureitem("nothing", {"bogus": 1}); },
+                     fn() { ac->move("nothing", "x", 0); },
                      fn() { ac->binditem(99, "<Button-1>", fn(e) {}); },
                      fn() { ac->image(0, 0, png); },
                      fn() { ac->configureitem(p3, {"image": png}); },
@@ -516,6 +530,10 @@ red nil tk::Radiogroup(nil) tk::Radiobutton("Red", "red") tk::Radiobutton("Green
 ValueError: tk::Text::configure: option scroll can only be given to the constructor
 ValueError: tk::Text::Text: option scroll: "z" is not one of none, x, y, both
 ValueError: tk::Text::Text: unknown option "colour" (the options are width, height, font, wrap, state and scroll)
+ValueError: tk::Text::Text: option scroll must be a string, not nil
+ValueError: tk::Listbox::Listbox: option scroll must be a string, not nil
+ValueError: tk::Canvas::Canvas: option scroll must be a string, not nil
+ValueError: tk::Text::configure: option scroll can only be given to the constructor
 ValueError: tk::Listbox::setselected: 5 is not the index of a line (0 to 2)
 TypeError: tk::Listbox::setitems: argument 1: the lines must be strings, not int
 TypeError: tk::Listbox::Listbox: argument 2 must be a vector of strings, not string
@@ -544,8 +562,11 @@ ValueError: tk::settheme: there is no theme "fancy" (the themes are clam, alt, d
 9 1 2e+06
 IOError: tk::Image::Image: /dev/zero is not a regular file
 0.5 1.75 tk::Scale(1.75)
+["normal", "4", "normal"] ["disabled", "8", "disabled"] [nil, nil, nil]
 ValueError: tk::Scale::Scale: option step must not be negative, not -1
 ValueError: tk::Scale::configure: option label can only be given to the constructor
+ValueError: tk::Scale::configure: option showvalue can only be given to the constructor
+ValueError: tk::Scale::Scale: option label must be a string, not nil
 ValueError: tk::Scale::Scale: option showvalue must be true or false, not int
 ValueError: tk::Scale::Scale: option orient: "up" is not one of horizontal, vertical
 TypeError: tk::Scale::setvalue: argument 1 must be a number, not string
@@ -560,6 +581,8 @@ ValueError: tk::Menu::item: the label of an entry cannot be ""
 ValueError: tk::Menu::item: unknown option "accel" (the options are accelerator)
 TypeError: tk::messagebox: argument 1 must be a string, not int
 ValueError: tk::messagebox: option icon: "smile" is not one of info, warning, error, question
+ValueError: tk::messagebox: option default: "ok" is not one of the buttons yes, no
+ValueError: tk::messagebox: option default: "no" is not one of the buttons ok
 ValueError: tk::openfile: option types must be a vector of [name, pattern...] vectors of strings, such as [["Kukel", ".kkl"], ["All files", "*"]], not [["Kukel"]]
 ValueError: tk::savefile: option parent must be an open tk::Window, not 3
 ValueError: tk::Menu::invoke: the menu has no entry ""
@@ -597,7 +620,11 @@ true 40 [4, 1, 2, 5, 6] 6
 ValueError: tk::Label::Label: option image must be a tk::Image, not 1
 ValueError: tk::Canvas::arc: option extent must be a number of degrees (-360 to 360), not 400
 ValueError: tk::Canvas::tag: a tag is a name of letters, digits and _ (not starting with a digit), not "9x"
-ValueError: tk::Canvas::configureitem: unknown option "fill" (the options are anchor and image)
+ValueError: tk::Canvas::configureitem: item 4 (an image) has no option "fill" (its options are anchor and image)
+ValueError: tk::Canvas::configureitem: item 1 (an arc) has no option "text" (its options are fill, outline, width, start, extent and style)
+ValueError: tk::Canvas::configureitem: unknown option "text" (the options are fill, outline, width, start, extent and style)
+ValueError: tk::Canvas::configureitem: unknown option "bogus" (the options are color, width, arrow, smooth, fill, outline, start, extent, style, anchor, justify, font, text and image)
+ValueError: tk::Canvas::move: argument 2 must be a number from -1e6 to 1e6, not "x"
 ValueError: tk::Canvas::binditem: the canvas has no item 99
 ValueError: tk::Canvas::image: argument 3: the image is freed
 ValueError: tk::Canvas::configureitem: option image: the image is freed

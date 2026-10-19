@@ -351,6 +351,46 @@ var (
 	}
 )
 
+// canvasOptions are the options configureitem takes for an item of kind.
+func canvasOptions(kind string) []option {
+	specs := canvasItemOptions[kind]
+	if content, has := itemContent[kind]; has {
+		specs = append(specs[:len(specs):len(specs)], content)
+	}
+	return specs
+}
+
+// allItemOptions are the options of all kinds of items, for their names
+// when a tag names no item (the values are not checked: they depend on
+// the kind).
+var allItemOptions = func() []option {
+	var all []option
+	for _, kind := range []string{"line", "rect", "oval", "arc", "polygon", "text", "image"} {
+		for _, o := range canvasOptions(kind) {
+			if !slices.ContainsFunc(all, func(x option) bool { return x.name == o.name }) {
+				all = append(all, option{o.name, func(v value.Value) (any, string) { return nil, "" }, nil})
+			}
+		}
+	}
+	return all
+}()
+
+// missingOption says which option of the options map that is argument 1
+// the item it does not take (of an item named by a tag, which may have
+// items of several kinds).
+func missingOption(a native.Args, it *item, specs []option) error {
+	var err error
+	a.V[1].AsMap().Each(func(k, _ value.Value) {
+		if err == nil && !slices.ContainsFunc(specs, func(o option) bool { return o.name == k.AsString() }) {
+			err = a.Errorf(value.ValueError, "item %d (%s) has no option %s (its options are %s)", it.id, article[it.kind], value.Quote(k.AsString()), names(specs))
+		}
+	})
+	return err
+}
+
+// article names a kind of item with its article.
+var article = map[string]string{"line": "a line", "rect": "a rect", "oval": "an oval", "arc": "an arc", "polygon": "a polygon", "text": "a text", "image": "an image"}
+
 // textValue is an option whose value is a string Tk can take.
 func textValue(v value.Value) (any, string) {
 	if v.Kind() != value.String {
@@ -681,8 +721,8 @@ func registerCanvas() {
 	// they are among the others.
 	Canvas.Methods["move"] = canvasMethod("move", 3, 3, func(a native.Args, this *value.ObjectObj, cv *canvas) (value.Value, error) {
 		at, err := cv.targets(a, 0)
-		if err != nil || len(at) == 0 {
-			return value.ObjectValue(this), err
+		if err != nil {
+			return value.NilValue, err
 		}
 		var d [2]float64
 		for j := range d {
@@ -691,6 +731,9 @@ func registerCanvas() {
 				return value.NilValue, a.Errorf(value.ValueError, "argument %d must be a number from -1e6 to 1e6, not %s", j+2, a.V[1+j].Repr())
 			}
 			d[j] = x
+		}
+		if len(at) == 0 {
+			return value.ObjectValue(this), nil
 		}
 		moved := make([][]float64, len(at))
 		for k, i := range at {
@@ -713,18 +756,26 @@ func registerCanvas() {
 	// item's picture.
 	Canvas.Methods["configureitem"] = canvasMethod("configureitem", 2, 2, func(a native.Args, this *value.ObjectObj, cv *canvas) (value.Value, error) {
 		at, err := cv.targets(a, 0)
-		if err != nil || len(at) == 0 {
-			return value.ObjectValue(this), err
+		if err != nil {
+			return value.NilValue, err
+		}
+		if len(at) == 0 { // no item has the tag: the names are checked
+			if _, err := readValues(a, 1, allItemOptions); err != nil {
+				return value.NilValue, err
+			}
+			return value.ObjectValue(this), nil
 		}
 		values := make([][]optionValue, len(at))
 		contents := make([]any, len(at)) // nil: unchanged
 		for k, i := range at {
 			kind := cv.items[i].kind
-			specs := canvasItemOptions[kind]
-			content, has := itemContent[kind]
-			if has {
-				specs = append(append([]option(nil), specs...), content)
+			specs := canvasOptions(kind)
+			if a.V[0].Kind() == value.String { // a tag: say which item
+				if err := missingOption(a, cv.items[i], specs); err != nil {
+					return value.NilValue, err
+				}
 			}
+			content, has := itemContent[kind]
 			if values[k], err = readValues(a, 1, specs); err != nil {
 				return value.NilValue, err
 			}
