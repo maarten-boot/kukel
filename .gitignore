@@ -4,3 +4,6 @@ dist/
 
 # Claude Code conversation history (symlinked from ~/.claude/projects)
 .claude-sessions/
+
+# Worktrees of Claude Code agents (temporary)
+.claude/worktrees/
