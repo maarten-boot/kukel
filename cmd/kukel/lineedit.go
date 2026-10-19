@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"io"
 	"os"
@@ -143,11 +144,43 @@ func (e *lineEditor) save(line string) {
 // input is the standard input of the programs the REPL runs: lines read
 // through the editor, without a prompt and not into the history. Ctrl-C
 // or Ctrl-D ends what the program is reading (as the end of the input).
-func (e *lineEditor) input() io.Reader { return &editorInput{e: e} }
+// The REPL reads its pieces through it too (replInput): a line it looked
+// at but did not take (peek) is what the program reads first.
+func (e *lineEditor) input() *editorInput { return &editorInput{e: e} }
 
 type editorInput struct {
 	e    *lineEditor
 	rest []byte // of the last line read
+}
+
+func (in *editorInput) line(prompt string) (string, error) {
+	line, err := in.peek(prompt)
+	if err == nil {
+		in.take()
+	}
+	return line, err
+}
+
+func (in *editorInput) peek(prompt string) (string, error) {
+	if len(in.rest) == 0 {
+		line, err := in.e.readLine(prompt)
+		if err != nil {
+			return "", err
+		}
+		in.rest = []byte(line)
+	}
+	if i := bytes.IndexByte(in.rest, '\n'); i >= 0 {
+		return string(in.rest[:i+1]), nil
+	}
+	return string(in.rest), nil
+}
+
+func (in *editorInput) take() {
+	if i := bytes.IndexByte(in.rest, '\n'); i >= 0 {
+		in.rest = in.rest[i+1:]
+	} else {
+		in.rest = nil
+	}
 }
 
 func (in *editorInput) Read(p []byte) (int, error) {

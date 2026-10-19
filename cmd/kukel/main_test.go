@@ -643,6 +643,33 @@ println("not run");
 		!strings.Contains(errOut.String(), "undefined name elsewhere") {
 		t.Errorf("else on the next line: exit %d, %q, %q", code, out.String(), errOut.String())
 	}
+	// Every if without an else waits for the next line, also without
+	// braces, after a label or with a comment; comment lines do not count
+	// as the next line. The line it looks at stays in the input, for the
+	// program's readline() or as the next piece.
+	for _, tc := range []struct{ in, want string }{
+		{"if (1) { println(readline()); }\nhello\nprintln(\"after\")\n", "hello\nafter\n"},
+		{"if (1) println(readline())\nhello\n", "hello\n"},
+		{"local m = 0\nif (0) m = {}\nelse println(2)\nm\n", "2\n0\n"},
+		{"L: if (0) {}\nelse println(\"L\")\n", "L\n"},
+		{"if (0) {} // c\n// between\n/* a block\n   comment */\nelse println(\"c\")\n", "c\n"},
+		{"if (1) println(\"x\") // c\n// a comment\nprintln(\"y\")\n", "x\ny\n"},
+		{"if (1) if (0) println(\"a\")\nelse println(\"b\")\n", "b\n"},
+		{"if (1) println(\"e\")", "e\n"},
+		{"if (1) println(\"e\")\n", "e\n"},
+		{"if (0) {}\nelse println(2)\nprintln(3)\n", "2\n3\n"},
+		{"if (0) {}\nelse\n  println(2)\nprintln(3)\n", "2\n3\n"},
+		{"local i = 0\nwhile (i < 3)\n  i++\ni\n", "3\n"},
+		{"local j = 0\ndo {\n  j++;\n} while (j < 3)\nj\n", "3\n"},
+		{"local k = 0\nwhile (k < 2) if (k == 1) k = 5\nelse k++\nk\n", "5\n"},
+		{"if (1) {\n  println(1);\n}\n\nlocal else_ = 2\nelse_\n", "1\n2\n"},
+	} {
+		out.Reset()
+		errOut.Reset()
+		if code := run([]string{"repl"}, strings.NewReader(tc.in), &out, &errOut); code != 0 || out.String() != tc.want || errOut.Len() > 0 {
+			t.Errorf("%q: exit %d, %q, %q; want %q", tc.in, code, out.String(), errOut.String(), tc.want)
+		}
+	}
 	out.Reset()
 	errOut.Reset()
 	code := run([]string{"repl"}, strings.NewReader(in), &out, &errOut)

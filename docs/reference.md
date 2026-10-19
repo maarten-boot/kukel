@@ -105,15 +105,31 @@ state with the pieces before it:
 101
 ```
 
-- A statement without its final `;` gets one when it is one line, or the
-  last line of the piece. A line that is the header of an `if`, `else`,
-  `while` or `for` (`if (x > 0)` alone) is not taken as a statement with an
-  empty body: its statement comes on the next line. A piece ends where it
-  is complete, except an `if` without an `else` whose last line is a `}`:
-  it waits for the next line, which joins it when it starts with `else`.
-  Any other line runs the `if` and starts the next piece, and so does an
-  empty line (or the end of the input) at once. A definition's `{` goes on
-  the line of its header (`f(x)` alone is a call).
+- A statement without its final `;` gets one when that completes the
+  piece. A line that is the header of an `if`, `else`, `while` or `for`
+  (`if (x > 0)` alone) is not taken as a statement with an empty body: its
+  statement comes on the next line. A definition's `{` goes on the line of
+  its header (`f(x)` alone is a call).
+- An `if` without an `else` waits for one more line. A line that starts
+  with `else` joins it; an empty line (or the end of the input) runs it at
+  once; any other line runs it and is then read as the next piece (or by
+  a `readline()` in the `if`). Comment lines in between stay with the `if`.
+
+```
+> local x = 3
+> if (x > 5) {
+...     println("big");
+... }
+... else {
+...     println("small");
+... }
+small
+> if (x == 3) println("three")
+... println("next")
+three
+next
+```
+
 - A `local` variable declared at the top level of a piece lives as long as
   the session: it is a global variable of the program (declared again, it
   is the same variable). Locals inside blocks are local as usual.
