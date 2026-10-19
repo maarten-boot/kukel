@@ -1747,7 +1747,7 @@ func (c *compiler) twoLocals(x, y ast.Expr, op token.Pos) (int, int, bool) {
 // instruction that does the work of several can take (see localConst).
 func (c *compiler) fusableLocal(x ast.Expr, op token.Pos) (int, bool) {
 	id, isIdent := x.(*ast.Ident)
-	if !Fuse || !isIdent || id.NamePos.Line != op.Line {
+	if !Fuse || !isIdent || id.NamePos.Line != op.Line || !c.canMoveTo(op.Line) {
 		return 0, false
 	}
 	lv, found := c.lookupLocal(id.Name)
@@ -1755,6 +1755,17 @@ func (c *compiler) fusableLocal(x ast.Expr, op token.Pos) (int, bool) {
 		return 0, false
 	}
 	return lv.slot, true
+}
+
+// canMoveTo reports whether the code emitted next may start on line
+// instead of the current line: the current line is that line or already
+// has code. The plain code loads the operand on the current line, so a
+// statement that starts on an earlier line ("local r =\n a + 1;") would
+// lose its first line with an instruction that does the work of several.
+func (c *compiler) canMoveTo(line int) bool {
+	fs := c.fs
+	n := len(fs.fn.Lines)
+	return fs.line == line || n > 0 && fs.fn.Lines[n-1].Line == fs.line
 }
 
 // loadGlobal pushes the value of top-level name g (named id).
@@ -1870,7 +1881,7 @@ func (c *compiler) incDec(e *ast.IncDecExpr, keep bool) {
 	if e.Op == token.DEC {
 		op = bytecode.OpDec
 	}
-	if Fuse && v.kind == lvLocal && !keep { // i++ as a statement: one instruction
+	if Fuse && v.kind == lvLocal && !keep && c.canMoveTo(e.OpPos.Line) { // i++ as a statement: one instruction
 		c.mark(e.OpPos)
 		if e.Op == token.DEC {
 			c.emit(bytecode.OpDecLocal, v.index)
