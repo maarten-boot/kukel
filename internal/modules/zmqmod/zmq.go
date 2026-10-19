@@ -4,8 +4,11 @@ package zmqmod
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log"
+	"net"
+	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -193,7 +196,7 @@ func bind(a native.Args, env value.Env, s *socket) (value.Value, error) {
 		return value.NilValue, err
 	}
 	if err := s.s.Listen(ep); err != nil {
-		return value.NilValue, a.Errorf(NetError, "%v", err)
+		return value.NilValue, a.Errorf(NetError, "%s: %s", ep, netMessage(err))
 	}
 	s.endpoint = ep
 	if addr := s.s.Addr(); addr != nil && strings.HasPrefix(ep, "tcp://") {
@@ -208,11 +211,29 @@ func connect(a native.Args, env value.Env, s *socket) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, err
 	}
+	native.Flush(env) // it may retry for a while
 	if err := s.s.Dial(ep); err != nil {
-		return value.NilValue, a.Errorf(NetError, "%v", err)
+		return value.NilValue, a.Errorf(NetError, "%s: %s", ep, netMessage(err))
 	}
 	s.endpoint = ep
 	return value.NilValue, nil
+}
+
+// netMessage is what went wrong in a bind or connect, without zmq4's and
+// Go's words around it ("connection refused", "address already in use").
+func netMessage(err error) string {
+	var dns *net.DNSError
+	var sys *os.SyscallError
+	var op *net.OpError
+	switch {
+	case errors.As(err, &dns):
+		return "host " + dns.Name + " not found"
+	case errors.As(err, &sys):
+		return sys.Err.Error()
+	case errors.As(err, &op):
+		return op.Err.Error()
+	}
+	return err.Error()
 }
 
 // s->send(message): a string, or a vector of strings for a message of

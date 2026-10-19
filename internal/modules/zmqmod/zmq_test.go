@@ -274,6 +274,28 @@ main() {
 	}
 }
 
+// Messages of bind and connect: the endpoint and what went wrong, not the
+// words of the library.
+func TestNetMessages(t *testing.T) {
+	got := run(t, `use zmq;
+main() {
+    local b = new zmq::Socket("REP");
+    b->bind("tcp://127.0.0.1:0");
+    local ep = b->endpoint();
+    for (local f in [fn() { new zmq::Socket("REP")->bind(ep); }, fn() { new zmq::Socket("REQ")->connect("ipc:///nonexistent/x"); },
+                     fn() { new zmq::Socket("REQ")->receive(1); }])
+        try { f(); } catch (e) { println(e->kind, replace(e->message, ep, "EP")); }
+    b->close();
+}`)
+	want := `NetError zmq::Socket::bind: EP: address already in use
+NetError zmq::Socket::connect: ipc:///nonexistent/x: no such file or directory
+NetError zmq::Socket::receive: no peer is connected (a REQ socket receives only after it sent a request)
+`
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 // What a socket refuses at once: sending on SUB (zmq4 would wait for
 // ever) and PULL, a REQ without a peer, an unknown transport.
 func TestRefusals(t *testing.T) {
