@@ -196,3 +196,116 @@ main() {}`, kukel.CompileOptions{Modules: []*kukel.Module{app}})
 	// 5000 <nil>
 	// HostError <nil>
 }
+
+// Compile once, keep the bytes of a .kkc file, and load them later without
+// compiling. A .kkc file names the functions of host modules but does not
+// contain them: LoadProgram must be given the modules again.
+func ExampleLoadProgram() {
+	host := func() *kukel.Module {
+		return kukel.NewModule("host").Func("double", func(in *kukel.Interp, args []kukel.Value) (kukel.Value, error) {
+			n, _ := args[0].AsInt()
+			return kukel.Int(2 * n), nil
+		})
+	}
+	prog, err := kukel.CompileSource("calc.kkl", `use host;
+calc(n) { return host::double(n) + 1; }
+main() {}`, kukel.CompileOptions{Modules: []*kukel.Module{host()}})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	data, err := prog.Encode() // to store, as kukel build would
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	loaded, err := kukel.LoadProgram(data, kukel.CompileOptions{Modules: []*kukel.Module{host()}})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	in, _ := kukel.New(loaded, kukel.Options{})
+	fmt.Println(in.Call("calc", kukel.Int(20)))
+	// Output:
+	// 41 <nil>
+}
+
+// Read a global variable after the global initializers have run.
+func ExampleInterp_Global() {
+	prog, err := kukel.CompileSource("config.kkl", `
+global limits = {"orders": 10, "items": 3 * 4};
+main() {}`, kukel.CompileOptions{})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	in, _ := kukel.New(prog, kukel.Options{})
+	limits, err := in.Global("limits")
+	fmt.Println(limits.Get(kukel.String("items")), err)
+	_, err = in.Global("nosuch")
+	fmt.Println(err)
+	// Output:
+	// 12 <nil>
+	// kukel: the program has no global nosuch
+}
+
+// A Go function that gets a Kukel function as a callback calls it with
+// CallValue.
+func ExampleInterp_CallValue() {
+	app := kukel.NewModule("app").Func("each", func(in *kukel.Interp, args []kukel.Value) (kukel.Value, error) {
+		sum := int64(0)
+		for _, item := range []string{"pen", "ink"} {
+			r, err := in.CallValue(args[0], kukel.String(item))
+			if err != nil {
+				return kukel.Nil, err // an exception of the callback goes on
+			}
+			n, _ := r.AsInt()
+			sum += n
+		}
+		return kukel.Int(sum), nil
+	})
+	prog, err := kukel.CompileSource("each.kkl", `use app;
+main() {
+    println(app::each(fn(item) { println("got", item); return len(item); }));
+}`, kukel.CompileOptions{Modules: []*kukel.Module{app}})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	in, _ := kukel.New(prog, kukel.Options{Stdout: os.Stdout})
+	in.Run()
+	// Output:
+	// got pen
+	// got ink
+	// 6
+}
+
+// An exception that nothing in the program catches is an *Error: its
+// kind, message and the calls it went through.
+func ExampleError() {
+	prog, err := kukel.CompileSource("orders.kkl", `
+total(orders) { return check(orders[0]) * 2; }
+check(order) {
+    if (order < 0) throw new Error("negative order", "ValueError");
+    return order;
+}
+main() {}`, kukel.CompileOptions{})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	in, _ := kukel.New(prog, kukel.Options{})
+	_, err = in.Call("total", kukel.Vector(kukel.Int(-5)))
+	var e *kukel.Error
+	if errors.As(err, &e) {
+		fmt.Println(e.Kind, "-", e.Message)
+		for _, f := range e.Trace {
+			fmt.Printf("  %s (%s:%d)\n", f.Func, f.File, f.Line)
+		}
+	}
+	// Output:
+	// ValueError - negative order
+	//   check (orders.kkl:4)
+	//   total (orders.kkl:2)
+}

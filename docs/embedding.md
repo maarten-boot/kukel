@@ -36,6 +36,7 @@ A **`Program`** is compiled code. It never changes while it runs, so one
 The package brings the standard modules written in Go (`StandardModules()`
 lists them). The build tags of the README leave large ones out of a Go
 program that imports it too: `go build -tags nopostgres,nomysql,nozmq,no9p`.
+The Tk module (`tk`) is there only with `-tags tk`.
 
 | Function | |
 |---|---|
@@ -79,7 +80,8 @@ longer needed.
 
 `Builtins()` and `StandardModules()` list the names of the built-in
 functions and of the standard modules (`db`, `events`, `fs`, `json`, `p9`,
-`re`, `strings`, `time`, `uuid`, `worker`, `zmq`).
+`re`, `strings`, `time`, `uuid`, `worker`, `zmq`, and `tk` in a program
+built with `-tags tk`).
 
 ## 2. Values
 

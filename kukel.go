@@ -63,8 +63,8 @@ var SystemBuiltins = []string{"readfile", "writefile", "appendfile", "readline",
 func Builtins() []string { return builtins.Names() }
 
 // StandardModules lists the modules written in Go that come with Kukel
-// (db, events, fs, json, p9, re, strings, time, uuid, worker, zmq), less
-// those that build tags left out.
+// (db, events, fs, json, p9, re, strings, time, uuid, worker, zmq, and tk
+// when built with -tags tk), less those that build tags left out.
 func StandardModules() []string { return native.Names() }
 
 // CompileOptions say what a program may use beyond its own code.

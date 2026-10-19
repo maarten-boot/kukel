@@ -2,7 +2,7 @@
 // docs/embedding.md): it prices orders, and the discount of each order comes
 // from rules that users write as a Kukel script.
 //
-//	go run ./examples/embed rules.kkl orders.json
+//	go run ./examples/embed examples/embed/rules.kkl examples/embed/orders.json
 //
 // The script has a function discount(order), which gives the percentage off
 // (0 to 50). It gets the order as a map, and a host module, shop, with what
