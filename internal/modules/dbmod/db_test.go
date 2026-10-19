@@ -187,3 +187,33 @@ main() {
 		t.Errorf("got %q", got)
 	}
 }
+
+// Messages of cross-check 9: parameters counted from 1, the file that
+// cannot be opened, a relation key named id, a value where checks.
+func TestMessagesCrossCheck9(t *testing.T) {
+	dir := t.TempDir()
+	got := run(t, `use db;
+class Doc { id, docs; static relations(); }
+Doc::relations() { return {"docs": db::many(Doc, "id")}; }
+class Item { id; }
+main(args) {
+    local c = db::open("sqlite::memory:");
+    c->exec("CREATE TABLE t (a, b)");
+    for (local f in [fn() { c->exec("INSERT INTO t VALUES (?, ?)", 1); },
+                     fn() { c->query("SELECT ?, ?, ?"); },
+                     fn() { db::open("sqlite:" + args[0]); },
+                     fn() { c->migrate(Doc); },
+                     fn() { c->find(Item)->where("id = ?", [1]); }])
+        try { f(); } catch (e) { println(e->kind + ":", e->message); }
+}`, filepath.Join(dir, "nodir", "x.db"))
+	got = strings.ReplaceAll(got, dir, "DIR")
+	want := `DBError: db::Conn::exec: parameter 2 has no value: the statement has more parameters (?) than the 1 value(s) given
+DBError: db::Conn::query: parameter 1 has no value: the statement has more parameters (?) than the 0 value(s) given
+DBError: db::open: sqlite:` + filepath.Join("DIR", "nodir", "x.db") + `: unable to open database file (14)
+ValueError: db::Conn::migrate: Doc::relations(): docs: the key cannot be id (the key is the data member that holds the id of the object on the other side)
+TypeError: db::Query::where: argument 2 cannot be stored in a database: vector (nil, booleans, numbers, strings and time::Time can)
+`
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}

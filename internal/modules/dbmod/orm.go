@@ -292,6 +292,7 @@ func migrate(a native.Args, env value.Env, c *conn) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, err
 	}
+	c.lastID = value.NilValue // also when there is nothing to add
 	rows, err := query(sqlArgs(a, c.columnsSQL(), []value.Value{value.MakeString(m.table)}), env, c)
 	if err != nil {
 		return value.NilValue, err
@@ -438,6 +439,7 @@ func deleteObject(a native.Args, env value.Env, c *conn) (value.Value, error) {
 	}
 	id := obj.Fields[m.class.FieldIndex["id"]]
 	if id.IsNil() {
+		c.lastID = value.NilValue // as after the DELETE it would run
 		return value.False, nil
 	}
 	n, err := exec(sqlArgs(a, "DELETE FROM "+m.quote(m.table)+" WHERE "+m.quote("id")+" = ?", []value.Value{id}), env, c)
@@ -705,7 +707,9 @@ func (m *model) readRelations(a native.Args, env value.Env) error {
 			bad = a.Errorf(value.ValueError, "%s::relations() names %s, which is not a data member of %s", k.Name, member, k.Name)
 		case member == "id" || typed:
 			bad = a.Errorf(value.ValueError, "%s::relations(): %s is a column (the key, or named in columns()), not a relation", k.Name, member)
-		case !hasKey || r.key == "id":
+		case r.key == "id":
+			bad = a.Errorf(value.ValueError, "%s::relations(): %s: the key cannot be id (the key is the data member that holds the id of the object on the other side)", k.Name, member)
+		case !hasKey:
 			bad = a.Errorf(value.ValueError, "%s::relations(): %s: %s has no data member %s for the key (on %s side)", k.Name, member, owner.Name, r.key, side)
 		}
 		m.rels[member] = r

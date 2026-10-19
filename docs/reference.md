@@ -953,7 +953,9 @@ Values always go into SQL as parameters: each `?` takes the next argument
 which ignores them). PostgreSQL
 numbers its parameters (`$1`, `$2`); the module turns each `?` into the
 next one, except a `?` inside a quoted string (also `E'...'`) or name, a
-comment or `$$` text (`$1` written directly works too). PostgreSQL's JSON operators that
+comment or `$$` text. `$1` written directly works too; a `?` in the
+same statement then counts on from the highest `$n` written
+(`"WHERE a = $1 OR b = ?"` takes two arguments). PostgreSQL's JSON operators that
 are written with `?` must use their function form there
 (`jsonb_exists(doc, 'key')`).
 They are never glued into the SQL text, so text from a user cannot change
@@ -980,7 +982,7 @@ same name (from a join) keep the last value, so name them with `AS`.
 |---|---|
 | `db::open(url)` | A `db::Conn`: `"sqlite:path"` opens the file `path` (relative to the current directory; any characters, also `?`, `#` and `%`), creating it if needed; `"sqlite::memory:"` is a database in memory, gone when closed. `"postgres://user:password@host:5432/database?sslmode=disable"` (also `postgresql://`; the options are PostgreSQL's) and `"mysql://user:password@host:3306/database"` (the port defaults to 3306; options such as `?tls=true` are the MySQL driver's) connect to a server; such a URL needs a host. A database that cannot be opened or reached is a `DBError`, another URL a `ValueError`, as is a kind of database this `kukel` was built without ("this kukel was built without PostgreSQL (build tag nopostgres)"; `kukel version` lists the ones it has). A `kukel` built without any of the three has no module `db`: `use db;` says which build tags left it out. In SQLite, foreign keys are enforced and a database another program is writing is waited for up to 5 seconds |
 | `conn->exec(sql, args...)` | Runs a statement that gives no rows (`CREATE`, `INSERT`, `UPDATE`, `DELETE`, ...) and gives the number of rows it touched (for an `UPDATE`, the rows its `WHERE` found, also in MySQL; 0 for a statement that changes no rows, such as `CREATE`) |
-| `conn->lastid()` | The id the database chose for the row the last `INSERT` (or `REPLACE`) added (SQLite's `last_insert_rowid`, MySQL's `LAST_INSERT_ID`), or `nil`: after an `exec` of another statement (one that does not start with `INSERT` or `REPLACE`: so also an `INSERT` after a `WITH`), after the object calls `migrate`, `delete(p)` and `query->delete()` (they run statements of their own), and in MySQL for a row whose id the statement gave (`query`, `first` and `cursor`, `get`, `find` and `count`, and an `exec` that fails, leave it as it was). PostgreSQL has none for `exec` (write `INSERT ... RETURNING id` and use `first`); after `save` it is the new row's id on every database |
+| `conn->lastid()` | The id the database chose for the row the last `INSERT` (or `REPLACE`) added (SQLite's `last_insert_rowid`, MySQL's `LAST_INSERT_ID`), or `nil`: after an `exec` of another statement (one that does not start with `INSERT` or `REPLACE`: so also an `INSERT` after a `WITH`) or of one that added no row (`INSERT OR IGNORE` of a row already there, `ON CONFLICT DO NOTHING`, `INSERT ... SELECT` that selects nothing), after the object calls `migrate`, `delete(p)` and `query->delete()` (they run statements of their own), and in MySQL for a row whose id the statement gave (`query`, `first` and `cursor`, `get`, `find` and `count`, and an `exec` that fails, leave it as it was). PostgreSQL has none for `exec` (write `INSERT ... RETURNING id` and use `first`); after `save` it is the id of the saved row, new or not, on every database |
 | `conn->query(sql, args...)` | All rows of a query, as a vector of maps |
 | `conn->first(sql, args...)` | The first row of a query, or `nil` |
 | `conn->cursor(sql, args...)` | A `db::Cursor` for results too large to hold at once: `cursor->next()` gives the next row, or `nil` at the end (which closes it); `cursor->close()` stops early. While a cursor is open, the other calls that run SQL (`exec`, `query`, `first`, `cursor`, `begin`, `commit`, `rollback`, and those of objects: `migrate`, `save`, `delete`, `get`, `find`, `load`, and the member functions of `db::Query`, also those that only refine it) are a `ValueError`; `lastid`, `intransaction` and `close` still work |
@@ -1088,8 +1090,9 @@ main() {
 - `where` and `orderby` take SQL text: put values in with `?`, never by
   joining strings. A query is never changed by its member functions (they
   give new queries), so it can be refined in several ways and reused. Its
-  values are checked when it runs (`all`, `first`, `count`, `delete`), not
-  by `where`. `first` reads one row whatever the `limit`; `count` counts
+  values are checked by `where` (one the database cannot store is a
+  `TypeError` there); that there is one for each `?` only when it runs
+  (`all`, `first`, `count`, `delete`). `first` reads one row whatever the `limit`; `count` counts
   what `limit` and the offset leave. A negative limit or offset is a
   `ValueError`.
 - `delete(p)` of an object without an id gives `false`; after a delete
@@ -1164,7 +1167,8 @@ main() {
   load on first use, so `load` and `include` say when. `include` loads the
   related objects of all the results of a query with one query per
   relation (`WHERE orderid IN (...)`, in parts of 500 values).
-- The key data member must exist on the right side, and a relation member
+- The key data member must exist on the right side and may not be `id`,
+  and a relation member
   may not be named in `columns()` (`ValueError`); an unknown name for
   `load` or `include` is a `ValueError` too, and `db::many`/`db::one` of
   something that is not a class a `TypeError`. Keys match by value (`"1"`

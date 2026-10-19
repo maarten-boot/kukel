@@ -83,7 +83,10 @@ func sourceOf(u string) (source, error) {
 	}
 	shown := password.ReplaceAllString(u, "${1}***@")
 	p, err := url.Parse(u)
-	if err != nil || p.Host == "" {
+	switch {
+	case err == nil && p.Host == "" && (p.Scheme == "postgres" || p.Scheme == "postgresql" || p.Scheme == "mysql"):
+		return source{}, fmt.Errorf("%q has no host: a %s:// URL needs one (%s://user:password@host/database)", shown, p.Scheme, p.Scheme)
+	case err != nil || p.Host == "":
 		return source{}, fmt.Errorf("%q is not a database URL: use \"sqlite:file.db\", \"sqlite::memory:\", \"postgres://user:password@host/database\" or \"mysql://user:password@host/database\"", shown)
 	}
 	switch p.Scheme {
@@ -105,13 +108,23 @@ var password = regexp.MustCompile(`(//[^/:@]*:)[^@/]*@`)
 
 // sqlFor gives the SQL text for the database: for PostgreSQL each ? that
 // is a parameter (not inside a quoted string or name, or a comment)
-// becomes $1, $2, ...
+// becomes $1, $2, ..., numbered after the highest $n the text has itself.
 func (c *conn) sqlFor(text string) string {
 	if c.dialect != postgres || !strings.Contains(text, "?") {
 		return text
 	}
+	out, high := numbered(text, 0)
+	if high > 0 {
+		out, _ = numbered(text, high)
+	}
+	return out
+}
+
+// numbered turns each ? parameter of text into $n, counting from after;
+// it also gives the highest $n written in text.
+func numbered(text string, after int) (string, int) {
 	var b strings.Builder
-	n := 0
+	n, high := after, 0
 	for i := 0; i < len(text); i++ {
 		ch := text[i]
 		switch {
@@ -159,6 +172,16 @@ func (c *conn) sqlFor(text string) string {
 			}
 			b.WriteString(text[i:end])
 			i = end - 1
+		case ch == '$' && i+1 < len(text) && isDigit(text[i+1]) && (i == 0 || !isNameByte(text[i-1])): // $n
+			j := i + 1
+			for j < len(text) && isDigit(text[j]) {
+				j++
+			}
+			if k, err := strconv.Atoi(text[i+1 : j]); err == nil {
+				high = max(high, k)
+			}
+			b.WriteString(text[i:j])
+			i = j - 1
 		case ch == '?':
 			n++
 			b.WriteString("$" + strconv.Itoa(n))
@@ -166,8 +189,10 @@ func (c *conn) sqlFor(text string) string {
 			b.WriteByte(ch)
 		}
 	}
-	return b.String()
+	return b.String(), high
 }
+
+func isDigit(c byte) bool { return c >= '0' && c <= '9' }
 
 // dollarTag gives the $tag$ (or $$) that starts s, or "".
 func dollarTag(s string) string {
