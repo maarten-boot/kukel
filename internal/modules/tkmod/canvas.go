@@ -41,6 +41,15 @@ type canvas struct {
 	binds   map[string][]itemBind // binditem's handlers, by event sequence
 	itemTag string                // the binding tag they are bound to
 	pressed *item                 // the item a mouse button went down on
+
+	// For the <Enter> and <Leave> of items: the binding tag that follows
+	// the mouse ("": none yet), the item under it, whether it is in the
+	// canvas, its last event, and whether a new look at it is posted.
+	hoverTag string
+	hover    *item
+	inside   bool
+	mouse    tk.Event
+	posted   bool
 }
 
 // canvases counts the canvases with item bindings, for their tags' names.
@@ -161,7 +170,25 @@ func (cv *canvas) redraw(i int) {
 	for _, it := range cv.items[i:] {
 		cv.draw(it)
 	}
+	cv.changed()
+}
+
+// changed follows a change of the items: the scrollbars reach them all,
+// and the item under the mouse may be another one.
+func (cv *canvas) changed() {
 	cv.setRegion()
+	if cv.hoverTag == "" || !cv.inside || cv.posted {
+		return
+	}
+	cv.posted = true
+	gui.loop.Post(func() error { // after the change, as Tk does
+		cv.posted = false
+		if !cv.node.win.closed {
+			e := cv.mouse
+			cv.moved(&e)
+		}
+		return nil
+	})
 }
 
 // setRegion makes everything drawn, and the origin, reachable with the
@@ -453,7 +480,7 @@ func create(kind string) value.NativeMethod {
 		}
 		cv.next++
 		cv.items = append(cv.items, it)
-		cv.setRegion()
+		cv.changed()
 		return value.MakeInt(it.id), nil
 	})
 }
@@ -616,11 +643,13 @@ func (cv *canvas) itemBindings() {
 	}
 }
 
+// buttons are the state bits of mouse buttons 1 to 5.
+const buttons = 0x1f00
+
 // dispatch calls the handlers of binditem for event e of sequence seq:
 // those of the item under the mouse, or while a button is down (also at
 // its release), of the item it went down on, as Tk does for items.
 func (cv *canvas) dispatch(seq string, e *tk.Event) {
-	const buttons = 0x1f00 // the state bits of mouse buttons 1 to 5
 	var it *item
 	switch {
 	case int(e.State)&buttons == 0:
@@ -628,9 +657,15 @@ func (cv *canvas) dispatch(seq string, e *tk.Event) {
 	case cv.pressed != nil && cv.has(cv.pressed):
 		it = cv.pressed
 	}
-	if it == nil {
-		return
+	if it != nil {
+		cv.fire(seq, it, e)
 	}
+}
+
+// fire calls the handlers of binditem for event e of sequence seq on item
+// it. One that returns false stops the event, also for the handlers after
+// it.
+func (cv *canvas) fire(seq string, it *item, e *tk.Event) {
 	for _, b := range cv.binds[seq] {
 		if !cv.has(it) {
 			return // a handler removed it
@@ -638,8 +673,65 @@ func (cv *canvas) dispatch(seq string, e *tk.Event) {
 		if b.id == it.id || b.tag != "" && it.hasTag(b.tag) {
 			em := cv.node.eventMap(e)
 			em.AsMap().Set(value.MakeString("item"), value.MakeInt(it.id)) // a string key cannot fail
-			call(b.f, em)
+			if stop(e, call(b.f, em)) {
+				return
+			}
 		}
+	}
+}
+
+// hoverSequence tells the sequences that the item under the mouse makes:
+// Tk gives <Enter> and <Leave> of the canvas only, so they are made here.
+func hoverSequence(seq string) bool { return seq == "<Enter>" || seq == "<Leave>" }
+
+// followMouse has the canvas follow the item under the mouse, for the
+// <Enter> and <Leave> of items: on a binding tag of its own before all
+// others (whose handlers could stop the event). While a mouse button is
+// down the item stays, as in Tk (a drag keeps its item); at the release
+// the mouse is looked at again.
+func (cv *canvas) followMouse() {
+	cv.hoverTag = cv.itemTag + "mouse"
+	list := []any{cv.hoverTag}
+	for _, t := range tk.Bindtags(cv.c.Window) {
+		list = append(list, t)
+	}
+	tk.Bindtags(cv.c.Window, list...)
+	for _, seq := range []string{"<Enter>", "<Motion>", "<ButtonRelease>", "<Leave>"} {
+		in := seq != "<Leave>"
+		release := seq == "<ButtonRelease>"
+		tk.BindAppend(cv.hoverTag, seq, tk.Command(func(e *tk.Event) {
+			cv.inside = in
+			if release {
+				e.State &^= buttons // the state is that before the release
+			}
+			cv.moved(e)
+		}))
+	}
+}
+
+// moved notes the mouse at event e, and when the item under it is another
+// one, calls the <Leave> handlers of the one it left and the <Enter>
+// handlers of the new one.
+func (cv *canvas) moved(e *tk.Event) {
+	cv.mouse = *e
+	if int(e.State)&buttons != 0 {
+		return
+	}
+	var now *item
+	if cv.inside {
+		now = cv.at(e)
+	}
+	old := cv.hover
+	if now == old {
+		return
+	}
+	cv.hover = now
+	ev := *e // their results do not stop event e
+	if old != nil && cv.has(old) {
+		cv.fire("<Leave>", old, &ev)
+	}
+	if now != nil && cv.hover == now {
+		cv.fire("<Enter>", now, &ev)
 	}
 }
 
@@ -846,7 +938,7 @@ func registerCanvas() {
 			cv.c.Delete(it.tag())
 		}
 		cv.items = rest
-		cv.setRegion()
+		cv.changed()
 		return value.ObjectValue(this), nil
 	})
 	// tag(id, tag), untag(id, tag), tagged(tag): an item's tags, and the
@@ -897,7 +989,8 @@ func registerCanvas() {
 		return value.MakeVector(v), nil
 	})
 	// binditem(id or tag, sequence, f): f(e) for events of sequence on that
-	// item or those items (nil: none); e also has "item", the id.
+	// item or those items (nil: none); e also has "item", the id. <Enter>
+	// and <Leave> are those of the items, which followMouse makes.
 	Canvas.Methods["binditem"] = canvasMethod("binditem", 3, 3, func(a native.Args, this *value.ObjectObj, cv *canvas) (value.Value, error) {
 		b := itemBind{}
 		var err error
@@ -928,7 +1021,11 @@ func registerCanvas() {
 			cv.binds = map[string][]itemBind{}
 			cv.itemBindings()
 		}
-		if _, ok := cv.binds[seq]; !ok {
+		if hoverSequence(seq) {
+			if cv.hoverTag == "" {
+				cv.followMouse()
+			}
+		} else if _, ok := cv.binds[seq]; !ok {
 			tk.BindAppend(cv.itemTag, seq, tk.Command(func(e *tk.Event) { cv.dispatch(seq, e) }))
 			if err := tkError(); err != nil {
 				return value.NilValue, a.Errorf(TkError, "%v", err)
@@ -949,7 +1046,7 @@ func registerCanvas() {
 	Canvas.Methods["clear"] = canvasMethod("clear", 0, 0, func(a native.Args, this *value.ObjectObj, cv *canvas) (value.Value, error) {
 		cv.c.Delete("all")
 		cv.items = nil
-		cv.setRegion()
+		cv.changed()
 		return value.ObjectValue(this), nil
 	})
 	// items(): the ids, from the bottom to the top.

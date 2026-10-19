@@ -1687,11 +1687,21 @@ and `char` (the character typed) for key events, nil for others; `x` and
 for `<Configure>`, the widget's position in its parent); `xroot` and
 `yroot` (the mouse on the screen: where a pop-up menu goes); `delta` (the
 mouse wheel; 0 for other events); `width` and `height` (for
-`<Configure>`, else nil). A binding comes after what the widget does itself (an entry
-still takes the typed keys); binding a sequence again replaces the handler,
+`<Configure>`, else nil). Binding a sequence again replaces the handler,
 and `bind(sequence, nil)` removes it. A binding on a window also gets the
 events of the widgets in it (a key binding there works wherever the focus
 is in the window).
+
+An event goes first to the binding of the widget, then to what the widget
+does itself (a text or entry takes the typed key; Ctrl+K deletes to the end
+of the line, and in a text Ctrl+O makes a new line), then to the binding of
+its window. So in a `<Key>` handler of an entry, `text()` does not have the
+key yet (`<KeyRelease>` comes after it). A handler that returns `false`
+stops the event there: what comes after it does not run (as `onclose`
+returning `false` keeps a window open). Any other result (nil, `true`, ...)
+lets the event go on. A shortcut that must not reach a text or entry is
+bound on that widget too, with a handler that returns `false`:
+`text->bind("<Control-Key-o>", fn(e) { open(); return false; })`.
 
 The handlers of the widgets run for what the user does, not for the
 program's own changes: `setchecked`, `setvalue` and `setselected` do not
@@ -1845,7 +1855,7 @@ coordinates are numbers (pixels, from -1e6 to 1e6), points are vectors
 | `c->raise(item)`, `c->lower(item)` | Puts an item (or the items with a tag, in their order) above, or below, all the others |
 | `c->remove(item)`, `c->clear()` | Removes an item (or the items with a tag), or all |
 | `c->tag(id, tag)`, `c->untag(id, tag)`, `c->tagged(tag)` | Gives an item a tag, or takes it away; the ids of the items with a tag (bottom to top). A tag is a name of letters, digits and `_` not starting with a digit; an item may have several |
-| `c->binditem(item, sequence, f)` | Calls `f(e)` for events of `sequence` on an item, or on any item with a tag (nil: none); `e` also has `item`, the item's id. The item is the topmost one under the mouse, or while a mouse button is down, the one it went down on (so a drag follows the item). For mouse events: item-level `<Enter>` and `<Leave>` do not exist. Item handlers run after the canvas's own bindings of the same event (`c->bind`), and neither hides the other |
+| `c->binditem(item, sequence, f)` | Calls `f(e)` for events of `sequence` on an item, or on any item with a tag (nil: none); `e` also has `item`, the item's id. The item is the topmost one under the mouse, or while a mouse button is down, the one it went down on (so a drag follows the item). Item bindings are for mouse events; `"<Enter>"` and `"<Leave>"` are the item's: when the mouse moves onto it or off it, also into or out of the canvas, or when the items change under the mouse (one moved away, raised, made, removed); while a mouse button is down the item does not change. Item handlers run after the canvas's own bindings of the same event (`c->bind`), and neither hides the other; one that returns `false` stops the event, also for the item handlers after it |
 | `c->items()` | The ids, from the bottom to the top |
 | `c->itemat(x, y)` | The id of the topmost item at that point (on a rectangle, oval, polygon or arc's slice, near a line, on a text or image), or nil |
 

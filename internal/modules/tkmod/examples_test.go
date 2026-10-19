@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -77,8 +78,73 @@ func TestExamples(t *testing.T) {
 	}
 }
 
+// TestNotes types the shortcuts of examples/notes.kkl into its text: they
+// must not edit the text (Tk's Text makes a new line at Ctrl+O), so the
+// text has no changes and Ctrl+O opens the file dialog at once.
+func TestNotes(t *testing.T) {
+	display(t)
+	if _, err := exec.LookPath("xdotool"); err != nil || os.Getenv("KUKEL_TK_NOCLICK") != "" {
+		t.Skip("no xdotool")
+	}
+	file := filepath.Join(t.TempDir(), "n.txt")
+	if err := os.WriteFile(file, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Env = append(os.Environ(), "KUKEL_TK_EXAMPLE=../../../examples/notes.kkl", "KUKEL_TK_ARG="+file)
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	defer func() {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("%v\n%s", err, out.String())
+			}
+		case <-time.After(30 * time.Second):
+			cmd.Process.Kill()
+			t.Errorf("did not end\n%s", out.String())
+		}
+	}()
+	title := file + " - notes"
+	var win string
+	for i := 0; i < 100 && win == ""; i++ {
+		got, _ := exec.Command("xdotool", "search", "--name", "^"+regexp.QuoteMeta(title)+"$").Output()
+		win = strings.TrimSpace(strings.SplitN(string(got), "\n", 2)[0])
+		time.Sleep(100 * time.Millisecond)
+	}
+	if win == "" {
+		t.Errorf("no window %q", title)
+		return
+	}
+	// Into the text, then Ctrl+O: the dialog to open a file, cancelled.
+	if err := clickCenter(win); err != nil {
+		t.Error(err)
+		return
+	}
+	if err := exec.Command("xdotool", "key", "ctrl+o").Run(); err != nil {
+		t.Error(err)
+		return
+	}
+	if err := answer("Open", "", "Escape"); err != nil {
+		t.Error(err)
+		return
+	}
+	if got, _ := exec.Command("xdotool", "getwindowname", win).Output(); strings.TrimSpace(string(got)) != title {
+		t.Errorf("the title is %q, want %q (no changes)", strings.TrimSpace(string(got)), title)
+	}
+	// Ctrl+Q quits: there is nothing to save.
+	clickCenter(win)
+	exec.Command("xdotool", "key", "ctrl+q").Run()
+}
+
 // runExample runs the program in file, on the main goroutine, and closes
-// its windows after a second; it gives the exit code.
+// its windows after a second (unless $KUKEL_TK_ARG gives it an argument:
+// a test then closes it); it gives the exit code.
 func runExample(file string) int {
 	fail := func(err error) int {
 		fmt.Fprintln(os.Stderr, err)
@@ -100,12 +166,17 @@ func runExample(file string) int {
 	if err != nil {
 		return fail(err)
 	}
-	loop := eventsmod.For(m)
-	go func() {
-		time.Sleep(time.Second)
-		loop.Post(func() error { tkmod.CloseAll(); return nil })
-	}()
-	if _, err := m.Run([]string{}); err != nil {
+	args := []string{}
+	if arg := os.Getenv("KUKEL_TK_ARG"); arg != "" {
+		args = append(args, arg)
+	} else {
+		loop := eventsmod.For(m)
+		go func() {
+			time.Sleep(time.Second)
+			loop.Post(func() error { tkmod.CloseAll(); return nil })
+		}()
+	}
+	if _, err := m.Run(args); err != nil {
 		return fail(err)
 	}
 	return 0

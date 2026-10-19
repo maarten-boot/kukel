@@ -435,6 +435,26 @@ main(args) {
     rel->tag(rel->rect(0, 0, 90, 60, {"fill": "red"}), "r");
     rel->tag(rel->rect(110, 0, 200, 60, {"fill": "blue"}), "r");
     rel->binditem("r", "<ButtonRelease-1>", fn(e) { println("released on", e["item"]); });
+    // The <Enter> and <Leave> of items, as the mouse moves and as an item
+    // moves away from under it; a handler that returns false stops those
+    // after it (item 1's own handler comes first).
+    local hv = new tk::Canvas(new tk::Window("Hover"), {"width": 200, "height": 60});
+    hv->pack();
+    hv->tag(hv->rect(0, 0, 90, 60, {"fill": "red"}), "h");
+    hv->tag(hv->rect(110, 0, 200, 60, {"fill": "blue"}), "h");
+    hv->binditem(1, "<Enter>", fn(e) { println("hover: first", e["item"]); return false; });
+    hv->binditem("h", "<Enter>", fn(e) { println("hover: enter", e["item"]); });
+    hv->binditem("h", "<Leave>", fn(e) { println("hover: leave", e["item"]); });
+    hv->bind("<Button-3>", fn(e) { hv->move(2, 0, 100); });
+    // A key binding of a text that returns false keeps the key from the
+    // text (Tk's Text makes a new line at Ctrl+O) and from the window's
+    // binding; the window's binding of Ctrl+T comes after the text swapped
+    // two characters.
+    local keys = new tk::Window("Keys"), typed = new tk::Text(keys, "abc", {"width": 20, "height": 2});
+    typed->pack();
+    typed->bind("<Control-Key-o>", fn(e) { println("text: Ctrl+O"); return false; });
+    keys->bind("<Control-Key-o>", fn(e) { println("window: Ctrl+O"); });
+    keys->bind("<Control-Key-t>", fn(e) { println("window: Ctrl+T", [typed->text()]); });
 
     // bind: the clicks on the button; a second bind replaces the handler.
     local bound = [];
@@ -634,7 +654,7 @@ TypeError: tk::Canvas::move: argument 1 must be an item's id or a tag, not float
 `
 	end := map[string]string{
 		"self":   "invoke: three\n",
-		"clicks": "check: true true\nselect: [1] [1]\nradio: picked picked\nmessage: yes\nopen: true\nsave: true\ndir: nil\ndragged: 1 [40, 30, 220, 160]\nitem dragged: 1 [30, 20, 180, 120]\nreleased on 1\nreleased on 2\nreleased on 2\npop-up: Hello\nslider: int true\nchose: green green\nhandler: three\nenter: [puts hi] {x} $y \\ end 3\n",
+		"clicks": "check: true true\nselect: [1] [1]\nradio: picked picked\nmessage: yes\nopen: true\nsave: true\ndir: nil\ndragged: 1 [40, 30, 220, 160]\nitem dragged: 1 [30, 20, 180, 120]\nreleased on 1\nreleased on 2\nreleased on 2\nhover: first 1\nhover: leave 1\nhover: enter 2\nhover: leave 2\ntext: Ctrl+O\nwindow: Ctrl+T [\"acb\"]\npop-up: Hello\nslider: int true\nchose: green green\nhandler: three\nenter: [puts hi] {x} $y \\ end 3\n",
 	}[clicks]
 	bound := map[string]string{"self": "[]", "clicks": "[true, true]"}[clicks]
 	picked := map[string]string{"self": "nil", "clicks": "picked"}[clicks]
@@ -674,7 +694,7 @@ func writeImages(t *testing.T, dir string) {
 // focus back).
 func click(t *testing.T) error {
 	wins := map[string]string{}
-	for _, name := range []string{"TkTest", "Check", "List", "Radio", "Canvas", "Popup", "Slider", "Choose", "Items", "Release"} {
+	for _, name := range []string{"TkTest", "Check", "List", "Radio", "Canvas", "Popup", "Slider", "Choose", "Items", "Release", "Hover", "Keys"} {
 		for i := 0; i < 100 && wins[name] == ""; i++ {
 			out, _ := exec.Command("xdotool", "search", "--name", "^"+name+"$").Output()
 			wins[name] = strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
@@ -685,7 +705,7 @@ func click(t *testing.T) error {
 		}
 	}
 	// Without a window manager all windows are at 0,0: move them apart.
-	for name, at := range map[string][2]int{"Check": {300, 0}, "List": {0, 300}, "Radio": {300, 300}, "Canvas": {540, 300}, "Popup": {540, 0}, "Slider": {0, 180}, "Choose": {300, 150}, "Items": {300, 460}, "Release": {0, 460}} {
+	for name, at := range map[string][2]int{"Check": {300, 0}, "List": {0, 300}, "Radio": {300, 300}, "Canvas": {540, 300}, "Popup": {540, 0}, "Slider": {0, 180}, "Choose": {300, 150}, "Items": {300, 460}, "Release": {0, 460}, "Hover": {560, 460}, "Keys": {560, 540}} {
 		if err := exec.Command("xdotool", "windowmove", wins[name], fmt.Sprint(at[0]), fmt.Sprint(at[1])).Run(); err != nil {
 			return err
 		}
@@ -713,6 +733,27 @@ func click(t *testing.T) error {
 	}
 	for _, dx := range []int{-55, 55, 55} {
 		if err := exec.Command("xdotool", "mousemove", fmt.Sprint(x+dx), fmt.Sprint(y), "click", "1").Run(); err != nil {
+			return err
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	// Onto the left rectangle of Hover, to the right one, a right click
+	// that moves it away, and out.
+	if x, y, err = center(wins["Hover"]); err != nil {
+		return err
+	}
+	for _, step := range [][]string{{"mousemove", fmt.Sprint(x - 55), fmt.Sprint(y)}, {"mousemove", fmt.Sprint(x + 55), fmt.Sprint(y)}, {"click", "3"}, {"mousemove", fmt.Sprint(x + 55), fmt.Sprint(y - 100)}} {
+		if err := exec.Command("xdotool", step...).Run(); err != nil {
+			return err
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	// Click into the text of Keys, then Ctrl+O and Ctrl+T.
+	if err := clickCenter(wins["Keys"]); err != nil {
+		return err
+	}
+	for _, key := range []string{"ctrl+o", "ctrl+t"} {
+		if err := exec.Command("xdotool", "key", key).Run(); err != nil {
 			return err
 		}
 		time.Sleep(300 * time.Millisecond)
