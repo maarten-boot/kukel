@@ -1229,7 +1229,7 @@ in the order they were made). A late timer fires late, never early.
 | `t->cancel()` | The timer does not fire again (no effect on a timer that is done) |
 | `t->active()` | Whether the timer will still fire |
 
-A timer prints as `events::Timer(once)`, `events::Timer(every 0.5s)`,
+A timer prints as `events::Timer(once)`, `events::Timer(every 0.5s)` (the interval as written),
 `events::Timer(fired)` or `events::Timer(cancelled)`.
 
 ### fs
