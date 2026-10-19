@@ -144,3 +144,21 @@ func TestParseChecks3(t *testing.T) {
 		t.Errorf("a matching day of the year: %v, %v", got, err)
 	}
 }
+
+// A year after 9999 is read back as format writes it (but %Y%m%d keeps 4
+// digits); %y of a year before 1 is its last two digits.
+func TestYearsCrossCheck9(t *testing.T) {
+	for _, tc := range []struct {
+		year   int
+		format string
+	}{{12026, "%Y-%m-%d"}, {12026, "%d.%m.%Y"}, {-5, "%Y-%m-%d"}, {2026, "%Y%m%d"}, {-123456, "%Y/%m"}} {
+		tm := time.Date(tc.year, 3, 1, 0, 0, 0, 0, time.UTC)
+		text, _ := format(tm, tc.format)
+		if back, err := parseFormat(text, tc.format, time.UTC); err != nil || !back.Equal(tm) {
+			t.Errorf("%d by %q: %q gives %v, %v", tc.year, tc.format, text, back, err)
+		}
+	}
+	if s, _ := format(time.Date(-5, 1, 1, 0, 0, 0, 0, time.UTC), "%y"); s != "95" {
+		t.Errorf("%%y of -5: %s", s)
+	}
+}

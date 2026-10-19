@@ -1515,7 +1515,7 @@ when it has one: `2026-10-14T09:30:01.5Z`).
 
 | Function | Description |
 |---|---|
-| `time::now()` | The current time, in the local time zone (its `zone()` is `"Local"`, unless the environment variable `TZ` names a zone) |
+| `time::now()` | The current time, in the local time zone (its `zone()` is `"Local"`, unless the environment variable `TZ` names a zone; when `TZ` is set but empty, the zone is `"UTC"`) |
 | `time::sleep(seconds)` | Waits that long (`ValueError` if negative or `nan`; beyond about 292 years it waits as long as the program runs) |
 | `new time::Time(year, month, day [, hour [, minute [, second [, zone]]]])` | That time in `zone` (default `"UTC"`, as is `""`; an unknown zone is a `ValueError`); `year` to `minute` are ints, `second` may have a fraction. Values out of range carry over (month 13 is January of the next year); a `second` of `nan` or `inf`, or a time beyond about 2.9e11 years from 1970, is a `ValueError` |
 | `time::Time::parse(text [, format [, zone]])` | The time `text` stands for: without `format` in RFC 3339 (`"2026-10-14T09:30:00+02:00"`), else by `format` (below). A text without an offset is in `zone` (default `"UTC"`; `zone` needs a `format`, since RFC 3339 text has an offset; an offset in the text, `%z`, wins over `zone`). A text that does not match, or a date that does not exist (`"2026-02-30"`), is a `ValueError`. A local time that a daylight-saving change skips or repeats is not an error: it gets the offset of one of the two sides (in Europe/Amsterdam, 02:30 on the day clocks jump from 02:00 to 03:00 becomes 03:30); which side is not specified |
@@ -1544,14 +1544,15 @@ when it has one: `2026-10-14T09:30:01.5Z`).
 | `%Y` year (2026) | `%m` month (01-12) | `%d` day (01-31) |
 | `%e` day, padded with a space | `%H` hour (00-23) | `%I` hour (01-12) |
 | `%M` minute (00-59) | `%S` second (00-60) | `%f` microseconds (000000-999999) |
-| `%p` AM or PM | `%y` year (00-99) | `%j` day of the year (001-366) |
+| `%p` AM or PM | `%y` year (00-99: the last two digits; 95 for the year -5) | `%j` day of the year (001-366) |
 | `%b` month (Jan) | `%B` month (January) | `%a` weekday (Mon) |
 | `%A` weekday (Monday) | `%z` offset (+0200) | `%Z` zone abbreviation (CEST; empty for a time parsed with an offset) |
 | `%%` a `%` | | |
 
 `parse` takes the same directives, except `%Z` (abbreviations are
-ambiguous; use `%z`). Numbers may have fewer digits than shown (`%Y` at
-most 4, and it may have a sign), `%f` reads 1 to 9 digits as a fraction of
+ambiguous; use `%z`). Numbers may have fewer digits than shown (`%Y` may have a sign, and
+reads at most 4 digits when another directive follows at once, as in
+`%Y%m%d`, else all of them, so that a year after 9999 is read back), `%f` reads 1 to 9 digits as a fraction of
 a second, `%z` also reads `Z`, `+02` and `+02:00` (hours up to 23, minutes
 up to 59), `%y` reads 69-99 as 1969-1999 and 00-68 as 2000-2068, and names
 are read in any case. `%I` (01-12) and `%p` come together; `%H` is the
