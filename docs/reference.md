@@ -1326,7 +1326,8 @@ main() {
 ```
 
 Addresses are `"tcp://host:port"` (the port is 564 when left out) and
-`"unix:///path"` (a Unix socket file). For `p9::serve`, `"tcp://*:5640"` or
+`"unix:///path"` (a Unix socket file; `"unix://name"` is a path relative
+to the current directory). For `p9::serve`, `"tcp://*:5640"` or
 `"tcp://:5640"` listens on every interface (`"tcp://"` alone: on port 564),
 and port 0 picks a free port.
 Paths on the server start at the directory the client attached to; `"a/b"`
@@ -1334,7 +1335,7 @@ and `"/a/b"` are the same, and `..` stops at the top.
 
 | Function or member function | Description |
 |---|---|
-| `p9::dial(address [, options])` | Connects to a 9P server and gives a `p9::Client`. The options are a map: `"version"` (`"9P2000.L"` or `"9P2000"`; without it 9P2000.L is tried first, then 9P2000), `"aname"` (the tree to attach to, for a server that has several; for a Kukel server, a directory of its tree), `"user"` (the user name sent with 9P2000; the user running the program by default) and `"timeout"` (seconds for the connection, the agreement on the version and the attach together, 10 by default). A server that cannot be reached, or does not answer in time, is a `NetError`; one that refuses the attach (an `aname` it does not have) an `IOError`; a wrong address or option a `ValueError` (`TypeError` for an option of the wrong type) |
+| `p9::dial(address [, options])` | Connects to a 9P server and gives a `p9::Client`. The options are a map: `"version"` (`"9P2000.L"` or `"9P2000"`; without it 9P2000.L is tried first, then 9P2000), `"aname"` (the tree to attach to, for a server that has several; for a Kukel server, a directory of its tree), `"user"` (the user name sent with 9P2000; the user running the program by default) and `"timeout"` (seconds for the connection, the agreement on the version and the attach together, 10 by default; the requests after `dial` have none: a server that stops answering keeps the program waiting until it is stopped). A server that cannot be reached is a `NetError`, and so is one that takes the connection but gives no 9P answer in time ("no 9P answer within 10 seconds"); one that refuses the attach (an `aname` it does not have, or one that names a file: the top must be a directory) an `IOError`; a wrong address or option a `ValueError` (`TypeError` for an option of the wrong type) |
 | `c->readdir(path)` | The entries of a directory, by name. An **entry** is a map as for `fs`: `name`, `size`, `dir`, `link`, `mode` (`"-rw-r--r--"`) and `time` (a `time::Time`; 9P2000 has whole seconds only). `link` is true only for a symbolic link a server shows as one: a Kukel server follows links |
 | `c->stat(path)`, `c->exists(path)` | The entry of a file or directory (the top is named `"/"`); whether there is one (`false` only for "not there", also for a path through a file: other failures are exceptions, as for `stat`) |
 | `c->read(path)` | The content of a file, as a string |

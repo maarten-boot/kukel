@@ -98,6 +98,9 @@ func init() {
 			if err != nil {
 				return value.NilValue, err
 			}
+			if len(names(to)) == 0 { // as for the source (clientPathMethod)
+				return value.NilValue, a.Errorf(value.IOError, "%s: %s", to, topRefused)
+			}
 			if err := c.do(func() error { return c.r.rename(p, to) }); err != nil {
 				return value.NilValue, c.fail(a, p, err)
 			}
@@ -385,11 +388,13 @@ func clientPathMethod(name string, n int, fn func(a native.Args, c *client, p st
 		}
 		// The same answer in both versions (9P2000.L would not even ask).
 		if changes[name] && len(names(p)) == 0 {
-			return value.NilValue, a.Errorf(value.IOError, "%s: the top directory cannot be written, made, renamed or removed", p)
+			return value.NilValue, a.Errorf(value.IOError, "%s: %s", p, topRefused)
 		}
 		return fn(a, c, p)
 	})
 }
+
+const topRefused = "the top directory cannot be written, made, renamed or removed"
 
 // changes are the member functions that change the file at their path.
 var changes = map[string]bool{"write": true, "mkdir": true, "rename": true, "remove": true}

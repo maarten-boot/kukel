@@ -127,6 +127,9 @@ func (c *conn2000) handle(tx *plan9.Fcall) *plan9.Fcall {
 			}
 			n = k
 		}
+		if !c.t.info(n).dir { // the top a client sees is a directory
+			return rerror(errorf(linux.ENOTDIR, "not a directory"))
+		}
 		c.fids[tx.Fid] = &fid2000{n: n}
 		return &plan9.Fcall{Type: plan9.Rattach, Qid: c.qid(n)}
 	}
