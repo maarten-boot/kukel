@@ -725,8 +725,9 @@ main() {
   classes from it (`new Error([message [, kind]])`). The message and the
   kind are strings or `nil`: when `new` has made an `Error`, or an object
   of a class derived from it, another value in `message` or `kind` is a
-  `TypeError` ("Error: the message is a string, not int"; the class's own
-  name for a derived class).
+  `TypeError` ("Error: the message must be a string or nil, not int"; the
+  class's own name for a derived class). This is checked when `new` makes
+  the object only: `e->message = 5` later is not checked.
 - The first time an `Error` is thrown, `trace` gets the stack trace (a
   vector of strings such as `"f (prog.kkl:3)"`, innermost call first) and,
   if `kind` is nil or `""`, `kind` becomes the name of its class.

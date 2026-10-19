@@ -984,12 +984,12 @@ func bad(f *frame, what string) error {
 func argCountError(fn *bytecode.Function, argc int) error {
 	switch {
 	case fn.HasRest:
-		return value.Errorf(value.ArgumentError, "%s expects at least %d argument(s), got %d", fn.FuncName, fn.NumParams, argc)
+		return value.Errorf(value.ArgumentError, "%s expects at least %s, got %d", fn.FuncName, value.Arguments(fn.NumParams), argc)
 	case fn.NumOptional > 0:
 		return value.Errorf(value.ArgumentError, "%s expects %d to %d arguments, got %d",
 			fn.FuncName, fn.NumParams, fn.NumParams+fn.NumOptional, argc)
 	}
-	return value.Errorf(value.ArgumentError, "%s expects %d argument(s), got %d", fn.FuncName, fn.NumParams, argc)
+	return value.Errorf(value.ArgumentError, "%s expects %s, got %d", fn.FuncName, value.Arguments(fn.NumParams), argc)
 }
 
 // spread replaces the vector on top of the stack by its elements and
@@ -1053,7 +1053,7 @@ func (vm *VM) checkErrorObject(o *value.ObjectObj) error {
 	}
 	for _, field := range [...]string{"message", "kind"} {
 		if v := o.Fields[o.Class.FieldIndex[field]]; v.Kind() != value.Nil && v.Kind() != value.String {
-			return value.Errorf(value.TypeError, "%s: the %s is a string, not %s", o.Class.Name, field, v.Kind())
+			return value.Errorf(value.TypeError, "%s: the %s must be a string or nil, not %s", o.Class.Name, field, v.Kind())
 		}
 	}
 	return nil

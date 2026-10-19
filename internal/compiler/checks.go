@@ -3,6 +3,7 @@ package compiler
 import (
 	"github.com/maarten-boot/kukel/internal/ast"
 	"github.com/maarten-boot/kukel/internal/token"
+	"github.com/maarten-boot/kukel/internal/value"
 )
 
 // paramShape is what a call needs to know about a function's parameters.
@@ -39,12 +40,12 @@ func (c *compiler) checkArgs(ps *paramShape, args []ast.Expr, pos token.Pos) {
 	n := len(args)
 	switch {
 	case ps.rest && n < ps.required:
-		c.errorf(pos, "%s expects at least %d argument(s), got %d", ps.name, ps.required, n)
+		c.errorf(pos, "%s expects at least %s, got %d", ps.name, value.Arguments(ps.required), n)
 	case ps.rest:
 	case ps.optional > 0 && (n < ps.required || n > ps.required+ps.optional):
 		c.errorf(pos, "%s expects %d to %d arguments, got %d", ps.name, ps.required, ps.required+ps.optional, n)
 	case ps.optional == 0 && n != ps.required:
-		c.errorf(pos, "%s expects %d argument(s), got %d", ps.name, ps.required, n)
+		c.errorf(pos, "%s expects %s, got %d", ps.name, value.Arguments(ps.required), n)
 	}
 }
 

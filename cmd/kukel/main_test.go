@@ -202,7 +202,7 @@ func TestCheck(t *testing.T) {
 	if code := run([]string{"check", good}, nil, &stdout, &stderr); code != 0 || stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Errorf("check good: exit %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
 	}
-	if code := run([]string{"check", bad}, nil, &stdout, &stderr); code != 1 || stderr.String() != bad+":3:4: f expects 1 argument(s), got 0\n" {
+	if code := run([]string{"check", bad}, nil, &stdout, &stderr); code != 1 || stderr.String() != bad+":3:4: f expects 1 argument, got 0\n" {
 		t.Errorf("check bad: exit %d, stderr %q", code, stderr.String())
 	}
 }
