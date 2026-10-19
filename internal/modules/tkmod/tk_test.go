@@ -273,7 +273,7 @@ main(args) {
     println(fs->setvalue(0.25)->value(), fs->configure({"step": 0.5})->value());
     // Clamped values stay on a step; ranges up to 1e9; no endless files.
     local st = new tk::Scale(box, {"from": 0, "to": 10, "step": 3}), sr = new tk::Scale(box, {"from": 10, "to": 0, "step": 3});
-    println(st->setvalue(100)->value(), sr->setvalue(-5)->value(), new tk::Scale(box, {"to": 5000000})->setvalue(2000000)->value());
+    println(st->setvalue(100)->value(), sr->setvalue(-5)->value(), new tk::Scale(box, {"to": 5000000})->setvalue(2000000)->value(), new tk::Scale(box, {"from": 5, "to": 9, "step": 2})->value());
     try { new tk::Image("/dev/zero"); } catch (e) { println(e->kind + ":", e->message); }
     // A label above the slider, and its value beside it.
     local lv = new tk::Scale(box, {"from": 0, "to": 1, "step": 0.25, "label": "Volume", "showvalue": true});
@@ -470,6 +470,10 @@ main(args) {
     println(w, n, bound);
     try { new tk::Radiogroup(); } catch (e) { println(e->kind + ":", e->message); }
     println(entry, radios->value()); // what is kept after Tk ended
+    // Tk is not available any more; an image is freed in kukel only; a
+    // new image reads its file first.
+    gif->free();
+    try { new tk::Image(args[1] + "/none.png"); } catch (e) { println(tk::available(), find(str(gif), "/b.gif\", freed)") > 0, e->kind); }
 }
 `
 
@@ -579,7 +583,7 @@ ValueError: tk::settheme: there is no theme "fancy" (the themes are clam, alt, d
 0 7 10 3 tk::Scale(3)
 ["red", "green", "blue"] green ["a", "b"] tk::Combobox("green")
 0.25 0.5
-9 1 2e+06
+9 1 2e+06 5
 IOError: tk::Image::Image: /dev/zero is not a regular file
 0.5 1.75 tk::Scale(1.75)
 ["normal", "4", "normal"] ["disabled", "8", "disabled"] [nil, nil, nil]
@@ -660,7 +664,8 @@ TypeError: tk::Canvas::move: argument 1 must be an item's id or a tag, not float
 	picked := map[string]string{"self": "nil", "clicks": "picked"}[clicks]
 	want := common + end + "tk::Window(\"TkTest\", closed) 3 " + bound + "\n" +
 		"TkError: tk::Radiogroup::Radiogroup: Tk has ended: the first window was closed\n" +
-		"tk::Entry(\"[puts hi] {x} $y \\\\ end\") " + picked + "\n"
+		"tk::Entry(\"[puts hi] {x} $y \\\\ end\") " + picked + "\n" +
+		"false true IOError\n"
 	if err != nil || got != want {
 		t.Errorf("%s: %v; got:\n%s\nwant:\n%s", clicks, err, got, want)
 	}

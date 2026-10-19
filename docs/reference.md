@@ -1589,7 +1589,9 @@ with the windows. Each open window keeps `run()` going; closing the first
 window (by the user, or with `close()`) closes all windows and ends Tk for
 the rest of the program. After that, making a window, a widget, a menu, a
 `tk::Radiogroup` or a `tk::Image`, a dialog, the theme functions, and
-changing a group are a `TkError`; what only
+changing a group are a `TkError` (`new tk::Image` reads its file first:
+one it cannot read is still an `IOError`, and one that is not PNG or GIF a
+`ValueError`); what only
 reads what the program already has still works (`w->title()`,
 `w->closed()`, `g->value()`, printing). An exception a handler does not
 catch goes to the event loop like that of any handler (`events::onerror`),
@@ -1712,7 +1714,7 @@ a button takes the keyboard focus when clicked; an entry gets it back with
 
 | Function | Description |
 |---|---|
-| `tk::available()` | Whether Tk can start (a display is there); it starts Tk |
+| `tk::available()` | Whether Tk can be used; it starts Tk. False without a display, after Tk ended, and off the main thread (in a worker) |
 | `tk::themes()`, `tk::theme()`, `tk::settheme(name)` | The themes there are (a vector of names), the one in use, and choosing one (it gives nil; an unknown name is a `ValueError`); the fonts given to widgets stay |
 | `tk::messagebox(text [, options])` | Shows a message and waits for a button; gives its name (`"ok"`, `"cancel"`, `"yes"`, `"no"`, `"retry"`, `"abort"`, `"ignore"`). Options: `title`, `detail` (a second, smaller text), `icon` (`"info"`, `"warning"`, `"error"`, `"question"`), `buttons` (`"ok"`, `"okcancel"`, `"yesno"`, `"yesnocancel"`, `"retrycancel"`, `"abortretryignore"`), `default` (the button Enter presses: one of those of `buttons`, else a `ValueError`), `parent` (an open window it shows over) |
 | `tk::openfile([options])` | Lets the user choose a file to open; gives its path, or nil when cancelled. Options: `title`, `dir` (where it starts), `file`, `types` (`[["Kukel", ".kkl"], ["All files", "*"]]`: a name and patterns), `multiple` (`true`: a vector of paths), `parent` |
@@ -1766,7 +1768,7 @@ closed)`), a frame as `tk::Frame`.
 | `l->selected()`, `l->setselected(v)` | The indexes of the lines chosen, a vector (`[]`: none); an index that is not a line's is a `ValueError` |
 | `l->onselect(f)` | `f(selected)` is called when the user changes the lines chosen |
 | `new tk::Scale(parent [, options])` | A slider for a number. Options: `from` and `to` (the ends: 0 and 100 when left out; numbers from -1e9 to 1e9), `step` (the values are `from` plus a multiple of it; 0, the default: any value), `orient` (`"horizontal"`, the default, `"vertical"`), `length` (pixels), `state` (`"disabled"` greys the label and the value too); and in the constructor only, `label` (a text above the slider) and `showvalue` (`true`: the value beside it, as an int or with as many decimals as the step has, 2 without a step; as wide as the wider end, also when `configure` changes them). With either, the slider sits in a frame of its own with them, which `pack` and `grid` place |
-| `s->value()`, `s->setvalue(x)` | The value: an int when a `step` is given and `from` and `step` are whole numbers, else a float; `setvalue` puts `x` (any number) within the range and on a step (the end of the range is a value only when the range holds whole steps: from 0 to 10 in steps of 3, the largest is 9) |
+| `s->value()`, `s->setvalue(x)` | The value (at first `from`): an int when a `step` is given and `from` and `step` are whole numbers, else a float; `setvalue` puts `x` (any number) within the range and on a step (the end of the range is a value only when the range holds whole steps: from 0 to 10 in steps of 3, the largest is 9) |
 | `s->onchange(f)` | `f(value)` is called when the user moves the slider to another value |
 | `new tk::Combobox(parent [, lines] [, options])` | A field with a drop-down list of lines to choose from (a vector of strings). Options: `width` (characters), `height` (lines in the list), `font`, `justify`, `state` (`"normal"`, the default: the text can also be typed; `"readonly"`: only chosen; `"disabled"`) |
 | `c->text()`, `c->settext(s)`, `c->items()`, `c->setitems(v)` | The text in the field; the lines of the list |
@@ -1827,7 +1829,7 @@ main() {
 |---|---|
 | `new tk::Image(path)` | The picture in a PNG or GIF file (a regular file, at most 64 MB). The file is read by kukel: an `IOError` when it cannot be (or is not a regular file, such as a pipe or a device), a `ValueError` when it is not PNG or GIF (or Tk cannot read it) |
 | `img->width()`, `img->height()` | Its size in pixels |
-| `img->free()` | Frees the picture in Tk (a program that makes many images frees those it no longer shows). Labels, buttons and canvas items that show it go blank (a canvas item stays, without a picture); giving it to a widget or canvas afterwards is a `ValueError`; `width()` and `height()` still give its size. Freeing again, or after Tk ended, has no effect |
+| `img->free()` | Frees the picture in Tk (a program that makes many images frees those it no longer shows). Labels, buttons and canvas items that show it go blank (a canvas item stays, without a picture); giving it to a widget or canvas afterwards is a `ValueError`; `width()` and `height()` still give its size. Freeing again has no effect; after Tk ended (the picture went with Tk) it only marks the image freed (it prints as freed) |
 
 Labels and buttons show an image with the option `image`, and the option
 `compound` says where it goes next to the text: `"left"`, `"right"`,
