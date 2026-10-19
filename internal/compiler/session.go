@@ -78,6 +78,12 @@ func (s *Session) Declare(files []*ast.File, input *ast.File) (*bytecode.Functio
 			}
 		}
 		pos := token.Pos{Line: 1, Col: 1}
+		for _, f := range add {
+			if f.Module == "" { // the program's first file
+				pos.File = f.Name
+				break
+			}
+		}
 		if input != nil {
 			add = append(add, input)
 			pos.File = input.Name

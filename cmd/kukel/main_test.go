@@ -839,6 +839,12 @@ func TestInitializerFiles(t *testing.T) {
 			t.Errorf("%v: exit %d, %s", tc.files, code, errOut.String())
 		}
 	}
+	// In the REPL too: the files' <init> is at their first file.
+	os.WriteFile("three.kkl", []byte("global c = 1 / 0;\n"), 0o644)
+	var out, errOut bytes.Buffer
+	if run([]string{"repl", "three.kkl"}, strings.NewReader(""), &out, &errOut); !strings.Contains(errOut.String(), "at <init> (three.kkl:1)") {
+		t.Errorf("repl: %s", errOut.String())
+	}
 }
 
 // A file instead of a command is run (or executed): a script with a
