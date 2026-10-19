@@ -141,3 +141,18 @@ func TestTypeErrorNamesClass(t *testing.T) {
 		}
 	}
 }
+
+// An object whose Go part is missing: the message has the words of the
+// VM's (vm.nativePart).
+func TestObjectNotSetUp(t *testing.T) {
+	c := &Class{Name: "C", New: func(env value.Env, this *value.ObjectObj, args []value.Value) (value.Value, error) {
+		return value.NilValue, nil
+	}}
+	Prepare(&Module{Name: "m", Classes: []*Class{c}})
+	derived := &value.ClassObj{Name: "D", Base: c.ClassObj()}
+	a := Args{Name: "m::f", V: []value.Value{value.NewObject(derived)}}
+	want := "m::f: argument 1: the m::C part of this D object is not set up: its constructor must call m::C::C(...)"
+	if _, err := a.Object(0, c); err == nil || err.Error() != want {
+		t.Errorf("got %v, want %q", err, want)
+	}
+}

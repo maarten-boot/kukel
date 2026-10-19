@@ -332,7 +332,7 @@ func (a Args) Object(i int, c *Class) (any, error) {
 		if s := v.AsObject().State; s != nil {
 			return s, nil
 		}
-		return nil, a.Errorf(value.ValueError, "argument %d: the %s part of this %s object is not set up (its constructor must call %s::%s(...))",
+		return nil, a.Errorf(value.ValueError, "argument %d: the %s part of this %s object is not set up: its constructor must call %s::%s(...)",
 			i+1, c.QualifiedName(), v.AsObject().Class.Name, c.QualifiedName(), c.Name)
 	}
 	return nil, a.TypeError(i, "a "+c.QualifiedName())
