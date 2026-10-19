@@ -1,0 +1,358 @@
+// chat: a small chat server and its clients (module zmq, with events,
+// json and worker). The server answers requests on a ROUTER socket and
+// broadcasts what is said on a PUB socket, with a heartbeat
+// (events::every). A client asks with a REQ socket (receive with a
+// timeout), listens with a SUB socket (onmessage), and takes the server
+// for gone when the heartbeat stops (events::after). Messages are JSON.
+//
+//     kukel run examples/chat.kkl -- server [-beat S] endpoint pub-endpoint
+//     kukel run examples/chat.kkl -- client endpoint name [message ...]
+//     kukel run examples/chat.kkl -- status endpoint
+//     kukel run examples/chat.kkl -- stop endpoint
+//     kukel run examples/chat.kkl -- demo
+//
+// For example "server tcp://*:5555 tcp://*:5556" (-beat: seconds between
+// heartbeats, 1 when left out), then "client tcp://localhost:5555 ann 'hi
+// all'": a client joins, says its messages and prints what is said until
+// the server stops. status asks who is there (zmq::poll waits 2 seconds
+// for the answer); stop stops the server. demo runs a server (in a worker)
+// and clients in one process, over inproc:// endpoints, and prints what
+// happens. The exit code is 0, 1 after an error, 2 for a wrong command line.
+use events;
+use json;
+use worker;
+use zmq;
+
+usage(why) {
+    eprintln("chat:", why);
+    eprintln("usage: chat server [-beat S] endpoint pub-endpoint | client endpoint name [message ...] | status endpoint | stop endpoint | demo");
+    return 2;
+}
+
+main(args) {
+    local n = len(args), cmd = n > 0 ? args[0] : "";
+
+    try {
+        if (cmd == "server") {
+            local beat = 1;
+
+            if (n > 2 && args[1] == "-beat") {
+                try {
+                    beat = float(args[2]);
+                } catch (e) {
+                    beat = nil;
+                }
+
+                if (beat == nil || !(beat >= 0.01 && beat <= 3600)) return usage("-beat takes 0.01 to 3600 seconds");
+                args = slice(args, 2);
+                n -= 2;
+            }
+
+            if (n != 3) return usage("server needs an endpoint and a pub-endpoint");
+            println("stopped after", serve(args[1], args[2], beat, println), "broadcasts");
+        } else if (cmd == "client") {
+            if (n < 3) return usage("client needs an endpoint and a name");
+            return client(args[1], args[2], slice(args, 3));
+        } else if ((cmd == "status" || cmd == "stop") && n == 2) {
+            local r = request(args[1], {"op": cmd});
+
+            if (r == nil) {
+                eprintln("chat: no answer from", args[1], "in 2 seconds");
+                return 1;
+            }
+            println(cmd == "stop" ? "stopping" : status(r));
+        } else if (cmd == "demo" && n == 1) {
+            return demo();
+        } else {
+            return usage(n == 0 ? "no command" : "wrong command line: " + join(args, " "));
+        }
+    } catch (e) {
+        eprintln("chat:", e->message);
+        return 1;
+    }
+    return 0;
+}
+
+// serve answers requests on endpoint and broadcasts on pubEndpoint, until a
+// stop request; it gives the number of broadcasts. log(text) gets what
+// happens.
+serve(endpoint, pubEndpoint, beat, log) {
+    local router = new zmq::Socket("ROUTER"), pub = new zmq::Socket("PUB");
+    router->bind(endpoint);
+    pub->bind(pubEndpoint);
+    log("serving " + router->endpoint() + " and " + pub->endpoint());
+    local users = [], said = 0, seq = 0, stopping = false;
+    local heart = events::every(beat, fn() { pub->send(json::encode({"type": "beat"})); });
+    local publish = fn(m) {
+        m["seq"] = ++seq;
+        pub->send(json::encode(m));
+        log(line(m));
+    };
+    local answer = fn(r) {
+        local op = r["op"], name = r["name"];
+
+        if (op == "hello") return {"pub": pub->endpoint(), "beat": beat};
+
+        if (op == "status") return {"users": users, "said": said};
+
+        if (op == "stop") {
+            stopping = true;
+            return {};
+        }
+
+        if (typeof(name) != "string" || name == "") throw new Error(op + " needs a name");
+        local i = 0;
+
+        while (i < len(users) && users[i] != name) i++;
+
+        if (op == "join") {
+            if (i < len(users)) throw new Error(name + " is already here");
+            push(users, name);
+        } else if (i == len(users)) {
+            throw new Error(name + " has not joined");
+        } else if (op == "leave") {
+            remove(users, i);
+        } else if (op == "say") {
+            said++;
+        } else {
+            throw new Error("unknown request " + str(op));
+        }
+        publish({"type": op, "name": name, "text": r["text"]});
+        return {};
+    };
+    // A request comes from a REQ socket as [its identity, "", request].
+    router->onmessage(fn(m) {
+        local reply;
+
+        try {
+            reply = answer(json::decode(m[2]));
+        } catch (e) {
+            reply = {"error": e->message};
+        }
+        router->send([m[0], "", json::encode(reply)]);
+
+        if (stopping) {
+            heart->cancel();
+            router->close();
+            pub->close();
+        }
+    });
+    events::run();
+    return seq;
+}
+
+// line is a broadcast as a client shows it.
+line(m) {
+    if (m["type"] == "say") return m["name"] + ": " + m["text"];
+    return "* " + m["name"] + (m["type"] == "join" ? " joined" : " left");
+}
+
+status(r) {
+    return str(len(r["users"])) + " here (" + join(r["users"], ", ") + "), " + str(r["said"]) + " said";
+}
+
+// request sends one request with a REQ socket of its own; it gives the
+// reply, or nil when none comes within 2 seconds (zmq::poll).
+request(endpoint, r) {
+    local req = new zmq::Socket("REQ");
+    req->connect(endpoint);
+    req->send(json::encode(r));
+    local reply = zmq::poll([req], 2) == nil ? nil : json::decode(req->receive());
+    req->close();
+    return reply;
+}
+
+// A Client of the server at endpoint: ask() sends requests, and onevent(c,
+// m) gets the broadcasts m, and {"type": "gone"} when the heartbeat stops.
+class Client {
+    name, req, sub, beats, watch, onevent;
+    Client(endpoint, name, onevent);
+    ask(r);
+    silent();
+    close();
+}
+
+Client::Client(endpoint, name, onevent) {
+    this->name = name;
+    this->onevent = onevent;
+    beats = 0;
+    req = new zmq::Socket("REQ");
+    req->connect(endpoint);
+    local hello = ask({"op": "hello"}), gone = 5 * hello["beat"];
+    sub = new zmq::Socket("SUB");
+    sub->connect(reach(hello["pub"], endpoint));
+    sub->subscribe("");
+    watch = events::after(gone, fn() { silent(); });
+    sub->onmessage(fn(text) {
+        if (sub->closed()) return;             // it came before close()
+        local m = json::decode(text);
+        watch->cancel();
+        watch = events::after(gone, fn() { silent(); });
+
+        if (m["type"] == "beat") beats++;
+        onevent(this, m);
+    });
+}
+
+// silent runs when no heartbeat came in time.
+Client::silent() {
+    close();
+    onevent(this, {"type": "gone"});
+}
+
+Client::ask(r) {
+    req->send(json::encode(r));
+    local text = req->receive(2), reply = text == nil ? nil : json::decode(text);
+
+    if (reply == nil) throw new Error("no answer from the server in 2 seconds", "NetError");
+
+    if (haskey(reply, "error")) throw new Error(reply["error"]);
+    return reply;
+}
+
+Client::close() {
+    watch->cancel();
+    req->close();
+    sub->close();
+}
+
+// reach gives the endpoint to connect to for an endpoint bound to all
+// interfaces ("tcp://*:5556", shown as "tcp://[::]:5556"): the host of
+// via with the port of pub.
+reach(pub, via) {
+    local p = hostport(pub), v = hostport(via);
+
+    if (p == nil || v == nil || p[0] != "*" && p[0] != "[::]" && p[0] != "0.0.0.0") return pub;
+    return "tcp://" + v[0] + ":" + p[1];
+}
+
+// hostport gives [host, port] of a tcp:// endpoint, or nil.
+hostport(endpoint) {
+    if (find(endpoint, "tcp://") != 0) return nil;
+    local i = len(endpoint) - 1;
+
+    while (i > 6 && endpoint[i] != ':') i--;
+    return [slice(endpoint, 6, i), slice(endpoint, i + 1)];
+}
+
+client(endpoint, name, messages) {
+    local c = new Client(endpoint, name, fn(c, m) {
+        if (m["type"] == "gone") {
+            println("the server is gone");
+        } else if (m["type"] != "beat") {
+            println(line(m));
+        }
+    });
+    c->ask({"op": "join", "name": name});
+
+    for (local text in messages) c->ask({"op": "say", "name": name, "text": text});
+    events::run();                             // until the server is gone
+    return 0;
+}
+
+// demoServer runs in the demo's worker: the server, whose log goes to the
+// parent.
+demoServer() {
+    return serve("inproc://chat", "inproc://chat-pub", 0.1, worker::send);
+}
+
+// demo runs a server and clients ann and bob, step by step: each step
+// waits until both have heard what it broadcasts, so the output is the
+// same in each run.
+demo() {
+    local w = worker::start(demoServer), log = [w->receive(5)];
+
+    if (log[0] == nil) throw new Error("the server did not start");
+    local here = [], heard = {}, steps, k = 0, await = nil, next;
+    local guard = events::after(10, fn() {
+        eprintln("chat: the demo is stuck");
+        exit(1);
+    });
+    // await is what the current step waits for: a function that is true
+    // when it has come.
+    local check = fn() {
+        if (await != nil && await()) {
+            await = nil;
+            events::post(next);
+        }
+    };
+    next = fn() {
+        if (k == len(steps)) return guard->cancel();
+        await = steps[k++]();
+
+        if (await == nil) {
+            events::post(next);
+        } else {
+            check();
+        }
+    };
+    local onevent = fn(c, m) {
+        if (m["type"] == "gone") {
+            println(c->name + ": no heartbeat for 0.5 s: the server is gone");
+            remove(here, c == here[0] ? 0 : 1);
+        } else if (m["type"] != "beat") {
+            push(heard[c->name], m);
+        }
+        check();
+    };
+    // heardall waits until all clients here have heard broadcast seq.
+    local heardall = fn(seq) {
+        return fn() {
+            local names = [];
+
+            for (local c in here) {
+                if (len(heard[c->name]) < seq) return false;
+                push(names, c->name);
+            }
+            println("[" + join(names, ", ") + "]", line(heard[names[0]][seq - 1]));
+            return true;
+        };
+    };
+    local tryask = fn(c, r) {
+        try {
+            c->ask(r);
+        } catch (e) {
+            println(c->name + ": " + e->message);
+        }
+    };
+    // The steps: each gives what it waits for, or nil.
+    local connect = fn() {
+        for (local name in ["ann", "bob"]) {
+            heard[name] = [];
+            push(here, new Client("inproc://chat", name, onevent));
+        }
+        // A subscription takes a moment: the heartbeat says it is there.
+        return fn() {
+            for (local c in here) if (c->beats == 0) return false;
+            println("ann and bob hear the heartbeat");
+            return true;
+        };
+    };
+    local asks = fn(i, r, seq) {               // client i asks r: broadcast seq
+        return fn() {
+            here[i]->ask(r);
+            return heardall(seq);
+        };
+    };
+    local mistakes = fn() {
+        tryask(here[0], {"op": "join", "name": "ann"});
+        tryask(here[0], {"op": "say", "name": "carol", "text": "hello?"});
+        tryask(here[0], {"op": "dance", "name": "ann"});
+        println("status:", status(request("inproc://chat", {"op": "status"})));
+    };
+    local stop = fn() {
+        pop(here)->close();                    // bob
+        request("inproc://chat", {"op": "stop"});
+        println("stop: the server stops");
+        return fn() { return len(here) == 0; };    // ann hears no heartbeat
+    };
+    steps = [connect, asks(0, {"op": "join", "name": "ann"}, 1), asks(1, {"op": "join", "name": "bob"}, 2), asks(0, {"op": "say", "name": "ann", "text": "hi bob"}, 3), asks(1, {"op": "say", "name": "bob", "text": "hi ann, the disk is full again"}, 4), mistakes, asks(1, {"op": "leave", "name": "bob"}, 5), stop];
+    events::post(next);
+    events::run();
+    println("the server's log, until it stopped after", w->wait(), "broadcasts:");
+
+    for (local m = w->receive(); m != nil; m = w->receive()) push(log, m);
+
+    for (local m in log) println("  " + m);
+    return 0;
+}
