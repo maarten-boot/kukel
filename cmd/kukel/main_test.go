@@ -8,9 +8,12 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/maarten-boot/kukel/internal/compiler"
 	"github.com/maarten-boot/kukel/internal/modules/dbmod"
@@ -868,5 +871,66 @@ func TestScript(t *testing.T) {
 	errOut.Reset()
 	if code := run([]string{"frobnicate"}, nil, &out, &errOut); code != 2 || !strings.Contains(errOut.String(), "unknown command") {
 		t.Errorf("an unknown command: exit %d, %q", code, errOut.String())
+	}
+}
+
+// timedWriter notes when each line arrives.
+type timedWriter struct {
+	mu    sync.Mutex
+	lines []string
+	at    []time.Time
+}
+
+func (w *timedWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, line := range strings.SplitAfter(string(p), "\n") {
+		if line != "" {
+			w.lines = append(w.lines, line)
+			w.at = append(w.at, time.Now())
+		}
+	}
+	return len(p), nil
+}
+
+// Standard output is buffered, but written out before the program waits:
+// each line is seen while the wait after it runs, not at the end.
+func TestOutputBeforeWait(t *testing.T) {
+	src := `use time;
+use events;
+use worker;
+busy() { // without a wait of its own, which would write out the output
+    local t = clock();
+    while (clock() - t < 0.6) {}
+}
+main() {
+    println("sleep");
+    time::sleep(0.3);
+    println("run");
+    events::after(0.3, fn() {});
+    events::run();
+    println("receive");
+    local w = worker::start(busy);
+    w->receive(0.3);
+    println("wait");
+    w->wait();
+    println("end");
+}
+`
+	path := filepath.Join(t.TempDir(), "wait.kkl")
+	os.WriteFile(path, []byte(src), 0o644)
+	var out timedWriter
+	var errOut bytes.Buffer
+	if code := run([]string{"run", path}, nil, &out, &errOut); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	want := []string{"sleep\n", "run\n", "receive\n", "wait\n", "end\n"}
+	if !slices.Equal(out.lines, want) {
+		t.Fatalf("output %q, want %q", out.lines, want)
+	}
+	for i := 1; i < len(out.at); i++ {
+		if d := out.at[i].Sub(out.at[i-1]); d < 200*time.Millisecond {
+			t.Errorf("%q came %v after %q: written out only after the wait", out.lines[i], d, out.lines[i-1])
+		}
 	}
 }

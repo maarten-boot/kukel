@@ -297,14 +297,11 @@ func receive(a native.Args, env value.Env, s *socket) (value.Value, error) {
 	}
 	var expired <-chan time.Time
 	if a.Has(0) {
-		secs, err := a.Number(0)
+		d, err := a.Seconds(0, "a usable timeout")
 		if err != nil {
 			return value.NilValue, err
 		}
-		if secs != secs || secs < 0 {
-			return value.NilValue, a.Errorf(value.ValueError, "%s seconds is not a usable timeout", a.V[0].String())
-		}
-		t := time.NewTimer(time.Duration(secs * float64(time.Second)))
+		t := time.NewTimer(d)
 		defer t.Stop()
 		expired = t.C
 	}
@@ -312,6 +309,13 @@ func receive(a native.Args, env value.Env, s *socket) (value.Value, error) {
 		s.got = nil
 		return received(a, *r)
 	}
+	select {
+	case r := <-s.startRecv(): // there already
+		s.pending = nil
+		return received(a, r)
+	default:
+	}
+	native.Flush(env)
 	select {
 	case r := <-s.startRecv():
 		s.pending = nil
@@ -445,6 +449,12 @@ func poll(env value.Env, args []value.Value) (value.Value, error) {
 		}
 		socks[i] = s
 	}
+	timeout := time.Duration(-1)
+	if a.Has(1) {
+		if timeout, err = a.Seconds(1, "a usable timeout"); err != nil {
+			return value.NilValue, err
+		}
+	}
 	for i, s := range socks { // a message poll found earlier, not yet received
 		if s.got != nil {
 			return elems[i], nil
@@ -455,18 +465,12 @@ func poll(env value.Env, args []value.Value) (value.Value, error) {
 		cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(s.startRecv())})
 	}
 	cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(env.Done())})
-	if a.Has(1) {
-		secs, err := a.Number(1)
-		if err != nil {
-			return value.NilValue, err
-		}
-		if secs != secs || secs < 0 {
-			return value.NilValue, a.Errorf(value.ValueError, "%s seconds is not a usable timeout", a.V[1].String())
-		}
-		t := time.NewTimer(time.Duration(secs * float64(time.Second)))
+	if timeout >= 0 {
+		t := time.NewTimer(timeout)
 		defer t.Stop()
 		cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.C)})
 	}
+	native.Flush(env)
 	chosen, recv, _ := reflect.Select(cases)
 	switch {
 	case chosen < len(socks):

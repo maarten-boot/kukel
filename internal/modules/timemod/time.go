@@ -202,17 +202,11 @@ func sleep(env value.Env, args []value.Value) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, err
 	}
-	s, err := a.Number(0)
+	d, err := a.Seconds(0, "a usable duration")
 	if err != nil {
 		return value.NilValue, err
 	}
-	if s < 0 || math.IsNaN(s) {
-		return value.NilValue, a.Errorf(value.ValueError, "%s seconds is not a usable duration", a.V[0].String())
-	}
-	d := stdtime.Duration(math.MaxInt64) // about 292 years: as good as forever
-	if s < d.Seconds() {
-		d = stdtime.Duration(s * 1e9)
-	}
+	native.Flush(env)
 	t := stdtime.NewTimer(d)
 	defer t.Stop()
 	select {

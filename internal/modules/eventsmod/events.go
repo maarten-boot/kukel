@@ -217,6 +217,7 @@ func (l *Loop) run(a native.Args) error {
 			wait = time.NewTimer(time.Until(deadline))
 			due = wait.C
 		}
+		native.Flush(l.env)
 		select {
 		case <-l.wake:
 		case <-due:

@@ -110,6 +110,23 @@ main() { local w = worker::start(idle); println(w->receive(0.05)); w->stop(); w-
 	}
 }
 
+// A timeout beyond what a Go duration holds (about 292 years) is no
+// limit, not one that has passed.
+func TestReceiveLongTimeout(t *testing.T) {
+	out, _ := run(t, `use worker; use time;
+later() { time::sleep(0.05); worker::send("late"); println(worker::receive(1e10)); }
+main() {
+    local w = worker::start(later);
+    println(w->receive(1e300));
+    time::sleep(0.05);
+    w->send("later");
+    w->wait();
+}`, 0)
+	if out != "late\nlater\n" {
+		t.Errorf("got %q", out)
+	}
+}
+
 func TestWorkerEnds(t *testing.T) {
 	out, _ := run(t, `use worker;
 quits() { exit(7); }

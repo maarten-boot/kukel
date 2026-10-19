@@ -16,6 +16,7 @@ import (
 	"github.com/hugelgupf/p9/linux"
 
 	"github.com/maarten-boot/kukel/internal/modules/eventsmod"
+	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/value"
 )
 
@@ -543,6 +544,7 @@ func exceptionMessage(v value.Value) string {
 // wait waits until done is closed, running the jobs of the program's own
 // servers meanwhile.
 func (l *local) wait(done <-chan struct{}) error {
+	native.Flush(l.env)
 	for {
 		select {
 		case <-done:

@@ -13,8 +13,11 @@ package native
 
 import (
 	"fmt"
+	"io"
+	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/maarten-boot/kukel/internal/token"
 	"github.com/maarten-boot/kukel/internal/value"
@@ -283,6 +286,43 @@ func (a Args) Number(i int) (float64, error) {
 		return v.AsFloat(), nil
 	}
 	return 0, a.TypeError(i, "a number")
+}
+
+// Seconds returns argument i, a number of seconds that is not negative,
+// as a duration; what names it in the message for another number ("a
+// usable timeout"). See Duration for very long times.
+func (a Args) Seconds(i int, what string) (time.Duration, error) {
+	s, err := a.Number(i)
+	if err != nil {
+		return 0, err
+	}
+	if s != s || s < 0 {
+		return 0, a.Errorf(value.ValueError, "%s seconds is not %s", a.V[i].String(), what)
+	}
+	return Duration(s), nil
+}
+
+// Duration converts seconds (not negative) to a duration. Beyond the
+// longest duration, about 292 years, it gives the longest: as good as no
+// limit.
+func Duration(seconds float64) time.Duration {
+	if ns := seconds * 1e9; ns < float64(math.MaxInt64) { // 2**63: one too many
+		return time.Duration(ns)
+	}
+	return time.Duration(math.MaxInt64)
+}
+
+// Flush writes out what the program's standard output and standard error
+// hold in a buffer (kukel buffers standard output; the writers of a Go
+// program that embeds Kukel may not buffer). A function that waits, for
+// time, a message or an event, calls it first: what the program wrote
+// before the wait is seen during it.
+func Flush(env value.Env) {
+	for _, w := range []io.Writer{env.Stdout(), env.Stderr()} {
+		if f, ok := w.(interface{ Flush() error }); ok {
+			f.Flush()
+		}
+	}
 }
 
 // Object returns the Go value of argument i, which must be an object of

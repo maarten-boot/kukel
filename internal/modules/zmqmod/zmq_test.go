@@ -245,6 +245,35 @@ ValueError: zmq::poll: -1 seconds is not a usable timeout
 	}
 }
 
+// A timeout beyond what a Go duration holds (about 292 years) is no
+// limit; poll checks its timeout also when a socket is ready.
+func TestLongTimeouts(t *testing.T) {
+	got := run(t, `use zmq; use worker; use time;
+later() {
+    local push = new zmq::Socket("PUSH");
+    push->connect("inproc://long");
+    for (local m in ["one", "two", "three"]) { time::sleep(0.05); push->send(m); }
+    time::sleep(0.1);
+    push->close();
+}
+main() {
+    local pull = new zmq::Socket("PULL");
+    pull->bind("inproc://long");
+    local w = worker::start(later);
+    println(pull->receive(1e10));
+    println(zmq::poll([pull], 1e300) == pull, pull->receive(0));
+    println(zmq::poll([pull], float("inf")) == pull);
+    try { zmq::poll([pull], -1); } catch (e) { println(e->message); }
+    println(pull->receive(0));
+    w->wait();
+    pull->close();
+}`)
+	want := "one\ntrue two\ntrue\nzmq::poll: -1 seconds is not a usable timeout\nthree\n"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 // What a socket refuses at once: sending on SUB (zmq4 would wait for
 // ever) and PULL, a REQ without a peer, an unknown transport.
 func TestRefusals(t *testing.T) {

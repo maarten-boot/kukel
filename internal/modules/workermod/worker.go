@@ -83,8 +83,9 @@ func (q *queue) close() {
 
 // pop takes the next message, waiting for one at most timeout (forever if
 // timeout < 0). It gives false when the queue is closed and empty, when the
-// time is up, or when cancel is closed.
-func (q *queue) pop(timeout time.Duration, cancel <-chan struct{}) (value.Value, bool) {
+// time is up, or when cancel is closed. wait, if not nil, is called before
+// it waits.
+func (q *queue) pop(timeout time.Duration, cancel <-chan struct{}, wait func()) (value.Value, bool) {
 	var expired <-chan time.Time
 	if timeout >= 0 {
 		t := time.NewTimer(timeout)
@@ -108,6 +109,10 @@ func (q *queue) pop(timeout time.Duration, cancel <-chan struct{}) (value.Value,
 		if closed {
 			q.signal() // let a later pop see it too
 			return value.NilValue, false
+		}
+		if wait != nil {
+			wait()
+			wait = nil
 		}
 		select {
 		case <-q.ready:
@@ -280,14 +285,10 @@ func send(a native.Args, q *queue, v value.Value, closedMsg string) error {
 func receive(a native.Args, env value.Env, q *queue, timeoutArg int) (value.Value, error) {
 	timeout := time.Duration(-1)
 	if a.Has(timeoutArg) {
-		s, err := a.Number(timeoutArg)
-		if err != nil {
+		var err error
+		if timeout, err = a.Seconds(timeoutArg, "a usable timeout"); err != nil {
 			return value.NilValue, err
 		}
-		if s != s || s < 0 {
-			return value.NilValue, a.Errorf(value.ValueError, "%s seconds is not a usable timeout", a.V[timeoutArg].String())
-		}
-		timeout = time.Duration(s * float64(time.Second))
 	}
 	q.mu.Lock()
 	callbacks := q.callbacks
@@ -295,7 +296,7 @@ func receive(a native.Args, env value.Env, q *queue, timeoutArg int) (value.Valu
 	if callbacks {
 		return value.NilValue, a.Errorf(value.ValueError, "messages go to the onmessage handler, receive() cannot take them")
 	}
-	v, _ := q.pop(timeout, env.Done())
+	v, _ := q.pop(timeout, env.Done(), func() { native.Flush(env) })
 	if err := env.Err(); err != nil {
 		return value.NilValue, err // cancelled
 	}
@@ -322,7 +323,7 @@ func onmessage(a native.Args, env value.Env, q *queue, f value.Value) error {
 	go func() {
 		defer release()
 		for {
-			v, ok := q.pop(-1, env.Done())
+			v, ok := q.pop(-1, env.Done(), nil)
 			if !ok {
 				return
 			}
@@ -381,6 +382,9 @@ func init() {
 		// function returned (a new copy each time); a worker that failed
 		// gives a WorkerError.
 		"wait": method("wait", 0, 0, func(a native.Args, env value.Env, w *worker) (value.Value, error) {
+			if w.state() == "running" {
+				native.Flush(env)
+			}
 			select {
 			case <-w.done:
 			case <-env.Done():

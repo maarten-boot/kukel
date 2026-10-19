@@ -783,7 +783,10 @@ work with an `ArgumentError`.
 
 `kukel` buffers standard output; `eprint`, `eprintln` and `readline` write
 out what is buffered first, so a prompt appears before the input is read
-and the order of output and errors stays as written.
+and the order of output and errors stays as written. So do the
+functions of modules that wait (`time::sleep`, `events::run`, `receive`,
+`wait` and `poll` of `worker` and `zmq`, the calls of a `p9` client): what
+a program printed before a wait is seen during it.
 
 | Function | Description |
 |---|---|
@@ -1983,7 +1986,7 @@ gives a `WorkerError`.
 | `worker::start(f, args...)` | Runs `f(args...)` in a new interpreter of this program; `f` is a top-level or static member function (not a function literal, bound method or built-in: `TypeError`). Gives a `worker::Worker` |
 | `worker::startfile(path, args...)` | Compiles the program in `path` (a `.kkl` file with the modules it uses, found as `kukel run` finds them; or a `.kkc` file) and runs its `main` with the vector of the arguments. `path` is relative to the current directory, as for `readfile`. A compile error (also a module not found) is a `CompileError`, a missing file an `IOError`, a damaged `.kkc` file or a module compiled on its own (`kukel build -module`) a `ValueError`; so is `startfile` in a program run by a Go program that does not allow it to read program files ([embedding.md](embedding.md)) |
 | `worker::send(v)` | In a worker: a copy of `v` goes to the parent |
-| `worker::receive([timeout])` | In a worker: the next message from the parent; waits for it, at most `timeout` seconds if given. `nil` after the parent's `stop()` (once the messages sent before are taken) or when the time is up. A negative or `nan` timeout is a `ValueError`, and so is `receive()` after `worker::onmessage` |
+| `worker::receive([timeout])` | In a worker: the next message from the parent; waits for it, at most `timeout` seconds if given (beyond about 292 years: no limit). `nil` after the parent's `stop()` (once the messages sent before are taken) or when the time is up. A negative or `nan` timeout is a `ValueError`, and so is `receive()` after `worker::onmessage` |
 | `worker::onmessage(f)` | In a worker: the event loop (`events`) calls `f(message)` for each message from the parent, and `events::run()` keeps going until the parent's `stop()`. `f` must be a function (`TypeError`); a second `onmessage` is a `ValueError` |
 | `worker::isworker()` | Whether this interpreter is a worker |
 
@@ -1993,7 +1996,7 @@ Outside a worker, `worker::send`, `receive` and `onmessage` are a
 | Member function | Description |
 |---|---|
 | `w->send(v)` | A copy of `v` goes to the worker (`ValueError` after `stop()` or when the worker has ended) |
-| `w->receive([timeout])` | The next message from the worker; `nil` when it has ended (and its messages are taken) or when the time is up. A negative or `nan` timeout is a `ValueError` |
+| `w->receive([timeout])` | The next message from the worker; `nil` when it has ended (and its messages are taken) or when the time is up (a timeout beyond about 292 years: no limit). A negative or `nan` timeout is a `ValueError` |
 | `w->onmessage(f)` | The event loop calls `f(message)` for each message from the worker, and `events::run()` keeps going until the worker ends. Afterwards `receive()` is a `ValueError`, as is a second `onmessage`; `f` must be a function (`TypeError`) |
 | `w->stop()` | No more messages to the worker: its `receive()` gives `nil` once it has taken those sent before |
 | `w->wait()` | Waits until the worker ends and gives a copy of what its function returned (a new copy each time). A worker that failed gives a `WorkerError` with the worker's error in its message |
@@ -2054,11 +2057,11 @@ on every interface), `"ipc://path"` (a Unix socket file) or `"inproc://name"`
 | `s->bind(endpoint)` | Listens on `endpoint`. Port 0 (`"tcp://127.0.0.1:0"`) picks a free port, which `endpoint()` then shows. A busy or forbidden address is a `NetError` |
 | `s->connect(endpoint)` | Connects to a socket bound at `endpoint`. Unlike C ZeroMQ, it waits for the other side: it retries for about 2.5 seconds, then gives a `NetError`, so bind first |
 | `s->send(message)` | Sends a string, or a vector of strings as one message of several parts (`TypeError` for other values, `ValueError` for an empty vector). A PULL or SUB socket cannot send (`ValueError`); a REQ socket that has no peer gives a `NetError` |
-| `s->receive([timeout])` | The next message; waits for it, at most `timeout` seconds if given, then gives `nil`. A message that arrives after the timeout is kept for the next `receive`. A negative or `nan` timeout is a `ValueError`, as is `receive` on a PUSH or PUB socket (they only send); a broken connection a `NetError` |
+| `s->receive([timeout])` | The next message; waits for it, at most `timeout` seconds if given (beyond about 292 years: no limit), then gives `nil`. A message that arrives after the timeout is kept for the next `receive`. A negative or `nan` timeout is a `ValueError`, as is `receive` on a PUSH or PUB socket (they only send); a broken connection a `NetError` |
 | `s->onmessage(f)` | The event loop (`events`) calls `f(message)` for each message, and `events::run()` keeps going until the socket is closed. Afterwards `receive()` is a `ValueError`, as is a second `onmessage`, and `onmessage` on a PUSH or PUB socket; `f` must be a function (`TypeError`) |
 | `s->subscribe(prefix)`, `s->unsubscribe(prefix)` | A SUB socket receives the messages that start with one of its prefixes (`""`: all of them); other socket types give a `ValueError`. Subscriptions take a moment to reach the PUB socket: messages published right after `subscribe` may be missed |
 | `s->type()`, `s->endpoint()` | The type, and the last endpoint bound to or connected to (`""` if none; after a bind, the address as bound, with the port that port 0 picked) |
-| `zmq::poll(sockets [, timeout])` | Waits until one of the sockets (a vector) has a message and gives that socket, whose `receive()` then gives the message at once; `nil` after `timeout` seconds. When several have one, the earliest in the vector wins. No message is lost: the others stay with their sockets. An empty vector, a closed socket, one with an `onmessage` handler, or a PUSH or PUB socket is a `ValueError` |
+| `zmq::poll(sockets [, timeout])` | Waits until one of the sockets (a vector) has a message and gives that socket, whose `receive()` then gives the message at once; `nil` after `timeout` seconds (beyond about 292 years: no limit). When several have one, the earliest in the vector wins. No message is lost: the others stay with their sockets. An empty vector, a closed socket, one with an `onmessage` handler, or a PUSH or PUB socket is a `ValueError` |
 | `s->close()` | Closes the socket (closing again has no effect). If the socket sent a message less than 0.1 seconds before, `close` waits until 0.1 seconds have passed, so that the message still leaves. Using a closed socket is a `ValueError`, except `type()`, `endpoint()`, `close()` and `closed()` |
 | `s->closed()` | Whether the socket is closed |
 

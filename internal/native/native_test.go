@@ -1,8 +1,10 @@
 package native
 
 import (
+	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/maarten-boot/kukel/internal/value"
 )
@@ -90,6 +92,32 @@ func TestArgs(t *testing.T) {
 	}
 	if err := a.Errorf(value.ValueError, "bad %d", 7); err.Error() != "m::f: bad 7" {
 		t.Errorf("Errorf: %v", err)
+	}
+}
+
+// Seconds and Duration: a time beyond what a duration holds (about 292
+// years) is the longest duration, not an overflow.
+func TestSeconds(t *testing.T) {
+	for _, tc := range []struct {
+		secs float64
+		want time.Duration
+	}{
+		{0, 0}, {0.25, 250 * time.Millisecond}, {9e9, 9e18}, {9.3e9, time.Duration(math.MaxInt64)},
+		{1e10, time.Duration(math.MaxInt64)}, {math.Inf(1), time.Duration(math.MaxInt64)},
+	} {
+		if got := Duration(tc.secs); got != tc.want {
+			t.Errorf("Duration(%v) = %v, want %v", tc.secs, got, tc.want)
+		}
+	}
+	a, _ := Check("m::f", []value.Value{value.MakeInt(2), value.MakeFloat(-1), value.MakeFloat(math.NaN()), value.MakeString("x")}, 4, 4)
+	if d, err := a.Seconds(0, "a usable timeout"); d != 2*time.Second || err != nil {
+		t.Errorf("Seconds(2) = %v, %v", d, err)
+	}
+	for i, msg := range []string{"m::f: -1.0 seconds is not a usable timeout", "m::f: nan seconds is not a usable timeout",
+		"m::f: argument 4 must be a number, not string"} {
+		if _, err := a.Seconds(i+1, "a usable timeout"); err == nil || err.Error() != msg {
+			t.Errorf("Seconds(%v): %v, want %q", a.V[i+1], err, msg)
+		}
 	}
 }
 
