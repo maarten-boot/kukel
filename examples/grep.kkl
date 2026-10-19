@@ -19,6 +19,9 @@ use fs;
 // The options, by letter: true when given.
 global opts = {};
 
+// Whether a file or directory could not be read (exit code 2).
+global failed = false;
+
 usage(why) {
     eprintln("grep:", why);
     eprintln("usage: grep [-icFhlnorv] pattern [file ...]");
@@ -52,7 +55,7 @@ main(args) {
         return usage("bad pattern: " + e->message);
     }
 
-    local files = slice(args, i + 1), found = false, failed = false;
+    local files = slice(args, i + 1), found = false;
 
     if (haskey(opts, "r")) files = below(len(files) == 0 ? ["."] : files);
 
@@ -122,17 +125,23 @@ stdinLines() {
 }
 
 // below gives the files in the directories of paths, and below them, in
-// the order walk finds them (by name); other paths stay as they are.
+// the order walk finds them (by name); other paths stay as they are. A
+// directory that cannot be read is reported, and the others are searched.
 below(paths) {
     local out = [];
 
     for (local p in paths) {
-        if (fs::exists(p) && fs::stat(p)["dir"]) {
-            fs::walk(p, fn(path, e) {
-                if (!e["dir"] && !e["link"]) push(out, path);
-            });
-        } else {
-            push(out, p);
+        try {
+            if (fs::exists(p) && fs::stat(p)["dir"]) {
+                fs::walk(p, fn(path, e) {
+                    if (!e["dir"] && !e["link"]) push(out, path);
+                });
+            } else {
+                push(out, p);
+            }
+        } catch (e) {
+            eprintln("grep:", e->message);
+            failed = true;
         }
     }
     return out;

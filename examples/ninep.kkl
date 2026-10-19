@@ -3,16 +3,17 @@
 // (read-only, as /files); the client lists, reads and writes the files of
 // a 9P server (this one, or Plan 9, plan9port, diod, QEMU, ...).
 //
-//     kukel run examples/ninep.kkl -- serve tcp://*:5640 [directory]
-//     kukel run examples/ninep.kkl -- ls tcp://localhost:5640 /
-//     kukel run examples/ninep.kkl -- cat tcp://localhost:5640 /hello
-//     kukel run examples/ninep.kkl -- put tcp://localhost:5640 /notes 'buy milk'
-//     kukel run examples/ninep.kkl -- put tcp://localhost:5640 /ctl stop
-//     kukel run examples/ninep.kkl -- demo [directory]
+//     cd examples; kukel run ninep.kkl -- serve tcp://*:5640 [directory]
+//     cd examples; kukel run ninep.kkl -- ls tcp://localhost:5640 /
+//     cd examples; kukel run ninep.kkl -- cat tcp://localhost:5640 /hello
+//     cd examples; kukel run ninep.kkl -- put tcp://localhost:5640 /notes 'buy milk'
+//     cd examples; kukel run ninep.kkl -- put tcp://localhost:5640 /ctl stop
+//     cd examples; kukel run ninep.kkl -- demo [directory]
 //
 // demo serves the tree on a free port, with the directory as /files
-// (testdata/tree: run it in examples/), and uses it with its own client, in
-// both versions of the protocol. The exit code is 2 after an error.
+// (testdata/tree when left out, which is why these run in examples/), and
+// uses it with its own client, in both versions of the protocol. The exit
+// code is 2 after an error.
 use p9;
 use events;
 use time;
@@ -100,8 +101,13 @@ usage(why) {
 main(args) {
     if (len(args) == 0) return usage("no command");
     local cmd = args[0];
+    local want = {"demo": [1, 2], "serve": [2, 3], "ls": [2, 3], "cat": [3, 3], "put": [4, 4]};
 
-    if (cmd == "demo" && len(args) <= 2) {
+    if (!haskey(want, cmd)) return usage("unknown command " + cmd);
+
+    if (len(args) < want[cmd][0] || len(args) > want[cmd][1]) return usage("wrong number of arguments for " + cmd);
+
+    if (cmd == "demo") {
         try {
             demo(len(args) == 2 ? args[1] : "testdata/tree");
         } catch (e) {
@@ -112,7 +118,7 @@ main(args) {
         return 0;
     }
 
-    if (cmd == "serve" && (len(args) == 2 || len(args) == 3)) {
+    if (cmd == "serve") {
         try {
             serve(args[1], len(args) == 3 ? args[2] : nil);
         } catch (e) {
@@ -122,12 +128,6 @@ main(args) {
 
         return 0;
     }
-
-    local want = {"ls": [2, 3], "cat": [3, 3], "put": [4, 4]};
-
-    if (!haskey(want, cmd)) return usage("unknown command " + cmd);
-
-    if (len(args) < want[cmd][0] || len(args) > want[cmd][1]) return usage("wrong number of arguments for " + cmd);
 
     try {
         local c = p9::dial(args[1]);

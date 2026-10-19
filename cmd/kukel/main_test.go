@@ -777,6 +777,39 @@ func TestExamplesFormatted(t *testing.T) {
 	}
 }
 
+// grep -r and wc report a directory they cannot read and go on with the
+// others (the .tests files cannot make one).
+func TestExamplesUnreadableDirectory(t *testing.T) {
+	examples, err := filepath.Abs("../../examples")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(t.TempDir())
+	os.MkdirAll("tree/locked", 0o777)
+	os.WriteFile("tree/a.txt", []byte("one error\n"), 0o644)
+	os.WriteFile("tree/locked/b.txt", []byte("two errors\n"), 0o644)
+	os.WriteFile("c.txt", []byte("an error\n"), 0o644)
+	os.Chmod("tree/locked", 0)
+	defer os.Chmod("tree/locked", 0o777)
+	if _, err := os.ReadDir("tree/locked"); err == nil {
+		t.Skip("permissions are not enforced here (root?)")
+	}
+	for _, tc := range []struct {
+		args         []string
+		stdout, want string
+		code         int
+	}{
+		{[]string{"grep.kkl", "-r", "error", "tree", "c.txt"}, "tree/a.txt:one error\nc.txt:an error\n", "grep: fs::walk: tree/locked: permission denied\n", 2},
+		{[]string{"wc.kkl", "tree", "c.txt"}, "      1       2      10 tree/a.txt\n      1       2       9 c.txt\n      2       4      19 total\n", "wc: fs::walk: tree/locked: permission denied\n", 1},
+	} {
+		var out, errOut bytes.Buffer
+		args := append([]string{"run", filepath.Join(examples, tc.args[0]), "--"}, tc.args[1:]...)
+		if code := run(args, nil, &out, &errOut); code != tc.code || out.String() != tc.stdout || errOut.String() != tc.want {
+			t.Errorf("%s: exit %d, stdout %q, stderr %q; want exit %d, %q, %q", tc.args[0], code, out.String(), errOut.String(), tc.code, tc.stdout, tc.want)
+		}
+	}
+}
+
 // A kukel debug session: breakpoints by function and file:line, continue,
 // step, finish, print paths, bt, frame, locals, list and the errors.
 func TestDebug(t *testing.T) {

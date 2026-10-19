@@ -43,6 +43,16 @@ $ cat tcp://localhost:5640
 ! usage: ninep serve address [directory] | ls address [path] | cat address path | put address path text | demo [directory]
 exit 2
 
+$ serve
+! ninep: wrong number of arguments for serve
+! usage: ninep serve address [directory] | ls address [path] | cat address path | put address path text | demo [directory]
+exit 2
+
+$ demo testdata/tree extra
+! ninep: wrong number of arguments for demo
+! usage: ninep serve address [directory] | ls address [path] | cat address path | put address path text | demo [directory]
+exit 2
+
 $ rm tcp://localhost:5640 /hello
 ! ninep: unknown command rm
 ! usage: ninep serve address [directory] | ls address [path] | cat address path | put address path text | demo [directory]
