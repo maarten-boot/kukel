@@ -878,3 +878,27 @@ func TestScript(t *testing.T) {
 		t.Errorf("an unknown command: exit %d, %q", code, errOut.String())
 	}
 }
+
+// run, build and disasm -nofuse compile without the instructions that do
+// the work of several.
+func TestNoFuse(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("f.kkl", []byte("main() {\n    local n = 2;\n    n *= 3;\n    println(n + 1);\n}\n"), 0o644)
+	for _, nofuse := range []bool{false, true} {
+		args := []string{"disasm", "f.kkl"}
+		if nofuse {
+			args = []string{"disasm", "-nofuse", "f.kkl"}
+		}
+		var out, errOut bytes.Buffer
+		if code := run(args, nil, &out, &errOut); code != 0 || strings.Contains(out.String(), "ARITH_LK") == nofuse {
+			t.Errorf("%v: exit %d, %s%s", args, code, out.String(), errOut.String())
+		}
+	}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"run", "-nofuse", "f.kkl"}, nil, &out, &errOut); code != 0 || out.String() != "7\n" || !compiler.Fuse {
+		t.Errorf("run -nofuse: exit %d, %q %q", code, out.String(), errOut.String())
+	}
+	if code := run([]string{"build", "-nofuse", "-o", "f.kkc", "f.kkl"}, nil, &out, &errOut); code != 0 {
+		t.Errorf("build -nofuse: exit %d, %q", code, errOut.String())
+	}
+}

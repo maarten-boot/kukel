@@ -443,6 +443,7 @@ g(n, v, p, s) {
     while (p != nil) p = p->next;
     if (s[0] >= '0') t = t * 3 + 1;
     switch (s) { case "a": t = n * t; break; }
+    t -= 1; t *= n; v[0] *= 2; p->next -= 1;
     return t;
 }
 main() {}`))

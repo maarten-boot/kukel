@@ -546,11 +546,30 @@ tokenizer, linked lists, an interpreter, float arithmetic):
 | `ARITH_K op, k` | `CONST k; op` | `x * y + 1` |
 | `CMP_JUMP_K cmp, k, target` | `CONST k; CMP_JUMP cmp, target` | `s[i] >= '0'` |
 
-They too behave exactly as the instructions they replace. The compiler's
-switch `Fuse` (on) controls all of them, and `ADD_LOCAL`, `INC_LOCAL` and
-`DEC_LOCAL`: the tests run every program of `tests/run` also with it off
+They too behave exactly as the instructions they replace. Since Kukel
+v0.27 they also do compound assignments: `x -= 1` for a local is
+`ARITH_LK SUB, x, 1; STORE_LOCAL x`, `x *= y` is `ARITH_LL MUL, x, y;
+STORE_LOCAL x`, and `v[i] *= 2` and `p->n -= 1` take `ARITH_K` (the
+statement `x += e` for a local stays `ADD_LOCAL`). On a loop of such
+assignments to locals this took 25 to 30% less CPU time, on one to vector
+elements and data members 10%.
+
+The compiler's switch `Fuse` (on) controls exactly these: `ARITH_LK`,
+`CMP_JUMP_LK`, the v0.26 forms above, `ADD_LOCAL`, `INC_LOCAL`,
+`DEC_LOCAL`, and the dispatch of a `switch` (section 6.8: a `CMP_JUMP_LK`
+per case, and a tag that is a local read where it is, without a hidden
+slot). Without it the compiler emits the plain instructions they stand
+for. The tests run every program of `tests/run` also with it off
 (`tests/run/fused.kkl` uses each form, with the errors each can raise),
-and expect the same output and exit code.
+and expect the same output and exit code. `kukel run`, `build` and
+`disasm` take `-nofuse` as their first option, to compare.
+
+A fused instruction has the line of its operator. The compiler fuses only
+where that leaves no line without code that has code without `Fuse` (the
+debugger stops on the same lines): a local it reads must be on the
+operator's line, and the line before it must already have code or be the
+operator's line (for `local r =` with `a + 1;` on the next line, the
+first line would have none).
 
 `SWITCH_TABLE`'s table (`Function.Tables`) maps the ints `min`, `min+1`,
 ... to code offsets, or to none. An int `x` in that range with a target

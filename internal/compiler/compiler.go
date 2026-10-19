@@ -1880,11 +1880,33 @@ func (c *compiler) assign(e *ast.AssignExpr, keep bool) {
 	}
 	if e.Op == token.ASSIGN {
 		c.expr(e.RHS)
+		v.store(c, keep)
+		return
+	}
+	op := assignOps[e.Op]
+	if Fuse && v.kind == lvLocal && c.canMoveTo(e.LHS.Pos().Line) {
+		// x -= 1, x *= y: one instruction, then the store.
+		if k, ok := c.constOperand(e.RHS); ok {
+			c.mark(e.LHS.Pos())
+			c.emit(bytecode.OpArithLK, int(op), v.index, k)
+			v.store(c, keep)
+			return
+		}
+		if y, ok := c.fusableLocal(e.RHS, e.LHS.Pos()); ok {
+			c.mark(e.LHS.Pos())
+			c.emit(bytecode.OpArithLL, int(op), v.index, y)
+			v.store(c, keep)
+			return
+		}
+	}
+	v.load(c)
+	if k, ok := c.constOperand(e.RHS); ok { // v[i] *= 2, p->n -= 1
+		c.mark(e.LHS.Pos())
+		c.emit(bytecode.OpArithK, int(op), k)
 	} else {
-		v.load(c)
 		c.expr(e.RHS)
 		c.mark(e.LHS.Pos())
-		c.emit(assignOps[e.Op])
+		c.emit(op)
 	}
 	v.store(c, keep)
 }
