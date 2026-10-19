@@ -152,11 +152,11 @@ func nodeOf(this *value.ObjectObj) *node {
 var sequenceRE = regexp.MustCompile(`^(?:<[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*>|<<[A-Za-z0-9_]+>>)+$`)
 
 // bind sets the handler of the event sequence seq (nil: none). The first
-// handler of a sequence adds a Tk binding, after those Tk and the module
-// have (so a widget keeps working as before); later ones replace the
-// handler it calls. A handler that returns false stops the event: the
-// bindings Tk would run after it (of the widget's class, of its window)
-// do not run.
+// handler of a sequence adds a Tk binding, after those the module has on
+// the widget (so a widget keeps working as before); later ones replace the
+// handler it calls. Tk runs it before the bindings of the widget's class
+// (its own keys and clicks) and of its window; a handler that returns
+// false stops the event, so that those do not run.
 func (n *node) bind(a native.Args, seq string, f value.Value) error {
 	if !sequenceRE.MatchString(seq) {
 		return a.Errorf(value.ValueError, "%s is not an event sequence such as \"<Key>\", \"<Button-1>\" or \"<Control-Key-s>\"", value.Quote(seq))
