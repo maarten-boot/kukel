@@ -1,0 +1,54 @@
+# Tests of chat.kkl, run in examples/ (see examples/README.md). demo runs
+# the server in a worker and two clients over inproc:// endpoints; each
+# step waits for what it broadcasts, so the output is always the same. A
+# server and clients in several processes cannot be run from here.
+
+$ demo
+ann and bob hear the heartbeat
+[ann, bob] * ann joined
+[ann, bob] * bob joined
+[ann, bob] ann: hi bob
+[ann, bob] bob: hi ann, the disk is full again
+ann: ann is already here
+ann: carol has not joined
+ann: unknown request dance
+status: 2 here (ann, bob), 2 said
+[ann, bob] * bob left
+stop: the server stops
+ann: no heartbeat for 0.5 s: the server is gone
+the server's log, until it stopped after 5 broadcasts:
+  serving inproc://chat and inproc://chat-pub
+  * ann joined
+  * bob joined
+  ann: hi bob
+  bob: hi ann, the disk is full again
+  * bob left
+
+$ talk tcp://localhost:5555
+! chat: wrong command line: talk tcp://localhost:5555
+! usage: chat server [-beat S] endpoint pub-endpoint | client endpoint name [message ...] | status endpoint | stop endpoint | demo
+exit 2
+
+$ status
+! chat: wrong command line: status
+! usage: chat server [-beat S] endpoint pub-endpoint | client endpoint name [message ...] | status endpoint | stop endpoint | demo
+exit 2
+
+$ client tcp://localhost:5555
+! chat: client needs an endpoint and a name
+! usage: chat server [-beat S] endpoint pub-endpoint | client endpoint name [message ...] | status endpoint | stop endpoint | demo
+exit 2
+
+$ server tcp://*:5555
+! chat: server needs an endpoint and a pub-endpoint
+! usage: chat server [-beat S] endpoint pub-endpoint | client endpoint name [message ...] | status endpoint | stop endpoint | demo
+exit 2
+
+$ server -beat soon tcp://*:5555 tcp://*:5556
+! chat: -beat takes 0.01 to 3600 seconds
+! usage: chat server [-beat S] endpoint pub-endpoint | client endpoint name [message ...] | status endpoint | stop endpoint | demo
+exit 2
+
+$ server localhost:5555 tcp://127.0.0.1:0
+! chat: zmq::Socket::bind: "localhost:5555" is not an endpoint such as "tcp://localhost:5555"
+exit 1
