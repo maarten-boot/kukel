@@ -23,7 +23,8 @@ import (
 )
 
 // TestExamples runs the tk examples of docs/reference.md and examples/,
-// each in a process of its own (Tk starts once in a process): each must
+// each in a process of its own (Tk starts once in a process), in the
+// directory examples (where the pictures of the reference are): each must
 // open its windows, and end without an error once they are closed (a
 // second after it started, as a user closing the first window would).
 func TestExamples(t *testing.T) {
@@ -49,6 +50,11 @@ func TestExamples(t *testing.T) {
 		t.Fatalf("%d tk examples in docs/reference.md, want at least 4", len(files))
 	}
 	examples, _ := filepath.Glob("../../../examples/*.kkl")
+	for i, file := range examples {
+		if examples[i], err = filepath.Abs(file); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for _, file := range examples {
 		if src, _ := os.ReadFile(file); strings.Contains(string(src), "use tk;") {
 			files = append(files, file)
@@ -58,6 +64,7 @@ func TestExamples(t *testing.T) {
 		t.Run(filepath.Base(file), func(t *testing.T) {
 			cmd := exec.Command(os.Args[0], "-test.run=^$")
 			cmd.Env = append(os.Environ(), "KUKEL_TK_EXAMPLE="+file)
+			cmd.Dir = "../../../examples"
 			var out bytes.Buffer
 			cmd.Stdout, cmd.Stderr = &out, &out
 			if err := cmd.Start(); err != nil {

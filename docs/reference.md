@@ -1780,6 +1780,48 @@ A widget prints as its class and text: `tk::Label("Name:")`,
 `tk::Radiogroup("red")`, `tk::Listbox(3 lines)` (`1 line`), `tk::Text`,
 `tk::Scale(7)`, `tk::Combobox("green")`.
 
+A settings window, opened from the main one; closing it without OK asks
+first:
+
+```
+use tk;
+use events;
+
+main() {
+    local w = new tk::Window("Main");
+    local settings = {"sound": true, "size": "medium", "volume": 50};
+    local summary = new tk::Label(w, str(settings), {"padding": 10});
+    local open = new tk::Button(w, "Settings...");
+    summary->pack();
+    open->pack({"pady": 5});
+    open->onclick(fn() {
+        local s = new tk::Window("Settings");
+        local f = new tk::Frame(s, {"padding": 10});
+        f->pack({"fill": "both", "expand": true});
+        local sound = new tk::Checkbutton(f, "Sound")->setchecked(settings["sound"]);
+        sound->grid({"row": 0, "column": 0, "sticky": "w"});
+        local size = new tk::Radiogroup(settings["size"]), row = 1;
+        for (local name in ["small", "medium", "large"]) {
+            new tk::Radiobutton(f, name, size, name)->grid({"row": row, "column": 0, "sticky": "w"});
+            row = row + 1;
+        }
+        local volume = new tk::Scale(f, {"from": 0, "to": 100, "step": 5, "length": 200, "label": "Volume", "showvalue": true});
+        volume->setvalue(settings["volume"])->grid({"row": 4, "column": 0, "sticky": "ew"});
+        local ok = new tk::Button(f, "OK");
+        ok->grid({"row": 5, "column": 0, "sticky": "e", "pady": 5});
+        ok->onclick(fn() {
+            settings = {"sound": sound->checked(), "size": size->value(), "volume": volume->value()};
+            summary->settext(str(settings));
+            s->close();
+        });
+        s->onclose(fn() {
+            return tk::messagebox("Close without saving?", {"buttons": "yesno", "icon": "question", "parent": s}) == "yes";
+        });
+    });
+    events::run();
+}
+```
+
 **Menus.**
 
 | Constructor or member function | Description |
@@ -1837,6 +1879,35 @@ Labels and buttons show an image with the option `image`, and the option
 (the text only), or `"none"` (the image instead of the text). On a canvas,
 `c->image(x, y, img)`. An image prints as `tk::Image("path", 40x30)`, once
 freed as `tk::Image("path", freed)`.
+
+A label with a picture, and a canvas that shows one picture after the
+other; each picture is freed once it is no longer shown (the files are in
+kukel's `examples/testdata`: run it there):
+
+```
+use tk;
+use events;
+
+main() {
+    local w = new tk::Window("Pictures");
+    local files = ["testdata/sun.png", "testdata/moon.png"], shown = 0;
+    new tk::Label(w, "Day and night", {"image": new tk::Image(files[0]), "compound": "left"})->pack();
+    local c = new tk::Canvas(w, {"width": 100, "height": 100, "background": "white"});
+    c->pack();
+    local picture = new tk::Image(files[0]);
+    local item = c->image(50, 50, picture);
+    local next = new tk::Button(w, "Next");
+    next->pack({"pady": 5});
+    next->onclick(fn() {
+        local old = picture;
+        shown = (shown + 1) % len(files);
+        picture = new tk::Image(files[shown]);
+        c->configureitem(item, {"image": picture});
+        old->free();
+    });
+    events::run();
+}
+```
 
 **Canvas.** A surface to draw on. Each item drawn has an id (an int);
 coordinates are numbers (pixels, from -1e6 to 1e6), points are vectors
