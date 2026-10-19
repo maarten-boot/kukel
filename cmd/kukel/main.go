@@ -64,7 +64,8 @@ commands:
   fmt [-w | -l] a.kkl ...         format source files (indentation, spacing,
                                   blank lines): print them, -w rewrite
                                   them, -l list the files whose
-                                  formatting differs
+                                  formatting differs; fmt - formats
+                                  standard input
   version                         show the version, bytecode format and Go modules
   help                            show this text
 
@@ -95,7 +96,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "ast":
 		return cmdAST(args, stdout, stderr)
 	case "fmt":
-		return cmdFmt(args, stdout, stderr)
+		return cmdFmt(args, stdin, stdout, stderr)
 	case "run":
 		return cmdRun(args, stdin, stdout, stderr)
 	case "repl":
@@ -138,9 +139,19 @@ func cliConfig() *native.Config {
 func compileFiles(files []string) (*bytecode.Program, error) {
 	parsed, err := loader.LoadWith(files, cliConfig())
 	if err != nil {
-		return nil, err
+		return nil, toolError(err)
 	}
-	return compiler.Compile(parsed, builtins.Names())
+	prog, err := compiler.Compile(parsed, builtins.Names())
+	return prog, toolError(err)
+}
+
+// toolError gives err with the prefix "kukel: ", unless it is a compile
+// error (which starts with its position) or has the prefix.
+func toolError(err error) error {
+	if err == nil || diag.Errors(err) != nil || strings.HasPrefix(err.Error(), "kukel: ") {
+		return err
+	}
+	return fmt.Errorf("kukel: %w", err)
 }
 
 // cmdRun compiles the source files before "--" and runs the program with
@@ -175,10 +186,15 @@ func cmdRun(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 // badFiles reports a usage error for an argument taken as a file name that
 // starts with "-": an option the command does not have. A file whose name
-// starts with "-" is given as ./-name.
+// starts with "-" is given as ./-name. Only kukel fmt reads standard input
+// ("-").
 func badFiles(cmd string, files []string, usage string, stderr io.Writer) bool {
 	for _, f := range files {
-		if strings.HasPrefix(f, "-") && f != "-" {
+		if f == "-" {
+			fmt.Fprintf(stderr, "kukel %s: - (standard input) is only for kukel fmt (a file named so is given as ./-)\nusage: %s\n", cmd, usage)
+			return true
+		}
+		if strings.HasPrefix(f, "-") {
 			fmt.Fprintf(stderr, "kukel %s: unknown option %s (a file named so is given as ./%s)\nusage: %s\n", cmd, f, f, usage)
 			return true
 		}
@@ -252,6 +268,9 @@ func cmdBuild(args []string, stderr io.Writer) int {
 	}
 	if out == "" {
 		out = strings.TrimSuffix(files[0], ".kkl") + ".kkc"
+	} else if overwritesSource(out, files) {
+		fmt.Fprintf(stderr, "kukel build: -o %s names a source file (.kkl): name the bytecode file like prog.kkc\n", out)
+		return 2
 	}
 	var data []byte
 	if module {
@@ -290,6 +309,24 @@ func cmdBuild(args []string, stderr io.Writer) int {
 	return 0
 }
 
+// overwritesSource reports whether the output file out of kukel build is
+// one of the source files or a .kkl file.
+func overwritesSource(out string, files []string) bool {
+	if strings.HasSuffix(out, ".kkl") {
+		return true
+	}
+	oi, err := os.Stat(out)
+	for _, f := range files {
+		if filepath.Clean(f) == filepath.Clean(out) {
+			return true
+		}
+		if fi, ferr := os.Stat(f); err == nil && ferr == nil && os.SameFile(oi, fi) {
+			return true
+		}
+	}
+	return false
+}
+
 // compileModule compiles module file on its own: its name is the file's
 // name without .kkl.
 func compileModule(file string) (*bytecode.Module, error) {
@@ -317,11 +354,11 @@ func compileModule(file string) (*bytecode.Module, error) {
 func loadKKC(file string) (*bytecode.Program, error) {
 	data, err := os.ReadFile(file)
 	if err != nil {
-		return nil, err
+		return nil, toolError(err)
 	}
 	prog, err := bytecode.Decode(data)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %v", file, err)
+		return nil, fmt.Errorf("kukel: %s: %v", file, err)
 	}
 	return prog, nil
 }
@@ -333,13 +370,16 @@ func cmdExec(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: kukel exec prog.kkc [--] [args]")
 		return 2
 	}
+	if badFiles("exec", args[:1], "kukel exec prog.kkc [--] [args]", stderr) {
+		return 2
+	}
 	progArgs := args[1:]
 	if len(progArgs) > 0 && progArgs[0] == "--" {
 		progArgs = progArgs[1:]
 	}
 	prog, err := loadKKC(args[0])
 	if err != nil {
-		fmt.Fprintln(stderr, "kukel:", err)
+		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	return runProgram(prog, progArgs, stdin, stdout, stderr)
@@ -384,6 +424,9 @@ func cmdTokens(files []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: kukel tokens a.kkl ...")
 		return 2
 	}
+	if badFiles("tokens", files, "kukel tokens a.kkl ...", stderr) {
+		return 2
+	}
 	for _, file := range files {
 		src, err := os.ReadFile(file)
 		if err != nil {
@@ -417,6 +460,9 @@ func cmdAST(args []string, stdout, stderr io.Writer) int {
 	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "usage: kukel ast [-pos] a.kkl ...")
+		return 2
+	}
+	if badFiles("ast", args, "kukel ast [-pos] a.kkl ...", stderr) {
 		return 2
 	}
 	for _, file := range args {
@@ -483,8 +529,8 @@ func showText(text string) string {
 
 // cmdFmt formats source files: printed (default), rewritten (-w), or only
 // listed when their formatting differs (-l). A file that does not parse is
-// left alone and reported.
-func cmdFmt(args []string, stdout, stderr io.Writer) int {
+// left alone and reported. "-" formats standard input to standard output.
+func cmdFmt(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	write, list := false, false
 	var files []string
 	for _, a := range args {
@@ -497,18 +543,35 @@ func cmdFmt(args []string, stdout, stderr io.Writer) int {
 			files = append(files, a)
 		}
 	}
+	const fmtUsage = "kukel fmt [-w | -l] a.kkl ... | kukel fmt -"
 	if len(files) == 0 || write && list {
-		fmt.Fprintln(stderr, "usage: kukel fmt [-w | -l] a.kkl ...")
+		fmt.Fprintln(stderr, "usage: "+fmtUsage)
 		return 2
 	}
-	if badFiles("fmt", files, "kukel fmt [-w | -l] a.kkl ...", stderr) {
+	if slices.Contains(files, "-") {
+		if len(files) > 1 || write || list {
+			fmt.Fprintln(stderr, "kukel fmt: - (standard input) goes alone, without -w or -l\nusage: "+fmtUsage)
+			return 2
+		}
+		src, err := io.ReadAll(stdin)
+		if err == nil {
+			var out []byte
+			if out, err = format.Source("<stdin>", src); err == nil {
+				stdout.Write(out)
+				return 0
+			}
+		}
+		fmt.Fprintln(stderr, toolError(err))
+		return 1
+	}
+	if badFiles("fmt", files, fmtUsage, stderr) {
 		return 2
 	}
 	code := 0
 	for _, file := range files {
 		src, err := os.ReadFile(file)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
+			fmt.Fprintln(stderr, toolError(err))
 			code = 1
 			continue
 		}
@@ -526,7 +589,7 @@ func cmdFmt(args []string, stdout, stderr io.Writer) int {
 		case write:
 			if !bytes.Equal(src, out) {
 				if err := os.WriteFile(file, out, 0o644); err != nil {
-					fmt.Fprintln(stderr, err)
+					fmt.Fprintln(stderr, toolError(err))
 					code = 1
 				}
 			}
@@ -581,7 +644,7 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(files) > 0 {
 		parsed, err := loader.LoadWith(files, config)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
+			fmt.Fprintln(stderr, toolError(err))
 			return 1
 		}
 		fn, err := session.Declare(parsed, nil)

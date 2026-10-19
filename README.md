@@ -143,7 +143,7 @@ machine as `kukel:dev` (`IMAGE=...` names it otherwise).
 | `kukel build -module [-o m.kkc] m.kkl` | compile a module on its own; `use m;` finds `m.kkc` when there is no `m.kkl` |
 | `kukel exec prog.kkc [--] [args]` | run a bytecode file |
 | `kukel disasm prog.kkc` (or `a.kkl ...`) | show the bytecode |
-| `kukel fmt [-w \| -l] a.kkl ...` | format source files (indentation, spacing, a blank line before `if`, `for`, ...) |
+| `kukel fmt [-w \| -l] a.kkl ...` | format source files (indentation, spacing, a blank line before `if`, `for`, ...); `kukel fmt -` formats standard input |
 | `kukel debug a.kkl ... [-- args]` | run a program under the debugger (breakpoints, stepping, values) |
 | `kukel repl [a.kkl ...]` | read declarations and statements and run them as they come |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | show the tokens or the syntax tree |

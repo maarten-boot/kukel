@@ -44,13 +44,13 @@ hello, Kukel
 | `kukel run a.kkl b.kkl [-- args]` | Compile the files as one program and run it; the arguments after `--` go to `main` |
 | `kukel a.kkl [args]`, `kukel prog.kkc [args]` | The same as `kukel run a.kkl -- args` (`kukel exec` for a `.kkc` file): every argument after the file goes to `main`, also a `--`. So a script whose first line is `#!/usr/bin/env kukel` runs as a command (`./script a b`); a file whose name ends in `.kkl` or `.kkc`, or that is a regular file, is taken for this, a command name first |
 | `kukel check a.kkl ...` | Compile only and report the errors; prints nothing when the program is fine |
-| `kukel build [-o prog.kkc] a.kkl ...` | Compile to a bytecode file (default name: the first file with `.kkc`) |
+| `kukel build [-o prog.kkc] a.kkl ...` | Compile to a bytecode file (default name: the first file with `.kkc`). `-o` naming a `.kkl` file or one of the source files is a usage error |
 | `kukel build -module [-o m.kkc] m.kkl` | Compile module `m` on its own into `m.kkc`, which programs can use instead of `m.kkl` (see [Modules](#modules)). The file name must be the module's name (`util.kkl`, not `my-util.kkl`); a file with a NUL byte is refused. `-o` and `-module` (also `--module`) may come anywhere among the arguments |
 | `kukel exec prog.kkc [--] [args]` | Run a bytecode file (a first `--` is skipped). A module compiled on its own is not a program: `exec` and `disasm` refuse it |
 | `kukel disasm prog.kkc` or `kukel disasm a.kkl ...` | Show the bytecode in readable form |
 | `kukel repl [a.kkl ...]` | Read declarations and statements and run them as they come (see [The REPL](#the-repl)); with files, their declarations come first (`main` is not called) |
 | `kukel debug a.kkl ... [-- args]` | Run the program under the debugger: breakpoints, stepping, values (see [The debugger](#the-debugger)) |
-| `kukel fmt [-w \| -l] a.kkl ...` | Format source files: indentation (4 spaces; `case` labels one level into the switch, their statements two) and the spaces between tokens (`{ }` becomes `{}`; a comment at the end of a line keeps its distance); line breaks and comments stay, at most one blank line in a row. A statement that starts a line with `if`, `while`, `do`, `for`, `switch`, `try` or `with` (also after a label: `outer: for`) gets a blank line before it (above the comments right above it), except as the first statement of a block, after a label on its own line or a `case`, as the statement of `else` or a header without braces, or as the `while` of a `do`. The output is checked to give the same tokens and comments as the input; a file it cannot format safely is refused with an "internal error".  Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`; `-w` and `-l` together are a usage error). A file with a syntax error or a NUL byte is left alone, and the exit code is 1 |
+| `kukel fmt [-w \| -l] a.kkl ...`, `kukel fmt -` | Format source files: indentation (4 spaces; `case` labels one level into the switch, their statements two) and the spaces between tokens (`{ }` becomes `{}`; a comment at the end of a line keeps its distance); line breaks and comments stay, at most one blank line in a row. A statement that starts a line with `if`, `while`, `do`, `for`, `switch`, `try` or `with` (also after a label: `outer: for`) gets a blank line before it (above the comments right above it), except as the first statement of a block, after a label on its own line or a `case`, as the statement of `else` or a header without braces, or as the `while` of a `do`. The output is checked to give the same tokens and comments as the input; a file it cannot format safely is refused with an "internal error".  Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`; `-w` and `-l` together are a usage error). A file with a syntax error or a NUL byte is left alone, and the exit code is 1. `kukel fmt -` formats standard input to standard output (for editors; with `-w`, `-l` or files it is a usage error) |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | Show the tokens or the syntax tree of each file (for debugging; `-pos`, before the files, adds positions) |
 | `kukel version` (also `-version`, `--version`) | Show the version (with the commit and the Go version), the bytecode format and the modules written in Go, with the databases `db` can open (`db (SQLite, PostgreSQL, MySQL)`): a `kukel` built with tags may lack some (see the README) |
 | `kukel help` (also `-h`, `-help`, `--help`) | Show the commands (`kukel` without a command shows them too, with exit code 2) |
@@ -65,11 +65,13 @@ consequences.
 The exit code is `main`'s result when it returns an int, else 0. A compile
 error or an uncaught exception gives exit code 1; `exit(code)` ends the
 program with that code. A wrong command line (an unknown command, a missing
-file name, `-o` without a name, an option the command does not have, such
-as `kukel fmt -d`: a file whose name starts with `-` is given as `./-name`,
-`kukel run` of a `.kkc` file) gives exit code 2. The operating system
-keeps only the low 8 bits of an exit code: `return 263` exits with 7,
-`return -1` with 255.
+file name, `-o` without a name or naming a source file, an option the
+command does not have, such as `kukel fmt -d`: a file whose name starts
+with `-` is given as `./-name`; `-` as a file anywhere but in `kukel fmt -`,
+`kukel run` of a `.kkc` file) gives exit code 2. Messages that are not
+about a place in the source start with `kukel:` (`kukel: open a.kkl: no
+such file or directory`). The operating system keeps only the low 8 bits
+of an exit code: `return 263` exits with 7, `return -1` with 255.
 
 Files used as modules (`use name;`) are found next to the file that uses
 them or through `KUKEL_PATH`; see [Modules](#modules).

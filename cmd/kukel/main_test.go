@@ -486,7 +486,7 @@ func TestReferenceDocumentsNativeModules(t *testing.T) {
 // option the command does not have: a usage error. run refuses .kkc files.
 func TestUnknownOptions(t *testing.T) {
 	for _, args := range [][]string{{"fmt", "-d", "a.kkl"}, {"run", "--help"}, {"check", "-x", "a.kkl"}, {"build", "-q", "a.kkl"},
-		{"repl", "-v"}, {"debug", "-g", "a.kkl"}, {"disasm", "-s", "a.kkl"}} {
+		{"repl", "-v"}, {"debug", "-g", "a.kkl"}, {"disasm", "-s", "a.kkl"}, {"exec", "-x"}, {"tokens", "-x"}, {"ast", "-x"}} {
 		var stdout, stderr bytes.Buffer
 		if code := run(args, nil, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "kukel "+args[0]+": unknown option "+args[1]) {
 			t.Errorf("%q: exit %d, %q", args, code, stderr.String())
@@ -495,6 +495,49 @@ func TestUnknownOptions(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"run", "p.kkc"}, nil, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "run it with kukel exec p.kkc") {
 		t.Errorf("run p.kkc: exit %d, %q", code, stderr.String())
+	}
+	// Only fmt reads standard input ("-").
+	for _, args := range [][]string{{"run", "-"}, {"check", "-"}, {"ast", "-pos", "-"}, {"repl", "-"}} {
+		stderr.Reset()
+		if code := run(args, nil, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "kukel "+args[0]+": - (standard input) is only for kukel fmt") {
+			t.Errorf("%q: exit %d, %q", args, code, stderr.String())
+		}
+	}
+}
+
+// Messages that are not at a source position start with "kukel: ".
+func TestMessagePrefix(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("util.kkl", []byte("f() {}\n"), 0o644)
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"build", "-module", "util.kkl"}, nil, &stdout, &stderr); code != 0 {
+		t.Fatal(stderr.String())
+	}
+	for _, args := range [][]string{{"nosuch.kkl"}, {"run", "nosuch.kkl"}, {"check", "nosuch.kkl"}, {"fmt", "nosuch.kkl"},
+		{"disasm", "util.kkc"}, {"exec", "util.kkc"}, {"disasm", "nosuch.kkc"}, {"repl", "nosuch.kkl"}, {"debug", "nosuch.kkl"}, {"tokens", "nosuch.kkl"}} {
+		stderr.Reset()
+		if code := run(args, nil, &stdout, &stderr); code != 1 || !strings.HasPrefix(stderr.String(), "kukel: ") {
+			t.Errorf("%q: exit %d, %q", args, code, stderr.String())
+		}
+	}
+}
+
+// build -o refuses to write a source file.
+func TestBuildOutputNotSource(t *testing.T) {
+	t.Chdir(t.TempDir())
+	src := "main() {}\n"
+	os.WriteFile("a.kkl", []byte(src), 0o644)
+	for _, out := range []string{"a.kkl", "./a.kkl", "b.kkl"} {
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{"build", "-o", out, "a.kkl"}, nil, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "names a source file") {
+			t.Errorf("-o %s: exit %d, %q", out, code, stderr.String())
+		}
+	}
+	if data, _ := os.ReadFile("a.kkl"); string(data) != src {
+		t.Errorf("a.kkl was changed: %q", data)
+	}
+	if _, err := os.Stat("b.kkl"); err == nil {
+		t.Errorf("b.kkl was written")
 	}
 }
 
@@ -536,6 +579,20 @@ func TestFmt(t *testing.T) {
 	}
 	if code := run([]string{"fmt", "-w", "-l", messy}, nil, &out, &errOut); code != 2 {
 		t.Errorf("-w with -l: exit %d", code)
+	}
+	// "-": standard input to standard output, alone.
+	out.Reset()
+	if code := run([]string{"fmt", "-"}, strings.NewReader("main(){\nprintln( 1+2 );\n}\n"), &out, &errOut); code != 0 || out.String() != "main() {\n    println(1 + 2);\n}\n" {
+		t.Errorf("fmt -: exit %d, %q", code, out.String())
+	}
+	errOut.Reset()
+	if code := run([]string{"fmt", "-"}, strings.NewReader("main( {"), &out, &errOut); code != 1 || !strings.HasPrefix(errOut.String(), "<stdin>:1:") {
+		t.Errorf("fmt - with a syntax error: exit %d, %q", code, errOut.String())
+	}
+	for _, args := range [][]string{{"fmt", "-w", "-"}, {"fmt", "-l", "-"}, {"fmt", "-", messy}} {
+		if code := run(args, strings.NewReader(""), &out, &errOut); code != 2 {
+			t.Errorf("%q: exit %d", args, code)
+		}
 	}
 }
 
