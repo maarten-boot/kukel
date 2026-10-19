@@ -392,7 +392,10 @@ func onmessage(a native.Args, env value.Env, s *socket) (value.Value, error) {
 		r := <-first
 		for r.err == nil {
 			msg := message(r.msg)
-			loop.Post(func() error {
+			loop.Post(func() error { // on the interpreter's goroutine
+				if s.closed { // by a handler: the messages queued after that are dropped
+					return nil
+				}
 				_, err := env.Call(f, []value.Value{msg})
 				return err
 			})

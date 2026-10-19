@@ -87,15 +87,16 @@ main() {
 }
 
 // Push and pull through the event loop; closing the socket in the handler
-// ends events::run().
+// ends events::run(), and the messages queued after it are not handled.
 func TestPushPullEvents(t *testing.T) {
-	got := run(t, `use zmq; use events;
+	got := run(t, `use zmq; use events; use time;
 main() {
     local pull = new zmq::Socket("PULL"), push = new zmq::Socket("PUSH"), n = 0;
     pull->bind("inproc://jobs");
     push->connect("inproc://jobs");
     pull->onmessage(fn(m) { println("job", m); if (++n == 3) pull->close(); });
-    for (local i = 1; i <= 3; i++) push->send(str(i));
+    for (local i = 1; i <= 6; i++) push->send(str(i));   // 4 to 6: not after the close
+    time::sleep(0.1);                                     // all arrive, queued for the handler
     events::run();
     push->close();
     println(pull);
