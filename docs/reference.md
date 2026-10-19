@@ -678,15 +678,19 @@ main() {
 - Inside a member function, the class's own name means the class
   (`return A;`, `new A()`); constructors are not found by an unqualified
   name (call `Base::Base(...)`): `A(...)`, anywhere, would call the class,
-  so it is a compile error ("A(...) calls the class; call its constructor
-  as A::A(...), or make an object with new A(...)"; also `m::C(...)` for a
-  module's class). A class in a variable is called only when it runs, a
-  `TypeError` ("cannot call class A"). `p->C(...)` calls the
-  constructor `C` again on an existing object `p`, as any member function
-  (its data members are set anew; nothing else happens).
+  so it is a compile error ("A(...) calls the class; make an object with
+  new A(...)"; also `m::C(...)` for a module's class). In a member
+  function of `A` or of a class derived from it, the message also names
+  the constructor `new A(...)` would run, `A`'s own or the nearest base
+  class's ("call its constructor as A::A(...)"). A class in a variable is
+  called only when it runs, a `TypeError` ("cannot call class A").
+  `p->C(...)` calls the constructor `C` again on an existing object `p`,
+  as any member function: the constructor's body runs again on `p`, so the
+  members it assigns change and the others keep their values.
 - `p->x` reads or assigns a data member (all members are public). Static
   data members are reached as `C::x`, or in a member function of the class
-  by their name alone (`count++`), never as `p->x`; a static member function can
+  by their name alone (`count++`), never as `p->x` (a `MemberError` that
+  says so: "c is a static data member: use A::c"); a static member function can
   also be called as `p->f(...)` (the static of `p`'s class), and `p->f`
   without a call gives that function itself, not a bound method.
   `p->m` without a call is a *bound method*: a function value that calls
