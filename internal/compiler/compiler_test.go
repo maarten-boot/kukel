@@ -353,6 +353,20 @@ main() { h(); }`)
 	if err == nil || err.Error() != want {
 		t.Errorf("got:\n%v\nwant:\n%s", err, want)
 	}
+	// In the order of the source, also member function definitions (compiled
+	// after the plain functions) and files; each global initializer reports
+	// its error.
+	err = compileSrc(t, `class A { m(); }
+A::m() { a1; }
+global g1 = n1, g2 = 2, g3 = n3;
+f() { f1; }
+main() {}`, `class B { x(); }
+B::x() { b1; }
+global g4 = n4;`)
+	want = "t.kkl:2:10: undefined name a1\nt.kkl:3:13: undefined name n1\nt.kkl:3:30: undefined name n3\nt.kkl:4:7: undefined name f1\nu.kkl:2:10: undefined name b1\nu.kkl:3:13: undefined name n4"
+	if err == nil || err.Error() != want {
+		t.Errorf("got:\n%v\nwant:\n%s", err, want)
+	}
 	// At most diag.MaxErrors are shown.
 	var b strings.Builder
 	for i := 0; i < 12; i++ {

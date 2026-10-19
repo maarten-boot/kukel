@@ -57,8 +57,8 @@ hello, Kukel
 
 A compile reports several errors at once, in the order of the source: the
 first syntax error of each file, and otherwise the first error of each
-definition and of each function (at most 10 are shown, with a count of the
-rest). Errors in the definitions (names, classes, constants) are reported
+definition, of each function and of each global initializer (at most 10
+are shown, with a count of the rest). Errors in the definitions (names, classes, constants) are reported
 without compiling the function bodies, whose errors could only be their
 consequences.
 

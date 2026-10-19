@@ -7,9 +7,11 @@
 package compiler
 
 import (
+	"cmp"
 	"encoding/binary"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/maarten-boot/kukel/internal/ast"
@@ -85,6 +87,8 @@ type compiler struct {
 	fs        *funcState           // the function being compiled
 	config    *native.Config       // modules and built-ins the program may use (nil: all)
 	errs      []*diag.Error        // the errors so far (see attempt)
+	fileOrder map[string]int       // the files' order in the program, for the order of errs
+	noMain    *diag.Error          // the error that there is no main: it comes last
 	linked    bool                 // code of a module compiled on its own was linked
 }
 
@@ -104,6 +108,25 @@ func (c *compiler) attempt(f func()) {
 		}
 	}()
 	f()
+}
+
+// errors gives the errors so far, in the order of the source: by file, in
+// the order of the files in the program, then by position. (Member
+// function definitions are compiled after the plain functions, for one.)
+func (c *compiler) errors() error {
+	order := func(e *diag.Error) int {
+		if e == c.noMain {
+			return len(c.fileOrder) + 1
+		}
+		if i, ok := c.fileOrder[e.Pos.File]; ok {
+			return i
+		}
+		return len(c.fileOrder)
+	}
+	slices.SortStableFunc(c.errs, func(a, b *diag.Error) int {
+		return cmp.Or(cmp.Compare(order(a), order(b)), cmp.Compare(a.Pos.Line, b.Pos.Line), cmp.Compare(a.Pos.Col, b.Pos.Col))
+	})
+	return diag.Join(c.errs)
 }
 
 // bailout carries a compile error up to Compile.
@@ -160,7 +183,8 @@ func CompileWith(files []*ast.File, builtins []string, config *native.Config) (p
 	c.attempt(func() {
 		m, ok := c.modules[""].names["main"]
 		if !ok || m.kind != symFunc {
-			c.errorf(pos, "the program has no main function")
+			c.noMain = diag.Errorf(pos, "the program has no main function")
+			panic(bailout{c.noMain})
 		}
 		if fd := jobs[c.prog.Globals[m.index].Func].decl; len(fd.Params.Params) > 1 {
 			c.errorf(fd.Name.NamePos, "main takes at most one parameter (the command-line arguments)")
@@ -172,14 +196,14 @@ func CompileWith(files []*ast.File, builtins []string, config *native.Config) (p
 	// Errors in the definitions could make the functions report errors that
 	// are only their consequences: stop here.
 	if len(c.errs) > 0 {
-		return nil, diag.Join(c.errs)
+		return nil, c.errors()
 	}
 
 	// Pass 2: the global initializers, then the functions; each reports its
 	// first error.
 	c.prog.Init = c.functions(jobs, globals, pos)
 	if len(c.errs) > 0 {
-		return nil, diag.Join(c.errs)
+		return nil, c.errors()
 	}
 	c.prog.Init.Index = -1
 	for i, f := range c.prog.Funcs {
@@ -276,6 +300,12 @@ func (c *compiler) declarations(files []*ast.File, scope func(i int, f *ast.File
 	var methodDefs []funcJob
 	var scopes []*fileScope
 	for i, f := range files {
+		if c.fileOrder == nil {
+			c.fileOrder = map[string]int{}
+		}
+		if _, ok := c.fileOrder[f.Name]; !ok {
+			c.fileOrder[f.Name] = len(c.fileOrder)
+		}
 		c.file = scope(i, f)
 		scopes = append(scopes, c.file)
 		if c.file.compiled != nil {
@@ -339,7 +369,18 @@ func (c *compiler) functions(jobs []funcJob, globals []globalInit, pos token.Pos
 			c.attempt(func() { c.link(v.file, jobs, base) })
 		}
 	}
+	n := len(c.errs)
 	c.attempt(func() { init = c.initFunction(globals, pos) })
+	if len(c.errs) > n {
+		// Only the first error of the initializers is known: compile each
+		// one on its own to report the error of each.
+		c.errs = c.errs[:n]
+		for _, v := range globals {
+			if v.spec != nil && v.spec.Value != nil {
+				c.attempt(func() { c.initFunction([]globalInit{v}, pos) })
+			}
+		}
+	}
 	for i, job := range jobs {
 		if job.file.compiled != nil {
 			continue // linked

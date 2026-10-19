@@ -8,7 +8,6 @@ import (
 
 	"github.com/maarten-boot/kukel/internal/ast"
 	"github.com/maarten-boot/kukel/internal/bytecode"
-	"github.com/maarten-boot/kukel/internal/diag"
 	"github.com/maarten-boot/kukel/internal/lexer"
 	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/token"
@@ -51,7 +50,7 @@ func CompileModule(files []*ast.File, src []byte, builtins []string, config *nat
 	files = append([]*ast.File{preludeFile()}, files...)
 	jobs, globals := c.declarations(files, func(i int, f *ast.File) *fileScope { return c.fileScope(f, i == 0) })
 	if len(c.errs) > 0 {
-		return nil, diag.Join(c.errs)
+		return nil, c.errors()
 	}
 	var own []globalInit // the module's global variables
 	for _, v := range globals {
@@ -64,7 +63,7 @@ func CompileModule(files []*ast.File, src []byte, builtins []string, config *nat
 	var init *bytecode.Function
 	c.attempt(func() { init = c.initFunction(own, pos) })
 	if len(c.errs) > 0 {
-		return nil, diag.Join(c.errs)
+		return nil, c.errors()
 	}
 	init.FuncName = target.Module + "::<init>"
 	c.prog.Funcs = append(c.prog.Funcs, init)
