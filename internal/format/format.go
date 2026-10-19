@@ -1,6 +1,8 @@
 // Package format formats Kukel source (kukel fmt): it re-indents lines and
 // normalizes the spaces between tokens. Line breaks and comments stay where
-// they are, and at most one blank line in a row is kept. A statement that
+// they are, and at most one blank line in a row is kept. A line that
+// continues a statement outside brackets is indented one level more than
+// its first line (see continues). A statement that
 // starts with if, while, do, for, switch, try or with gets a blank line
 // before it (breathing space), unless it starts a block or follows a label
 // (see breathe).
@@ -110,6 +112,8 @@ type formatter struct {
 	doBody        bool          // the current line is the statement of a do without braces
 	doTail        bool          // the current line ended that statement: a while next is the do's
 	closedDo      bool          // the current line closed the braces of a do: a while next is the do's
+	stmtHanging   int           // the hanging levels of the line that started the current statement
+	ternaryColon  bool          // the last ":" was the one of ?:
 }
 
 func layout(toks []token.Token, src []byte) []byte {
@@ -173,8 +177,15 @@ func (f *formatter) breathe(toks []token.Token, i int) bool {
 		return false
 	}
 	t := toks[j]
-	if t.Kind == token.IDENT && j+2 < len(toks) && toks[j+1].Kind == token.COLON && toks[j+2].Pos.Line == t.Pos.Line {
-		t = toks[j+2] // a label: outer: for (...)
+	if t.Kind == token.IDENT && j+2 < len(toks) && toks[j+1].Kind == token.COLON {
+		// A label: outer: for (...), also with the label on a line of its
+		// own (the blank line goes above the label). Comments may come
+		// between.
+		k := j + 2
+		for k < len(toks)-1 && toks[k].Kind == token.COMMENT {
+			k++
+		}
+		t = toks[k]
 	}
 	switch t.Kind {
 	case token.WHILE:
@@ -244,10 +255,39 @@ func (f *formatter) startLine(rest []token.Token) {
 			delete(f.ifs, d)
 		}
 	}
+	// A line that continues a statement (the line before did not end it)
+	// is indented one level more than the statement's first line.
+	if f.continues(t) {
+		hanging = f.stmtHanging + 1
+	} else {
+		f.stmtHanging = hanging
+	}
 	f.lineHanging = hanging
 	f.hanging = 0
 	f.doTail, f.doBody, f.closedDo = f.doBody, false, false
 	f.b.WriteString(strings.Repeat(Indent, level+hanging))
+}
+
+// continues tells whether the line that starts with t continues the
+// statement of the line before, outside brackets: that line did not end
+// with a ";", a block's "{" or "}", a label's or case's ":" or a control
+// header (whose statement hangs instead).
+func (f *formatter) continues(t *token.Token) bool {
+	if top := f.top(); top != nil && (top.kind != token.LBRACE || top.isMap) || f.last == nil || f.hanging > 0 {
+		return false
+	}
+	if t.Kind == token.LBRACE || isCloser(t.Kind) {
+		return false // the body of a definition or header; a closing bracket
+	}
+	switch f.last.Kind {
+	case token.SEMICOLON, token.LBRACE, token.RBRACE, token.ELSE, token.DO:
+		return false
+	case token.COLON:
+		return f.ternaryColon
+	case token.RPAREN:
+		return !f.closedHeader
+	}
+	return true
 }
 
 // endLine notes how the line that ends with token t ends: with a control
@@ -392,10 +432,13 @@ func (f *formatter) after(t *token.Token) {
 			f.questionTop++
 		}
 	case token.COLON:
+		f.ternaryColon = true
 		if top := f.top(); top != nil && top.question > 0 {
 			top.question--
 		} else if top == nil && f.questionTop > 0 {
 			f.questionTop--
+		} else {
+			f.ternaryColon = false
 		}
 	}
 	if t.Kind != token.COMMENT {
