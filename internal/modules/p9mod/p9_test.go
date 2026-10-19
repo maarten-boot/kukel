@@ -487,7 +487,7 @@ main(args) {
     for (local v in ["9P2000", "9P2000.L"]) {
         try { p9::dial(s->endpoint(), {"aname": "/nope", "version": v}); } catch (e) { println(e->kind, find(e->message, "the server refuses the attach to \"/nope\"") > 0); }
         local c = p9::dial(s->endpoint(), {"version": v});
-        println(c->exists("/a/b"), c->exists("/a/nope"), c->exists("/nope/x"));
+        println(c->exists("/a/b"), c->exists("/a/nope"), c->exists("/nope/x"), c->exists("/a/b/x"), c->exists("/m/p9.go/x"));
         try { c->read("/m/nope/deeper"); } catch (e) { println(e->kind); }
         try { c->mkdir("/"); } catch (e) { println(e->kind, e->message); }
         local s2 = p9::serve(t, "tcp://127.0.0.1:0");
@@ -504,13 +504,13 @@ NetError true
 NetError true
 p9::Tree::remove: /m is a mounted disk directory: the tree does not reach into it
 IOError true
-true false false
+true false false false false
 IOError
 IOError p9::Client::mkdir: /: the top directory cannot be written, made, renamed or removed
 NetError true
 true
 IOError true
-true false false
+true false false false false
 IOError
 IOError p9::Client::mkdir: /: the top directory cannot be written, made, renamed or removed
 NetError true

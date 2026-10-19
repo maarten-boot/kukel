@@ -1260,7 +1260,7 @@ An **entry** is a map: `name` (the last part of the path), `size` (bytes),
 |---|---|
 | `fs::readdir(path)` | The entries of a directory, by name. A symbolic link is an entry of its own (`link` true, and `dir` false), not what it points to |
 | `fs::stat(path)` | The entry of a file or directory; for a symbolic link, of what it points to, with `link` true |
-| `fs::exists(path)` | Whether there is a file or directory there (a link to nothing does not count) |
+| `fs::exists(path)` | Whether there is a file or directory there (a link to nothing does not count). It is `false` when the path, or a directory on the way, is missing or a file (`"notes.txt/x"`); another failure, such as a directory that cannot be searched, is an `IOError` |
 | `fs::walk(path, f)` | Calls `f(p, entry)` for `path` and everything below it, depth first and by name; `p` is `path` joined with the names. When `f` returns `false` for a directory, `walk` does not go into it. Symbolic links are reported, never followed (so a link cannot make a loop), also when `path` itself is one. A directory that cannot be read ends the walk with an `IOError`; an exception in `f` ends it too, and is passed on unchanged |
 | `fs::mkdir(path)`, `fs::mkdirall(path)` | Makes a directory; `mkdirall` also the ones above it that are missing (and is fine when it exists) |
 | `fs::remove(path)` | Removes a file or an empty directory |
@@ -1270,7 +1270,8 @@ An **entry** is a map: `name` (the last part of the path), `size` (bytes),
 
 What the file system refuses (a missing path, a directory that is not
 empty for `remove`, no permission) is an `IOError` whose message names the
-function and the path. A Go program that embeds Kukel keeps a program away
+function and the path (`fs::readdir: nope: no such file or directory`;
+`fs::rename: old -> new: ...`). A Go program that embeds Kukel keeps a program away
 from files by leaving `fs` out of `StandardModules` (and the file
 built-ins in `DenyBuiltins`).
 
@@ -1335,7 +1336,7 @@ and `"/a/b"` are the same, and `..` stops at the top.
 |---|---|
 | `p9::dial(address [, options])` | Connects to a 9P server and gives a `p9::Client`. The options are a map: `"version"` (`"9P2000.L"` or `"9P2000"`; without it 9P2000.L is tried first, then 9P2000), `"aname"` (the tree to attach to, for a server that has several; for a Kukel server, a directory of its tree), `"user"` (the user name sent with 9P2000; the user running the program by default) and `"timeout"` (seconds for the connection, the agreement on the version and the attach together, 10 by default). A server that cannot be reached, or does not answer in time, is a `NetError`; one that refuses the attach (an `aname` it does not have) an `IOError`; a wrong address or option a `ValueError` (`TypeError` for an option of the wrong type) |
 | `c->readdir(path)` | The entries of a directory, by name. An **entry** is a map as for `fs`: `name`, `size`, `dir`, `link`, `mode` (`"-rw-r--r--"`) and `time` (a `time::Time`; 9P2000 has whole seconds only). `link` is true only for a symbolic link a server shows as one: a Kukel server follows links |
-| `c->stat(path)`, `c->exists(path)` | The entry of a file or directory (the top is named `"/"`); whether there is one (`false` only for "not there": other failures are exceptions, as for `stat`) |
+| `c->stat(path)`, `c->exists(path)` | The entry of a file or directory (the top is named `"/"`); whether there is one (`false` only for "not there", also for a path through a file: other failures are exceptions, as for `stat`) |
 | `c->read(path)` | The content of a file, as a string |
 | `c->write(path, s)` | Makes the content of a file `s`: the file is truncated first, or made if it is not there (when the server allows that) |
 | `c->mkdir(path)`, `c->remove(path)` | Makes a directory; removes a file or an empty directory |

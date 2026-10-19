@@ -167,8 +167,14 @@ func dialL(c net.Conn, aname string) (remote, error) {
 
 func (r *clientL) version() string { return "9P2000.L" }
 
+// walk walks to the file at p. A walk through a file fails with EINVAL or
+// ENOTDIR (depending on the server): the file is not there, as 9P2000
+// says.
 func (r *clientL) walk(p string) (p9.File, error) {
 	_, f, err := r.root.Walk(names(p))
+	if errors.Is(err, linux.EINVAL) || errors.Is(err, linux.ENOTDIR) {
+		err = linux.ENOENT
+	}
 	return f, err
 }
 

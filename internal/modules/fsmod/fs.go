@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"github.com/maarten-boot/kukel/internal/modules/timemod"
 	"github.com/maarten-boot/kukel/internal/native"
@@ -94,7 +95,18 @@ func ModeString(m fs.FileMode) string {
 	return string(b)
 }
 
+// ioError is the IOError for err: the path and what went wrong, without
+// Go's name of the operation ("fs::readdir: nope: no such file or
+// directory"; "from -> to: ..." for rename).
 func ioError(a native.Args, err error) error {
+	var pe *fs.PathError
+	var le *os.LinkError
+	switch {
+	case errors.As(err, &pe):
+		return a.Errorf(value.IOError, "%s: %v", pe.Path, pe.Err)
+	case errors.As(err, &le):
+		return a.Errorf(value.IOError, "%s -> %s: %v", le.Old, le.New, le.Err)
+	}
 	return a.Errorf(value.IOError, "%v", err)
 }
 
@@ -144,14 +156,21 @@ func stat(env value.Env, args []value.Value) (value.Value, error) {
 }
 
 // fs::exists(path): whether there is a file or directory (a link to
-// nothing does not count).
+// nothing does not count). It is false when the path, or a directory on
+// the way, is not there or is a file; other failures (no permission) are
+// an IOError.
 func exists(env value.Env, args []value.Value) (value.Value, error) {
-	_, path, err := pathArg("fs::exists", args, 1)
+	a, path, err := pathArg("fs::exists", args, 1)
 	if err != nil {
 		return value.NilValue, err
 	}
-	_, err = os.Stat(path)
-	return value.MakeBool(err == nil), nil
+	switch _, err = os.Stat(path); {
+	case err == nil:
+		return value.True, nil
+	case errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR):
+		return value.False, nil
+	}
+	return value.NilValue, ioError(a, err)
 }
 
 // fs::walk(path, f): calls f(p, entry) for path and every file and

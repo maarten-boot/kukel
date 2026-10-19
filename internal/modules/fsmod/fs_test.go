@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -41,6 +42,52 @@ func run(t *testing.T, src string, args ...string) string {
 func TestFS(t *testing.T) {
 	if got := run(t, fsSrc, t.TempDir()); got != fsOut {
 		t.Errorf("got:\n%s\nwant:\n%s", got, fsOut)
+	}
+}
+
+// Messages name the path, not Go's operation; exists is false only for a
+// path that is not there (also through a file), other failures are an
+// IOError.
+func TestMessagesAndExists(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the messages of Windows are its own")
+	}
+	t.Chdir(t.TempDir())
+	os.WriteFile("f", []byte("x"), 0o644)
+	src := `use fs;
+main() {
+    println(fs::exists("f"), fs::exists("nope"), fs::exists("f/x"), fs::exists("nope/x"));
+    for (local f in [fn() { fs::readdir("nope"); }, fn() { fs::stat("nope"); }, fn() { fs::walk("nope", println); },
+                     fn() { fs::mkdir("f"); }, fn() { fs::remove("nope"); }, fn() { fs::removeall("nope"); },
+                     fn() { fs::rename("nope", "new"); }, fn() { fs::readdir("f"); }])
+        try { f(); } catch (e) { println(e->kind + ":", e->message); }
+}`
+	want := `true false false false
+IOError: fs::readdir: nope: no such file or directory
+IOError: fs::stat: nope: no such file or directory
+IOError: fs::walk: nope: no such file or directory
+IOError: fs::mkdir: f: file exists
+IOError: fs::remove: nope: no such file or directory
+IOError: fs::removeall: nope: no such file or directory
+IOError: fs::rename: nope -> new: no such file or directory
+IOError: fs::readdir: f: not a directory
+`
+	if got := run(t, src); got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+	// A directory that cannot be searched: whether a file is in it is not
+	// known.
+	os.Mkdir("locked", 0o777)
+	os.WriteFile("locked/in", nil, 0o644)
+	os.Chmod("locked", 0)
+	defer os.Chmod("locked", 0o777)
+	if _, err := os.Stat("locked/in"); err == nil {
+		t.Skip("permissions are not enforced here (root?)")
+	}
+	got := run(t, `use fs;
+main() { try { fs::exists("locked/in"); } catch (e) { println(e->kind + ":", e->message); } }`)
+	if want := "IOError: fs::exists: locked/in: permission denied\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
 
