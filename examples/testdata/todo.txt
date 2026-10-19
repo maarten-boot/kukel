@@ -1,12 +1,19 @@
 # A session of commands, one per line (examples/todo.tests runs it).
-add write the report due 2026-10-20
-add buy milk
+add write the report due 2026-10-20 -tag work
+add buy milk -tag home -tag shop
 add call Ann due 2026-10-18
 list
 done 3
+tag 3 home
+tag 1 urgent work
 list all
+list all -tag home
+list -tag work -tag urgent
 rm 2
 list done
 done 9
+done 0190a6b0-0000-7000-8000-000000000000
 add
+add -tag
+tag 1
 export

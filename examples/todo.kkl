@@ -1,16 +1,24 @@
-// todo: a task list kept in a database (module db, with objects in tables;
-// json, time).
+// todo: a task list kept in a database (module db, with objects in tables
+// and a relation; json, time, uuid).
 //
 //     kukel run examples/todo.kkl -- [-db url] [command ...]
 //
 // The command comes from the arguments, or one per line from standard
 // input (lines starting with # are comments):
 //
-//     add title words [due 2026-10-20]   a new task
-//     done N                             task N is done
-//     rm N                               task N goes
-//     list [open | done | all]           the tasks (open: the default), by due date
-//     export                             all tasks as JSON
+//     add title words [due 2026-10-20] [-tag t ...]   a new task, with tags
+//     done N                       task N is done
+//     rm N                         task N goes, with its tags
+//     tag N t ...                  task N gets tags
+//     list [open | done | all] [-tag t]
+//                                  the tasks (open: the default), by due
+//                                  date; with -tag, those tagged t
+//     export                       all tasks as JSON
+//
+// A task's key in the database is a version 7 UUID that save makes; users
+// see a number, the next one for each new task. N is that number, or the
+// task's UUID. The tags are a relation (db::many): rows of their own table,
+// loaded for all the tasks of a list with one query (include).
 //
 // The database is sqlite:todo.db unless -db names another (any URL
 // db::open takes; "sqlite::memory:" is gone at the end). Each command is a
@@ -19,22 +27,39 @@
 use db;
 use json;
 use time;
+use uuid;
 
-// Task is a row of the table task: the data members are its columns.
+// Task is a row of the table task: the data members are its columns,
+// except tags, the relation.
 class Task {
-    id, title, due, done;
+    id, num, title, due, done, tags;
     static columns();
+    static relations();
 }
 
 Task::columns() {
-    return {"title": "TEXT NOT NULL", "due": "DATE", "done": "BOOLEAN NOT NULL"};
+    return {"id": "UUID", "num": "INTEGER NOT NULL UNIQUE", "title": "TEXT NOT NULL", "due": "DATE", "done": "BOOLEAN NOT NULL"};
+}
+
+Task::relations() {
+    return {"tags": db::many(Tag, "taskid")};
+}
+
+// Tag is a tag of the task whose id taskid holds.
+class Tag {
+    id, taskid, name;
+    static columns();
+}
+
+Tag::columns() {
+    return {"taskid": "UUID", "name": "TEXT NOT NULL"};
 }
 
 global conn;
 
 usage(why) {
     eprintln("todo:", why);
-    eprintln("usage: todo [-db url] [add title [due yyyy-mm-dd] | done N | rm N | list [open|done|all] | export]");
+    eprintln("usage: todo [-db url] [add title [due yyyy-mm-dd] [-tag t] | done N | rm N | tag N t ... | list [open|done|all] [-tag t] | export]");
     return 2;
 }
 
@@ -50,6 +75,7 @@ main(args) {
     try {
         conn = db::open(url);
         conn->migrate(Task);
+        conn->migrate(Tag);
     } catch (e) {
         eprintln("todo:", e->message);
         return 2;
@@ -72,7 +98,7 @@ main(args) {
 
 // command runs one command in a transaction, and gives the exit code.
 command(w) {
-    local run = {"add": cmdadd, "done": cmddone, "rm": cmdrm, "list": cmdlist, "export": cmdexport}[w[0]];
+    local run = {"add": cmdadd, "done": cmddone, "rm": cmdrm, "tag": cmdtag, "list": cmdlist, "export": cmdexport}[w[0]];
 
     if (run == nil) return usage("unknown command " + w[0]);
 
@@ -88,8 +114,28 @@ command(w) {
     }
 }
 
+// options takes the "-tag t" pairs out of w: gives [the other words, the
+// tags].
+options(w) {
+    local rest = [], tags = [];
+
+    for (local i = 0; i < len(w); i++) {
+        if (w[i] != "-tag") {
+            push(rest, w[i]);
+        } else if (i + 1 < len(w)) {
+            i++;
+            push(tags, w[i]);
+        } else {
+            throw new Error("-tag needs a name", "ValueError");
+        }
+    }
+    return [rest, tags];
+}
+
 cmdadd(w) {
-    local t = new Task(), n = len(w);
+    local o = options(w), t = new Task();
+    w = o[0];
+    local n = len(w);
     t->done = false;
 
     if (n >= 2 && w[n - 2] == "due") {
@@ -99,14 +145,34 @@ cmdadd(w) {
     t->title = join(slice(w, 0, n), " ");
 
     if (t->title == "") throw new Error("a task needs a title", "ValueError");
-    conn->save(t);
-    println("added", t->id);
+    local last = conn->first("SELECT MAX(num) AS n FROM task")["n"];
+    t->num = last == nil ? 1 : last + 1;
+    conn->save(t);                             // t->id: a new UUID
+    addtags(t, o[1]);
+    println("added", t->num);
 }
 
-// task gives the task whose number w[0] is.
+// addtags gives task t the tags it does not have yet.
+addtags(t, names) {
+    for (local name in names) {
+        if (conn->find(Tag)->where("taskid = ? AND name = ?", t->id, name)->count() > 0) continue;
+        local g = new Tag();
+        g->taskid = t->id;
+        g->name = name;
+        conn->save(g);
+    }
+}
+
+// task gives the task whose number (or UUID) w[0] is.
 task(w) {
     if (len(w) != 1) throw new Error("give the task's number", "ValueError");
-    local t = conn->get(Task, int(w[0]));
+    local t;
+
+    if (uuid::valid(w[0])) {
+        t = conn->get(Task, lower(w[0]));
+    } else {
+        t = conn->find(Task)->where("num = ?", int(w[0]))->first();
+    }
 
     if (t == nil) throw new Error("there is no task " + w[0], "ValueError");
     return t;
@@ -116,17 +182,27 @@ cmddone(w) {
     local t = task(w);
     t->done = true;
     conn->save(t);
-    println("done", t->id);
+    println("done", t->num);
 }
 
 cmdrm(w) {
     local t = task(w);
+    conn->find(Tag)->where("taskid = ?", t->id)->delete();
     conn->delete(t);
-    println("removed", t->id);
+    println("removed", t->num);
+}
+
+cmdtag(w) {
+    if (len(w) < 2) throw new Error("give the task's number and tags", "ValueError");
+    local t = task(slice(w, 0, 1));
+    addtags(t, slice(w, 1));
+    println("tagged", t->num);
 }
 
 cmdlist(w) {
-    local which = len(w) > 0 ? w[0] : "open", q = conn->find(Task)->orderby("due IS NULL, due, id");
+    local o = options(w);
+    w = o[0];
+    local which = len(w) > 0 ? w[0] : "open", q = conn->find(Task)->orderby("due IS NULL, due, num")->include("tags");
 
     if (which == "open" || which == "done") {
         q = q->where("done = ?", which == "done");
@@ -134,17 +210,36 @@ cmdlist(w) {
         throw new Error("list open, done or all, not " + which, "ValueError");
     }
 
+    for (local tag in o[1]) q = q->where("id IN (SELECT taskid FROM tag WHERE name = ?)", tag);
+
     for (local t in q->all()) {
         local due = t->due == nil ? "" : "  (due " + t->due->format("%Y-%m-%d") + ")";
-        println(str(t->id) + " [" + (t->done ? "x" : " ") + "] " + t->title + due);
+        println(str(t->num) + " [" + (t->done ? "x" : " ") + "] " + t->title + due + hashtags(t));
     }
+}
+
+// tagnames gives the names of the tags of t, sorted.
+tagnames(t) {
+    local names = [];
+
+    for (local g in t->tags) push(names, g->name);
+    sort(names);
+    return names;
+}
+
+// hashtags gives the tags of t as "  #home #work".
+hashtags(t) {
+    local s = "";
+
+    for (local name in tagnames(t)) s += (s == "" ? "  #" : " #") + name;
+    return s;
 }
 
 cmdexport(w) {
     local tasks = [];
 
-    for (local t in conn->find(Task)->orderby("id")->all())
-        push(tasks, {"id": t->id, "title": t->title, "due": t->due == nil ? nil : t->due->format("%Y-%m-%d"), "done": t->done});
+    for (local t in conn->find(Task)->orderby("num")->include("tags")->all())
+        push(tasks, {"num": t->num, "title": t->title, "due": t->due == nil ? nil : t->due->format("%Y-%m-%d"), "done": t->done, "tags": tagnames(t)});
     println(json::encode(tasks, "  "));
 }
 
