@@ -215,6 +215,10 @@ main(args) {
     for (local h in [fn() { t->configure({"scroll": "x"}); },
                      fn() { new tk::Text(box, {"scroll": "z"}); },
                      fn() { new tk::Text(box, {"colour": 1}); },
+                     fn() { new tk::Text(box, {"scroll": nil}); },
+                     fn() { new tk::Listbox(box, {"scroll": nil}); },
+                     fn() { new tk::Canvas(box, {"scroll": nil}); },
+                     fn() { t->configure({"scroll": nil}); },
                      fn() { l->setselected([5]); },
                      fn() { l->setitems(["a", 1]); },
                      fn() { new tk::Listbox(box, "x"); },
@@ -269,14 +273,18 @@ main(args) {
     println(fs->setvalue(0.25)->value(), fs->configure({"step": 0.5})->value());
     // Clamped values stay on a step; ranges up to 1e9; no endless files.
     local st = new tk::Scale(box, {"from": 0, "to": 10, "step": 3}), sr = new tk::Scale(box, {"from": 10, "to": 0, "step": 3});
-    println(st->setvalue(100)->value(), sr->setvalue(-5)->value(), new tk::Scale(box, {"to": 5000000})->setvalue(2000000)->value());
+    println(st->setvalue(100)->value(), sr->setvalue(-5)->value(), new tk::Scale(box, {"to": 5000000})->setvalue(2000000)->value(), new tk::Scale(box, {"from": 5, "to": 9, "step": 2})->value());
     try { new tk::Image("/dev/zero"); } catch (e) { println(e->kind + ":", e->message); }
     // A label above the slider, and its value beside it.
     local lv = new tk::Scale(box, {"from": 0, "to": 1, "step": 0.25, "label": "Volume", "showvalue": true});
     lv->pack({"fill": "x"});
     println(lv->setvalue(0.6)->value(), lv->configure({"to": 2})->setvalue(1.8)->value(), lv);
+    // The value's label widens with the range; a state greys the labels too.
+    println(tktest::scalelabels(lv), tktest::scalelabels(lv->configure({"from": -1000, "state": "disabled"})), tktest::scalelabels(sc));
     for (local h in [fn() { new tk::Scale(box, {"step": -1}); },
                      fn() { lv->configure({"label": "x"}); },
+                     fn() { lv->configure({"showvalue": nil}); },
+                     fn() { new tk::Scale(box, {"label": nil}); },
                      fn() { new tk::Scale(box, {"showvalue": 1}); },
                      fn() { new tk::Scale(box, {"orient": "up"}); },
                      fn() { sc->setvalue("x"); },
@@ -292,6 +300,8 @@ main(args) {
                      fn() { file->item("y", fn() {}, {"accel": "x"}); },
                      fn() { tk::messagebox(1); },
                      fn() { tk::messagebox("x", {"icon": "smile"}); },
+                     fn() { tk::messagebox("x", {"buttons": "yesno", "default": "ok"}); },
+                     fn() { tk::messagebox("x", {"default": "no"}); },
                      fn() { tk::openfile({"types": [["Kukel"]]}); },
                      fn() { tk::savefile({"parent": 3}); },
                      fn() { file->invoke(""); },
@@ -363,6 +373,10 @@ main(args) {
                      fn() { ac->arc(0, 0, 9, 9, {"extent": 400}); },
                      fn() { ac->tag(s1, "9x"); },
                      fn() { ac->configureitem("blue", {"fill": "red"}); },
+                     fn() { ac->tag(s1, "mixed")->tag(t1, "mixed")->configureitem("mixed", {"text": "x"}); },
+                     fn() { ac->configureitem(s1, {"text": "x"}); },
+                     fn() { ac->configureitem("nothing", {"fill": "pink"})->configureitem("nothing", {"bogus": 1}); },
+                     fn() { ac->move("nothing", "x", 0); },
                      fn() { ac->binditem(99, "<Button-1>", fn(e) {}); },
                      fn() { ac->image(0, 0, png); },
                      fn() { ac->configureitem(p3, {"image": png}); },
@@ -421,6 +435,26 @@ main(args) {
     rel->tag(rel->rect(0, 0, 90, 60, {"fill": "red"}), "r");
     rel->tag(rel->rect(110, 0, 200, 60, {"fill": "blue"}), "r");
     rel->binditem("r", "<ButtonRelease-1>", fn(e) { println("released on", e["item"]); });
+    // The <Enter> and <Leave> of items, as the mouse moves and as an item
+    // moves away from under it; a handler that returns false stops those
+    // after it (item 1's own handler comes first).
+    local hv = new tk::Canvas(new tk::Window("Hover"), {"width": 200, "height": 60});
+    hv->pack();
+    hv->tag(hv->rect(0, 0, 90, 60, {"fill": "red"}), "h");
+    hv->tag(hv->rect(110, 0, 200, 60, {"fill": "blue"}), "h");
+    hv->binditem(1, "<Enter>", fn(e) { println("hover: first", e["item"]); return false; });
+    hv->binditem("h", "<Enter>", fn(e) { println("hover: enter", e["item"]); });
+    hv->binditem("h", "<Leave>", fn(e) { println("hover: leave", e["item"]); });
+    hv->bind("<Button-3>", fn(e) { hv->move(2, 0, 100); });
+    // A key binding of a text that returns false keeps the key from the
+    // text (Tk's Text makes a new line at Ctrl+O) and from the window's
+    // binding; the window's binding of Ctrl+T comes after the text swapped
+    // two characters.
+    local keys = new tk::Window("Keys"), typed = new tk::Text(keys, "abc", {"width": 20, "height": 2});
+    typed->pack();
+    typed->bind("<Control-Key-o>", fn(e) { println("text: Ctrl+O"); return false; });
+    keys->bind("<Control-Key-o>", fn(e) { println("window: Ctrl+O"); });
+    keys->bind("<Control-Key-t>", fn(e) { println("window: Ctrl+T", [typed->text()]); });
 
     // bind: the clicks on the button; a second bind replaces the handler.
     local bound = [];
@@ -436,6 +470,10 @@ main(args) {
     println(w, n, bound);
     try { new tk::Radiogroup(); } catch (e) { println(e->kind + ":", e->message); }
     println(entry, radios->value()); // what is kept after Tk ended
+    // Tk is not available any more; an image is freed in kukel only; a
+    // new image reads its file first.
+    gif->free();
+    try { new tk::Image(args[1] + "/none.png"); } catch (e) { println(tk::available(), find(str(gif), "/b.gif\", freed)") > 0, e->kind); }
 }
 `
 
@@ -516,6 +554,10 @@ red nil tk::Radiogroup(nil) tk::Radiobutton("Red", "red") tk::Radiobutton("Green
 ValueError: tk::Text::configure: option scroll can only be given to the constructor
 ValueError: tk::Text::Text: option scroll: "z" is not one of none, x, y, both
 ValueError: tk::Text::Text: unknown option "colour" (the options are width, height, font, wrap, state and scroll)
+ValueError: tk::Text::Text: option scroll must be a string, not nil
+ValueError: tk::Listbox::Listbox: option scroll must be a string, not nil
+ValueError: tk::Canvas::Canvas: option scroll must be a string, not nil
+ValueError: tk::Text::configure: option scroll can only be given to the constructor
 ValueError: tk::Listbox::setselected: 5 is not the index of a line (0 to 2)
 TypeError: tk::Listbox::setitems: argument 1: the lines must be strings, not int
 TypeError: tk::Listbox::Listbox: argument 2 must be a vector of strings, not string
@@ -541,11 +583,14 @@ ValueError: tk::settheme: there is no theme "fancy" (the themes are clam, alt, d
 0 7 10 3 tk::Scale(3)
 ["red", "green", "blue"] green ["a", "b"] tk::Combobox("green")
 0.25 0.5
-9 1 2e+06
+9 1 2e+06 5
 IOError: tk::Image::Image: /dev/zero is not a regular file
 0.5 1.75 tk::Scale(1.75)
+["normal", "4", "normal"] ["disabled", "8", "disabled"] [nil, nil, nil]
 ValueError: tk::Scale::Scale: option step must not be negative, not -1
 ValueError: tk::Scale::configure: option label can only be given to the constructor
+ValueError: tk::Scale::configure: option showvalue can only be given to the constructor
+ValueError: tk::Scale::Scale: option label must be a string, not nil
 ValueError: tk::Scale::Scale: option showvalue must be true or false, not int
 ValueError: tk::Scale::Scale: option orient: "up" is not one of horizontal, vertical
 TypeError: tk::Scale::setvalue: argument 1 must be a number, not string
@@ -560,6 +605,8 @@ ValueError: tk::Menu::item: the label of an entry cannot be ""
 ValueError: tk::Menu::item: unknown option "accel" (the options are accelerator)
 TypeError: tk::messagebox: argument 1 must be a string, not int
 ValueError: tk::messagebox: option icon: "smile" is not one of info, warning, error, question
+ValueError: tk::messagebox: option default: "ok" is not one of the buttons yes, no
+ValueError: tk::messagebox: option default: "no" is not one of the buttons ok
 ValueError: tk::openfile: option types must be a vector of [name, pattern...] vectors of strings, such as [["Kukel", ".kkl"], ["All files", "*"]], not [["Kukel"]]
 ValueError: tk::savefile: option parent must be an open tk::Window, not 3
 ValueError: tk::Menu::invoke: the menu has no entry ""
@@ -597,7 +644,11 @@ true 40 [4, 1, 2, 5, 6] 6
 ValueError: tk::Label::Label: option image must be a tk::Image, not 1
 ValueError: tk::Canvas::arc: option extent must be a number of degrees (-360 to 360), not 400
 ValueError: tk::Canvas::tag: a tag is a name of letters, digits and _ (not starting with a digit), not "9x"
-ValueError: tk::Canvas::configureitem: unknown option "fill" (the options are anchor and image)
+ValueError: tk::Canvas::configureitem: item 4 (an image) has no option "fill" (its options are anchor and image)
+ValueError: tk::Canvas::configureitem: item 1 (an arc) has no option "text" (its options are fill, outline, width, start, extent and style)
+ValueError: tk::Canvas::configureitem: unknown option "text" (the options are fill, outline, width, start, extent and style)
+ValueError: tk::Canvas::configureitem: unknown option "bogus" (the options are color, width, arrow, smooth, fill, outline, start, extent, style, anchor, justify, font, text and image)
+ValueError: tk::Canvas::move: argument 2 must be a number from -1e6 to 1e6, not "x"
 ValueError: tk::Canvas::binditem: the canvas has no item 99
 ValueError: tk::Canvas::image: argument 3: the image is freed
 ValueError: tk::Canvas::configureitem: option image: the image is freed
@@ -607,13 +658,14 @@ TypeError: tk::Canvas::move: argument 1 must be an item's id or a tag, not float
 `
 	end := map[string]string{
 		"self":   "invoke: three\n",
-		"clicks": "check: true true\nselect: [1] [1]\nradio: picked picked\nmessage: yes\nopen: true\nsave: true\ndir: nil\ndragged: 1 [40, 30, 220, 160]\nitem dragged: 1 [30, 20, 180, 120]\nreleased on 1\nreleased on 2\nreleased on 2\npop-up: Hello\nslider: int true\nchose: green green\nhandler: three\nenter: [puts hi] {x} $y \\ end 3\n",
+		"clicks": "check: true true\nselect: [1] [1]\nradio: picked picked\nmessage: yes\nopen: true\nsave: true\ndir: nil\ndragged: 1 [40, 30, 220, 160]\nitem dragged: 1 [30, 20, 180, 120]\nreleased on 1\nreleased on 2\nreleased on 2\nhover: first 1\nhover: leave 1\nhover: enter 2\nhover: leave 2\ntext: Ctrl+O\nwindow: Ctrl+T [\"acb\"]\npop-up: Hello\nslider: int true\nchose: green green\nhandler: three\nenter: [puts hi] {x} $y \\ end 3\n",
 	}[clicks]
 	bound := map[string]string{"self": "[]", "clicks": "[true, true]"}[clicks]
 	picked := map[string]string{"self": "nil", "clicks": "picked"}[clicks]
 	want := common + end + "tk::Window(\"TkTest\", closed) 3 " + bound + "\n" +
 		"TkError: tk::Radiogroup::Radiogroup: Tk has ended: the first window was closed\n" +
-		"tk::Entry(\"[puts hi] {x} $y \\\\ end\") " + picked + "\n"
+		"tk::Entry(\"[puts hi] {x} $y \\\\ end\") " + picked + "\n" +
+		"false true IOError\n"
 	if err != nil || got != want {
 		t.Errorf("%s: %v; got:\n%s\nwant:\n%s", clicks, err, got, want)
 	}
@@ -647,7 +699,7 @@ func writeImages(t *testing.T, dir string) {
 // focus back).
 func click(t *testing.T) error {
 	wins := map[string]string{}
-	for _, name := range []string{"TkTest", "Check", "List", "Radio", "Canvas", "Popup", "Slider", "Choose", "Items", "Release"} {
+	for _, name := range []string{"TkTest", "Check", "List", "Radio", "Canvas", "Popup", "Slider", "Choose", "Items", "Release", "Hover", "Keys"} {
 		for i := 0; i < 100 && wins[name] == ""; i++ {
 			out, _ := exec.Command("xdotool", "search", "--name", "^"+name+"$").Output()
 			wins[name] = strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
@@ -658,7 +710,7 @@ func click(t *testing.T) error {
 		}
 	}
 	// Without a window manager all windows are at 0,0: move them apart.
-	for name, at := range map[string][2]int{"Check": {300, 0}, "List": {0, 300}, "Radio": {300, 300}, "Canvas": {540, 300}, "Popup": {540, 0}, "Slider": {0, 180}, "Choose": {300, 150}, "Items": {300, 460}, "Release": {0, 460}} {
+	for name, at := range map[string][2]int{"Check": {300, 0}, "List": {0, 300}, "Radio": {300, 300}, "Canvas": {540, 300}, "Popup": {540, 0}, "Slider": {0, 180}, "Choose": {300, 150}, "Items": {300, 460}, "Release": {0, 460}, "Hover": {560, 460}, "Keys": {560, 540}} {
 		if err := exec.Command("xdotool", "windowmove", wins[name], fmt.Sprint(at[0]), fmt.Sprint(at[1])).Run(); err != nil {
 			return err
 		}
@@ -686,6 +738,27 @@ func click(t *testing.T) error {
 	}
 	for _, dx := range []int{-55, 55, 55} {
 		if err := exec.Command("xdotool", "mousemove", fmt.Sprint(x+dx), fmt.Sprint(y), "click", "1").Run(); err != nil {
+			return err
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	// Onto the left rectangle of Hover, to the right one, a right click
+	// that moves it away, and out.
+	if x, y, err = center(wins["Hover"]); err != nil {
+		return err
+	}
+	for _, step := range [][]string{{"mousemove", fmt.Sprint(x - 55), fmt.Sprint(y)}, {"mousemove", fmt.Sprint(x + 55), fmt.Sprint(y)}, {"click", "3"}, {"mousemove", fmt.Sprint(x + 55), fmt.Sprint(y - 100)}} {
+		if err := exec.Command("xdotool", step...).Run(); err != nil {
+			return err
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	// Click into the text of Keys, then Ctrl+O and Ctrl+T.
+	if err := clickCenter(wins["Keys"]); err != nil {
+		return err
+	}
+	for _, key := range []string{"ctrl+o", "ctrl+t"} {
+		if err := exec.Command("xdotool", "key", key).Run(); err != nil {
 			return err
 		}
 		time.Sleep(300 * time.Millisecond)

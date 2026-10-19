@@ -38,7 +38,10 @@ go run ./examples/embed examples/embed/rules.kkl examples/embed/orders.json
 `notes.kkl` shows a window instead of printing. The tests of the module
 `tk` (`make test-tk`, with a display or Xvfb) run it, as they run the `tk`
 examples of the reference: each must open its window and end without an
-error when the window is closed.
+error when the window is closed. They run here, in examples: the pictures
+of the reference's example of images are `testdata/sun.png` and
+`testdata/moon.png`. Another test types the shortcuts of `notes.kkl` into
+its text (with `xdotool`).
 
 Each other program has a file `name.tests` that `go test ./cmd/kukel` (and so
 `make test` and `make test-all`) runs, in this directory:

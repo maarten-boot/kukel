@@ -152,9 +152,11 @@ func nodeOf(this *value.ObjectObj) *node {
 var sequenceRE = regexp.MustCompile(`^(?:<[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*>|<<[A-Za-z0-9_]+>>)+$`)
 
 // bind sets the handler of the event sequence seq (nil: none). The first
-// handler of a sequence adds a Tk binding, after those Tk and the module
-// have (so a widget keeps working as before); later ones replace the
-// handler it calls.
+// handler of a sequence adds a Tk binding, after those the module has on
+// the widget (so a widget keeps working as before); later ones replace the
+// handler it calls. Tk runs it before the bindings of the widget's class
+// (its own keys and clicks) and of its window; a handler that returns
+// false stops the event, so that those do not run.
 func (n *node) bind(a native.Args, seq string, f value.Value) error {
 	if !sequenceRE.MatchString(seq) {
 		return a.Errorf(value.ValueError, "%s is not an event sequence such as \"<Key>\", \"<Button-1>\" or \"<Control-Key-s>\"", value.Quote(seq))
@@ -162,7 +164,7 @@ func (n *node) bind(a native.Args, seq string, f value.Value) error {
 	if _, ok := n.binds[seq]; !ok {
 		tk.BindAppend(n.w, seq, tk.Command(func(e *tk.Event) {
 			if f := n.binds[seq]; !f.IsNil() {
-				call(f, n.eventMap(e))
+				stop(e, call(f, n.eventMap(e)))
 			}
 		}))
 		if err := tkError(); err != nil {
@@ -174,6 +176,16 @@ func (n *node) bind(a native.Args, seq string, f value.Value) error {
 	}
 	n.binds[seq] = f
 	return nil
+}
+
+// stop stops event e when its handler gave false (Tk's break), and tells
+// whether it did.
+func stop(e *tk.Event, result value.Value) bool {
+	if result.Kind() == value.Bool && !result.AsBool() {
+		e.SetReturnCodeBreak()
+		return true
+	}
+	return false
 }
 
 // eventMap is what a bind handler gets: key and char (key events), x and

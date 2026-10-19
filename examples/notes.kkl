@@ -24,10 +24,18 @@ main(args) {
     menu->separator();
     menu->item("Quit", quit, {"accelerator": "Ctrl+Q"});
 
-    for (local key, item in {"n": "New", "o": "Open...", "s": "Save", "q": "Quit"})
-        window->bind("<Control-Key-" + key + ">", fn(e) { menu->invoke(item); });
     text = new tk::Text(window, {"width": 70, "height": 24, "wrap": "word", "scroll": "y"});
     text->pack({"fill": "both", "expand": true});
+
+    // The keys are bound on the text too: its handler runs before the
+    // text's own keys (Ctrl+O makes a new line), and returns false so that
+    // the text does not get the key. The window's is for when the focus is
+    // elsewhere.
+    for (local key, item in {"n": "New", "o": "Open...", "s": "Save", "q": "Quit"}) {
+        local shortcut = fn(e) { menu->invoke(item); return false; };
+        window->bind("<Control-Key-" + key + ">", shortcut);
+        text->bind("<Control-Key-" + key + ">", shortcut);
+    }
     text->bind("<KeyRelease>", fn(e) { show(); });
     status = new tk::Label(window, "", {"anchor": "w", "padding": [4, 2]});
     status->pack({"fill": "x"});
@@ -42,7 +50,12 @@ main(args) {
 show() {
     local s = text->text(), changed = s != saved;
     window->settitle((changed ? "*" : "") + (path == nil ? "(new)" : path) + " - notes");
-    status->settext(str(len(split(s, "\n"))) + " lines, " + str(len(s)) + " characters" + (changed ? ", not saved" : ""));
+    status->settext(count(len(split(s, "\n")), "line") + ", " + count(len(s), "character") + (changed ? ", not saved" : ""));
+}
+
+// count gives "1 line", "2 lines".
+count(n, what) {
+    return str(n) + " " + what + (n == 1 ? "" : "s");
 }
 
 // problem shows what went wrong.

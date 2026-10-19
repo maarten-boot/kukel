@@ -22,7 +22,10 @@ func CloseAll() {
 }
 
 // For the tests only: tktest::tkvalue(group) is the value Tk's variable of
-// a tk::Radiogroup holds (what its buttons show), not the module's record.
+// a tk::Radiogroup holds (what its buttons show), not the module's record;
+// tktest::scalelabels(scale) gives, as Tk has them, the state of the label
+// above a tk::Scale, and the width and state of the value beside it (nil
+// when it has none).
 func init() {
 	native.Register(&native.Module{
 		Name: "tktest",
@@ -37,6 +40,25 @@ func init() {
 					return value.NilValue, err
 				}
 				return value.MakeString(st.(*radiogroup).v.Get()), nil
+			},
+			"scalelabels": func(env value.Env, args []value.Value) (value.Value, error) {
+				a, err := native.Check("tktest::scalelabels", args, 1, 1)
+				if err != nil {
+					return value.NilValue, err
+				}
+				st, err := a.Object(0, Scale)
+				if err != nil {
+					return value.NilValue, err
+				}
+				s := st.(*widget).slider
+				v := []value.Value{value.NilValue, value.NilValue, value.NilValue}
+				if s.label != nil {
+					v[0] = value.MakeString(s.label.State())
+				}
+				if s.shown != nil {
+					v[1], v[2] = value.MakeString(s.shown.Width()), value.MakeString(s.shown.State())
+				}
+				return value.MakeVector(v), nil
 			},
 		},
 	})
