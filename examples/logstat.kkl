@@ -1,0 +1,270 @@
+// logstat: statistics of a log file whose lines start with a time and a
+// level ("2026-10-16 09:02:30 ERROR disk full"): how many entries, from
+// when to when, how many of each level and in each hour, and the errors.
+// A regular expression with named groups (module re) takes the lines
+// apart, module time reads and compares the times, and a strings::Builder
+// collects the report.
+//
+//     kukel run examples/logstat.kkl -- [-since TIME | -last DURATION] [-json] [file ...]
+//
+// -since keeps the entries at or after TIME: "2026-10-16", "2026-10-16
+// 09:30", "2026-10-16 09:30:00" (in UTC, as the log's times are) or RFC
+// 3339 ("2026-10-16T11:30:00+02:00"). -last keeps those of the last
+// DURATION ("90s", "45m", "2h", "1d") before the newest entry. -json prints
+// the statistics as JSON (module json). Without files it reads standard
+// input. Levels count in upper case ("error" is ERROR). Lines that start no
+// entry (a stack trace) belong to the entry before them, and count as other
+// lines when it is kept. The exit code is 0, 1 when a file could not be
+// read, 2 for a wrong command line.
+use json;
+use re;
+use strings;
+use time;
+
+// entryRE matches the start of an entry; its named groups are the fields.
+global entryRE = re::compile("^(?P<time>\\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d) +(?P<level>[A-Za-z]+) +(?P<message>.*)$");
+
+usage(why) {
+    eprintln("logstat:", why);
+    eprintln("usage: logstat [-since TIME | -last DURATION] [-json] [file ...]");
+    return 2;
+}
+
+main(args) {
+    local since = nil, last = nil, asJSON = false, i = 0;
+
+    for (; i < len(args) && len(args[i]) > 1 && args[i][0] == '-'; i++) {
+        local opt = args[i];
+
+        if (opt == "-json") {
+            asJSON = true;
+            continue;
+        }
+
+        if (opt != "-since" && opt != "-last") return usage("unknown option " + opt);
+
+        if (i + 1 == len(args)) return usage(opt + " needs a value");
+        i++;
+
+        if (opt == "-since") {
+            since = parsetime(args[i]);
+
+            if (since == nil) return usage("-since: cannot read the time " + args[i]);
+        } else {
+            last = duration(args[i]);
+
+            if (last == nil) return usage("-last: cannot read the duration " + args[i] + " (such as 90s, 45m, 2h, 1d)");
+        }
+    }
+
+    if (since != nil && last != nil) return usage("give -since or -last, not both");
+    // A line that starts no entry belongs to the entry before it (its
+    // "more" lines), or, at the start of a file, to none: other lines.
+    local entries = [], other = 0, code = 0;
+
+    for (local text in inputs(slice(args, i))) {
+        if (text == nil) {
+            code = 1;
+            continue;
+        }
+        local e = nil;
+
+        for (local line in split(text, "\n")) {
+            local next = entry(line);
+
+            if (next != nil) {
+                e = next;
+                push(entries, e);
+            } else if (trim(line) == "") {
+                continue;
+            } else if (e != nil) {
+                e["more"]++;
+            } else {
+                other++;
+            }
+        }
+    }
+
+    if (last != nil && len(entries) > 0) since = newest(entries)->add(-last);
+
+    if (since != nil) entries = keep(entries, since);
+
+    for (local e in entries) other += e["more"];
+    local s = stats(entries, other);
+    print(asJSON ? json::encode(s, "  ") + "\n" : report(s));
+    return code;
+}
+
+// inputs gives the text of each file, nil for one that cannot be read
+// (after saying why), or standard input without files.
+inputs(files) {
+    local texts = [];
+
+    if (len(files) == 0) {
+        local b = new strings::Builder();
+
+        for (local line = readline(); line != nil; line = readline()) b->add(line, "\n");
+        return [b->str()];
+    }
+
+    for (local f in files) {
+        try {
+            push(texts, readfile(f));
+        } catch (e) {
+            eprintln("logstat:", e->message);
+            push(texts, nil);
+        }
+    }
+    return texts;
+}
+
+// entry takes a line apart into a map of the regular expression's named
+// groups, with the time as a time::Time; nil when the line starts no entry.
+entry(line) {
+    local g = entryRE->groups(line);
+
+    if (g == nil) return nil;
+    local e = {}, names = entryRE->names();
+
+    for (local k = 0; k < len(names); k++) e[names[k]] = g[k + 1];         // g[0]: the whole match
+    e["level"] = upper(e["level"]);
+    e["more"] = 0;
+
+    try {
+        e["time"] = time::Time::parse(e["time"], "%Y-%m-%d %H:%M:%S");
+    } catch (err) {
+        return nil;                            // "2026-02-30": not a time
+    }
+    return e;
+}
+
+// parsetime reads the time of -since, or gives nil.
+parsetime(text) {
+    for (local f in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d", nil]) {
+        try {
+            return f == nil ? time::Time::parse(text) : time::Time::parse(text, f);
+        } catch (e) {}
+    }
+    return nil;
+}
+
+// duration reads "90s", "45m", "2h" or "1d" as seconds, or gives nil.
+duration(text) {
+    local g = re::compile("^(\\d+)([smhd])$")->groups(text);
+
+    if (g == nil) return nil;
+    return int(g[1]) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[g[2]];
+}
+
+newest(entries) {
+    local t = entries[0]["time"];
+
+    for (local e in entries) if (e["time"]->after(t)) t = e["time"];
+    return t;
+}
+
+// keep gives the entries at or after since.
+keep(entries, since) {
+    local out = [];
+
+    for (local e in entries) if (!e["time"]->before(since)) push(out, e);
+    return out;
+}
+
+// stats counts the entries: a map that -json prints as it is.
+stats(entries, other) {
+    local s = {"entries": len(entries), "other": other, "from": nil, "to": nil, "seconds": 0, "levels": {}, "hours": {}, "errors": []};
+
+    if (len(entries) == 0) return s;
+    local first = entries[0]["time"], last = first;
+
+    for (local e in entries) {
+        local t = e["time"], hour = t->format("%Y-%m-%d %H:00");
+
+        if (t->before(first)) first = t;
+
+        if (t->after(last)) last = t;
+        count(s["levels"], e["level"]);
+        count(s["hours"], hour);
+
+        if (e["level"] == "ERROR") push(s["errors"], {"time": t->format("%Y-%m-%d %H:%M:%S"), "message": e["message"]});
+    }
+    s["from"] = first->format("%Y-%m-%d %H:%M:%S");
+    s["to"] = last->format("%Y-%m-%d %H:%M:%S");
+    s["seconds"] = int(last->sub(first));
+    // The levels by count, the most first; the hours in time order.
+    local levels = keys(s["levels"]), byCount = {};
+    sort(levels, fn(a, b) {
+        local na = s["levels"][a], nb = s["levels"][b];
+        return na > nb || na == nb && a < b;
+    });
+
+    for (local l in levels) byCount[l] = s["levels"][l];
+    s["levels"] = byCount;
+    local hours = keys(s["hours"]), inOrder = {};
+    sort(hours);
+
+    for (local h in hours) inOrder[h] = s["hours"][h];
+    s["hours"] = inOrder;
+    return s;
+}
+
+// count adds one to m[k].
+count(m, k) {
+    m[k] = haskey(m, k) ? m[k] + 1 : 1;
+}
+
+// report is the statistics as text.
+report(s) {
+    local b = new strings::Builder();
+    b->add("entries  ", s["entries"]);
+
+    if (s["other"] > 0) b->add(" (and ", s["other"], " other ", s["other"] == 1 ? "line" : "lines", ")");
+    b->add("\n");
+
+    if (s["entries"] == 0) return b->str();
+    b->add("from     ", s["from"], "\n");
+    b->add("to       ", s["to"], "  (", span(s["seconds"]), ")\n");
+    b->add("levels\n");
+
+    for (local l in keys(s["levels"])) b->add("  ", pad(l, 8), right(s["levels"][l], 4), "\n");
+    b->add("hours\n");
+
+    for (local h in keys(s["hours"])) {
+        local n = s["hours"][h];
+        b->add("  ", h, right(n, 4), "  ");
+
+        for (local k = 0; k < n; k++) b->add("#");
+        b->add("\n");
+    }
+
+    if (len(s["errors"]) > 0) b->add("errors\n");
+
+    for (local e in s["errors"]) b->add("  ", e["time"], "  ", e["message"], "\n");
+    return b->str();
+}
+
+// span writes seconds as "2h 21m 52s".
+span(n) {
+    local parts = [];
+
+    if (n >= 86400) push(parts, str(n / 86400) + "d");
+
+    if (n >= 3600) push(parts, str(n % 86400 / 3600) + "h");
+
+    if (n >= 60) push(parts, str(n % 3600 / 60) + "m");
+    push(parts, str(n % 60) + "s");
+    return join(parts, " ");
+}
+
+pad(s, n) {
+    while (len(s) < n) s += " ";
+    return s;
+}
+
+right(x, n) {
+    local s = str(x);
+
+    while (len(s) < n) s = " " + s;
+    return s;
+}
