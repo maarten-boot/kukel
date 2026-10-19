@@ -296,6 +296,10 @@ func ReadU32(code []byte, at int) int {
 type LineInfo struct {
 	PC   int
 	Line int
+	// Cont: the code continues the line, it does not start it (a switch's
+	// dispatch, after the body): the debugger does not stop there. Only
+	// the compiler sets it (not in files: the debugger runs from source).
+	Cont bool
 }
 
 // LocalName returns the last part of a qualified name: "Stack" for

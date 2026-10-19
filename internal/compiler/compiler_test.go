@@ -470,3 +470,48 @@ main() {}`))
 		}
 	}
 }
+
+// The debugger stops on a switch line once, before the tag: the dispatch
+// after the body continues the line (LineInfo.Cont). With Fuse, a tag that
+// is a local gets no hidden slot.
+func TestSwitchLine(t *testing.T) {
+	for _, fuse := range []bool{true, false} {
+		Fuse = fuse
+		f, err := parser.ParseFile("t.kkl", []byte(`f(a, s) {
+    switch (a) {
+    case 1:
+        a = 2;
+    }
+    switch (s + 1) {
+    case 2:
+        a = 3;
+    }
+    switch (a) { case 1: a = 4; }
+}
+g(a) { switch (a) { case 1: return 1; } return 0; }
+main() {}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		prog, err := Compile([]*ast.File{f}, testBuiltins)
+		Fuse = true
+		if err != nil {
+			t.Fatal(err)
+		}
+		fn, dbg := prog.Funcs[0], bytecode.Debuggable(prog).Funcs[0]
+		stops := map[int]int{}
+		for pc := 0; pc < len(fn.Code); pc += bytecode.Op(fn.Code[pc]).Size() {
+			if bytecode.Op(dbg.Code[pc]) == bytecode.OpBreak {
+				stops[fn.LineAt(pc)]++
+			}
+		}
+		for _, line := range []int{2, 6, 10} {
+			if stops[line] != 1 {
+				t.Errorf("Fuse %v: line %d has %d stops", fuse, line, stops[line])
+			}
+		}
+		if g := prog.Funcs[1]; g.NumSlots != map[bool]int{true: 1, false: 2}[fuse] {
+			t.Errorf("Fuse %v: g has slots %v", fuse, g.SlotNames)
+		}
+	}
+}

@@ -1076,13 +1076,16 @@ type switchCase struct {
 // With Fuse, a case is one CMP_JUMP_LK, and a tag that is a local is not
 // copied: nothing runs between the copy and the dispatch, so the dispatch
 // reads the local itself.
+//
+// The dispatch has the line of the switch, but continues it (LineInfo.Cont):
+// the debugger stops on that line once, before the tag.
 func (c *compiler) switchStmt(s *ast.SwitchStmt, labels []*ast.Ident) {
+	fn := c.fs.fn
 	c.pushScope()
-	tag := c.declare(&ast.Ident{NamePos: s.Switch, Name: "(switch)"}, "hidden").slot
 	c.mark(s.Tag.Pos())
-	if slot, ok := c.fusableLocal(s.Tag, s.Tag.Pos()); ok {
-		tag = slot
-	} else {
+	tag, local := c.fusableLocal(s.Tag, s.Tag.Pos())
+	if !local {
+		tag = c.declare(&ast.Ident{NamePos: s.Switch, Name: "(switch)"}, "hidden").slot
 		c.expr(s.Tag)
 		c.emit(bytecode.OpStoreLocal, tag)
 	}
@@ -1106,9 +1109,14 @@ func (c *compiler) switchStmt(s *ast.SwitchStmt, labels []*ast.Ident) {
 
 	c.patch([]int{toDispatch}, c.here())
 	c.mark(s.Switch)
+	dispatch := len(fn.Lines)
+	defer func() {
+		if dispatch < len(fn.Lines) {
+			fn.Lines[dispatch].Cont = true
+		}
+	}()
 	if jt, ok := jumpTable(sw.cases); ok {
 		// Dense int case values: one jump through a table.
-		fn := c.fs.fn
 		if len(fn.Tables) > maxIndex {
 			c.errorf(s.Switch, "too many switch statements in one function (more than %d)", maxIndex+1)
 		}

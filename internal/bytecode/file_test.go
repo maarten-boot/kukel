@@ -338,6 +338,9 @@ func TestDebuggable(t *testing.T) {
 				t.Fatalf("%s: %s shares its code with the copy", name, f.FuncName)
 			}
 			for _, l := range f.Lines {
+				if l.Cont {
+					continue
+				}
 				if bytecode.Op(g.Code[l.PC]) != bytecode.OpBreak || g.Saved[l.PC] != bytecode.Op(f.Code[l.PC]) {
 					t.Fatalf("%s: %s: no BREAK at line %d (pc %d)", name, f.FuncName, l.Line, l.PC)
 				}
