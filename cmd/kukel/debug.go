@@ -11,6 +11,8 @@ import (
 
 	"github.com/maarten-boot/kukel/internal/builtins"
 	"github.com/maarten-boot/kukel/internal/bytecode"
+	"github.com/maarten-boot/kukel/internal/lexer"
+	"github.com/maarten-boot/kukel/internal/token"
 	"github.com/maarten-boot/kukel/internal/value"
 	"github.com/maarten-boot/kukel/internal/vm"
 )
@@ -18,7 +20,8 @@ import (
 // kukel debug (TODO.md Q60): runs a program in a copy of its code with a
 // BREAK at the start of every line (bytecode.Debuggable); the VM's debug
 // hook decides there whether to stop and then reads commands, gdb-style.
-// Only the main interpreter stops; workers run on.
+// Only the main interpreter stops; workers run on. An exception that
+// nothing catches stops it too, where it is thrown (VM.DebugUncaught).
 
 const debugHelp = `commands:
   break file:line | line | function   stop there (b)
@@ -28,7 +31,7 @@ const debugHelp = `commands:
   step                                to the next line, also into calls (s)
   next                                to the next line, over calls (n)
   finish                              until the current function returns (f)
-  print path                          show a value: x, this->name, v[2], m["k"], util::count (p)
+  print path                          show a value: x, this->name, v[2], m["k"], util::count, C::x (p)
   locals                              the variables of the current frame
   backtrace                           the calls, innermost first (bt)
   frame n                             look at frame n of bt (for print, locals and list)
@@ -55,6 +58,7 @@ type debugger struct {
 	depth   int    // the frame depth for next and finish
 	frame   int    // the frame print and locals look at (an index into the frames)
 	sources map[string][]string
+	thrown  *value.ObjectObj // the exception it stopped for as uncaught
 }
 
 // cmdDebug runs source files under the debugger: kukel debug a.kkl ... [-- args].
@@ -90,6 +94,7 @@ func cmdDebug(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	machine.SetStderr(stderr)
 	d := &debugger{in: in, out: out, msg: stdout, prog: prog, mode: "start", sources: map[string][]string{}}
 	machine.Debug = d.hook
+	machine.DebugUncaught = d.uncaught
 	code, err := machine.Run(progArgs)
 	out.Flush()
 	if err != nil {
@@ -128,6 +133,36 @@ func (d *debugger) hook(m *vm.VM) error {
 		fmt.Fprintf(d.msg, "breakpoint %d, ", hit)
 	}
 	d.where(top)
+	return d.commands(m, frames)
+}
+
+// uncaught stops where an exception is thrown that nothing catches: the
+// frames can be looked at; any command that resumes ends the program.
+func (d *debugger) uncaught(m *vm.VM, re *vm.RuntimeError) error {
+	if re.Value.Kind() == value.Object {
+		if re.Value.AsObject() == d.thrown {
+			return nil // on its way out of a call from Go (sort's comparator, ...)
+		}
+		d.thrown = re.Value.AsObject()
+	}
+	frames := m.Frames()
+	if len(frames) == 0 {
+		return nil
+	}
+	d.out.Flush()
+	d.frame = len(frames) - 1
+	what := re.Kind
+	if re.Msg != "" {
+		what += ": " + re.Msg
+	}
+	fmt.Fprintf(d.msg, "uncaught %s (continuing ends the program)\n", what)
+	d.where(frames[d.frame])
+	return d.commands(m, frames)
+}
+
+// commands reads commands until one resumes the program.
+func (d *debugger) commands(m *vm.VM, frames []vm.DebugFrame) error {
+	top := frames[len(frames)-1]
 	for {
 		fmt.Fprint(d.msg, "(kdb) ")
 		line, err := d.in.ReadString('\n')
@@ -262,6 +297,9 @@ func (d *debugger) addBreak(arg string, top vm.DebugFrame) {
 		file, line = f, n
 	} else if n, err := strconv.Atoi(arg); err == nil {
 		line = n
+	} else if arg == "" {
+		fmt.Fprintln(d.msg, "break where? (file:line, line or function)")
+		return
 	} else {
 		fn := d.function(arg)
 		if fn == nil || len(fn.Lines) == 0 {
@@ -362,11 +400,7 @@ func (d *debugger) eval(m *vm.VM, frames []vm.DebugFrame, path string) (value.Va
 			}
 			v, rest = member, rest[j:]
 		case strings.HasPrefix(rest, "["):
-			j := strings.IndexByte(rest, ']')
-			if j < 0 {
-				return value.NilValue, fmt.Errorf("a [ without ]")
-			}
-			key, err := literal(strings.TrimSpace(rest[1:j]))
+			key, n, err := index(rest[1:])
 			if err != nil {
 				return value.NilValue, err
 			}
@@ -374,7 +408,7 @@ func (d *debugger) eval(m *vm.VM, frames []vm.DebugFrame, path string) (value.Va
 			if err != nil {
 				return value.NilValue, err
 			}
-			v, rest = x, rest[j+1:]
+			v, rest = x, rest[1+n:]
 		default:
 			return value.NilValue, fmt.Errorf("unexpected %q (paths are name, ->member and [index])", rest)
 		}
@@ -382,7 +416,24 @@ func (d *debugger) eval(m *vm.VM, frames []vm.DebugFrame, path string) (value.Va
 	return v, nil
 }
 
+// lookup finds a name as the frame's function sees it: this, a variable, a
+// data member of this, a static data member of its class, a global of its
+// module, a global; or a qualified name: C::x (a static data member, of
+// the module's class C first) or a module's global (util::count).
 func (d *debugger) lookup(m *vm.VM, f vm.DebugFrame, name string) (value.Value, bool) {
+	module, class := scope(m, f)
+	if prefix, member, ok := cutLast(name, "::"); ok {
+		names := []string{prefix}
+		if module != "" {
+			names = []string{module + "::" + prefix, prefix}
+		}
+		for _, c := range names {
+			if k, ok := m.Global(c); ok && k.Kind() == value.Class {
+				return static(k.AsClass(), member)
+			}
+		}
+		return m.Global(name)
+	}
 	if name == "this" {
 		if f.This == nil {
 			return value.NilValue, false
@@ -400,21 +451,90 @@ func (d *debugger) lookup(m *vm.VM, f vm.DebugFrame, name string) (value.Value, 
 			return f.This.Fields[slot], true
 		}
 	}
+	if v, ok := static(class, name); ok {
+		return v, true
+	}
+	if module != "" {
+		if v, ok := m.Global(module + "::" + name); ok {
+			return v, true
+		}
+	}
 	return m.Global(name)
 }
 
-// literal reads an index: an int, a float or a "string".
-func literal(s string) (value.Value, error) {
-	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
-		return value.MakeInt(n), nil
+// scope gives the module and the class of a frame's function, from its
+// name: util::A::m/fn@3 is in module util and class util::A.
+func scope(m *vm.VM, f vm.DebugFrame) (module string, class *value.ClassObj) {
+	name, _, _ := strings.Cut(f.Func.FuncName, "/")
+	parts := strings.Split(name, "::")
+	parts = parts[:len(parts)-1] // the function's own name
+	if len(parts) > 0 {
+		if k, ok := m.Global(strings.Join(parts, "::")); ok && k.Kind() == value.Class {
+			class = k.AsClass()
+			parts = parts[:len(parts)-1]
+		}
 	}
-	if f, err := strconv.ParseFloat(s, 64); err == nil {
-		return value.MakeFloat(f), nil
+	if len(parts) > 0 {
+		module = parts[0]
 	}
-	if u, err := strconv.Unquote(s); err == nil && strings.HasPrefix(s, `"`) {
-		return value.MakeString(u), nil
+	return module, class
+}
+
+// static gives the static data member name of class k or of a base class.
+func static(k *value.ClassObj, name string) (value.Value, bool) {
+	for ; k != nil; k = k.Base {
+		for i, s := range k.StaticNames {
+			if s == name {
+				return k.Statics[i], true
+			}
+		}
 	}
-	return value.NilValue, fmt.Errorf("an index must be a number or a \"string\", not %s", s)
+	return value.NilValue, false
+}
+
+// cutLast cuts s around the last sep.
+func cutLast(s, sep string) (before, after string, found bool) {
+	if i := strings.LastIndex(s, sep); i >= 0 {
+		return s[:i], s[i+len(sep):], true
+	}
+	return s, "", false
+}
+
+// index reads an index and its "]" (src is what follows the "["): an int,
+// a float (both may have a "-"), a character or a "string", written as in
+// Kukel. n is the length up to and with the "]".
+func index(src string) (key value.Value, n int, err error) {
+	l := lexer.New("", []byte(src))
+	t, err := l.Next()
+	neg := err == nil && t.Kind == token.MINUS
+	if neg {
+		t, err = l.Next()
+	}
+	if err != nil {
+		return value.NilValue, 0, err
+	}
+	switch {
+	case t.Kind == token.INT && neg:
+		key = value.MakeInt(-int64(t.Int))
+	case t.Kind == token.INT && !t.IntMin, t.Kind == token.CHAR && !neg:
+		key = value.MakeInt(int64(t.Int))
+	case t.Kind == token.FLOAT && neg:
+		key = value.MakeFloat(-t.Float)
+	case t.Kind == token.FLOAT:
+		key = value.MakeFloat(t.Float)
+	case t.Kind == token.STRING && !neg:
+		key = value.MakeString(t.Str)
+	default:
+		end := strings.IndexByte(src, ']')
+		if end < 0 {
+			end = len(src)
+		}
+		return value.NilValue, 0, fmt.Errorf("an index must be a number or a \"string\", not %s", strings.TrimSpace(src[:end]))
+	}
+	if t, err = l.Next(); err != nil || t.Kind != token.RBRACK {
+		return value.NilValue, 0, fmt.Errorf("a [ without ]")
+	}
+	return key, t.Pos.Offset + 1, nil
 }
 
 func isIdentByte(c byte) bool {

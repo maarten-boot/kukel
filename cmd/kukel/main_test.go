@@ -870,6 +870,34 @@ func TestDebug(t *testing.T) {
 	}
 }
 
+// print in a module's function (its globals first), static data members,
+// indexes written as in Kukel, b without an argument, and the stop at an
+// exception nothing catches.
+func TestDebugLookupAndUncaught(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("mm.kkl", []byte("global n = \"mod n\";\nclass C { static s; f(); static g(); }\nC::f() { s = 1; return n; }\nC::g() { return s; }\nf() {\n    return n;\n}\n"), 0o644)
+	os.WriteFile("p.kkl", []byte("use mm;\nglobal n = \"prog n\";\nclass A { static cnt; A(); }\nA::A() {\n    cnt = 5;\n}\n"+
+		"main() {\n    local m = {\"a]\": 1, \"q\\\"\": 2, \"\\x41\": 3, -1: 4, 1.5: 6};\n    local a = new A();\n    mm::f();\n    new mm::C()->f();\n    mm::C::g();\n"+
+		"    try { sort([2, 1], fn(x, y) { throw new Error(\"in sort\"); }); } catch (e) {}\n    try { throw new Error(\"caught\"); } finally { println(\"finally\"); }\n}\n"), 0o644)
+	cmds := "b\nb mm::f\nb mm.kkl:4\nc\np n\np mm::C::s\nc\np n\np s\nc\np m[\"a]\"]\np m[\"q\\\"\"]\np m[\"\\x41\"]\np m[-1]\np m[1.5]\np m[\"a]\"\np m[x]\np A::cnt\np cnt\nbt\nc\n"
+	want := "<init> at mm.kkl:1\n    1  global n = \"mod n\";\n" +
+		"(kdb) break where? (file:line, line or function)\n(kdb) breakpoint 1 at mm.kkl:6\n(kdb) breakpoint 2 at mm.kkl:4\n" +
+		"(kdb) breakpoint 1, mm::f at mm.kkl:6\n    6      return n;\n(kdb) \"mod n\"\n(kdb) nil\n" +
+		"(kdb) breakpoint 2, mm::C::g at mm.kkl:4\n    4  C::g() { return s; }\n(kdb) \"mod n\"\n(kdb) 1\n" +
+		"(kdb) uncaught Error: caught (continuing ends the program)\nmain at p.kkl:14\n   14      try { throw new Error(\"caught\"); } finally { println(\"finally\"); }\n" +
+		"(kdb) 1\n(kdb) 2\n(kdb) 3\n(kdb) 4\n(kdb) 6\n(kdb) a [ without ]\n(kdb) an index must be a number or a \"string\", not x\n(kdb) 5\n(kdb) no variable cnt here\n" +
+		"(kdb) *0 main (p.kkl:14)\n(kdb) finally\nError: caught\n  at main (p.kkl:14)\nthe program ended (exit code 1)\n"
+	var out bytes.Buffer
+	if code := run([]string{"debug", "p.kkl"}, strings.NewReader(cmds), &out, &out); code != 1 || out.String() != want {
+		t.Errorf("exit %d:\n%s\nwant:\n%s", code, out.String(), want)
+	}
+	// quit there ends the program with exit code 0, as elsewhere.
+	out.Reset()
+	if code := run([]string{"debug", "p.kkl"}, strings.NewReader("c\nq\n"), &out, &out); code != 0 || !strings.HasSuffix(out.String(), "(kdb) the program ended (exit code 0)\n") {
+		t.Errorf("quit at an uncaught exception: exit %d:\n%s", code, out.String())
+	}
+}
+
 const debugSrc = "class Acc { total; Acc(); add(x); }\nAcc::Acc() { total = 0; }\nAcc::add(x) {\n    total += x;\n    return this;\n}\n\nsquare(n) {\n    local r = n * n;\n    return r;\n}\n\nmain(args) {\n    local acc = new Acc(), v = [1, 2, 3], m = {\"k\": \"v\"};\n    println(\"start\", args);\n\n    for (local x in v) {\n        acc->add(square(x));\n    }\n    println(\"total\", acc->total);\n    local f = fn(y) { return y + acc->total; };\n    println(f(1));\n}\n"
 
 const debugCmds = "b square\nc\nbt\np n\nfinish\np acc->total\np v[1]\np m[\"k\"]\np v[9]\nframe 9\nd 1\nb p.kkl:22\nbreaks\nc\nstep\nlocals\nlist 22\nb nosuch\nb 999\nwhat\nquit\n"

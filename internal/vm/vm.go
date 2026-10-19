@@ -12,6 +12,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -121,6 +122,12 @@ type VM struct {
 	// The VM's frames are then as at the start of that line (Frames). An
 	// error stops the program (a fatal one, such as exit, ends it).
 	Debug func(vm *VM) error
+
+	// DebugUncaught, when set, runs when an exception is thrown that no
+	// try of the program catches (a finally does not count), before the
+	// frames are dropped (Frames). An error it gives ends the program
+	// instead (a fatal one, such as exit).
+	DebugUncaught func(vm *VM, re *RuntimeError) error
 }
 
 // Builtins resolves built-in functions by name.
@@ -1114,6 +1121,11 @@ func (vm *VM) execute(stopDepth int) (value.Value, error) {
 		if !re.Fatal {
 			if e := vm.step(); e != nil { // a throw/catch cycle is a loop too
 				re = e.(*RuntimeError)
+			}
+		}
+		if vm.DebugUncaught != nil && !re.Fatal && !slices.ContainsFunc(vm.handlers, func(h handler) bool { return !h.finally }) {
+			if e := vm.DebugUncaught(vm, re); e != nil {
+				re = vm.wrap(e).(*RuntimeError)
 			}
 		}
 		if !vm.catch(re, stopDepth) {

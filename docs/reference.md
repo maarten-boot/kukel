@@ -197,7 +197,7 @@ the program ended (exit code 0)
 | `continue` (`c`) | Run to the next breakpoint |
 | `step` (`s`), `next` (`n`) | To the start of the next line: also into a call, or over calls |
 | `finish` (`f`) | Until the current function has returned (to the next line of its caller) |
-| `print path` (`p`) | A value: a variable (parameter, local, captured), `this`, a data member of `this`, or a global (`count`, `util::count`), followed by `->member` and `[index]` steps (`p v[2]`, `p m["key"]`, `p this->items`) |
+| `print path` (`p`) | A value: a variable (parameter, local, captured), `this`, a data member of `this`, a static data member (`count` in a member function of its class, `C::count` anywhere), or a global (`count`, `util::count`; in a function of a module its own globals come first), followed by `->member` and `[index]` steps (`p v[2]`, `p m["key"]`, `p this->items`). An index is an int, a float or a string as in Kukel (`m["a]\n"]`) |
 | `locals` | The variables of the frame |
 | `backtrace` (`bt`), `frame n` | The calls, innermost first; look at frame `n` (for `print`, `locals` and `list`) |
 | `list [line]` (`l`) | The source around the current line, or around `line` |
@@ -211,6 +211,11 @@ the program ended (exit code 0)
   shows the name of the later one.
 - Only the main interpreter stops; workers run on. The program reads its
   input (`readline`) from the same input as the debugger.
+- An exception that no `try` catches (a `finally` does not count) stops
+  the program where it is thrown, before it ends: `uncaught Error: boom
+  (continuing ends the program)`, then the line. `bt`, `frame`, `locals`
+  and `print` show the state; `continue` (or `step`, `next`, `finish`)
+  lets the program end as it would without the debugger, with the trace.
 - When the program ends, `kukel debug` says so, with the exit code.
 
 ## 2. Lexical structure
