@@ -433,6 +433,20 @@ geometry::Circle{r: 1}
   that is gone), linking it is an error that says to compile the module
   again. A `.kkc` module is not a program: `kukel exec` refuses it.
 
+With the two files above:
+
+```
+$ kukel build -module geometry.kkl     # writes geometry.kkc
+$ rm geometry.kkl                      # (or move it away)
+$ kukel run main.kkl                   # uses geometry.kkc
+5.0 9
+geometry::Circle{r: 1}
+$ kukel build -o prog.kkc main.kkl     # the program with geometry's code
+$ kukel exec prog.kkc
+5.0 9
+geometry::Circle{r: 1}
+```
+
 ---
 
 ## 5. Statements
@@ -497,6 +511,32 @@ main() {
 }
 ```
 
+With a class of your own: anything with a `close()` member function.
+
+```
+class Log { name; Log(name); write(s); close(); }
+Log::Log(name) { this->name = name; println("open", name); }
+Log::write(s) { println(name + ":", s); }
+Log::close() { println("close", name); }
+
+main() {
+    with (local a = new Log("a"), b = new Log("b")) {
+        a->write("one");
+        b->write("two");
+    }
+}
+```
+
+```
+$ kukel run log.kkl
+open a
+open b
+a: one
+b: two
+close b
+close a
+```
+
 - `with (local a = e1, b = e2) statement` declares the locals (each needs a
   value) for the statement. When the statement is left (at its end, by
   `return`, `break`, `continue` or an exception), `x->close()` is called for
@@ -546,6 +586,21 @@ exact.
 
 **Strings**: `+` needs two strings: `"n = " + str(n)`. `s[i]` gives a byte
 as an int; strings cannot be changed (`s[i] = x` is an error).
+
+```
+main() {
+    println(7 / 2, -7 / 2, 7 % 3, -7 % 3, 7.0 / 2, 7.5 % 2);
+    println(1 << 4, -16 >> 2, 5 & 3, 5 | 3, 5 ^ 3);
+    println("n = " + str(42), "ab" + "cd");
+}
+```
+
+```
+$ kukel run ops.kkl
+3 -3 1 -1 3.5 1.5
+16 -4 1 7 6
+n = 42 abcd
+```
 
 **Indexing**: `v[i]` with an int from 0 to `len(v) - 1` (no negative
 indexes); assigning `v[len(v)]` is an error (use `push`). `m[k]` gives
@@ -829,6 +884,21 @@ and the order of output and errors stays as written.
 | `classof(obj)` | The class of an object |
 | `instanceof(x, C)` | Whether `x` is an object of class `C` or of a class derived from it |
 
+```
+main() {
+    println(int("42") + 1, int(" -0x10 "), int("1_000"), int(3.9), int(-3.9));
+    println(float("2.5") * 2, float(" 1e3 "), str(1.0 / 4) + "!");
+    try { int("12abc"); } catch (e) { println(e->kind, e->message); }
+}
+```
+
+```
+$ kukel run conv.kkl
+43 -16 1000 3 -3
+5.0 1000.0 0.25!
+ValueError int: "12abc" is not an integer
+```
+
 ### Strings
 
 | Function | Description |
@@ -856,6 +926,23 @@ and the order of output and errors stays as written.
 | `keys(m)`, `values(m)` | Vectors of a map's keys or values, in insertion order |
 | `haskey(m, k)` | Whether `k` is a key of `m` |
 | `delete(m, k)` | Removes a key; returns whether it was there |
+
+```
+main() {
+    local v = [5, 2, 8, 1];
+    sort(v);
+    println(v, slice(v, 1, 3), slice("hello", 1));
+    local people = [{"name": "Ann", "age": 41}, {"name": "Bo", "age": 25}];
+    sort(people, fn(a, b) { return a["age"] < b["age"]; });
+    println(people[0]["name"], len(people));
+}
+```
+
+```
+$ kukel run vectors.kkl
+[1, 2, 5, 8] [2, 5] ello
+Bo 2
+```
 
 ### Math
 
