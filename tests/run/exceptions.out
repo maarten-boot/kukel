@@ -8,3 +8,6 @@ start <function crash>
 end <function crash>
 other problem: RangeError index 10 out of range for vector of length 3 at crash (exceptions.kkl:39)
 ConfigError timeout missing
+TypeError Error: the message is a string, not int
+TypeError ConfigError: the message is a string, not vector
+host second 1

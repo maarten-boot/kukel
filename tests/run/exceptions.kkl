@@ -1,7 +1,7 @@
 // Try/catch/finally, throw, Error objects and Error classes.
 
 class ConfigError : Error {
-    key;
+    key, extra;
     ConfigError(key, message);
 }
 ConfigError::ConfigError(key, message) {
@@ -49,4 +49,16 @@ main() {
     }
 
     try { getInt("timeout"); } catch (e) { println(e->kind, e->key, e->message); }
+
+    // An Error's message and kind are strings or nil: new checks them.
+    try { new Error(42); } catch (e) { println(e->kind, e->message); }
+
+    try { new ConfigError("k", [1]); } catch (e) { println(e->kind, e->message); }
+
+    // p->C(...) runs the constructor's body again on p: the members it
+    // assigns change, the others keep their values.
+    local c = new ConfigError("port", "first");
+    c->extra = 1;
+    c->ConfigError("host", "second");
+    println(c->key, c->message, c->extra);
 }
