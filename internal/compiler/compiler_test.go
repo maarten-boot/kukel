@@ -149,17 +149,17 @@ func TestCompileErrors(t *testing.T) {
 		{"main() { local f = fn(a, a) { }; }", "1:26", "parameter a repeats a parameter name"},
 		{"main() { local f = fn() { f(); }; }", "1:27", "undefined name f"}, // not visible in its own initializer
 		// argument counts of callees known at compile time (Q32)
-		{"f(a) {} main() { f(); }", "1:19", "f expects 1 argument(s), got 0"},
+		{"f(a) {} main() { f(); }", "1:19", "f expects 1 argument, got 0"},
 		{"f(a, b = 1) {} main() { f(1, 2, 3); }", "1:26", "f expects 1 to 2 arguments, got 3"},
-		{"f(a, r..) {} main() { f(); }", "1:24", "f expects at least 1 argument(s), got 0"},
+		{"f(a, r..) {} main() { f(); }", "1:24", "f expects at least 1 argument, got 0"},
 		{"class A { static s(x); } A::s(x = 0) {} main() { A::s(1, 2); }", "1:54", "A::s expects 0 to 1 arguments, got 2"},
-		{"class A { static s(); g(); } A::s() {} A::g() { s(1); } main() {}", "1:50", "A::s expects 0 argument(s), got 1"},
-		{"class A { m(x); } A::m(x) {} class B : A { g(); } B::g() { A::m(); } main() {}", "1:64", "A::m expects 1 argument(s), got 0"},
-		{"class A { A(x); } A::A(x) {} main() { new A(); }", "1:39", "A::A expects 1 argument(s), got 0"},
+		{"class A { static s(); g(); } A::s() {} A::g() { s(1); } main() {}", "1:50", "A::s expects 0 arguments, got 1"},
+		{"class A { m(x); } A::m(x) {} class B : A { g(); } B::g() { A::m(); } main() {}", "1:64", "A::m expects 1 argument, got 0"},
+		{"class A { A(x); } A::A(x) {} main() { new A(); }", "1:39", "A::A expects 1 argument, got 0"},
 		{"class A { } main() { new A(1); }", "1:22", "class A has no constructor, so new A() takes no arguments (got 1)"},
 		{"class A { A(); } main() { new A(); }", "1:27", "A::A is declared but not defined"},
-		{"class A { } class B : A { B(x); } B::B(x) {} main() { new B(); }", "1:55", "B::B expects 1 argument(s), got 0"},
-		{"class A { A(x); } A::A(x) {} class B : A { } main() { new B(); }", "1:55", "A::A expects 1 argument(s), got 0"}, // inherited (Q33)
+		{"class A { } class B : A { B(x); } B::B(x) {} main() { new B(); }", "1:55", "B::B expects 1 argument, got 0"},
+		{"class A { A(x); } A::A(x) {} class B : A { } main() { new B(); }", "1:55", "A::A expects 1 argument, got 0"}, // inherited (Q33)
 		{"class A { A(); } class B : A { } class C : B { } main() { new C(); }", "1:59", "A::A is declared but not defined"},
 		// later milestones
 		{"main() { for (local k, k in [1]) ; }", "1:24", "local k is already declared in this block"},
@@ -443,6 +443,7 @@ g(n, v, p, s) {
     while (p != nil) p = p->next;
     if (s[0] >= '0') t = t * 3 + 1;
     switch (s) { case "a": t = n * t; break; }
+    t -= 1; t *= n; v[0] *= 2; p->next -= 1;
     return t;
 }
 main() {}`))
@@ -467,6 +468,51 @@ main() {}`))
 	for _, op := range fused {
 		if !on[op] || off[op] {
 			t.Errorf("%v: used %v with Fuse, %v without", op, on[op], off[op])
+		}
+	}
+}
+
+// The debugger stops on a switch line once, before the tag: the dispatch
+// after the body continues the line (LineInfo.Cont). With Fuse, a tag that
+// is a local gets no hidden slot.
+func TestSwitchLine(t *testing.T) {
+	for _, fuse := range []bool{true, false} {
+		Fuse = fuse
+		f, err := parser.ParseFile("t.kkl", []byte(`f(a, s) {
+    switch (a) {
+    case 1:
+        a = 2;
+    }
+    switch (s + 1) {
+    case 2:
+        a = 3;
+    }
+    switch (a) { case 1: a = 4; }
+}
+g(a) { switch (a) { case 1: return 1; } return 0; }
+main() {}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		prog, err := Compile([]*ast.File{f}, testBuiltins)
+		Fuse = true
+		if err != nil {
+			t.Fatal(err)
+		}
+		fn, dbg := prog.Funcs[0], bytecode.Debuggable(prog).Funcs[0]
+		stops := map[int]int{}
+		for pc := 0; pc < len(fn.Code); pc += bytecode.Op(fn.Code[pc]).Size() {
+			if bytecode.Op(dbg.Code[pc]) == bytecode.OpBreak {
+				stops[fn.LineAt(pc)]++
+			}
+		}
+		for _, line := range []int{2, 6, 10} {
+			if stops[line] != 1 {
+				t.Errorf("Fuse %v: line %d has %d stops", fuse, line, stops[line])
+			}
+		}
+		if g := prog.Funcs[1]; g.NumSlots != map[bool]int{true: 1, false: 2}[fuse] {
+			t.Errorf("Fuse %v: g has slots %v", fuse, g.SlotNames)
 		}
 	}
 }

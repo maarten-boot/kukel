@@ -3,10 +3,13 @@
 [1.5, 2, 5.0, 6.25, 0.0, 6.0, "other!", 2.5, true, false, "a==b", "p", "half"]
 [99, 1, -1, 0, -1, -1, "!", -1, true, true, "a<b", "p", "big"]
 1 2 0 3 3 -1
+[14, 2, 56, [10, 2], 4]
+[-15, 3, -60, [5.0], -0.5]
 three
 RangeError: index 5 out of range for vector of length 2 at index (fused.kkl:46)
 TypeError: cannot get member value of nil at member (fused.kkl:47)
 TypeError: cannot get member value of int at member (fused.kkl:47)
+MemberError: class Error has no member value at member (fused.kkl:47)
 TypeError: cannot apply * to string and int at times (fused.kkl:48)
 TypeError: cannot compare string and int with < at below (fused.kkl:51)
 TypeError: cannot apply - to string and int at minus (fused.kkl:55)
@@ -15,3 +18,10 @@ ZeroDivisionError: integer division by zero at half (fused.kkl:62)
 ZeroDivisionError: integer modulo by zero at rest (fused.kkl:63)
 TypeError: vector index must be an int, not string at index (fused.kkl:46)
 TypeError: cannot index nil at index (fused.kkl:46)
+TypeError: cannot compare string and int with < at small (fused.kkl:66)
+RangeError: shift count -1 out of range 0..63 at shift (fused.kkl:70)
+RangeError: shift count 64 out of range 0..63 at wide (fused.kkl:71)
+RangeError: shift count -1 out of range 0..63 at back (fused.kkl:72)
+TypeError: cannot apply - to string and int at less (fused.kkl:88)
+TypeError: cannot apply * to vector and float at scale (fused.kkl:89)
+RangeError: shift count 64 out of range 0..63 at grow (fused.kkl:90)

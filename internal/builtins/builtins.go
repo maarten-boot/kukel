@@ -95,7 +95,7 @@ func write(w io.Writer, args []value.Value, end string) error {
 
 func wantArgs(name string, args []value.Value, n int) error {
 	if len(args) != n {
-		return value.Errorf(value.ArgumentError, "%s expects %d argument(s), got %d", name, n, len(args))
+		return value.Errorf(value.ArgumentError, "%s expects %s, got %d", name, value.Arguments(n), len(args))
 	}
 	return nil
 }

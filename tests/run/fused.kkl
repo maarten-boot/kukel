@@ -62,6 +62,33 @@ first(v) {
 half(a) { return a / 0; }               // ARITH_LK
 rest(v, k) { return v[k] % 0; }         // INDEX_LL, ARITH_K
 
+small(s) {
+    if (s < 3) return true;             // CMP_JUMP_LK
+    return false;
+}
+
+shift(a, b) { return a << b; }          // ARITH_LL
+wide(a) { return a << 64; }             // ARITH_LK
+back(v) { return v[0] >> -1; }          // ARITH_K
+
+// Compound assignments (Kukel v0.27): ARITH_LK or ARITH_LL and a store
+// for a local, ARITH_K for an element or a data member.
+compound(a, b, v, p) {
+    local out = [];
+
+    a -= 1;                             // ARITH_LK
+    a *= b;                             // ARITH_LL
+    push(out, a, b %= LIMIT, a <<= 2);  // as values
+    v[0] *= 10;                         // ARITH_K
+    p->value -= 1;                      // ARITH_K
+    push(out, v, p->value);
+    return out;
+}
+
+less(a) { a -= 1; return a; }           // ARITH_LK
+scale(a, b) { a *= b; return a; }       // ARITH_LL
+grow(v) { v[0] <<= 64; }                // ARITH_K
+
 // A switch over strings, and over a local.
 kind(cmd) {
     switch (cmd) {
@@ -87,6 +114,8 @@ main() {
     println(forms([0.5, 1.5], 1, 2.5, 2.5, "other", list->next));
     println(forms("abc", 2, -1, 0, "", list));
     println(kind("add"), kind("sub"), kind(nil), kind(3), kind(3.0), kind("x"));
+    println(compound(3, 7, [1, 2], new Node(5, nil)));
+    println(compound(-4, 3, [0.5], new Node(0.5, nil)));
 
     for (local i = 0; i < LIMIT; i++)
         if (i == 3) println("three");
@@ -96,6 +125,7 @@ main() {
     local tries = [fn() { index([1, 2], 5); },
         fn() { member(nil); },
         fn() { member(3); },
+        fn() { member(new Error("no value")); },
         fn() { times("x", 1); },
         fn() { below("x", 1); },
         fn() { minus("x"); },
@@ -103,7 +133,14 @@ main() {
         fn() { half(1); },
         fn() { rest([1, 2], 1); },
         fn() { index([1, 2], "1"); },
-        fn() { index(nil, 0); }];
+        fn() { index(nil, 0); },
+        fn() { small("x"); },
+        fn() { shift(1, -1); },
+        fn() { wide(1); },
+        fn() { back([8]); },
+        fn() { less("x"); },
+        fn() { scale([1], 2.0); },
+        fn() { grow([1]); }];
 
     for (local f in tries)
         try {

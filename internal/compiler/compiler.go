@@ -473,6 +473,7 @@ type funcState struct {
 type localVar struct {
 	slot int
 	cell bool
+	info int // index in Function.Locals; -1 for a hidden slot
 }
 
 // function compiles one function; body emits the code of its body, and
@@ -527,6 +528,11 @@ func (c *compiler) function(name string, pos token.Pos, params *ast.ParamList, c
 
 	body()
 	c.emit(bytecode.OpReturnNil)
+	for i := range fs.fn.Locals {
+		if fs.fn.Locals[i].End < 0 { // the parameters
+			fs.fn.Locals[i].End = c.here()
+		}
+	}
 	peephole(fs.fn)
 
 	fs.fn.MaxStack = fs.maxDepth
@@ -596,7 +602,11 @@ func (c *compiler) declare(id *ast.Ident, what string) localVar {
 	}
 	slot := fs.nslots
 	fs.nslots++
-	lv := localVar{slot: slot, cell: fs.captured[id.Name]}
+	lv := localVar{slot: slot, cell: fs.captured[id.Name], info: -1}
+	if !strings.HasPrefix(id.Name, "(") { // not (switch), (iterator), ...
+		lv.info = len(fs.fn.Locals)
+		fs.fn.Locals = append(fs.fn.Locals, bytecode.LocalInfo{Name: id.Name, Slot: slot, Start: len(fs.fn.Code), End: -1})
+	}
 	scope[id.Name] = lv
 	if slot == len(fs.fn.SlotNames) {
 		fs.fn.SlotNames = append(fs.fn.SlotNames, id.Name)
@@ -619,6 +629,9 @@ func (c *compiler) declareInit(id *ast.Ident) {
 	} else {
 		c.emit(bytecode.OpStoreLocal, lv.slot)
 	}
+	if lv.info >= 0 {
+		c.fs.fn.Locals[lv.info].Start = c.here()
+	}
 }
 
 func (c *compiler) pushScope() { c.fs.scopes = append(c.fs.scopes, map[string]localVar{}) }
@@ -626,7 +639,13 @@ func (c *compiler) pushScope() { c.fs.scopes = append(c.fs.scopes, map[string]lo
 // popScope ends the innermost block; its slots are reused afterwards.
 func (c *compiler) popScope() {
 	fs := c.fs
-	fs.nslots -= len(fs.scopes[len(fs.scopes)-1])
+	scope := fs.scopes[len(fs.scopes)-1]
+	for _, lv := range scope {
+		if lv.info >= 0 {
+			fs.fn.Locals[lv.info].End = c.here()
+		}
+	}
+	fs.nslots -= len(scope)
 	fs.scopes = fs.scopes[:len(fs.scopes)-1]
 }
 
@@ -1076,13 +1095,16 @@ type switchCase struct {
 // With Fuse, a case is one CMP_JUMP_LK, and a tag that is a local is not
 // copied: nothing runs between the copy and the dispatch, so the dispatch
 // reads the local itself.
+//
+// The dispatch has the line of the switch, but continues it (LineInfo.Cont):
+// the debugger stops on that line once, before the tag.
 func (c *compiler) switchStmt(s *ast.SwitchStmt, labels []*ast.Ident) {
+	fn := c.fs.fn
 	c.pushScope()
-	tag := c.declare(&ast.Ident{NamePos: s.Switch, Name: "(switch)"}, "hidden").slot
 	c.mark(s.Tag.Pos())
-	if slot, ok := c.fusableLocal(s.Tag, s.Tag.Pos()); ok {
-		tag = slot
-	} else {
+	tag, local := c.fusableLocal(s.Tag, s.Tag.Pos())
+	if !local {
+		tag = c.declare(&ast.Ident{NamePos: s.Switch, Name: "(switch)"}, "hidden").slot
 		c.expr(s.Tag)
 		c.emit(bytecode.OpStoreLocal, tag)
 	}
@@ -1106,9 +1128,14 @@ func (c *compiler) switchStmt(s *ast.SwitchStmt, labels []*ast.Ident) {
 
 	c.patch([]int{toDispatch}, c.here())
 	c.mark(s.Switch)
+	dispatch := len(fn.Lines)
+	defer func() {
+		if dispatch < len(fn.Lines) {
+			fn.Lines[dispatch].Cont = true
+		}
+	}()
 	if jt, ok := jumpTable(sw.cases); ok {
 		// Dense int case values: one jump through a table.
-		fn := c.fs.fn
 		if len(fn.Tables) > maxIndex {
 			c.errorf(s.Switch, "too many switch statements in one function (more than %d)", maxIndex+1)
 		}
@@ -1747,7 +1774,7 @@ func (c *compiler) twoLocals(x, y ast.Expr, op token.Pos) (int, int, bool) {
 // instruction that does the work of several can take (see localConst).
 func (c *compiler) fusableLocal(x ast.Expr, op token.Pos) (int, bool) {
 	id, isIdent := x.(*ast.Ident)
-	if !Fuse || !isIdent || id.NamePos.Line != op.Line {
+	if !Fuse || !isIdent || id.NamePos.Line != op.Line || !c.canMoveTo(op.Line) {
 		return 0, false
 	}
 	lv, found := c.lookupLocal(id.Name)
@@ -1755,6 +1782,17 @@ func (c *compiler) fusableLocal(x ast.Expr, op token.Pos) (int, bool) {
 		return 0, false
 	}
 	return lv.slot, true
+}
+
+// canMoveTo reports whether the code emitted next may start on line
+// instead of the current line: the current line is that line or already
+// has code. The plain code loads the operand on the current line, so a
+// statement that starts on an earlier line ("local r =\n a + 1;") would
+// lose its first line with an instruction that does the work of several.
+func (c *compiler) canMoveTo(line int) bool {
+	fs := c.fs
+	n := len(fs.fn.Lines)
+	return fs.line == line || n > 0 && fs.fn.Lines[n-1].Line == fs.line
 }
 
 // loadGlobal pushes the value of top-level name g (named id).
@@ -1842,11 +1880,33 @@ func (c *compiler) assign(e *ast.AssignExpr, keep bool) {
 	}
 	if e.Op == token.ASSIGN {
 		c.expr(e.RHS)
+		v.store(c, keep)
+		return
+	}
+	op := assignOps[e.Op]
+	if Fuse && v.kind == lvLocal && c.canMoveTo(e.LHS.Pos().Line) {
+		// x -= 1, x *= y: one instruction, then the store.
+		if k, ok := c.constOperand(e.RHS); ok {
+			c.mark(e.LHS.Pos())
+			c.emit(bytecode.OpArithLK, int(op), v.index, k)
+			v.store(c, keep)
+			return
+		}
+		if y, ok := c.fusableLocal(e.RHS, e.LHS.Pos()); ok {
+			c.mark(e.LHS.Pos())
+			c.emit(bytecode.OpArithLL, int(op), v.index, y)
+			v.store(c, keep)
+			return
+		}
+	}
+	v.load(c)
+	if k, ok := c.constOperand(e.RHS); ok { // v[i] *= 2, p->n -= 1
+		c.mark(e.LHS.Pos())
+		c.emit(bytecode.OpArithK, int(op), k)
 	} else {
-		v.load(c)
 		c.expr(e.RHS)
 		c.mark(e.LHS.Pos())
-		c.emit(assignOps[e.Op])
+		c.emit(op)
 	}
 	v.store(c, keep)
 }
@@ -1870,7 +1930,7 @@ func (c *compiler) incDec(e *ast.IncDecExpr, keep bool) {
 	if e.Op == token.DEC {
 		op = bytecode.OpDec
 	}
-	if Fuse && v.kind == lvLocal && !keep { // i++ as a statement: one instruction
+	if Fuse && v.kind == lvLocal && !keep && c.canMoveTo(e.OpPos.Line) { // i++ as a statement: one instruction
 		c.mark(e.OpPos)
 		if e.Op == token.DEC {
 			c.emit(bytecode.OpDecLocal, v.index)

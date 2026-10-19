@@ -63,9 +63,9 @@ func TestArgs(t *testing.T) {
 		msg      string
 	}{
 		{[]value.Value{i}, 1, 1, ""},
-		{nil, 1, 1, "m::f expects 1 argument(s), got 0"},
+		{nil, 1, 1, "m::f expects 1 argument, got 0"},
 		{[]value.Value{i, i, i}, 1, 2, "m::f expects 1 to 2 arguments, got 3"},
-		{nil, 1, -1, "m::f expects at least 1 argument(s), got 0"},
+		{nil, 1, -1, "m::f expects at least 1 argument, got 0"},
 		{[]value.Value{i, i, i, i}, 1, -1, ""},
 	}
 	for _, tc := range tests {

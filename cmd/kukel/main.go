@@ -84,6 +84,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 	cmd, args := args[0], args[1:]
+	// run, build and disasm -nofuse: compile without the instructions
+	// that do the work of several, to compare (docs/vm.md, not in usage).
+	if (cmd == "run" || cmd == "build" || cmd == "disasm") && len(args) > 0 && args[0] == "-nofuse" {
+		compiler.Fuse = false
+		defer func() { compiler.Fuse = true }()
+		args = args[1:]
+	}
 	switch cmd {
 	case "help", "-h", "-help", "--help":
 		fmt.Fprint(stdout, usage)

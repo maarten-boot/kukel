@@ -32,6 +32,15 @@ func Errorf(kind, format string, args ...any) *Error {
 	return &Error{Kind: kind, Msg: fmt.Sprintf(format, args...)}
 }
 
+// Arguments gives a number of arguments in words, for messages: "1
+// argument", "2 arguments".
+func Arguments(n int) string {
+	if n == 1 {
+		return "1 argument"
+	}
+	return fmt.Sprintf("%d arguments", n)
+}
+
 // ArithOp is a binary arithmetic or bitwise operator.
 type ArithOp uint8
 

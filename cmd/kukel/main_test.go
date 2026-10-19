@@ -205,7 +205,7 @@ func TestCheck(t *testing.T) {
 	if code := run([]string{"check", good}, nil, &stdout, &stderr); code != 0 || stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Errorf("check good: exit %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
 	}
-	if code := run([]string{"check", bad}, nil, &stdout, &stderr); code != 1 || stderr.String() != bad+":3:4: f expects 1 argument(s), got 0\n" {
+	if code := run([]string{"check", bad}, nil, &stdout, &stderr); code != 1 || stderr.String() != bad+":3:4: f expects 1 argument, got 0\n" {
 		t.Errorf("check bad: exit %d, stderr %q", code, stderr.String())
 	}
 }
@@ -872,6 +872,14 @@ func TestDebug(t *testing.T) {
 	if run([]string{"debug", "c.kkl"}, strings.NewReader("b 1\nquit\n"), &out, &out); !strings.Contains(out.String(), "(no code on line 1: the next is 4)\nbreakpoint 1 at c.kkl:4") {
 		t.Errorf("a comment on line 1:\n%s", out.String())
 	}
+	// The variables in scope where the program is: a local whose slot a
+	// later one reuses, and a catch variable.
+	os.WriteFile("v.kkl", []byte("main() {\n    for (local i = 0; i < 1; i++) {\n        println(i);\n    }\n    local w = 5;\n    try {\n        throw new Error(\"boom\");\n    } catch (e) {\n        println(e->message);\n    }\n}\n"), 0o644)
+	out.Reset()
+	if run([]string{"debug", "v.kkl"}, strings.NewReader("b 3\nb 9\nc\nlocals\np i\nc\nlocals\np i\n"), &out, &out); !strings.Contains(out.String(),
+		"(kdb) i = 0\n(kdb) 0\n(kdb) 0\nbreakpoint 2, main at v.kkl:9\n    9          println(e->message);\n(kdb) w = 5\ne = Error{message: \"boom\", kind: \"Error\", trace: [\"main (v.kkl:7)\"]}\n(kdb) no variable i here\n") {
+		t.Errorf("variables in scope:\n%s", out.String())
+	}
 	// The end of the input quits.
 	out.Reset()
 	if code := run([]string{"debug", "w.kkl"}, strings.NewReader(""), &out, &out); code != 0 || !strings.HasSuffix(out.String(), "(kdb) \nthe program ended (exit code 0)\n") {
@@ -995,5 +1003,29 @@ main() {
 		if d := out.at[i].Sub(out.at[i-1]); d < 200*time.Millisecond {
 			t.Errorf("%q came %v after %q: written out only after the wait", out.lines[i], d, out.lines[i-1])
 		}
+	}
+}
+
+// run, build and disasm -nofuse compile without the instructions that do
+// the work of several.
+func TestNoFuse(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("f.kkl", []byte("main() {\n    local n = 2;\n    n *= 3;\n    println(n + 1);\n}\n"), 0o644)
+	for _, nofuse := range []bool{false, true} {
+		args := []string{"disasm", "f.kkl"}
+		if nofuse {
+			args = []string{"disasm", "-nofuse", "f.kkl"}
+		}
+		var out, errOut bytes.Buffer
+		if code := run(args, nil, &out, &errOut); code != 0 || strings.Contains(out.String(), "ARITH_LK") == nofuse {
+			t.Errorf("%v: exit %d, %s%s", args, code, out.String(), errOut.String())
+		}
+	}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"run", "-nofuse", "f.kkl"}, nil, &out, &errOut); code != 0 || out.String() != "7\n" || !compiler.Fuse {
+		t.Errorf("run -nofuse: exit %d, %q %q", code, out.String(), errOut.String())
+	}
+	if code := run([]string{"build", "-nofuse", "-o", "f.kkc", "f.kkl"}, nil, &out, &errOut); code != 0 {
+		t.Errorf("build -nofuse: exit %d, %q", code, errOut.String())
 	}
 }
