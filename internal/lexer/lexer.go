@@ -303,6 +303,9 @@ func (l *Lexer) radixNumber(start token.Pos) (token.Token, error) {
 	if err != nil {
 		return token.Token{}, err
 	}
+	if c := l.peek(0); isDigit(c) || hex && isLetter(c) && c != '_' {
+		return token.Token{}, l.errorf(l.pos(), "invalid digit %c in %s literal", c, what)
+	}
 	if n == 0 {
 		return token.Token{}, l.errorf(start, "%s literal has no digits", what)
 	}
@@ -413,7 +416,10 @@ func (l *Lexer) escape() (byte, error) {
 		}
 		return v, nil
 	}
-	return 0, l.errorf(p, "unknown escape sequence \\%s", printable(c))
+	if c < 0x20 || c >= 0x7f {
+		return 0, l.errorf(p, "unknown escape sequence: \\ followed by %s", printable(c))
+	}
+	return 0, l.errorf(p, "unknown escape sequence \\%c", c)
 }
 
 // Operators, longest first within each starting character.

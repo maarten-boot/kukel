@@ -351,7 +351,7 @@ func TestTokensError(t *testing.T) {
 	if code := run([]string{"tokens", src}, nil, &stdout, &stderr); code != 1 {
 		t.Errorf("exit code %d, want 1", code)
 	}
-	want := src + ":2:9: unknown escape sequence \\'q'\n"
+	want := src + ":2:9: unknown escape sequence \\q\n"
 	if stderr.String() != want {
 		t.Errorf("stderr = %q, want %q", stderr.String(), want)
 	}
@@ -489,7 +489,7 @@ func TestReferenceDocumentsNativeModules(t *testing.T) {
 // option the command does not have: a usage error. run refuses .kkc files.
 func TestUnknownOptions(t *testing.T) {
 	for _, args := range [][]string{{"fmt", "-d", "a.kkl"}, {"run", "--help"}, {"check", "-x", "a.kkl"}, {"build", "-q", "a.kkl"},
-		{"repl", "-v"}, {"debug", "-g", "a.kkl"}, {"disasm", "-s", "a.kkl"}} {
+		{"repl", "-v"}, {"debug", "-g", "a.kkl"}, {"disasm", "-s", "a.kkl"}, {"exec", "-x"}, {"tokens", "-x"}, {"ast", "-x"}} {
 		var stdout, stderr bytes.Buffer
 		if code := run(args, nil, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "kukel "+args[0]+": unknown option "+args[1]) {
 			t.Errorf("%q: exit %d, %q", args, code, stderr.String())
@@ -498,6 +498,49 @@ func TestUnknownOptions(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"run", "p.kkc"}, nil, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "run it with kukel exec p.kkc") {
 		t.Errorf("run p.kkc: exit %d, %q", code, stderr.String())
+	}
+	// Only fmt reads standard input ("-").
+	for _, args := range [][]string{{"run", "-"}, {"check", "-"}, {"ast", "-pos", "-"}, {"repl", "-"}} {
+		stderr.Reset()
+		if code := run(args, nil, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "kukel "+args[0]+": - (standard input) is only for kukel fmt") {
+			t.Errorf("%q: exit %d, %q", args, code, stderr.String())
+		}
+	}
+}
+
+// Messages that are not at a source position start with "kukel: ".
+func TestMessagePrefix(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("util.kkl", []byte("f() {}\n"), 0o644)
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"build", "-module", "util.kkl"}, nil, &stdout, &stderr); code != 0 {
+		t.Fatal(stderr.String())
+	}
+	for _, args := range [][]string{{"nosuch.kkl"}, {"run", "nosuch.kkl"}, {"check", "nosuch.kkl"}, {"fmt", "nosuch.kkl"},
+		{"disasm", "util.kkc"}, {"exec", "util.kkc"}, {"disasm", "nosuch.kkc"}, {"repl", "nosuch.kkl"}, {"debug", "nosuch.kkl"}, {"tokens", "nosuch.kkl"}} {
+		stderr.Reset()
+		if code := run(args, nil, &stdout, &stderr); code != 1 || !strings.HasPrefix(stderr.String(), "kukel: ") {
+			t.Errorf("%q: exit %d, %q", args, code, stderr.String())
+		}
+	}
+}
+
+// build -o refuses to write a source file.
+func TestBuildOutputNotSource(t *testing.T) {
+	t.Chdir(t.TempDir())
+	src := "main() {}\n"
+	os.WriteFile("a.kkl", []byte(src), 0o644)
+	for _, out := range []string{"a.kkl", "./a.kkl", "b.kkl"} {
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{"build", "-o", out, "a.kkl"}, nil, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "names a source file") {
+			t.Errorf("-o %s: exit %d, %q", out, code, stderr.String())
+		}
+	}
+	if data, _ := os.ReadFile("a.kkl"); string(data) != src {
+		t.Errorf("a.kkl was changed: %q", data)
+	}
+	if _, err := os.Stat("b.kkl"); err == nil {
+		t.Errorf("b.kkl was written")
 	}
 }
 
@@ -539,6 +582,20 @@ func TestFmt(t *testing.T) {
 	}
 	if code := run([]string{"fmt", "-w", "-l", messy}, nil, &out, &errOut); code != 2 {
 		t.Errorf("-w with -l: exit %d", code)
+	}
+	// "-": standard input to standard output, alone.
+	out.Reset()
+	if code := run([]string{"fmt", "-"}, strings.NewReader("main(){\nprintln( 1+2 );\n}\n"), &out, &errOut); code != 0 || out.String() != "main() {\n    println(1 + 2);\n}\n" {
+		t.Errorf("fmt -: exit %d, %q", code, out.String())
+	}
+	errOut.Reset()
+	if code := run([]string{"fmt", "-"}, strings.NewReader("main( {"), &out, &errOut); code != 1 || !strings.HasPrefix(errOut.String(), "<stdin>:1:") {
+		t.Errorf("fmt - with a syntax error: exit %d, %q", code, errOut.String())
+	}
+	for _, args := range [][]string{{"fmt", "-w", "-"}, {"fmt", "-l", "-"}, {"fmt", "-", messy}} {
+		if code := run(args, strings.NewReader(""), &out, &errOut); code != 2 {
+			t.Errorf("%q: exit %d", args, code)
+		}
 	}
 }
 
@@ -588,6 +645,33 @@ println("not run");
 	if code := run([]string{"repl"}, strings.NewReader(elses), &out, &errOut); code != 0 || out.String() != wantElse ||
 		!strings.Contains(errOut.String(), "undefined name elsewhere") {
 		t.Errorf("else on the next line: exit %d, %q, %q", code, out.String(), errOut.String())
+	}
+	// Every if without an else waits for the next line, also without
+	// braces, after a label or with a comment; comment lines do not count
+	// as the next line. The line it looks at stays in the input, for the
+	// program's readline() or as the next piece.
+	for _, tc := range []struct{ in, want string }{
+		{"if (1) { println(readline()); }\nhello\nprintln(\"after\")\n", "hello\nafter\n"},
+		{"if (1) println(readline())\nhello\n", "hello\n"},
+		{"local m = 0\nif (0) m = {}\nelse println(2)\nm\n", "2\n0\n"},
+		{"L: if (0) {}\nelse println(\"L\")\n", "L\n"},
+		{"if (0) {} // c\n// between\n/* a block\n   comment */\nelse println(\"c\")\n", "c\n"},
+		{"if (1) println(\"x\") // c\n// a comment\nprintln(\"y\")\n", "x\ny\n"},
+		{"if (1) if (0) println(\"a\")\nelse println(\"b\")\n", "b\n"},
+		{"if (1) println(\"e\")", "e\n"},
+		{"if (1) println(\"e\")\n", "e\n"},
+		{"if (0) {}\nelse println(2)\nprintln(3)\n", "2\n3\n"},
+		{"if (0) {}\nelse\n  println(2)\nprintln(3)\n", "2\n3\n"},
+		{"local i = 0\nwhile (i < 3)\n  i++\ni\n", "3\n"},
+		{"local j = 0\ndo {\n  j++;\n} while (j < 3)\nj\n", "3\n"},
+		{"local k = 0\nwhile (k < 2) if (k == 1) k = 5\nelse k++\nk\n", "5\n"},
+		{"if (1) {\n  println(1);\n}\n\nlocal else_ = 2\nelse_\n", "1\n2\n"},
+	} {
+		out.Reset()
+		errOut.Reset()
+		if code := run([]string{"repl"}, strings.NewReader(tc.in), &out, &errOut); code != 0 || out.String() != tc.want || errOut.Len() > 0 {
+			t.Errorf("%q: exit %d, %q, %q; want %q", tc.in, code, out.String(), errOut.String(), tc.want)
+		}
 	}
 	out.Reset()
 	errOut.Reset()
@@ -887,6 +971,34 @@ func TestDebug(t *testing.T) {
 	}
 }
 
+// print in a module's function (its globals first), static data members,
+// indexes written as in Kukel, b without an argument, and the stop at an
+// exception nothing catches.
+func TestDebugLookupAndUncaught(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("mm.kkl", []byte("global n = \"mod n\";\nclass C { static s; f(); static g(); }\nC::f() { s = 1; return n; }\nC::g() { return s; }\nf() {\n    return n;\n}\n"), 0o644)
+	os.WriteFile("p.kkl", []byte("use mm;\nglobal n = \"prog n\";\nclass A { static cnt; A(); }\nA::A() {\n    cnt = 5;\n}\n"+
+		"main() {\n    local m = {\"a]\": 1, \"q\\\"\": 2, \"\\x41\": 3, -1: 4, 1.5: 6};\n    local a = new A();\n    mm::f();\n    new mm::C()->f();\n    mm::C::g();\n"+
+		"    try { sort([2, 1], fn(x, y) { throw new Error(\"in sort\"); }); } catch (e) {}\n    try { throw new Error(\"caught\"); } finally { println(\"finally\"); }\n}\n"), 0o644)
+	cmds := "b\nb mm::f\nb mm.kkl:4\nc\np n\np mm::C::s\nc\np n\np s\nc\np m[\"a]\"]\np m[\"q\\\"\"]\np m[\"\\x41\"]\np m[-1]\np m[1.5]\np m[\"a]\"\np m[x]\np A::cnt\np cnt\nbt\nc\n"
+	want := "<init> at mm.kkl:1\n    1  global n = \"mod n\";\n" +
+		"(kdb) break where? (file:line, line or function)\n(kdb) breakpoint 1 at mm.kkl:6\n(kdb) breakpoint 2 at mm.kkl:4\n" +
+		"(kdb) breakpoint 1, mm::f at mm.kkl:6\n    6      return n;\n(kdb) \"mod n\"\n(kdb) nil\n" +
+		"(kdb) breakpoint 2, mm::C::g at mm.kkl:4\n    4  C::g() { return s; }\n(kdb) \"mod n\"\n(kdb) 1\n" +
+		"(kdb) uncaught Error: caught (continuing ends the program)\nmain at p.kkl:14\n   14      try { throw new Error(\"caught\"); } finally { println(\"finally\"); }\n" +
+		"(kdb) 1\n(kdb) 2\n(kdb) 3\n(kdb) 4\n(kdb) 6\n(kdb) a [ without ]\n(kdb) an index must be a number or a \"string\", not x\n(kdb) 5\n(kdb) no variable cnt here\n" +
+		"(kdb) *0 main (p.kkl:14)\n(kdb) finally\nError: caught\n  at main (p.kkl:14)\nthe program ended (exit code 1)\n"
+	var out bytes.Buffer
+	if code := run([]string{"debug", "p.kkl"}, strings.NewReader(cmds), &out, &out); code != 1 || out.String() != want {
+		t.Errorf("exit %d:\n%s\nwant:\n%s", code, out.String(), want)
+	}
+	// quit there ends the program with exit code 0, as elsewhere.
+	out.Reset()
+	if code := run([]string{"debug", "p.kkl"}, strings.NewReader("c\nq\n"), &out, &out); code != 0 || !strings.HasSuffix(out.String(), "(kdb) the program ended (exit code 0)\n") {
+		t.Errorf("quit at an uncaught exception: exit %d:\n%s", code, out.String())
+	}
+}
+
 const debugSrc = "class Acc { total; Acc(); add(x); }\nAcc::Acc() { total = 0; }\nAcc::add(x) {\n    total += x;\n    return this;\n}\n\nsquare(n) {\n    local r = n * n;\n    return r;\n}\n\nmain(args) {\n    local acc = new Acc(), v = [1, 2, 3], m = {\"k\": \"v\"};\n    println(\"start\", args);\n\n    for (local x in v) {\n        acc->add(square(x));\n    }\n    println(\"total\", acc->total);\n    local f = fn(y) { return y + acc->total; };\n    println(f(1));\n}\n"
 
 const debugCmds = "b square\nc\nbt\np n\nfinish\np acc->total\np v[1]\np m[\"k\"]\np v[9]\nframe 9\nd 1\nb p.kkl:22\nbreaks\nc\nstep\nlocals\nlist 22\nb nosuch\nb 999\nwhat\nquit\n"
@@ -912,6 +1024,12 @@ func TestInitializerFiles(t *testing.T) {
 		if code := run(append([]string{"run"}, tc.files...), nil, &out, &errOut); code != 1 || !strings.Contains(errOut.String(), tc.want) {
 			t.Errorf("%v: exit %d, %s", tc.files, code, errOut.String())
 		}
+	}
+	// In the REPL too: the files' <init> is at their first file.
+	os.WriteFile("three.kkl", []byte("global c = 1 / 0;\n"), 0o644)
+	var out, errOut bytes.Buffer
+	if run([]string{"repl", "three.kkl"}, strings.NewReader(""), &out, &errOut); !strings.Contains(errOut.String(), "at <init> (three.kkl:1)") {
+		t.Errorf("repl: %s", errOut.String())
 	}
 }
 

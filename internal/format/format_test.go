@@ -37,6 +37,13 @@ func TestFormat(t *testing.T) {
 		"f(i) {\n    do {\n        i++;\n    }\n    while (i < 3);\n\n    while (i > 0) i--;\n}\n"})
 	// a block or brackets opened on a hanging line keep its extra level
 	tests = append(tests, struct{ in, want string }{"f(v) {\nfor (local x in v)\nif (x) {\nfoo(1,\n2);\nif (y)\nwhile (z) {\nq(\n);\n}\n} else {\nbar();\n}\nlocal m = [1,\n2];\n}\n", "f(v) {\n    for (local x in v)\n        if (x) {\n            foo(1,\n                2);\n\n            if (y)\n                while (z) {\n                    q(\n                    );\n                }\n        } else {\n            bar();\n        }\n    local m = [1,\n        2];\n}\n"})
+	// a line that continues a statement outside brackets is indented one
+	// level more than the statement's first line (also under a header); a
+	// label on its own line gets the blank line above it
+	tests = append(tests, struct{ in, want string }{"f(c, d) {\nlocal x = 1;\nouter:\nfor (;;) break outer;\nreturn c &&\nd;\n}\nglobal g = 1 +\n2;\nh(a) {\nif (a)\na = a +\n1;\nlocal y = a ?\n1 :\n2;\nreturn y\n// c\n+ a;\n}\n",
+		"f(c, d) {\n    local x = 1;\n\n    outer:\n    for (;;) break outer;\n    return c &&\n        d;\n}\nglobal g = 1 +\n    2;\nh(a) {\n    if (a)\n        a = a +\n            1;\n    local y = a ?\n        1 :\n        2;\n    return y\n        // c\n        + a;\n}\n"})
+	// CRLF line ends become LF
+	tests = append(tests, struct{ in, want string }{"main() {\r\nx = 1;\r\n}\r\n", "main() {\n    x = 1;\n}\n"})
 	for _, tc := range tests {
 		got, err := Source("t.kkl", []byte(tc.in))
 		if err != nil {

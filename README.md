@@ -143,8 +143,8 @@ machine as `kukel:dev` (`IMAGE=...` names it otherwise).
 | `kukel build -module [-o m.kkc] m.kkl` | compile a module on its own; `use m;` finds `m.kkc` when there is no `m.kkl` |
 | `kukel exec prog.kkc [--] [args]` | run a bytecode file |
 | `kukel disasm prog.kkc` (or `a.kkl ...`) | show the bytecode |
-| `kukel fmt [-w \| -l] a.kkl ...` | format source files (indentation, spacing, a blank line before `if`, `for`, ...) |
-| `kukel debug a.kkl ... [-- args]` | run a program under the debugger (breakpoints, stepping, values) |
+| `kukel fmt [-w \| -l] a.kkl ...` | format source files (indentation, spacing, a blank line before `if`, `for`, ...); `kukel fmt -` formats standard input |
+| `kukel debug a.kkl ... [-- args]` | run a program under the debugger (breakpoints, stepping, values; it also stops where an exception nothing catches is thrown) |
 | `kukel repl [a.kkl ...]` | read declarations and statements and run them as they come |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | show the tokens or the syntax tree |
 | `kukel version` | show the version and the modules written in Go |
@@ -204,7 +204,7 @@ design decisions (Q1–Q75). Ideas for later are in [docs/future.md](docs/future
 
 | Make target | |
 |---|---|
-| `make` | gofmt check, `go vet`, tests, build (each also on its own: `make vet`, `make test`, `make build`) |
+| `make` | gofmt check, `go vet`, tests, build (each also on its own: `make vet`, `make test`, `make build`). The test of `syntax.lark` (it parses the examples, the test programs and the programs of the documents) needs Python with [lark](https://github.com/lark-parser/lark) (`pip install lark`), else it skips |
 | `make install` | install `kukel` into `$GOBIN`, else `$(go env GOPATH)/bin` |
 | `make fmt`, `make clean` | `gofmt -w` the sources; remove `bin/` and `dist/`, and the cached test results |
 | `make test-all` | everything: vet, the tests of the full, the smallest and the `tk` build, and the tests with the race detector |

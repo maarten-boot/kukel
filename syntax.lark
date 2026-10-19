@@ -197,6 +197,8 @@ throw_statement: "throw" expression ";"
 !unary_op: "-" | "!" | "~"
 !incdec: "++" | "--"
 
+// A call of a class by its name, C(...) or m::C(...), parses but is a
+// compile error (syntax.ebnf, postfix_operator).
 ?postfix: primary
         | postfix "(" [arguments] ")"                       -> call
         | postfix "[" expression "]"                        -> index

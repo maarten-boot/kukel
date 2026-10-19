@@ -64,7 +64,8 @@ commands:
   fmt [-w | -l] a.kkl ...         format source files (indentation, spacing,
                                   blank lines): print them, -w rewrite
                                   them, -l list the files whose
-                                  formatting differs
+                                  formatting differs; fmt - formats
+                                  standard input
   version                         show the version, bytecode format and Go modules
   help                            show this text
 
@@ -102,7 +103,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "ast":
 		return cmdAST(args, stdout, stderr)
 	case "fmt":
-		return cmdFmt(args, stdout, stderr)
+		return cmdFmt(args, stdin, stdout, stderr)
 	case "run":
 		return cmdRun(args, stdin, stdout, stderr)
 	case "repl":
@@ -145,9 +146,19 @@ func cliConfig() *native.Config {
 func compileFiles(files []string) (*bytecode.Program, error) {
 	parsed, err := loader.LoadWith(files, cliConfig())
 	if err != nil {
-		return nil, err
+		return nil, toolError(err)
 	}
-	return compiler.Compile(parsed, builtins.Names())
+	prog, err := compiler.Compile(parsed, builtins.Names())
+	return prog, toolError(err)
+}
+
+// toolError gives err with the prefix "kukel: ", unless it is a compile
+// error (which starts with its position) or has the prefix.
+func toolError(err error) error {
+	if err == nil || diag.Errors(err) != nil || strings.HasPrefix(err.Error(), "kukel: ") {
+		return err
+	}
+	return fmt.Errorf("kukel: %w", err)
 }
 
 // cmdRun compiles the source files before "--" and runs the program with
@@ -182,10 +193,15 @@ func cmdRun(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 // badFiles reports a usage error for an argument taken as a file name that
 // starts with "-": an option the command does not have. A file whose name
-// starts with "-" is given as ./-name.
+// starts with "-" is given as ./-name. Only kukel fmt reads standard input
+// ("-").
 func badFiles(cmd string, files []string, usage string, stderr io.Writer) bool {
 	for _, f := range files {
-		if strings.HasPrefix(f, "-") && f != "-" {
+		if f == "-" {
+			fmt.Fprintf(stderr, "kukel %s: - (standard input) is only for kukel fmt (a file named so is given as ./-)\nusage: %s\n", cmd, usage)
+			return true
+		}
+		if strings.HasPrefix(f, "-") {
 			fmt.Fprintf(stderr, "kukel %s: unknown option %s (a file named so is given as ./%s)\nusage: %s\n", cmd, f, f, usage)
 			return true
 		}
@@ -259,6 +275,9 @@ func cmdBuild(args []string, stderr io.Writer) int {
 	}
 	if out == "" {
 		out = strings.TrimSuffix(files[0], ".kkl") + ".kkc"
+	} else if overwritesSource(out, files) {
+		fmt.Fprintf(stderr, "kukel build: -o %s names a source file (.kkl): name the bytecode file like prog.kkc\n", out)
+		return 2
 	}
 	var data []byte
 	if module {
@@ -297,6 +316,24 @@ func cmdBuild(args []string, stderr io.Writer) int {
 	return 0
 }
 
+// overwritesSource reports whether the output file out of kukel build is
+// one of the source files or a .kkl file.
+func overwritesSource(out string, files []string) bool {
+	if strings.HasSuffix(out, ".kkl") {
+		return true
+	}
+	oi, err := os.Stat(out)
+	for _, f := range files {
+		if filepath.Clean(f) == filepath.Clean(out) {
+			return true
+		}
+		if fi, ferr := os.Stat(f); err == nil && ferr == nil && os.SameFile(oi, fi) {
+			return true
+		}
+	}
+	return false
+}
+
 // compileModule compiles module file on its own: its name is the file's
 // name without .kkl.
 func compileModule(file string) (*bytecode.Module, error) {
@@ -324,11 +361,11 @@ func compileModule(file string) (*bytecode.Module, error) {
 func loadKKC(file string) (*bytecode.Program, error) {
 	data, err := os.ReadFile(file)
 	if err != nil {
-		return nil, err
+		return nil, toolError(err)
 	}
 	prog, err := bytecode.Decode(data)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %v", file, err)
+		return nil, fmt.Errorf("kukel: %s: %v", file, err)
 	}
 	return prog, nil
 }
@@ -340,13 +377,16 @@ func cmdExec(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: kukel exec prog.kkc [--] [args]")
 		return 2
 	}
+	if badFiles("exec", args[:1], "kukel exec prog.kkc [--] [args]", stderr) {
+		return 2
+	}
 	progArgs := args[1:]
 	if len(progArgs) > 0 && progArgs[0] == "--" {
 		progArgs = progArgs[1:]
 	}
 	prog, err := loadKKC(args[0])
 	if err != nil {
-		fmt.Fprintln(stderr, "kukel:", err)
+		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	return runProgram(prog, progArgs, stdin, stdout, stderr)
@@ -391,6 +431,9 @@ func cmdTokens(files []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: kukel tokens a.kkl ...")
 		return 2
 	}
+	if badFiles("tokens", files, "kukel tokens a.kkl ...", stderr) {
+		return 2
+	}
 	for _, file := range files {
 		src, err := os.ReadFile(file)
 		if err != nil {
@@ -424,6 +467,9 @@ func cmdAST(args []string, stdout, stderr io.Writer) int {
 	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "usage: kukel ast [-pos] a.kkl ...")
+		return 2
+	}
+	if badFiles("ast", args, "kukel ast [-pos] a.kkl ...", stderr) {
 		return 2
 	}
 	for _, file := range args {
@@ -490,8 +536,8 @@ func showText(text string) string {
 
 // cmdFmt formats source files: printed (default), rewritten (-w), or only
 // listed when their formatting differs (-l). A file that does not parse is
-// left alone and reported.
-func cmdFmt(args []string, stdout, stderr io.Writer) int {
+// left alone and reported. "-" formats standard input to standard output.
+func cmdFmt(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	write, list := false, false
 	var files []string
 	for _, a := range args {
@@ -504,18 +550,35 @@ func cmdFmt(args []string, stdout, stderr io.Writer) int {
 			files = append(files, a)
 		}
 	}
+	const fmtUsage = "kukel fmt [-w | -l] a.kkl ... | kukel fmt -"
 	if len(files) == 0 || write && list {
-		fmt.Fprintln(stderr, "usage: kukel fmt [-w | -l] a.kkl ...")
+		fmt.Fprintln(stderr, "usage: "+fmtUsage)
 		return 2
 	}
-	if badFiles("fmt", files, "kukel fmt [-w | -l] a.kkl ...", stderr) {
+	if slices.Contains(files, "-") {
+		if len(files) > 1 || write || list {
+			fmt.Fprintln(stderr, "kukel fmt: - (standard input) goes alone, without -w or -l\nusage: "+fmtUsage)
+			return 2
+		}
+		src, err := io.ReadAll(stdin)
+		if err == nil {
+			var out []byte
+			if out, err = format.Source("<stdin>", src); err == nil {
+				stdout.Write(out)
+				return 0
+			}
+		}
+		fmt.Fprintln(stderr, toolError(err))
+		return 1
+	}
+	if badFiles("fmt", files, fmtUsage, stderr) {
 		return 2
 	}
 	code := 0
 	for _, file := range files {
 		src, err := os.ReadFile(file)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
+			fmt.Fprintln(stderr, toolError(err))
 			code = 1
 			continue
 		}
@@ -533,7 +596,7 @@ func cmdFmt(args []string, stdout, stderr io.Writer) int {
 		case write:
 			if !bytes.Equal(src, out) {
 				if err := os.WriteFile(file, out, 0o644); err != nil {
-					fmt.Fprintln(stderr, err)
+					fmt.Fprintln(stderr, toolError(err))
 					code = 1
 				}
 			}
@@ -571,9 +634,13 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if f, ok := stdout.(*os.File); ok && interactive {
 		editor = newLineEditor(stdin.(*os.File), f)
 	}
-	var programIn io.Reader = in // what readline() reads
+	// The pieces and what the programs read (readline()) come from the
+	// same input.
+	var input replInput = &pipeInput{in: in, out: out, prompts: interactive}
+	var programIn io.Reader = in
 	if editor != nil {
-		programIn = editor.input()
+		ei := editor.input()
+		input, programIn = ei, ei
 	}
 	machine, err := vm.NewWith(session.Program(), builtins.Lookup, config, out, programIn)
 	if err == nil {
@@ -588,7 +655,7 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(files) > 0 {
 		parsed, err := loader.LoadWith(files, config)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
+			fmt.Fprintln(stderr, toolError(err))
 			return 1
 		}
 		fn, err := session.Declare(parsed, nil)
@@ -605,35 +672,32 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		first, _, _ := strings.Cut(versionText(), "\n")
 		fmt.Fprintf(out, "%s\ntype declarations or statements; a blank line ends an incomplete piece, end of input (Ctrl-D) quits\n", first)
 	}
-	// read reads a line with prompt, or gives back the line held over from
-	// the last piece.
-	var held *string
-	read := func(prompt string) (string, error) {
-		if held != nil {
-			line := *held
-			held = nil
-			return line, nil
-		}
-		if interactive && editor == nil {
-			fmt.Fprint(out, prompt)
-		}
-		out.Flush()
-		if editor != nil {
-			return editor.readLine(prompt)
-		}
-		return in.ReadString('\n')
-	}
+	ended := false // the end of the input came when looking for an else
 	for n := 1; ; n++ {
+		if ended {
+			if interactive {
+				fmt.Fprintln(out)
+			}
+			return 0
+		}
 		var src []byte
 		var stmts []ast.Stmt
 		var decls *ast.File
 		name := fmt.Sprintf("<input %d>", n)
+		var joined []byte // the lines that joined an if through else
+	read:
 		for {
 			prompt := "> "
 			if len(src) > 0 {
 				prompt = "... "
 			}
-			line, rerr := read(prompt)
+			var line string
+			var rerr error
+			if joined != nil {
+				line, joined = string(joined), nil
+			} else {
+				line, rerr = input.line(prompt)
+			}
 			if rerr == errInterrupted { // Ctrl-C: the piece is dropped
 				src = nil
 				continue
@@ -651,23 +715,44 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			}
 			src = append(src, line...)
 			var incomplete bool
-			decls, stmts, incomplete, err = parseInput(name, src, blank)
-			if err == nil && !blank && !end && endsInIf(stmts, src) {
-				// An else may follow on the next line: an empty line, or
-				// any other, runs the if (that other line then starts the
-				// next piece).
-				next, rerr := read("... ")
-				if rerr == errInterrupted {
-					src = nil
-					continue
+			var fixed []byte
+			decls, stmts, fixed, incomplete, err = parseInput(name, src, blank)
+			if err == nil {
+				src = fixed // with the ';' it added
+			}
+			if err == nil && !blank && !end && danglingIf(stmts) {
+				// An else may follow on the next line; comment lines between
+				// join the piece. An empty line runs the if, and so does any
+				// other line, which then stays in the input: the next piece,
+				// or what the if reads.
+				var comments []byte
+				for {
+					next, perr := input.peek("... ")
+					if perr == errInterrupted {
+						src = nil
+						continue read
+					}
+					if perr != nil && next == "" {
+						ended = true
+						break
+					}
+					if strings.TrimSpace(next) == "" {
+						input.take()
+						break
+					}
+					switch startsWith(append(comments, next...)) {
+					case "comment":
+						input.take()
+						comments = append(comments, next...)
+						continue
+					case "else":
+						input.take()
+						joined = append(comments, next...)
+						continue read
+					}
+					break
 				}
-				if startsWithElse(next) {
-					src = append(src, next...)
-					continue
-				}
-				if strings.TrimSpace(next) != "" || rerr != nil {
-					held = &next // the end of the input is read again
-				}
+				src = append(src, comments...)
 				break
 			}
 			if err == nil || !incomplete || blank {
@@ -698,25 +783,79 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 }
 
+// replInput is where kukel repl reads its pieces: the same input as the
+// programs' readline(), so that a line the REPL looks at but does not take
+// goes to the program.
+type replInput interface {
+	// line reads the next line (with its "\n"), after prompt.
+	line(prompt string) (string, error)
+	// peek gives the next line (after prompt, if it must be read) and
+	// leaves it in the input; take takes it.
+	peek(prompt string) (string, error)
+	take()
+}
+
+// pipeInput reads from a pipe, a file or a terminal without line editing.
+type pipeInput struct {
+	in      *bufio.Reader // the programs read it too
+	out     *bufio.Writer
+	prompts bool
+}
+
+func (p *pipeInput) prompt(prompt string) {
+	if p.prompts {
+		fmt.Fprint(p.out, prompt)
+	}
+	p.out.Flush()
+}
+
+func (p *pipeInput) line(prompt string) (string, error) {
+	p.prompt(prompt)
+	return p.in.ReadString('\n')
+}
+
+func (p *pipeInput) peek(prompt string) (string, error) {
+	p.prompt(prompt)
+	for n := 1; ; {
+		b, err := p.in.Peek(n)
+		if i := bytes.IndexByte(b, '\n'); i >= 0 {
+			return string(b[:i+1]), nil
+		}
+		if err != nil { // the end of the input, or a line longer than the buffer
+			return string(b), err
+		}
+		if n = p.in.Buffered(); n <= len(b) {
+			n = len(b) + 1
+		}
+	}
+}
+
+func (p *pipeInput) take() { p.in.ReadString('\n') }
+
 // parseInput parses a piece read by the REPL: declarations, or else
-// statements. Statements without a final ';' get one if they are one line,
-// or the last line of the piece (last). incomplete reports an
-// error at the end of src: more lines could complete the piece. Of two
-// errors the one further on counts.
-func parseInput(name string, src []byte, last bool) (decls *ast.File, stmts []ast.Stmt, incomplete bool, err error) {
+// statements. Statements without a final ';' get one when that completes
+// them and, unless the piece is ending (last), the last statement does not
+// get the ';' as its empty body (a header such as "if (c)", whose
+// statement is on the next line); fixed is src with that ';'.
+// incomplete reports an error at the end of src: more lines could
+// complete the piece. Of two errors the one further on counts.
+func parseInput(name string, src []byte, last bool) (decls *ast.File, stmts []ast.Stmt, fixed []byte, incomplete bool, err error) {
 	f, ferr := parser.ParseFile(name, src)
 	if ferr == nil {
-		return f, nil, false, nil
+		return f, nil, src, false, nil
 	}
 	stmts, serr := parser.ParseStmts(name, src)
 	if serr == nil {
-		return nil, stmts, false, nil
+		return nil, stmts, src, false, nil
 	}
-	if line := bytes.TrimSpace(src); atEnd(serr) && (last || !bytes.Contains(line, []byte("\n"))) {
-		// The ';' must end a statement, not be the body of a header such
-		// as "if (c)" whose statement is on the next line.
-		if stmts, err := parser.ParseStmts(name, append(slices.Clip(line), ';')); err == nil && (last || !emptyBody(stmts[len(stmts)-1])) {
-			return nil, stmts, false, nil
+	if atEnd(serr) {
+		if toks, err := lexer.Tokenize(name, src); err == nil && len(toks) > 1 {
+			t := toks[len(toks)-2] // the last before EOF
+			end := t.Pos.Offset + len(t.Text)
+			fixed = append(append(slices.Clip(src[:end]), ';'), src[end:]...)
+			if stmts, err := parser.ParseStmts(name, fixed); err == nil && (last || !emptyBody(stmts[len(stmts)-1])) {
+				return nil, stmts, fixed, false, nil
+			}
 		}
 	}
 	err = serr
@@ -725,7 +864,7 @@ func parseInput(name string, src []byte, last bool) (decls *ast.File, stmts []as
 	if ok1 && ok2 && fd.Pos.Offset > sd.Pos.Offset {
 		err = ferr
 	}
-	return nil, nil, atEnd(ferr) || atEnd(serr), err
+	return nil, nil, nil, atEnd(ferr) || atEnd(serr), err
 }
 
 // emptyBody reports whether s ends in an empty statement as the body of an
@@ -758,23 +897,50 @@ func emptyBody(s ast.Stmt) bool {
 	}
 }
 
-// endsInIf reports whether a piece ends in an if statement without an else
-// whose last line is a '}': an else may follow on the next line.
-func endsInIf(stmts []ast.Stmt, src []byte) bool {
-	if len(stmts) == 0 || !bytes.HasSuffix(bytes.TrimSpace(src), []byte("}")) {
+// danglingIf reports whether the last of stmts ends in an if without an
+// else (also as the body of a loop or after a label): an else on the next
+// line would belong to it.
+func danglingIf(stmts []ast.Stmt) bool {
+	if len(stmts) == 0 {
 		return false
 	}
-	s, ok := stmts[len(stmts)-1].(*ast.IfStmt)
-	for ok && s.Else != nil {
-		s, ok = s.Else.(*ast.IfStmt)
+	s := stmts[len(stmts)-1]
+	for {
+		switch x := s.(type) {
+		case *ast.IfStmt:
+			if x.Else == nil {
+				return true
+			}
+			s = x.Else
+		case *ast.WhileStmt:
+			s = x.Body
+		case *ast.ForStmt:
+			s = x.Body
+		case *ast.ForEachStmt:
+			s = x.Body
+		case *ast.LabeledStmt:
+			s = x.Stmt
+		default:
+			return false
+		}
 	}
-	return ok
 }
 
-// startsWithElse reports whether line starts with the keyword else.
-func startsWithElse(line string) bool {
-	rest, ok := strings.CutPrefix(strings.TrimSpace(line), "else")
-	return ok && (rest == "" || !isIdentByte(rest[0]))
+// startsWith tells how lines start, by their first token: "else",
+// "comment" (nothing but comments, or a comment that goes on), or "".
+func startsWith(lines []byte) string {
+	t, err := lexer.New("", lines).Next()
+	switch {
+	case err != nil:
+		if strings.HasSuffix(err.Error(), "unterminated comment") {
+			return "comment"
+		}
+	case t.Kind == token.EOF:
+		return "comment"
+	case t.Kind == token.ELSE:
+		return "else"
+	}
+	return ""
 }
 
 // atEnd reports whether a syntax error is at the end of the input.

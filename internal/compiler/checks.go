@@ -84,10 +84,12 @@ func (c *compiler) staticCallee(fun ast.Expr) *paramShape {
 }
 
 // checkClassCall refuses a call of a class by its name, C(...) or m::C(...):
-// it always fails when it runs. Inside a constructor it is most likely
-// meant as a call of the base class's constructor.
+// it always fails when it runs. Inside a member function of C or a class
+// derived from it, it is most likely meant as a call of the constructor
+// (the one new C(...) runs: C's own or the nearest base class's).
 func (c *compiler) checkClassCall(e *ast.CallExpr) {
-	var name, short string
+	var name string
+	var k *classInfo
 	switch fun := e.Fun.(type) {
 	case *ast.Ident:
 		if _, ok := c.lookupLocal(fun.Name); ok {
@@ -99,10 +101,11 @@ func (c *compiler) checkClassCall(e *ast.CallExpr) {
 		if c.memberOf(fun.Name) != nil {
 			return
 		}
-		if g, ok := c.lookup(fun.Name); !ok || g.kind != symClass {
+		g, ok := c.lookup(fun.Name)
+		if !ok || g.kind != symClass {
 			return
 		}
-		name, short = fun.Name, fun.Name
+		name, k = fun.Name, g.class
 	case *ast.StaticRef:
 		if !c.isModuleRef(fun) {
 			return
@@ -111,14 +114,18 @@ func (c *compiler) checkClassCall(e *ast.CallExpr) {
 		if m == nil {
 			return
 		}
-		if g, ok := m.names[fun.Name.Name]; !ok || g.kind != symClass {
+		g, ok := m.names[fun.Name.Name]
+		if !ok || g.kind != symClass {
 			return
 		}
-		name, short = fun.Class.Name+"::"+fun.Name.Name, fun.Name.Name
+		name, k = fun.Class.Name+"::"+fun.Name.Name, g.class
 	default:
 		return
 	}
-	c.errorf(e.Lparen, "%s(...) calls the class; call its constructor as %s::%s(...), or make an object with new %s(...)", name, name, short, name)
+	if ctor := k.constructor(); ctor != nil && c.fs.class != nil && !c.fs.static && c.fs.class.isSubclassOf(k) {
+		c.errorf(e.Lparen, "%s(...) calls the class; call its constructor as %s(...), or make an object with new %s(...)", name, ctor.fullName(), name)
+	}
+	c.errorf(e.Lparen, "%s(...) calls the class; make an object with new %s(...)", name, name)
 }
 
 // checkNew checks new C(...) when C names a class directly (not a variable

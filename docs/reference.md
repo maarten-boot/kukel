@@ -44,32 +44,34 @@ hello, Kukel
 | `kukel run a.kkl b.kkl [-- args]` | Compile the files as one program and run it; the arguments after `--` go to `main` |
 | `kukel a.kkl [args]`, `kukel prog.kkc [args]` | The same as `kukel run a.kkl -- args` (`kukel exec` for a `.kkc` file): every argument after the file goes to `main`, also a `--`. So a script whose first line is `#!/usr/bin/env kukel` runs as a command (`./script a b`); a file whose name ends in `.kkl` or `.kkc`, or that is a regular file, is taken for this, a command name first |
 | `kukel check a.kkl ...` | Compile only and report the errors; prints nothing when the program is fine |
-| `kukel build [-o prog.kkc] a.kkl ...` | Compile to a bytecode file (default name: the first file with `.kkc`) |
+| `kukel build [-o prog.kkc] a.kkl ...` | Compile to a bytecode file (default name: the first file with `.kkc`). `-o` naming a `.kkl` file or one of the source files is a usage error |
 | `kukel build -module [-o m.kkc] m.kkl` | Compile module `m` on its own into `m.kkc`, which programs can use instead of `m.kkl` (see [Modules](#modules)). The file name must be the module's name (`util.kkl`, not `my-util.kkl`); a file with a NUL byte is refused. `-o` and `-module` (also `--module`) may come anywhere among the arguments |
 | `kukel exec prog.kkc [--] [args]` | Run a bytecode file (a first `--` is skipped). A module compiled on its own is not a program: `exec` and `disasm` refuse it |
 | `kukel disasm prog.kkc` or `kukel disasm a.kkl ...` | Show the bytecode in readable form |
 | `kukel repl [a.kkl ...]` | Read declarations and statements and run them as they come (see [The REPL](#the-repl)); with files, their declarations come first (`main` is not called) |
 | `kukel debug a.kkl ... [-- args]` | Run the program under the debugger: breakpoints, stepping, values (see [The debugger](#the-debugger)) |
-| `kukel fmt [-w \| -l] a.kkl ...` | Format source files: indentation (4 spaces; `case` labels one level into the switch, their statements two) and the spaces between tokens (`{ }` becomes `{}`; a comment at the end of a line keeps its distance); line breaks and comments stay, at most one blank line in a row. A statement that starts a line with `if`, `while`, `do`, `for`, `switch`, `try` or `with` (also after a label: `outer: for`) gets a blank line before it (above the comments right above it), except as the first statement of a block, after a label on its own line or a `case`, as the statement of `else` or a header without braces, or as the `while` of a `do`. The output is checked to give the same tokens and comments as the input; a file it cannot format safely is refused with an "internal error".  Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`; `-w` and `-l` together are a usage error). A file with a syntax error or a NUL byte is left alone, and the exit code is 1 |
+| `kukel fmt [-w \| -l] a.kkl ...`, `kukel fmt -` | Format source files: indentation (4 spaces; `case` labels one level into the switch, their statements two) and the spaces between tokens (`{ }` becomes `{}`; a comment at the end of a line keeps its distance); line breaks and comments stay, at most one blank line in a row; CRLF line ends become LF. A line that continues a statement outside brackets (`return c &&` and then `d;`) is indented one level more than the statement's first line. A statement that starts a line with `if`, `while`, `do`, `for`, `switch`, `try` or `with` (also after a label: `outer: for`, and with the label on a line of its own, where the blank line goes above the label) gets a blank line before it (above the comments right above it), except as the first statement of a block, after a label on its own line or a `case`, as the statement of `else` or a header without braces, or as the `while` of a `do`. The output is checked to give the same tokens and comments as the input; a file it cannot format safely is refused with an "internal error".  Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`; `-w` and `-l` together are a usage error). A file with a syntax error or a NUL byte is left alone, and the exit code is 1. `kukel fmt -` formats standard input to standard output (for editors; with `-w`, `-l` or files it is a usage error) |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | Show the tokens or the syntax tree of each file (for debugging; `-pos`, before the files, adds positions) |
 | `kukel version` (also `-version`, `--version`) | Show the version (with the commit and the Go version), the bytecode format and the modules written in Go, with the databases `db` can open (`db (SQLite, PostgreSQL, MySQL)`): a `kukel` built with tags may lack some (see the README) |
 | `kukel help` (also `-h`, `-help`, `--help`) | Show the commands (`kukel` without a command shows them too, with exit code 2) |
 
 A compile reports several errors at once, in the order of the source: the
 first syntax error of each file, and otherwise the first error of each
-definition and of each function (at most 10 are shown, with a count of the
-rest). Errors in the definitions (names, classes, constants) are reported
+definition, of each function and of each global initializer (at most 10
+are shown, with a count of the rest). Errors in the definitions (names, classes, constants) are reported
 without compiling the function bodies, whose errors could only be their
 consequences.
 
 The exit code is `main`'s result when it returns an int, else 0. A compile
 error or an uncaught exception gives exit code 1; `exit(code)` ends the
 program with that code. A wrong command line (an unknown command, a missing
-file name, `-o` without a name, an option the command does not have, such
-as `kukel fmt -d`: a file whose name starts with `-` is given as `./-name`,
-`kukel run` of a `.kkc` file) gives exit code 2. The operating system
-keeps only the low 8 bits of an exit code: `return 263` exits with 7,
-`return -1` with 255.
+file name, `-o` without a name or naming a source file, an option the
+command does not have, such as `kukel fmt -d`: a file whose name starts
+with `-` is given as `./-name`; `-` as a file anywhere but in `kukel fmt -`,
+`kukel run` of a `.kkc` file) gives exit code 2. Messages that are not
+about a place in the source start with `kukel:` (`kukel: open a.kkl: no
+such file or directory`). The operating system keeps only the low 8 bits
+of an exit code: `return 263` exits with 7, `return -1` with 255.
 
 Files used as modules (`use name;`) are found next to the file that uses
 them or through `KUKEL_PATH`; see [Modules](#modules).
@@ -103,15 +105,31 @@ state with the pieces before it:
 101
 ```
 
-- A statement without its final `;` gets one when it is one line, or the
-  last line of the piece. A line that is the header of an `if`, `else`,
-  `while` or `for` (`if (x > 0)` alone) is not taken as a statement with an
-  empty body: its statement comes on the next line. A piece ends where it
-  is complete, except an `if` without an `else` whose last line is a `}`:
-  it waits for the next line, which joins it when it starts with `else`.
-  Any other line runs the `if` and starts the next piece, and so does an
-  empty line (or the end of the input) at once. A definition's `{` goes on
-  the line of its header (`f(x)` alone is a call).
+- A statement without its final `;` gets one when that completes the
+  piece. A line that is the header of an `if`, `else`, `while` or `for`
+  (`if (x > 0)` alone) is not taken as a statement with an empty body: its
+  statement comes on the next line. A definition's `{` goes on the line of
+  its header (`f(x)` alone is a call).
+- An `if` without an `else` waits for one more line. A line that starts
+  with `else` joins it; an empty line (or the end of the input) runs it at
+  once; any other line runs it and is then read as the next piece (or by
+  a `readline()` in the `if`). Comment lines in between stay with the `if`.
+
+```
+> local x = 3
+> if (x > 5) {
+...     println("big");
+... }
+... else {
+...     println("small");
+... }
+small
+> if (x == 3) println("three")
+... println("next")
+three
+next
+```
+
 - A `local` variable declared at the top level of a piece lives as long as
   the session: it is a global variable of the program (declared again, it
   is the same variable). Locals inside blocks are local as usual.
@@ -195,7 +213,7 @@ the program ended (exit code 0)
 | `continue` (`c`) | Run to the next breakpoint |
 | `step` (`s`), `next` (`n`) | To the start of the next line: also into a call, or over calls |
 | `finish` (`f`) | Until the current function has returned (to the next line of its caller) |
-| `print path` (`p`) | A value: a variable (parameter, local, captured), `this`, a data member of `this`, or a global (`count`, `util::count`), followed by `->member` and `[index]` steps (`p v[2]`, `p m["key"]`, `p this->items`) |
+| `print path` (`p`) | A value: a variable (parameter, local, captured), `this`, a data member of `this`, a static data member (`count` in a member function of its class, `C::count` anywhere), or a global (`count`, `util::count`; in a function of a module its own globals come first), followed by `->member` and `[index]` steps (`p v[2]`, `p m["key"]`, `p this->items`). An index is an int, a float or a string as in Kukel (`m["a]\n"]`) |
 | `locals` | The variables of the frame |
 | `backtrace` (`bt`), `frame n` | The calls, innermost first; look at frame `n` (for `print`, `locals` and `list`) |
 | `list [line]` (`l`) | The source around the current line, or around `line` |
@@ -209,6 +227,11 @@ the program ended (exit code 0)
   shows the name of the later one.
 - Only the main interpreter stops; workers run on. The program reads its
   input (`readline`) from the same input as the debugger.
+- An exception that no `try` catches (a `finally` does not count) stops
+  the program where it is thrown, before it ends: `uncaught Error: boom
+  (continuing ends the program)`, then the line. `bt`, `frame`, `locals`
+  and `print` show the state; `continue` (or `step`, `next`, `finish`)
+  lets the program end as it would without the debugger, with the trace.
 - When the program ends, `kukel debug` says so, with the exit code.
 
 ## 2. Lexical structure
@@ -410,6 +433,20 @@ geometry::Circle{r: 1}
   that is gone), linking it is an error that says to compile the module
   again. A `.kkc` module is not a program: `kukel exec` refuses it.
 
+With the two files above:
+
+```
+$ kukel build -module geometry.kkl     # writes geometry.kkc
+$ rm geometry.kkl                      # (or move it away)
+$ kukel run main.kkl                   # uses geometry.kkc
+5.0 9
+geometry::Circle{r: 1}
+$ kukel build -o prog.kkc main.kkl     # the program with geometry's code
+$ kukel exec prog.kkc
+5.0 9
+geometry::Circle{r: 1}
+```
+
 ---
 
 ## 5. Statements
@@ -474,6 +511,32 @@ main() {
 }
 ```
 
+With a class of your own: anything with a `close()` member function.
+
+```
+class Log { name; Log(name); write(s); close(); }
+Log::Log(name) { this->name = name; println("open", name); }
+Log::write(s) { println(name + ":", s); }
+Log::close() { println("close", name); }
+
+main() {
+    with (local a = new Log("a"), b = new Log("b")) {
+        a->write("one");
+        b->write("two");
+    }
+}
+```
+
+```
+$ kukel run log.kkl
+open a
+open b
+a: one
+b: two
+close b
+close a
+```
+
 - `with (local a = e1, b = e2) statement` declares the locals (each needs a
   value) for the statement. When the statement is left (at its end, by
   `return`, `break`, `continue` or an exception), `x->close()` is called for
@@ -523,6 +586,21 @@ exact.
 
 **Strings**: `+` needs two strings: `"n = " + str(n)`. `s[i]` gives a byte
 as an int; strings cannot be changed (`s[i] = x` is an error).
+
+```
+main() {
+    println(7 / 2, -7 / 2, 7 % 3, -7 % 3, 7.0 / 2, 7.5 % 2);
+    println(1 << 4, -16 >> 2, 5 & 3, 5 | 3, 5 ^ 3);
+    println("n = " + str(42), "ab" + "cd");
+}
+```
+
+```
+$ kukel run ops.kkl
+3 -3 1 -1 3.5 1.5
+16 -4 1 7 6
+n = 42 abcd
+```
 
 **Indexing**: `v[i]` with an int from 0 to `len(v) - 1` (no negative
 indexes); assigning `v[len(v)]` is an error (use `push`). `m[k]` gives
@@ -676,15 +754,19 @@ main() {
 - Inside a member function, the class's own name means the class
   (`return A;`, `new A()`); constructors are not found by an unqualified
   name (call `Base::Base(...)`): `A(...)`, anywhere, would call the class,
-  so it is a compile error ("A(...) calls the class; call its constructor
-  as A::A(...), or make an object with new A(...)"; also `m::C(...)` for a
-  module's class). A class in a variable is called only when it runs, a
-  `TypeError` ("cannot call class A"). `p->C(...)` calls the
-  constructor `C` again on an existing object `p`, as any member function
-  (its data members are set anew; nothing else happens).
+  so it is a compile error ("A(...) calls the class; make an object with
+  new A(...)"; also `m::C(...)` for a module's class). In a member
+  function of `A` or of a class derived from it, the message also names
+  the constructor `new A(...)` would run, `A`'s own or the nearest base
+  class's ("call its constructor as A::A(...)"). A class in a variable is
+  called only when it runs, a `TypeError` ("cannot call class A").
+  `p->C(...)` calls the constructor `C` again on an existing object `p`,
+  as any member function: the constructor's body runs again on `p`, so the
+  members it assigns change and the others keep their values.
 - `p->x` reads or assigns a data member (all members are public). Static
   data members are reached as `C::x`, or in a member function of the class
-  by their name alone (`count++`), never as `p->x`; a static member function can
+  by their name alone (`count++`), never as `p->x` (a `MemberError` that
+  says so: "c is a static data member: use A::c"); a static member function can
   also be called as `p->f(...)` (the static of `p`'s class), and `p->f`
   without a call gives that function itself, not a bound method.
   `p->m` without a call is a *bound method*: a function value that calls
@@ -806,6 +888,21 @@ a program printed before a wait is seen during it.
 | `classof(obj)` | The class of an object |
 | `instanceof(x, C)` | Whether `x` is an object of class `C` or of a class derived from it |
 
+```
+main() {
+    println(int("42") + 1, int(" -0x10 "), int("1_000"), int(3.9), int(-3.9));
+    println(float("2.5") * 2, float(" 1e3 "), str(1.0 / 4) + "!");
+    try { int("12abc"); } catch (e) { println(e->kind, e->message); }
+}
+```
+
+```
+$ kukel run conv.kkl
+43 -16 1000 3 -3
+5.0 1000.0 0.25!
+ValueError int: "12abc" is not an integer
+```
+
 ### Strings
 
 | Function | Description |
@@ -833,6 +930,23 @@ a program printed before a wait is seen during it.
 | `keys(m)`, `values(m)` | Vectors of a map's keys or values, in insertion order |
 | `haskey(m, k)` | Whether `k` is a key of `m` |
 | `delete(m, k)` | Removes a key; returns whether it was there |
+
+```
+main() {
+    local v = [5, 2, 8, 1];
+    sort(v);
+    println(v, slice(v, 1, 3), slice("hello", 1));
+    local people = [{"name": "Ann", "age": 41}, {"name": "Bo", "age": 25}];
+    sort(people, fn(a, b) { return a["age"] < b["age"]; });
+    println(people[0]["name"], len(people));
+}
+```
+
+```
+$ kukel run vectors.kkl
+[1, 2, 5, 8] [2, 5] ello
+Bo 2
+```
 
 ### Math
 

@@ -100,7 +100,14 @@ func TestCompileErrors(t *testing.T) {
 		{"class A : B {}", "1:11", "base class B is not defined (a base class must be defined before the classes derived from it)"},
 		{"class A : A {}", "1:11", "base class A is not defined"},
 		{"class A { A(); } A::A() {} class B : A { B(); } B::B() { A(); } main() {}", "1:59", "A(...) calls the class; call its constructor as A::A(...), or make an object with new A(...)"},
-		{"class A {} main() { return A(); }", "1:29", "A(...) calls the class"},
+		{"class A {} main() { return A(); }", "1:29", "A(...) calls the class; make an object with new A(...)"},
+		// The constructor that would run: a base class's; none; outside
+		// member functions none is suggested (A::A(...) is an error there).
+		{"class Z { Z(); } Z::Z() {} class A : Z { f(); } A::f() { A(); } main() {}", "1:59", "A(...) calls the class; call its constructor as Z::Z(...), or make an object with new A(...)"},
+		{"class A { f(); } A::f() { A(); } main() {}", "1:28", "A(...) calls the class; make an object with new A(...)"},
+		{"class A { A(); } A::A() {} main() { A(); }", "1:38", "A(...) calls the class; make an object with new A(...)"},
+		{"class A { A(); static s(); } A::A() {} A::s() { A(); } main() {}", "1:50", "A(...) calls the class; make an object with new A(...)"},
+		{"class A { A(); } A::A() {} class B { f(); } B::f() { A(); } main() {}", "1:55", "A(...) calls the class; make an object with new A(...)"},
 		{"global B; class A : B {}", "1:21", "B is not a class"},
 		{"class A { x; x; }", "1:14", "member x is already declared in class A at t.kkl:1:11"},
 		{"class A { x; } class B : A { x; }", "1:30", "member x conflicts with x declared in base class A at t.kkl:1:11"},
@@ -128,7 +135,7 @@ func TestCompileErrors(t *testing.T) {
 		{"class A { x; } main() { A::x = 1; }", "1:28", "cannot assign to A::x: only static data members can be assigned this way"},
 		{"main() { new println(); }", "1:14", "println is not a class"},
 		{"main() { new Nope(); }", "1:14", "undefined class Nope"},
-		{"class A { f(); } A::f() {} class B : A { g(); } B::g() { A::f(main..); } main() {}", "1:62", "spread arguments are not supported in a A::f(...) call"},
+		{"class A { f(); } A::f() {} class B : A { g(); } B::g() { A::f(main..); } main() {}", "1:62", "spread arguments are not supported in a call of A::f(...)"},
 		// exceptions
 		{"main() { while (1) { try { } finally { break; } } }", "1:40", "break out of a finally block is not allowed"},
 		{"main() { a: { try { } finally { while (1) { continue a; } } } }", "1:54", "continue a: a does not label a loop"},
@@ -343,6 +350,20 @@ main() { h(); }`)
 	// Errors in the definitions stop before the bodies are compiled.
 	err = compileSrc(t, `f() {} f() {} const C = nosuch; main() { undefinedInABody; }`)
 	want = "t.kkl:1:8: f is already defined at t.kkl:1:1\nt.kkl:1:25: nosuch is not a constant defined earlier"
+	if err == nil || err.Error() != want {
+		t.Errorf("got:\n%v\nwant:\n%s", err, want)
+	}
+	// In the order of the source, also member function definitions (compiled
+	// after the plain functions) and files; each global initializer reports
+	// its error.
+	err = compileSrc(t, `class A { m(); }
+A::m() { a1; }
+global g1 = n1, g2 = 2, g3 = n3;
+f() { f1; }
+main() {}`, `class B { x(); }
+B::x() { b1; }
+global g4 = n4;`)
+	want = "t.kkl:2:10: undefined name a1\nt.kkl:3:13: undefined name n1\nt.kkl:3:30: undefined name n3\nt.kkl:4:7: undefined name f1\nu.kkl:2:10: undefined name b1\nu.kkl:3:13: undefined name n4"
 	if err == nil || err.Error() != want {
 		t.Errorf("got:\n%v\nwant:\n%s", err, want)
 	}

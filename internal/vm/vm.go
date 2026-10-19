@@ -122,6 +122,12 @@ type VM struct {
 	// The VM's frames are then as at the start of that line (Frames). An
 	// error stops the program (a fatal one, such as exit, ends it).
 	Debug func(vm *VM) error
+
+	// DebugUncaught, when set, runs when an exception is thrown that no
+	// try of the program catches (a finally does not count), before the
+	// frames are dropped (Frames). An error it gives ends the program
+	// instead (a fatal one, such as exit).
+	DebugUncaught func(vm *VM, re *RuntimeError) error
 }
 
 // Builtins resolves built-in functions by name.
@@ -244,10 +250,11 @@ func (vm *VM) makeClasses(from int) error {
 	for i := from; i < len(vm.prog.Classes); i++ {
 		c := vm.prog.Classes[i]
 		k := &value.ClassObj{
-			Name:       c.Name,
-			FieldIndex: map[string]int{},
-			Methods:    map[string]*value.MethodObj{},
-			Statics:    make([]value.Value, len(c.Statics)),
+			Name:        c.Name,
+			FieldIndex:  map[string]int{},
+			Methods:     map[string]*value.MethodObj{},
+			Statics:     make([]value.Value, len(c.Statics)),
+			StaticNames: c.Statics,
 		}
 		if c.Native != "" {
 			// A native base class, linked by name like the other names of
@@ -1114,6 +1121,11 @@ func (vm *VM) execute(stopDepth int) (value.Value, error) {
 		if !re.Fatal {
 			if e := vm.step(); e != nil { // a throw/catch cycle is a loop too
 				re = e.(*RuntimeError)
+			}
+		}
+		if vm.DebugUncaught != nil && !re.Fatal && !slices.ContainsFunc(vm.handlers, func(h handler) bool { return !h.finally }) {
+			if e := vm.DebugUncaught(vm, re); e != nil {
+				re = vm.wrap(e).(*RuntimeError)
 			}
 		}
 		if !vm.catch(re, stopDepth) {

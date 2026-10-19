@@ -372,7 +372,11 @@ postfix_operator    = "(" , [ arguments ] , ")"                      (* call *)
                        compiling (a top-level function, C::f(...) of a static
                        member function, Base::m(...), new C(...)) with the
                        wrong number of arguments is a compile error; other
-                       calls are checked when they run. *)
+                       calls are checked when they run. Rule: a call of a
+                       class by its name, C(...) or m::C(...), is a compile
+                       error (objects are made with new C(...), a
+                       constructor is called as C::C(...)); a class in a
+                       variable fails when the call runs. *)
 
 arguments           = argument , { "," , argument } ;
 

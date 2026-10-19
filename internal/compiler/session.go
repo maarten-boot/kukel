@@ -3,7 +3,6 @@ package compiler
 import (
 	"github.com/maarten-boot/kukel/internal/ast"
 	"github.com/maarten-boot/kukel/internal/bytecode"
-	"github.com/maarten-boot/kukel/internal/diag"
 	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/token"
 )
@@ -53,7 +52,7 @@ func (s *Session) reset() (err error) {
 	jobs, globals := c.declarations([]*ast.File{f}, func(int, *ast.File) *fileScope { return c.fileScope(f, true) })
 	c.prog.Init = c.functions(jobs, globals, token.Pos{File: PreludeName, Line: 1, Col: 1})
 	if len(c.errs) > 0 {
-		return diag.Join(c.errs)
+		return c.errors()
 	}
 	c.prog.Init.Index = -1
 	s.number()
@@ -78,6 +77,12 @@ func (s *Session) Declare(files []*ast.File, input *ast.File) (*bytecode.Functio
 			}
 		}
 		pos := token.Pos{Line: 1, Col: 1}
+		for _, f := range add {
+			if f.Module == "" { // the program's first file
+				pos.File = f.Name
+				break
+			}
+		}
 		if input != nil {
 			add = append(add, input)
 			pos.File = input.Name
@@ -89,11 +94,11 @@ func (s *Session) Declare(files []*ast.File, input *ast.File) (*bytecode.Functio
 			return c.fileScope(f, false)
 		})
 		if len(c.errs) > 0 {
-			return nil, diag.Join(c.errs)
+			return nil, c.errors()
 		}
 		init := c.functions(jobs, globals, pos)
 		if len(c.errs) > 0 {
-			return nil, diag.Join(c.errs)
+			return nil, c.errors()
 		}
 		c.prog.Funcs = append(c.prog.Funcs, init)
 		// Program.Init initializes all the global variables so far: a
@@ -199,7 +204,7 @@ func (s *Session) try(compile func() (*bytecode.Function, error)) (fn *bytecode.
 		return nil, err
 	}
 	if len(s.c.errs) > 0 {
-		return nil, diag.Join(s.c.errs)
+		return nil, s.c.errors()
 	}
 	s.number()
 	return fn, nil
