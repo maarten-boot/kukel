@@ -68,7 +68,7 @@ $ -j 2 -- -j testdata/words.txt
 ! wc: readfile: -j: no such file or directory
 exit 1
 
-$ 
+$
 ! wc: no files
 ! usage: wc [-j N] [-json] [--] path ...
 exit 2

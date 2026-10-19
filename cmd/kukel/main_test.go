@@ -713,25 +713,55 @@ type exampleCase struct {
 	code                 int
 }
 
-// exampleCases reads a .tests file: "$ args" starts a case; then the
-// standard output, "! " lines of standard error and an "exit N" line.
-// Comments (#) and blank lines between cases are skipped.
+// exampleCases reads a .tests file: "$ args" (or "$" alone: no
+// arguments) starts a case; then the standard output, "! " lines of
+// standard error and a last "exit N" line. Blank lines and comments (#) at
+// the end of a case, before the next one, are skipped; inside the output
+// they belong to it.
 func exampleCases(text string) []exampleCase {
 	var cases []exampleCase
+	var bodies [][]string
 	for _, line := range strings.Split(text, "\n") {
 		switch {
-		case strings.HasPrefix(line, "$ "):
-			cases = append(cases, exampleCase{args: line[2:]})
-		case len(cases) == 0 || strings.HasPrefix(line, "#") || line == "":
-		case strings.HasPrefix(line, "! "):
-			cases[len(cases)-1].stderr += line[2:] + "\n"
-		case strings.HasPrefix(line, "exit "):
-			cases[len(cases)-1].code, _ = strconv.Atoi(line[5:])
-		default:
-			cases[len(cases)-1].stdout += line + "\n"
+		case line == "$" || strings.HasPrefix(line, "$ "):
+			cases = append(cases, exampleCase{args: strings.TrimPrefix(line[1:], " ")})
+			bodies = append(bodies, nil)
+		case len(cases) > 0:
+			bodies[len(bodies)-1] = append(bodies[len(bodies)-1], line)
+		}
+	}
+	for i, lines := range bodies {
+		for n := len(lines); n > 0 && (lines[n-1] == "" || strings.HasPrefix(lines[n-1], "#")); n = len(lines) {
+			lines = lines[:n-1]
+		}
+		c := &cases[i]
+		if n := len(lines); n > 0 && strings.HasPrefix(lines[n-1], "exit ") {
+			if code, err := strconv.Atoi(lines[n-1][5:]); err == nil {
+				c.code, lines = code, lines[:n-1]
+			}
+		}
+		for _, line := range lines {
+			if line == "!" || strings.HasPrefix(line, "! ") {
+				c.stderr += strings.TrimPrefix(line[1:], " ") + "\n"
+			} else {
+				c.stdout += line + "\n"
+			}
 		}
 	}
 	return cases
+}
+
+// Blank lines and comments belong to the output inside a case, and are
+// skipped between cases; "$" alone is a case without arguments.
+func TestExampleCases(t *testing.T) {
+	text := "# header\n\n$\n! no args\nexit 2\n\n# next\n$ a 'b c'\none\n\n# not a comment\ntwo\n!\nexit 1\n\n\n# end\n"
+	want := []exampleCase{
+		{args: "", stderr: "no args\n", code: 2},
+		{args: "a 'b c'", stdout: "one\n\n# not a comment\ntwo\n", stderr: "\n", code: 1},
+	}
+	if got := exampleCases(text); !slices.Equal(got, want) {
+		t.Errorf("got %+v\nwant %+v", got, want)
+	}
 }
 
 // splitArgs splits the arguments of a case at spaces; '...' quotes one, and

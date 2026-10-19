@@ -85,7 +85,7 @@ $ -l a < testdata/words.txt
 $ -c -- -10- testdata/log.txt
 7
 
-$ 
+$
 ! grep: no pattern
 ! usage: grep [-icFhlnorv] pattern [file ...]
 exit 2
