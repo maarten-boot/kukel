@@ -121,6 +121,7 @@ func (o CompileOptions) config() (*native.Config, error) {
 type Program struct {
 	prog   *bytecode.Program
 	config *native.Config
+	source map[string]string // the source given to CompileSource, by its name (for profile reports)
 }
 
 // CompileFiles compiles source files as one program, with the modules they
@@ -152,7 +153,11 @@ func CompileSource(name, src string, opts CompileOptions) (*Program, error) {
 	if err != nil {
 		return nil, compileError(err)
 	}
-	return compile(parsed, config)
+	p, err := compile(parsed, config)
+	if err == nil {
+		p.source = map[string]string{name: src}
+	}
+	return p, err
 }
 
 func compile(files []*ast.File, config *native.Config) (*Program, error) {

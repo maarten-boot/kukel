@@ -425,6 +425,32 @@ run the saved instruction at once, so only the main interpreter stops. A
 
 ---
 
+### 4.13 Profiling
+
+`kukel profile` and the Go API's `Profile` (TODO.md Q78) sample the
+program: while an interpreter is profiled (`VM.StartProfile` with a
+`Profiler`, until `StopProfile`), a goroutine sets a flag every interval
+(a millisecond). The VM looks at it where it already looks for a step
+limit or a cancellation (`step`: backward jumps, calls that take the slow
+path, throws; the fast call path then takes the slow one) and after every
+call of a Go function (`callBuiltin`, `invokeGo`). There it records its
+frames (functions and lines), as a sample that weighs the time since the
+one before (with `CPU`, one interval), so the time of a Go function and of
+waiting goes to the line that called it. Calls are counted exactly: of
+Kukel functions in a slice by the function's index, of built-ins and Go
+functions in a short list whose often called entries move to the front.
+Workers started by a profiled interpreter are profiled with the same
+`Profiler`, as `worker N: f`. Samples are kept by stack (interpreter and
+frames); package `internal/profile` writes the text report and the pprof
+format.
+
+Not profiling costs one test: `step` returns at once when `watched` is
+false (no step limit, canceller or profiler: one flag instead of the two
+tests it had), and the call paths test `prof`. Both fields come last in
+`VM`: moving the others shifted the speed of the dispatch loop by several
+percent. Within a loop, samples are taken where it jumps back, so the
+time of its body shows on the loop's line.
+
 ## 5. Instruction set
 
 An instruction is a one-byte opcode followed by its operands, all

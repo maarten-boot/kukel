@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/pprof/profile"
+
 	"github.com/maarten-boot/kukel"
 	"github.com/maarten-boot/kukel/internal/modules/dbmod"
 )
@@ -203,6 +205,8 @@ main() {}`, kukel.CompileOptions{}), kukel.Options{StepLimit: 1000})
 	}
 }
 
+var cancelRuns int
+
 func TestCancel(t *testing.T) {
 	uses, defs := "use time; use worker;\n", `
 loop() { while (true) {} }
@@ -214,7 +218,10 @@ main() {}
 	names := []string{"loop", "nap", "waitFor"}
 	if slices.Contains(kukel.StandardModules(), "zmq") { // not when built with the tag nozmq
 		uses += "use zmq;\n"
-		defs += `listen() { local s = new zmq::Socket("PULL"); s->bind("inproc://nobody"); s->receive(); }` + "\n"
+		// An address of its own for each run: the cancelled socket is not
+		// closed, so a second run (-count) would find the address in use.
+		cancelRuns++
+		defs += fmt.Sprintf(`listen() { local s = new zmq::Socket("PULL"); s->bind("inproc://nobody%d"); s->receive(); }`, cancelRuns) + "\n"
 		names = append(names, "listen")
 	}
 	if dbmod.Has("SQLite") { // not when built with the tag nosqlite
@@ -665,5 +672,64 @@ func BenchmarkCallFib27(b *testing.B) {
 func TestErrorfNoKind(t *testing.T) {
 	if e := kukel.Errorf("", "plain %d", 1); e.Kind != "HostError" || e.Error() != "HostError: plain 1" {
 		t.Errorf("kind %q, text %q", e.Kind, e.Error())
+	}
+}
+
+// A Profile: the calls of an interpreter from Go are profiled (not the time
+// between them), waiting in a Go function counts on the line that calls
+// it, calls are counted, and interpreters can share a Profile.
+func TestProfile(t *testing.T) {
+	app := kukel.NewModule("app").Func("wait", func(in *kukel.Interp, args []kukel.Value) (kukel.Value, error) {
+		time.Sleep(60 * time.Millisecond)
+		return kukel.Nil, nil
+	})
+	prog, err := kukel.CompileSource("rules.kkl", `use app;
+step(n) {
+    local t = 0;
+    for (local i = 0; i < n; i++) t += i;
+    app::wait();
+    return t;
+}
+main() {}`, kukel.CompileOptions{Modules: []*kukel.Module{app}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := kukel.NewProfile(kukel.ProfileOptions{})
+	in, err := kukel.New(prog, kukel.Options{Profile: p})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in2, _ := kukel.New(prog, kukel.Options{Profile: p})
+	for range 2 {
+		if _, err := in.Call("step", kukel.Int(1000)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(150 * time.Millisecond) // between the calls: not counted
+	}
+	if _, err := in2.Call("step", kukel.Int(10)); err != nil {
+		t.Fatal(err)
+	}
+	var report strings.Builder
+	if err := p.WriteReport(&report); err != nil {
+		t.Fatal(err)
+	}
+	r := report.String()
+	for _, want := range []string{"2  step (rules.kkl:2) [main]", "1  step (rules.kkl:2) [interp 2]", "2  app::wait [main]", "rules.kkl:5  app::wait();"} {
+		if !strings.Contains(r, want) {
+			t.Errorf("no %q in the report:\n%s", want, r)
+		}
+	}
+	// About 3 waits of 60 ms, not the 300 ms between the calls.
+	var total float64
+	fmt.Sscanf(r, "%f s", &total)
+	if total < 0.15 || total > 0.30 {
+		t.Errorf("%.3f s in all:\n%s", total, r)
+	}
+	var pp bytes.Buffer
+	if err := p.WritePprof(&pp); err != nil {
+		t.Fatal(err)
+	}
+	if prof, err := profile.Parse(&pp); err != nil || len(prof.Sample) == 0 {
+		t.Errorf("pprof: %v, %v", err, prof)
 	}
 }

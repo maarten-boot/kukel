@@ -25,6 +25,11 @@ type Options struct {
 	// budget of the call that runs the Func. 0: no limit. Workers the
 	// program starts get the same limit for their whole run.
 	StepLimit int
+
+	// Profile, if not nil, profiles the calls of the interpreter from Go
+	// (each outermost Run, Call, ...: the time between them does not
+	// count), and the workers they start.
+	Profile *Profile
 }
 
 // Interp is an interpreter running a Program: it has its own globals,
@@ -36,6 +41,9 @@ type Interp struct {
 	life   *vm.Canceller // cancelled by Close; the calls' cancellers are its children
 	depth  int           // calls from Go in progress (a Func may call back)
 	closed bool
+
+	profile     *Profile // Options.Profile
+	profileName string   // the interpreter's name in it
 }
 
 type interpKey struct{}
@@ -59,7 +67,10 @@ func New(p *Program, opts Options) (*Interp, error) {
 	}
 	m.SetStderr(stderr)
 	m.StepLimit = opts.StepLimit
-	in := &Interp{vm: m, life: m.Cancellable()}
+	in := &Interp{vm: m, life: m.Cancellable(), profile: opts.Profile}
+	if in.profile != nil {
+		in.profileName = in.profile.use(p)
+	}
 	m.Local(interpKey{}, func() any { return in })
 	return in, nil
 }
@@ -203,6 +214,10 @@ func (in *Interp) enter(ctx context.Context, f func() (value.Value, error)) (Val
 	}
 	if in.depth == 0 {
 		in.vm.ResetSteps()
+		if in.profile != nil {
+			in.vm.StartProfile(in.profile.p, in.profileName)
+			defer in.vm.StopProfile()
+		}
 	}
 	if ctx.Done() != nil {
 		outer := in.vm.CurrentCanceller()

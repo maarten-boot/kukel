@@ -43,8 +43,12 @@ type lineKey struct {
 // Report writes the text report of what p collected: the functions by
 // their own time (and their total time, with the functions they call, and
 // their calls), the slowest lines with their source, and the calls of
-// built-ins and Go functions.
-func Report(w io.Writer, p *vm.Profiler) error {
+// built-ins and Go functions. src has the source lines of the program
+// (files not in it are read; nil: all are read).
+func Report(w io.Writer, p *vm.Profiler, src debugger.Sources) error {
+	if src == nil {
+		src = debugger.Sources{}
+	}
 	samples, total := p.Samples()
 	calls := p.Calls()
 	var count int64
@@ -133,13 +137,13 @@ func Report(w io.Writer, p *vm.Profiler) error {
 	})
 	fmt.Fprintf(b, "\nLines, by their own time (the %d slowest):\n", min(MaxLines, len(keys)))
 	fmt.Fprintln(b, "        own      %  line")
-	src := debugger.Sources{}
 	for i, k := range keys {
 		if i == MaxLines {
 			break
 		}
 		text, _ := src.Line(k.file, k.line)
-		fmt.Fprintf(b, "  %9s %6s  %s:%d  %s\n", seconds(lines[k]), percent(lines[k], total), k.file, k.line, strings.TrimSpace(text))
+		row := fmt.Sprintf("  %9s %6s  %s:%d  %s", seconds(lines[k]), percent(lines[k], total), k.file, k.line, strings.TrimSpace(text))
+		fmt.Fprintln(b, strings.TrimRight(row, " "))
 	}
 
 	// Built-ins and Go functions.

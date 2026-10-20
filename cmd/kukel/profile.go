@@ -90,7 +90,7 @@ func cmdProfile(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		code = 1
 	}
 	// The report also of a program that failed or called exit.
-	if err := profile.Report(report, p); err != nil {
+	if err := profile.Report(report, p, nil); err != nil {
 		fmt.Fprintln(stderr, "kukel:", err)
 		return 1
 	}

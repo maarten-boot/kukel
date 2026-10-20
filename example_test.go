@@ -309,3 +309,17 @@ main() {}`, kukel.CompileOptions{})
 	//   check (orders.kkl:4)
 	//   total (orders.kkl:2)
 }
+
+// Profile the calls of an interpreter: where their time goes, by function
+// and line, with call counts (the time between the calls does not count).
+func ExampleProfile() {
+	prog, _ := kukel.CompileSource("work.kkl", `
+work(n) { local t = 0; for (local i = 0; i < n; i++) t += i % 7; return t; }
+main() {}`, kukel.CompileOptions{})
+	prof := kukel.NewProfile(kukel.ProfileOptions{})
+	in, _ := kukel.New(prog, kukel.Options{Profile: prof})
+	for range 3 {
+		in.Call("work", kukel.Int(100000))
+	}
+	prof.WriteReport(os.Stderr) // or WritePprof, for go tool pprof
+}

@@ -25,6 +25,7 @@ Contents:
 4. [Errors](#4-errors)
 5. [Code that is not trusted](#5-code-that-is-not-trusted)
 6. [Goroutines](#6-goroutines)
+7. [Profiling](#7-profiling)
 
 ---
 
@@ -312,3 +313,38 @@ opts := kukel.CompileOptions{
   must be safe for concurrent use.
 - `Value`s that refer to vectors, maps or objects belong to their
   interpreter (section 2).
+
+## 7. Profiling
+
+A `Profile` shows where the time of an interpreter's calls goes: which
+functions and lines of the program, with how often each function was
+called (as `kukel profile` does, see the reference's "The profiler").
+
+```go
+prof := kukel.NewProfile(kukel.ProfileOptions{})
+in, err := kukel.New(prog, kukel.Options{Profile: prof})
+for _, o := range orders {
+    in.Call("discount", o)
+}
+prof.WriteReport(os.Stderr)          // the text report
+f, _ := os.Create("rules.pb.gz")
+prof.WritePprof(f)                    // for go tool pprof -http=: rules.pb.gz
+f.Close()
+```
+
+- Each outermost call from Go (`Run`, `Call`, `CallValue`, ...) is
+  profiled from its start to its end; the time between calls does not
+  count. Workers the calls start are profiled too.
+- `ProfileOptions`: `Interval` between samples (0: a millisecond); `CPU`
+  leaves waiting out (by default a sample weighs the time since the one
+  before, so waiting in `time::sleep`, `events::run()` or a Go function
+  shows on the line that called it).
+- Several interpreters may share a `Profile`: the first is `main` in the
+  report, the next ones `interp 2`, `interp 3`, ... The methods of a
+  `Profile` are safe for concurrent use; the reports show the calls that
+  have finished.
+- The report shows the source of the slowest lines: of the programs given
+  to `CompileSource`, and of the files of `CompileFiles` (read when the
+  report is written).
+- An interpreter without a `Profile` pays nothing; profiling costs a few
+  percent.
