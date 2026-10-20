@@ -27,8 +27,7 @@ type Profiler struct {
 
 	mu       sync.Mutex
 	samples  map[string]*Sample
-	calls    map[*bytecode.Function]int64
-	goCalls  map[string]int64
+	calls    map[Calls]int64 // by interpreter and function (Func, or Go for built-ins and Go functions)
 	workers  int
 	total    time.Duration
 	nSamples int64
@@ -56,7 +55,7 @@ func NewProfiler(interval time.Duration, cpu bool) *Profiler {
 		interval = time.Millisecond
 	}
 	return &Profiler{Interval: interval, CPU: cpu, samples: map[string]*Sample{},
-		calls: map[*bytecode.Function]int64{}, goCalls: map[string]int64{}}
+		calls: map[Calls]int64{}}
 }
 
 // profState is the profiling of one interpreter.
@@ -111,17 +110,17 @@ func (vm *VM) StopProfile() {
 	defer p.mu.Unlock()
 	for i, n := range s.counts {
 		if n > 0 {
-			p.calls[s.funcs[i]] += n
+			p.calls[Calls{Interp: s.name, Func: s.funcs[i]}] += n
 		}
 	}
 	for fn, n := range s.calls {
-		p.calls[fn] += n
+		p.calls[Calls{Interp: s.name, Func: fn}] += n
 	}
 	for _, c := range s.goCalls {
 		if c.b != nil {
-			p.goCalls[c.b.Name] += c.n
+			p.calls[Calls{Interp: s.name, Go: c.b.Name}] += c.n
 		} else {
-			p.goCalls[c.m.FullName()] += c.n
+			p.calls[Calls{Interp: s.name, Go: c.m.FullName()}] += c.n
 		}
 	}
 }
@@ -244,19 +243,21 @@ func (p *Profiler) Samples() ([]Sample, time.Duration) {
 	return out, p.total
 }
 
-// Calls gives the number of calls of each Kukel function, and of each
-// built-in and Go function by name, of the interpreters that stopped
-// profiling.
-func (p *Profiler) Calls() (map[*bytecode.Function]int64, map[string]int64) {
+// Calls names what a call count counts: the calls in interpreter Interp of
+// Kukel function Func, or (Func nil) of the built-in or Go function Go.
+type Calls struct {
+	Interp string
+	Func   *bytecode.Function
+	Go     string
+}
+
+// Calls gives the call counts of the interpreters that stopped profiling.
+func (p *Profiler) Calls() map[Calls]int64 {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	calls := make(map[*bytecode.Function]int64, len(p.calls))
-	for fn, n := range p.calls {
-		calls[fn] = n
+	out := make(map[Calls]int64, len(p.calls))
+	for k, n := range p.calls {
+		out[k] = n
 	}
-	goCalls := make(map[string]int64, len(p.goCalls))
-	for name, n := range p.goCalls {
-		goCalls[name] = n
-	}
-	return calls, goCalls
+	return out
 }

@@ -64,16 +64,19 @@ main() {
 	if inSpin < 150*time.Millisecond {
 		t.Errorf("%v in spin, of %v", inSpin, total)
 	}
-	calls, goCalls := p.Calls()
 	byName := map[string]int64{}
-	for fn, n := range calls {
-		byName[fn.FuncName] = n
+	for k, n := range p.Calls() {
+		if k.Interp != "main" {
+			t.Errorf("calls in %q", k.Interp)
+		}
+		if k.Func != nil {
+			byName[k.Func.FuncName] = n
+		} else {
+			byName["go "+k.Go] = n
+		}
 	}
-	if byName["main"] != 1 || byName["spin"] != 1 || byName["fib"] != 21891 {
+	if byName["main"] != 1 || byName["spin"] != 1 || byName["fib"] != 21891 || byName["go clock"] < 2 {
 		t.Errorf("calls: %v", byName)
-	}
-	if goCalls["clock"] < 2 {
-		t.Errorf("calls of Go functions: %v", goCalls)
 	}
 
 	// Not profiled: nothing is recorded, and Profiler is nil.
