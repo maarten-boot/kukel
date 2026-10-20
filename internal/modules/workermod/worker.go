@@ -217,9 +217,13 @@ func launch(parent value.Env, name string, prog *bytecode.Program, fn value.Valu
 	}
 	w := &worker{name: name, inbox: newQueue(), outbox: newQueue(), done: make(chan struct{})}
 	child.Local(linkKey{}, func() any { return w })
+	if prof := p.Profiler(); prof != nil { // profiled as the parent is, under a name of its own
+		child.StartProfile(prof, prof.WorkerName(name))
+	}
 	go func() {
 		defer close(w.done)
 		defer w.outbox.close()
+		defer child.StopProfile()
 		r, err := child.Start(fn, args)
 		var re *vm.RuntimeError
 		if errors.As(err, &re) && re.Exit != nil {

@@ -128,6 +128,15 @@ type VM struct {
 	// frames are dropped (Frames). An error it gives ends the program
 	// instead (a fatal one, such as exit).
 	DebugUncaught func(vm *VM, re *RuntimeError) error
+
+	// Last, so that the fields above keep their places (and the run
+	// loop its speed):
+	prof *profState // set while profiling (StartProfile)
+	// watched: step has something to do (a step limit, a canceller or
+	// profiling), so that it returns at once with one test when not (it
+	// runs at every backward jump). Set by execute, Cancellable,
+	// ShareCanceller and StartProfile.
+	watched bool
 }
 
 // Builtins resolves built-in functions by name.
@@ -520,6 +529,7 @@ func (c *Canceller) Keep() { c.keep.Store(true) }
 // afterwards share it: cancelling the program cancels them too.
 func (vm *VM) Cancellable() *Canceller {
 	vm.cancel = NewCanceller()
+	vm.watched = true
 	return vm.cancel
 }
 
@@ -527,7 +537,7 @@ func (vm *VM) Cancellable() *Canceller {
 func (vm *VM) CurrentCanceller() *Canceller { return vm.cancel }
 
 // ShareCanceller makes vm stop when c is cancelled (for a worker).
-func (vm *VM) ShareCanceller(c *Canceller) { vm.cancel = c }
+func (vm *VM) ShareCanceller(c *Canceller) { vm.cancel, vm.watched = c, true }
 
 // Done implements value.Env: closed when the program is cancelled (nil if
 // it cannot be).
@@ -693,8 +703,25 @@ func (vm *VM) callGo(argc int, fn func(args []value.Value) (value.Value, error))
 }
 
 // callBuiltin calls built-in b (also a function of a native module).
+// (Profiling is done here and in invokeGo, around callGo: callGo stays
+// small enough to be inlined, with fn.)
 func (vm *VM) callBuiltin(b *value.BuiltinObj, argc int) error {
+	if s := vm.prof; s != nil {
+		s.countGo(b, nil)
+		err := vm.callGo(argc, func(args []value.Value) (value.Value, error) { return b.Fn(vm, args) })
+		vm.afterGo()
+		return err
+	}
 	return vm.callGo(argc, func(args []value.Value) (value.Value, error) { return b.Fn(vm, args) })
+}
+
+// afterGo takes a sample after a call of a Go function while profiling, if
+// one is wanted: its time, also of waiting, goes to the line that called
+// it.
+func (vm *VM) afterGo() {
+	if s := vm.prof; s != nil && s.want.Load() {
+		vm.sample(pcCaller)
+	}
 }
 
 // invoke calls member function m on recv (a static one without this).
@@ -712,6 +739,16 @@ func (vm *VM) invoke(m *value.MethodObj, recv value.Value, argc int) error {
 // invokeGo calls a member function of a native class (kept out of invoke,
 // whose path for Kukel code is the common one).
 func (vm *VM) invokeGo(m *value.MethodObj, recv value.Value, argc int) error {
+	if s := vm.prof; s != nil {
+		s.countGo(nil, m)
+		err := vm.invokeGoNow(m, recv, argc)
+		vm.afterGo()
+		return err
+	}
+	return vm.invokeGoNow(m, recv, argc)
+}
+
+func (vm *VM) invokeGoNow(m *value.MethodObj, recv value.Value, argc int) error {
 	switch {
 	case m.Native != nil:
 		this := objectOf(recv)
@@ -882,6 +919,12 @@ func (vm *VM) enter(f *frame, ip, sp int, fn *bytecode.Function, this *value.Obj
 		n >= MaxFrames || n == cap(vm.frames) || sp+fn.NumSlots+fn.MaxStack > len(vm.stack) {
 		return false
 	}
+	if p := vm.prof; p != nil {
+		if p.want.Load() {
+			return false // callFunction takes the sample
+		}
+		p.count(fn)
+	}
 	base := sp - argc
 	for i := sp; i < base+fn.NumSlots; i++ {
 		vm.stack[i] = value.NilValue
@@ -897,8 +940,11 @@ func (vm *VM) enter(f *frame, ip, sp int, fn *bytecode.Function, this *value.Obj
 // callFunction pushes a frame for fn; its arguments are the top argc stack
 // entries, below them is the callee's place.
 func (vm *VM) callFunction(fn *bytecode.Function, this *value.ObjectObj, cl *value.ClosureObj, argc int, ctor bool) error {
-	if err := vm.step(); err != nil {
+	if err := vm.step(pcCaller); err != nil {
 		return err
+	}
+	if s := vm.prof; s != nil {
+		s.count(fn)
 	}
 	{
 		maxArgs := fn.NumParams + fn.NumOptional
@@ -978,9 +1024,15 @@ func objectOf(v value.Value) *value.ObjectObj {
 }
 
 // step counts a backward jump, a call or a throw against StepLimit.
-func (vm *VM) step() error {
-	if vm.StepLimit <= 0 && vm.cancel == nil {
+// step counts a step for the step limit, and sees whether the program is
+// cancelled or a sample is wanted (profiling); pc is where the top frame is
+// (pcTop, pcCaller: see sample).
+func (vm *VM) step(pc int) error {
+	if !vm.watched {
 		return nil
+	}
+	if s := vm.prof; s != nil && s.want.Load() {
+		vm.sample(pc)
 	}
 	if vm.cancel != nil && vm.cancel.flag.Load() {
 		return vm.Err()
@@ -1137,6 +1189,7 @@ func (vm *VM) throwValue(v value.Value) *RuntimeError {
 // innermost handler registered by one of these frames; without one, the
 // frames are dropped and the exception is returned.
 func (vm *VM) execute(stopDepth int) (value.Value, error) {
+	vm.watched = vm.StepLimit > 0 || vm.cancel != nil || vm.prof != nil
 	for {
 		r, err := vm.run(stopDepth)
 		if err == nil {
@@ -1144,7 +1197,7 @@ func (vm *VM) execute(stopDepth int) (value.Value, error) {
 		}
 		re := err.(*RuntimeError)
 		if !re.Fatal {
-			if e := vm.step(); e != nil { // a throw/catch cycle is a loop too
+			if e := vm.step(pcTop); e != nil { // a throw/catch cycle is a loop too
 				re = e.(*RuntimeError)
 			}
 		}
@@ -1345,7 +1398,7 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 
 		case bytecode.OpJump:
 			if t := bytecode.ReadU32(code, ip); t < ip {
-				if e := vm.step(); e != nil {
+				if e := vm.step(start); e != nil {
 					return vm.fail(f, start, sp, e)
 				}
 				ip = t
@@ -1357,7 +1410,7 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			if !stack[sp].Truthy() {
 				t := bytecode.ReadU32(code, ip)
 				if t < ip {
-					if e := vm.step(); e != nil {
+					if e := vm.step(start); e != nil {
 						return vm.fail(f, start, sp, e)
 					}
 				}
@@ -1370,7 +1423,7 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			if stack[sp].Truthy() {
 				t := bytecode.ReadU32(code, ip)
 				if t < ip {
-					if e := vm.step(); e != nil {
+					if e := vm.step(start); e != nil {
 						return vm.fail(f, start, sp, e)
 					}
 				}
@@ -1382,7 +1435,7 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			if bytecode.ReadU16(code, ip) < f.argc {
 				t := bytecode.ReadU32(code, ip+2)
 				if t < ip {
-					if e := vm.step(); e != nil {
+					if e := vm.step(start); e != nil {
 						return vm.fail(f, start, sp, e)
 					}
 				}
@@ -1467,7 +1520,7 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			if !ok {
 				t := bytecode.ReadU32(code, ip+4)
 				if t < ip {
-					if e := vm.step(); e != nil {
+					if e := vm.step(start); e != nil {
 						return vm.fail(f, start, sp, e)
 					}
 				}
@@ -1697,7 +1750,7 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			if r == (k&bytecode.CmpJumpIfTrue != 0) {
 				t := bytecode.ReadU32(code, ip+2)
 				if t < ip {
-					if e := vm.step(); e != nil {
+					if e := vm.step(start); e != nil {
 						return vm.fail(f, start, sp, e)
 					}
 				}
@@ -1804,7 +1857,7 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			if r == (k&bytecode.CmpJumpIfTrue != 0) {
 				t := bytecode.ReadU32(code, ip+6)
 				if t < ip {
-					if e := vm.step(); e != nil {
+					if e := vm.step(start); e != nil {
 						return vm.fail(f, start, sp, e)
 					}
 				}
@@ -1844,7 +1897,7 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			if r == (k&bytecode.CmpJumpIfTrue != 0) {
 				t := bytecode.ReadU32(code, ip+4)
 				if t < ip {
-					if e := vm.step(); e != nil {
+					if e := vm.step(start); e != nil {
 						return vm.fail(f, start, sp, e)
 					}
 				}
@@ -1883,7 +1936,7 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			if r == (k&bytecode.CmpJumpIfTrue != 0) {
 				t := bytecode.ReadU32(code, ip+6)
 				if t < ip {
-					if e := vm.step(); e != nil {
+					if e := vm.step(start); e != nil {
 						return vm.fail(f, start, sp, e)
 					}
 				}
@@ -1931,7 +1984,7 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 				target = bytecode.ReadU32(code, ip+2)
 			}
 			if target < ip {
-				if e := vm.step(); e != nil {
+				if e := vm.step(start); e != nil {
 					return vm.fail(f, start, sp, e)
 				}
 			}
