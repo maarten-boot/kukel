@@ -16,22 +16,34 @@ import (
 
 // dapClient plays the editor in a kukel dap session.
 type dapClient struct {
-	t      *testing.T
-	w      io.Writer
-	r      *bufio.Reader
-	seq    int
-	output strings.Builder // the output events' text, by category: "stdout: ..." lines
-	code   chan int
+	t       *testing.T
+	w       io.Writer
+	msgs    chan dap.Message // what kukel dap sends, read by one goroutine
+	pending []dap.Message    // read but not yet asked for (an event before a response, ...)
+	seq     int
+	output  strings.Builder // the output events' text, by category: "stdout: ..." lines
+	code    chan int
 }
 
 // startDap runs kukel dap in the test's directory.
 func startDap(t *testing.T) *dapClient {
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
-	c := &dapClient{t: t, w: inW, r: bufio.NewReader(outR), code: make(chan int, 1)}
+	c := &dapClient{t: t, w: inW, msgs: make(chan dap.Message, 100), code: make(chan int, 1)}
 	go func() {
 		c.code <- run([]string{"dap"}, inR, outW, io.Discard)
 		outW.Close()
+	}()
+	go func() {
+		r := bufio.NewReader(outR)
+		for {
+			msg, err := dap.ReadProtocolMessage(r)
+			if err != nil {
+				close(c.msgs)
+				return
+			}
+			c.msgs <- msg
+		}
 	}()
 	t.Cleanup(func() { inW.Close() })
 	return c
@@ -54,34 +66,31 @@ func (c *dapClient) send(command string, args any) {
 // output on the way.
 func (c *dapClient) next(keep func(dap.Message) bool) dap.Message {
 	c.t.Helper()
-	got := make(chan dap.Message, 1)
-	go func() {
-		for {
-			msg, err := dap.ReadProtocolMessage(c.r)
-			if err != nil {
-				close(got)
-				return
+	for i, msg := range c.pending {
+		if keep(msg) {
+			c.pending = append(c.pending[:i], c.pending[i+1:]...)
+			return msg
+		}
+	}
+	timeout := time.After(10 * time.Second)
+	for {
+		select {
+		case msg, ok := <-c.msgs:
+			if !ok {
+				c.t.Fatal("kukel dap ended")
 			}
-			if o, ok := msg.(*dap.OutputEvent); ok {
+			if o, isOutput := msg.(*dap.OutputEvent); isOutput {
 				c.output.WriteString(o.Body.Category + ": " + o.Body.Output)
 				continue
 			}
 			if keep(msg) {
-				got <- msg
-				return
+				return msg
 			}
+			c.pending = append(c.pending, msg) // for a later next
+		case <-timeout:
+			c.t.Fatal("no answer from kukel dap")
 		}
-	}()
-	select {
-	case msg, ok := <-got:
-		if !ok {
-			c.t.Fatal("kukel dap ended")
-		}
-		return msg
-	case <-time.After(10 * time.Second):
-		c.t.Fatal("no answer from kukel dap")
 	}
-	return nil
 }
 
 // response reads the response to the last request.
@@ -119,7 +128,10 @@ func (c *dapClient) event(name string) dap.EventMessage {
 func (c *dapClient) stop() int {
 	c.t.Helper()
 	c.ok("disconnect", nil)
-	go io.Copy(io.Discard, c.r)
+	go func() {
+		for range c.msgs {
+		}
+	}()
 	select {
 	case code := <-c.code:
 		return code

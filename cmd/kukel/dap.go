@@ -142,10 +142,7 @@ func (s *dapServer) read() {
 // end ends the program, if it runs: stopped, by letting it go on with an
 // error; running, by cancelling it.
 func (s *dapServer) end() {
-	s.mu.Lock()
-	stopped := s.stopped
-	s.mu.Unlock()
-	if stopped {
+	if s.going() {
 		s.resume <- func() error { return errDisconnected }
 	} else if s.cancel != nil {
 		s.cancel.Cancel(errDisconnected)
@@ -307,10 +304,8 @@ func (s *dapServer) Stopped(m *vm.VM, st debugger.Stop) error {
 		select {
 		case f := <-s.calls:
 			f()
-		case f := <-s.resume:
-			s.mu.Lock()
-			s.stopped, s.refs, s.thrown = false, nil, nil
-			s.mu.Unlock()
+		case f := <-s.resume: // going() marked the program running
+			s.refs, s.thrown = nil, nil
 			return f()
 		}
 	}
@@ -320,6 +315,18 @@ func (s *dapServer) Stopped(m *vm.VM, st debugger.Stop) error {
 func (s *dapServer) Log(msg string) {
 	s.stdout.Flush()
 	s.output("console", msg+"\n")
+}
+
+// going reports whether the program is stopped, and marks it running if it
+// is: before the request that lets it go on is sent to it on resume. So no
+// request after it takes the program for stopped (it would wait for an
+// answer from a program that went on). Only the reader calls it.
+func (s *dapServer) going() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	stopped := s.stopped
+	s.stopped = false
+	return stopped
 }
 
 // whileStopped answers a request with what f gives on the program's
@@ -341,10 +348,7 @@ func (s *dapServer) whileStopped(req dap.Request, f func(m *vm.VM) dap.ResponseM
 
 // goOn lets a stopped program go on as how says (given the frame depth).
 func (s *dapServer) goOn(req dap.Request, how func(depth int), resp dap.ResponseMessage) {
-	s.mu.Lock()
-	stopped := s.stopped
-	s.mu.Unlock()
-	if !stopped {
+	if !s.going() {
 		s.fail(req, errors.New("the program is running"))
 		return
 	}
