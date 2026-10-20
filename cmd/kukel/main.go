@@ -58,6 +58,8 @@ commands:
                                   of the files, if given)
   debug a.kkl ... [-- args]       run under the debugger: breakpoints,
                                   stepping, values (help inside)
+  dap                             the debugger for editors (the Debug Adapter
+                                  Protocol on standard input and output)
   disasm a.kkl ... | prog.kkc     show the bytecode in readable form
   tokens a.kkl ...                show the tokens of source files
   ast [-pos] a.kkl ...            show the syntax tree of source files
@@ -110,6 +112,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return cmdRepl(args, stdin, stdout, stderr)
 	case "debug":
 		return cmdDebug(args, stdin, stdout, stderr)
+	case "dap":
+		return cmdDap(args, stdin, stdout, stderr)
 	case "check":
 		return cmdCheck(args, stderr)
 	case "disasm":

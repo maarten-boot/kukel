@@ -964,6 +964,16 @@ func TestDebug(t *testing.T) {
 		"(kdb) i = 0\n(kdb) 0\n(kdb) 0\nbreakpoint 2, main at v.kkl:9\n    9          println(e->message);\n(kdb) w = 5\ne = Error{message: \"boom\", kind: \"Error\", trace: [\"main (v.kkl:7)\"]}\n(kdb) no variable i here\n") {
 		t.Errorf("variables in scope:\n%s", out.String())
 	}
+	// print takes expressions without side effects; break takes a condition.
+	os.WriteFile("x.kkl", []byte("main() {\n    local v = [10, 20, 30];\n    for (local i = 0; i < 3; i++) {\n        println(v[i]);\n    }\n}\n"), 0o644)
+	out.Reset()
+	cmds := "b 4 if i == 2\nbreaks\nc\np v[i] + i * 2\np i > 1 && v[0] == 10 ? \"yes\" : \"no\"\np len(v)\np i = 5\np i++\np [i, {\"k\": -i}]\nc\n"
+	if run([]string{"debug", "x.kkl"}, strings.NewReader(cmds), &out, &out); !strings.Contains(out.String(),
+		"(kdb) breakpoint 1 at x.kkl:4\n(kdb) 1: x.kkl:4 if i == 2\n(kdb) 10\n20\nbreakpoint 1, main at x.kkl:4\n    4          println(v[i]);\n(kdb) 34\n(kdb) \"yes\"\n"+
+			"(kdb) calls are not evaluated: they could change the program\n(kdb) only expressions without side effects are evaluated (names, operators, ?:, [i], ->member)\n"+
+			"(kdb) only expressions without side effects are evaluated (names, operators, ?:, [i], ->member)\n(kdb) [2, {\"k\": -2}]\n(kdb) 30\n") {
+		t.Errorf("expressions and a condition:\n%s", out.String())
+	}
 	// The end of the input quits.
 	out.Reset()
 	if code := run([]string{"debug", "w.kkl"}, strings.NewReader(""), &out, &out); code != 0 || !strings.HasSuffix(out.String(), "(kdb) \nthe program ended (exit code 0)\n") {
@@ -972,8 +982,8 @@ func TestDebug(t *testing.T) {
 }
 
 // print in a module's function (its globals first), static data members,
-// indexes written as in Kukel, b without an argument, and the stop at an
-// exception nothing catches.
+// indexes written as in Kukel (an expression: m[x] looks x up), b without an
+// argument, and the stop at an exception nothing catches.
 func TestDebugLookupAndUncaught(t *testing.T) {
 	t.Chdir(t.TempDir())
 	os.WriteFile("mm.kkl", []byte("global n = \"mod n\";\nclass C { static s; f(); static g(); }\nC::f() { s = 1; return n; }\nC::g() { return s; }\nf() {\n    return n;\n}\n"), 0o644)
@@ -986,7 +996,7 @@ func TestDebugLookupAndUncaught(t *testing.T) {
 		"(kdb) breakpoint 1, mm::f at mm.kkl:6\n    6      return n;\n(kdb) \"mod n\"\n(kdb) nil\n" +
 		"(kdb) breakpoint 2, mm::C::g at mm.kkl:4\n    4  C::g() { return s; }\n(kdb) \"mod n\"\n(kdb) 1\n" +
 		"(kdb) uncaught Error: caught (continuing ends the program)\nmain at p.kkl:14\n   14      try { throw new Error(\"caught\"); } finally { println(\"finally\"); }\n" +
-		"(kdb) 1\n(kdb) 2\n(kdb) 3\n(kdb) 4\n(kdb) 6\n(kdb) a [ without ]\n(kdb) an index must be a number or a \"string\", not x\n(kdb) 5\n(kdb) no variable cnt here\n" +
+		"(kdb) 1\n(kdb) 2\n(kdb) 3\n(kdb) 4\n(kdb) 6\n(kdb) expected ']' after index, found end of file\n(kdb) no variable x here\n(kdb) 5\n(kdb) no variable cnt here\n" +
 		"(kdb) *0 main (p.kkl:14)\n(kdb) finally\nError: caught\n  at main (p.kkl:14)\nthe program ended (exit code 1)\n"
 	var out bytes.Buffer
 	if code := run([]string{"debug", "p.kkl"}, strings.NewReader(cmds), &out, &out); code != 1 || out.String() != want {

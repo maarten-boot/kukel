@@ -2111,7 +2111,7 @@ func (c *compiler) evalConst(e ast.Expr) value.Value {
 			return value.MakeBool(x.Truthy() || c.evalConst(e.Y).Truthy())
 		}
 		y := c.evalConst(e.Y)
-		v, err := evalBinary(e.Op, x, y)
+		v, err := EvalBinary(e.Op, x, y)
 		c.constErr(e.OpPos, err)
 		return v
 	case *ast.CondExpr:
@@ -2140,7 +2140,9 @@ var cmpOps = map[token.Kind]value.CmpOp{
 	token.LT: value.Less, token.LE: value.LessEq, token.GT: value.Greater, token.GE: value.GreaterEq,
 }
 
-func evalBinary(op token.Kind, x, y value.Value) (value.Value, error) {
+// EvalBinary applies a binary operator (not && or ||) to two values, as
+// the program would: for constant expressions, and the debugger's.
+func EvalBinary(op token.Kind, x, y value.Value) (value.Value, error) {
 	switch op {
 	case token.EQ:
 		return value.MakeBool(value.Equal(x, y)), nil

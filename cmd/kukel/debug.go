@@ -4,34 +4,31 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/maarten-boot/kukel/internal/builtins"
 	"github.com/maarten-boot/kukel/internal/bytecode"
-	"github.com/maarten-boot/kukel/internal/lexer"
-	"github.com/maarten-boot/kukel/internal/token"
+	"github.com/maarten-boot/kukel/internal/debugger"
 	"github.com/maarten-boot/kukel/internal/value"
 	"github.com/maarten-boot/kukel/internal/vm"
 )
 
-// kukel debug (TODO.md Q60): runs a program in a copy of its code with a
-// BREAK at the start of every line (bytecode.Debuggable); the VM's debug
-// hook decides there whether to stop and then reads commands, gdb-style.
-// Only the main interpreter stops; workers run on. An exception that
-// nothing catches stops it too, where it is thrown (VM.DebugUncaught).
+// kukel debug (TODO.md Q60): the terminal front end of package debugger,
+// gdb-style: where the program stops, it reads commands until one lets it
+// go on.
 
 const debugHelp = `commands:
-  break file:line | line | function   stop there (b)
+  break file:line | line | function [if condition]
+                                      stop there (b); with a condition, only when it holds
   delete [n]                          remove breakpoint n, or all (d)
   breaks                              list the breakpoints
   continue                            run to the next breakpoint (c)
   step                                to the next line, also into calls (s)
   next                                to the next line, over calls (n)
   finish                              until the current function returns (f)
-  print path                          show a value: x, this->name, v[2], m["k"], util::count, C::x (p)
+  print expression                    show a value: x, this->name, v[i] + 1, util::count, C::x (p);
+                                      calls, assignments and ++ are not evaluated
   locals                              the variables of the current frame
   backtrace                           the calls, innermost first (bt)
   frame n                             look at frame n of bt (for print, locals and list)
@@ -40,25 +37,14 @@ const debugHelp = `commands:
   help                                these commands (h)
 `
 
-type breakpoint struct {
-	id   int
-	file string
-	line int
-}
-
-// debugger is the state of a kukel debug session.
-type debugger struct {
+// cliFront is the state of a kukel debug session.
+type cliFront struct {
+	s       *debugger.Session
 	in      *bufio.Reader
 	out     *bufio.Writer // the program's output (flushed before the debugger writes)
 	msg     io.Writer
-	prog    *bytecode.Program
-	breaks  []breakpoint
-	nextID  int
-	mode    string // "start", "continue", "step", "next", "finish"
-	depth   int    // the frame depth for next and finish
-	frame   int    // the frame print and locals look at (an index into the frames)
-	sources map[string][]string
-	thrown  *value.ObjectObj // the exception it stopped for as uncaught
+	frame   int // the frame print and locals look at (an index into the frames)
+	sources debugger.Sources
 }
 
 // cmdDebug runs source files under the debugger: kukel debug a.kkl ... [-- args].
@@ -92,9 +78,9 @@ func cmdDebug(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	machine.SetStderr(stderr)
-	d := &debugger{in: in, out: out, msg: stdout, prog: prog, mode: "start", sources: map[string][]string{}}
-	machine.Debug = d.hook
-	machine.DebugUncaught = d.uncaught
+	d := &cliFront{in: in, out: out, msg: stdout, sources: debugger.Sources{}}
+	d.s = debugger.New(prog, d, true)
+	d.s.Attach(machine)
 	code, err := machine.Run(progArgs)
 	out.Flush()
 	if err != nil {
@@ -104,64 +90,35 @@ func cmdDebug(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return code
 }
 
-// hook runs at the start of every line: it stops where the mode or a
-// breakpoint says, and then reads commands until one resumes.
-func (d *debugger) hook(m *vm.VM) error {
-	frames := m.Frames()
-	top := frames[len(frames)-1]
-	stop := false
-	switch d.mode {
-	case "start", "step": // start: the first line that runs, in a global initializer or main
-		stop = true
-	case "next":
-		stop = len(frames) <= d.depth
-	case "finish":
-		stop = len(frames) < d.depth
-	}
-	hit := 0
-	for _, b := range d.breaks {
-		if b.line == top.Line && sameFile(top.Func.File, b.file) {
-			stop, hit = true, b.id
-		}
-	}
-	if !stop {
-		return nil
-	}
+// Stopped shows where the program stopped and why, and reads commands
+// until one lets it go on. At an exception nothing catches, any command
+// that resumes ends the program.
+func (d *cliFront) Stopped(m *vm.VM, st debugger.Stop) error {
 	d.out.Flush()
-	d.frame = len(frames) - 1
-	if hit > 0 {
-		fmt.Fprintf(d.msg, "breakpoint %d, ", hit)
-	}
-	d.where(top)
-	return d.commands(m, frames)
-}
-
-// uncaught stops where an exception is thrown that nothing catches: the
-// frames can be looked at; any command that resumes ends the program.
-func (d *debugger) uncaught(m *vm.VM, re *vm.RuntimeError) error {
-	if re.Value.Kind() == value.Object {
-		if re.Value.AsObject() == d.thrown {
-			return nil // on its way out of a call from Go (sort's comparator, ...)
-		}
-		d.thrown = re.Value.AsObject()
-	}
 	frames := m.Frames()
-	if len(frames) == 0 {
-		return nil
-	}
-	d.out.Flush()
 	d.frame = len(frames) - 1
-	what := re.Kind
-	if re.Msg != "" {
-		what += ": " + re.Msg
+	switch {
+	case st.Reason == "exception":
+		what := st.Thrown.Kind
+		if st.Thrown.Msg != "" {
+			what += ": " + st.Thrown.Msg
+		}
+		fmt.Fprintf(d.msg, "uncaught %s (continuing ends the program)\n", what)
+	case len(st.Breaks) > 0:
+		fmt.Fprintf(d.msg, "breakpoint %d, ", st.Breaks[len(st.Breaks)-1])
 	}
-	fmt.Fprintf(d.msg, "uncaught %s (continuing ends the program)\n", what)
 	d.where(frames[d.frame])
 	return d.commands(m, frames)
 }
 
+// Log shows a logpoint's message (kukel debug sets none).
+func (d *cliFront) Log(msg string) {
+	d.out.Flush()
+	fmt.Fprintln(d.msg, msg)
+}
+
 // commands reads commands until one resumes the program.
-func (d *debugger) commands(m *vm.VM, frames []vm.DebugFrame) error {
+func (d *cliFront) commands(m *vm.VM, frames []vm.DebugFrame) error {
 	top := frames[len(frames)-1]
 	for {
 		fmt.Fprint(d.msg, "(kdb) ")
@@ -175,16 +132,16 @@ func (d *debugger) commands(m *vm.VM, frames []vm.DebugFrame) error {
 		switch cmd {
 		case "":
 		case "c", "continue":
-			d.mode = "continue"
+			d.s.Continue()
 			return nil
 		case "s", "step":
-			d.mode = "step"
+			d.s.Step()
 			return nil
 		case "n", "next":
-			d.mode, d.depth = "next", len(frames)
+			d.s.Next(len(frames))
 			return nil
 		case "f", "finish":
-			d.mode, d.depth = "finish", len(frames)
+			d.s.Finish(len(frames))
 			return nil
 		case "q", "quit":
 			return &value.ExitError{Code: 0}
@@ -193,14 +150,19 @@ func (d *debugger) commands(m *vm.VM, frames []vm.DebugFrame) error {
 		case "d", "delete":
 			d.deleteBreak(arg)
 		case "breaks":
-			if len(d.breaks) == 0 {
+			breaks := d.s.Breaks()
+			if len(breaks) == 0 {
 				fmt.Fprintln(d.msg, "no breakpoints")
 			}
-			for _, b := range d.breaks {
-				fmt.Fprintf(d.msg, "%d: %s:%d\n", b.id, b.file, b.line)
+			for _, b := range breaks {
+				if b.Cond != "" {
+					fmt.Fprintf(d.msg, "%d: %s:%d if %s\n", b.ID, b.File, b.Line, b.Cond)
+				} else {
+					fmt.Fprintf(d.msg, "%d: %s:%d\n", b.ID, b.File, b.Line)
+				}
 			}
 		case "p", "print":
-			v, err := d.eval(m, frames, arg)
+			v, err := debugger.Eval(m, d.frame, arg)
 			if err != nil {
 				fmt.Fprintln(d.msg, err)
 			} else {
@@ -248,16 +210,16 @@ func (d *debugger) commands(m *vm.VM, frames []vm.DebugFrame) error {
 }
 
 // where shows a frame's place and its source line.
-func (d *debugger) where(f vm.DebugFrame) {
+func (d *cliFront) where(f vm.DebugFrame) {
 	fmt.Fprintf(d.msg, "%s at %s:%d\n", f.Func.FuncName, f.Func.File, f.Line)
-	if text, ok := d.sourceLine(f.Func.File, f.Line); ok {
+	if text, ok := d.sources.Line(f.Func.File, f.Line); ok {
 		fmt.Fprintf(d.msg, "%5d  %s\n", f.Line, text)
 	}
 }
 
-func (d *debugger) list(file string, center, current int) {
+func (d *cliFront) list(file string, center, current int) {
 	for l := max(1, center-3); l <= center+3; l++ {
-		text, ok := d.sourceLine(file, l)
+		text, ok := d.sources.Line(file, l)
 		if !ok {
 			break
 		}
@@ -269,274 +231,54 @@ func (d *debugger) list(file string, center, current int) {
 	}
 }
 
-func (d *debugger) sourceLine(file string, line int) (string, bool) {
-	lines, ok := d.sources[file]
-	if !ok {
-		data, err := os.ReadFile(file)
-		if err == nil {
-			lines = strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
-		}
-		d.sources[file] = lines
-	}
-	if line < 1 || line > len(lines) {
-		return "", false
-	}
-	return lines[line-1], true
-}
-
 // addBreak sets a breakpoint: file:line, a line of the current file, or a
-// function's first line. A line without code moves to the next one with.
-func (d *debugger) addBreak(arg string, top vm.DebugFrame) {
-	file, line := top.Func.File, 0
-	if f, l, ok := strings.Cut(arg, ":"); ok && !strings.Contains(l, ":") {
+// function's first line, with "if condition" after it for a conditional
+// one. A line without code moves to the next one with.
+func (d *cliFront) addBreak(arg string, top vm.DebugFrame) {
+	where, cond, _ := strings.Cut(arg, " if ")
+	where, cond = strings.TrimSpace(where), strings.TrimSpace(cond)
+	b := debugger.Breakpoint{File: top.Func.File, Cond: cond}
+	if f, l, ok := strings.Cut(where, ":"); ok && !strings.Contains(l, ":") {
 		n, err := strconv.Atoi(l)
 		if err != nil {
-			fmt.Fprintf(d.msg, "%q: the line must be a number\n", arg)
+			fmt.Fprintf(d.msg, "%q: the line must be a number\n", where)
 			return
 		}
-		file, line = f, n
-	} else if n, err := strconv.Atoi(arg); err == nil {
-		line = n
-	} else if arg == "" {
+		b.File, b.Line = f, n
+	} else if n, err := strconv.Atoi(where); err == nil {
+		b.Line = n
+	} else if where == "" {
 		fmt.Fprintln(d.msg, "break where? (file:line, line or function)")
 		return
 	} else {
-		fn := d.function(arg)
-		if fn == nil || len(fn.Lines) == 0 {
-			fmt.Fprintf(d.msg, "no function %q\n", arg)
-			return
-		}
-		file, line = fn.File, fn.Lines[0].Line
+		b.Func = where
 	}
-	// The first line with code at or after line, in that file.
-	best := 0
-	for _, fn := range append([]*bytecode.Function{d.prog.Init}, d.prog.Funcs...) {
-		if !sameFile(fn.File, file) {
-			continue
-		}
-		file = fn.File
-		if fn.Name() == "<init>" && len(fn.Code) == 1 && bytecode.Op(fn.Code[0]) == bytecode.OpReturnNil {
-			continue // no initializers: nothing runs on its line
-		}
-		for _, l := range fn.Lines {
-			if l.Line >= line && (best == 0 || l.Line < best) {
-				best = l.Line
-			}
-		}
-	}
-	if best == 0 {
-		fmt.Fprintf(d.msg, "no code at or after %s:%d\n", file, line)
+	bp, note, err := d.s.SetBreak(b)
+	if err != nil {
+		fmt.Fprintln(d.msg, err)
 		return
 	}
-	if best != line && line != 0 {
-		fmt.Fprintf(d.msg, "(no code on line %d: the next is %d)\n", line, best)
+	if note != "" {
+		fmt.Fprintln(d.msg, note)
 	}
-	d.nextID++
-	d.breaks = append(d.breaks, breakpoint{d.nextID, file, best})
-	fmt.Fprintf(d.msg, "breakpoint %d at %s:%d\n", d.nextID, file, best)
+	fmt.Fprintf(d.msg, "breakpoint %d at %s:%d\n", bp.ID, bp.File, bp.Line)
 }
 
-func (d *debugger) deleteBreak(arg string) {
+func (d *cliFront) deleteBreak(arg string) {
 	if arg == "" {
-		d.breaks = nil
+		d.s.Clear(func(*debugger.Breakpoint) bool { return true })
 		fmt.Fprintln(d.msg, "all breakpoints deleted")
 		return
 	}
 	n, _ := strconv.Atoi(arg)
-	for i, b := range d.breaks {
-		if b.id == n {
-			d.breaks = append(d.breaks[:i], d.breaks[i+1:]...)
-			fmt.Fprintf(d.msg, "breakpoint %d deleted\n", n)
-			return
-		}
+	found := false
+	d.s.Clear(func(b *debugger.Breakpoint) bool {
+		found = found || b.ID == n
+		return b.ID == n
+	})
+	if found {
+		fmt.Fprintf(d.msg, "breakpoint %d deleted\n", n)
+		return
 	}
 	fmt.Fprintf(d.msg, "no breakpoint %q\n", arg)
-}
-
-// function finds a function by its name ("main", "Shape::area", "util::f").
-func (d *debugger) function(name string) *bytecode.Function {
-	for _, fn := range d.prog.Funcs {
-		if fn.FuncName == name {
-			return fn
-		}
-	}
-	return nil
-}
-
-// sameFile tells whether the file of a function is the one a breakpoint
-// names: the same path, or the same name.
-func sameFile(file, name string) bool {
-	return file == name || filepath.Base(file) == name || strings.HasSuffix(file, string(filepath.Separator)+name) ||
-		filepath.Clean(file) == filepath.Clean(name)
-}
-
-// eval reads a path: a variable of the frame (or this, a data member of
-// this, a global such as util::count), then ->member and [index] steps
-// with int or string indexes. Reading only: nothing runs.
-func (d *debugger) eval(m *vm.VM, frames []vm.DebugFrame, path string) (value.Value, error) {
-	path = strings.TrimSpace(path)
-	i := 0
-	for i < len(path) && (isIdentByte(path[i]) || i+1 < len(path) && path[i] == ':' && path[i+1] == ':' || i > 0 && path[i] == ':' && path[i-1] == ':') {
-		i++
-	}
-	name, rest := path[:i], path[i:]
-	if name == "" {
-		return value.NilValue, fmt.Errorf("print what? (a name, such as x or this->name)")
-	}
-	v, ok := d.lookup(m, frames[d.frame], name)
-	if !ok {
-		return value.NilValue, fmt.Errorf("no variable %s here", name)
-	}
-	for rest = strings.TrimSpace(rest); rest != ""; rest = strings.TrimSpace(rest) {
-		switch {
-		case strings.HasPrefix(rest, "->"):
-			j := 2
-			for j < len(rest) && isIdentByte(rest[j]) {
-				j++
-			}
-			member, err := value.Member(v, rest[2:j], value.MakeFunction)
-			if err != nil {
-				return value.NilValue, err
-			}
-			v, rest = member, rest[j:]
-		case strings.HasPrefix(rest, "["):
-			key, n, err := index(rest[1:])
-			if err != nil {
-				return value.NilValue, err
-			}
-			x, err := value.Index(v, key)
-			if err != nil {
-				return value.NilValue, err
-			}
-			v, rest = x, rest[1+n:]
-		default:
-			return value.NilValue, fmt.Errorf("unexpected %q (paths are name, ->member and [index])", rest)
-		}
-	}
-	return v, nil
-}
-
-// lookup finds a name as the frame's function sees it: this, a variable, a
-// data member of this, a static data member of its class, a global of its
-// module, a global; or a qualified name: C::x (a static data member, of
-// the module's class C first) or a module's global (util::count).
-func (d *debugger) lookup(m *vm.VM, f vm.DebugFrame, name string) (value.Value, bool) {
-	module, class := scope(m, f)
-	if prefix, member, ok := cutLast(name, "::"); ok {
-		names := []string{prefix}
-		if module != "" {
-			names = []string{module + "::" + prefix, prefix}
-		}
-		for _, c := range names {
-			if k, ok := m.Global(c); ok && k.Kind() == value.Class {
-				return static(k.AsClass(), member)
-			}
-		}
-		return m.Global(name)
-	}
-	if name == "this" {
-		if f.This == nil {
-			return value.NilValue, false
-		}
-		return value.ObjectValue(f.This), true
-	}
-	vars := m.Vars(d.frame)
-	for i := len(vars) - 1; i >= 0; i-- {
-		if vars[i].Name == name {
-			return vars[i].Value, true
-		}
-	}
-	if f.This != nil {
-		if slot, ok := f.This.Class.FieldIndex[name]; ok {
-			return f.This.Fields[slot], true
-		}
-	}
-	if v, ok := static(class, name); ok {
-		return v, true
-	}
-	if module != "" {
-		if v, ok := m.Global(module + "::" + name); ok {
-			return v, true
-		}
-	}
-	return m.Global(name)
-}
-
-// scope gives the module and the class of a frame's function, from its
-// name: util::A::m/fn@3 is in module util and class util::A.
-func scope(m *vm.VM, f vm.DebugFrame) (module string, class *value.ClassObj) {
-	name, _, _ := strings.Cut(f.Func.FuncName, "/")
-	parts := strings.Split(name, "::")
-	parts = parts[:len(parts)-1] // the function's own name
-	if len(parts) > 0 {
-		if k, ok := m.Global(strings.Join(parts, "::")); ok && k.Kind() == value.Class {
-			class = k.AsClass()
-			parts = parts[:len(parts)-1]
-		}
-	}
-	if len(parts) > 0 {
-		module = parts[0]
-	}
-	return module, class
-}
-
-// static gives the static data member name of class k or of a base class.
-func static(k *value.ClassObj, name string) (value.Value, bool) {
-	for ; k != nil; k = k.Base {
-		for i, s := range k.StaticNames {
-			if s == name {
-				return k.Statics[i], true
-			}
-		}
-	}
-	return value.NilValue, false
-}
-
-// cutLast cuts s around the last sep.
-func cutLast(s, sep string) (before, after string, found bool) {
-	if i := strings.LastIndex(s, sep); i >= 0 {
-		return s[:i], s[i+len(sep):], true
-	}
-	return s, "", false
-}
-
-// index reads an index and its "]" (src is what follows the "["): an int,
-// a float (both may have a "-"), a character or a "string", written as in
-// Kukel. n is the length up to and with the "]".
-func index(src string) (key value.Value, n int, err error) {
-	l := lexer.New("", []byte(src))
-	t, err := l.Next()
-	neg := err == nil && t.Kind == token.MINUS
-	if neg {
-		t, err = l.Next()
-	}
-	if err != nil {
-		return value.NilValue, 0, err
-	}
-	switch {
-	case t.Kind == token.INT && neg:
-		key = value.MakeInt(-int64(t.Int))
-	case t.Kind == token.INT && !t.IntMin, t.Kind == token.CHAR && !neg:
-		key = value.MakeInt(int64(t.Int))
-	case t.Kind == token.FLOAT && neg:
-		key = value.MakeFloat(-t.Float)
-	case t.Kind == token.FLOAT:
-		key = value.MakeFloat(t.Float)
-	case t.Kind == token.STRING && !neg:
-		key = value.MakeString(t.Str)
-	default:
-		end := strings.IndexByte(src, ']')
-		if end < 0 {
-			end = len(src)
-		}
-		return value.NilValue, 0, fmt.Errorf("an index must be a number or a \"string\", not %s", strings.TrimSpace(src[:end]))
-	}
-	if t, err = l.Next(); err != nil || t.Kind != token.RBRACK {
-		return value.NilValue, 0, fmt.Errorf("a [ without ]")
-	}
-	return key, t.Pos.Offset + 1, nil
-}
-
-func isIdentByte(c byte) bool {
-	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 }

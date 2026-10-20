@@ -6,6 +6,7 @@ require (
 	9fans.net/go v0.0.7
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/go-zeromq/zmq4 v0.17.0
+	github.com/google/go-dap v0.12.0
 	github.com/google/uuid v1.6.0
 	github.com/hugelgupf/p9 v0.4.1
 	github.com/jackc/pgx/v5 v5.11.0

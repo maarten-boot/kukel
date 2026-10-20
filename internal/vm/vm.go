@@ -416,6 +416,31 @@ func (vm *VM) Global(name string) (value.Value, bool) {
 	return value.NilValue, false
 }
 
+// SetGlobal gives the global variable called name (as Global names it) the
+// value v, and reports whether there is one; functions and classes cannot
+// be changed.
+func (vm *VM) SetGlobal(name string, v value.Value) bool {
+	for i, g := range vm.prog.Globals {
+		if g.Name == name && g.Kind == bytecode.GlobalVar {
+			vm.globals[i] = v
+			return true
+		}
+	}
+	return false
+}
+
+// Globals gives the names of the program's global variables (not its
+// functions and classes), in the order of the program.
+func (vm *VM) Globals() []string {
+	var names []string
+	for _, g := range vm.prog.Globals {
+		if g.Kind == bytecode.GlobalVar {
+			names = append(names, g.Name)
+		}
+	}
+	return names
+}
+
 // ResetSteps starts counting steps for StepLimit from zero again.
 func (vm *VM) ResetSteps() { vm.steps = 0 }
 
@@ -1990,31 +2015,12 @@ type DebugVar struct {
 func (vm *VM) Vars(i int) []DebugVar {
 	f := vm.frames[i]
 	var vars []DebugVar
-	add := func(name string, s int) {
-		v := vm.stack[f.base+s]
+	for _, l := range vm.slots(i) {
+		v := vm.stack[f.base+l.Slot]
 		if v.Kind() == value.Cell {
 			v = v.AsCell().V
 		}
-		vars = append(vars, DebugVar{name, v})
-	}
-	if f.fn.Locals != nil {
-		pc := vm.framePC(i)
-		var live []bytecode.LocalInfo
-		for _, l := range f.fn.Locals {
-			if l.Start <= pc && pc < l.End {
-				live = append(live, l)
-			}
-		}
-		slices.SortFunc(live, func(a, b bytecode.LocalInfo) int { return a.Slot - b.Slot })
-		for _, l := range live {
-			add(l.Name, l.Slot)
-		}
-	} else {
-		for s := 0; s < f.fn.NumSlots && s < len(f.fn.SlotNames); s++ {
-			if name := f.fn.SlotNames[s]; name != "" && name[0] != '(' { // not (switch), (iterator), (temp), ...
-				add(name, s)
-			}
-		}
+		vars = append(vars, DebugVar{l.Name, v})
 	}
 	if f.cl != nil {
 		for j, u := range f.fn.Upvalues {
@@ -2024,4 +2030,54 @@ func (vm *VM) Vars(i int) []DebugVar {
 		}
 	}
 	return vars
+}
+
+// SetVar gives the variable name of frame i (as Vars names it; of two
+// with that name, the inner one) the value v, and reports whether there
+// is one.
+func (vm *VM) SetVar(i int, name string, v value.Value) bool {
+	f := vm.frames[i]
+	if f.cl != nil {
+		for j := len(f.fn.Upvalues) - 1; j >= 0; j-- {
+			if f.fn.Upvalues[j].Name == name && j < len(f.cl.Cells) {
+				f.cl.Cells[j].V = v
+				return true
+			}
+		}
+	}
+	live := vm.slots(i)
+	for j := len(live) - 1; j >= 0; j-- {
+		if live[j].Name == name {
+			at := &vm.stack[f.base+live[j].Slot]
+			if at.Kind() == value.Cell {
+				at.AsCell().V = v
+			} else {
+				*at = v
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// slots gives the named slots of frame i in scope where it is, by slot.
+func (vm *VM) slots(i int) []bytecode.LocalInfo {
+	f := vm.frames[i]
+	var live []bytecode.LocalInfo
+	if f.fn.Locals != nil {
+		pc := vm.framePC(i)
+		for _, l := range f.fn.Locals {
+			if l.Start <= pc && pc < l.End {
+				live = append(live, l)
+			}
+		}
+		slices.SortFunc(live, func(a, b bytecode.LocalInfo) int { return a.Slot - b.Slot })
+		return live
+	}
+	for s := 0; s < f.fn.NumSlots && s < len(f.fn.SlotNames); s++ {
+		if name := f.fn.SlotNames[s]; name != "" && name[0] != '(' { // not (switch), (iterator), (temp), ...
+			live = append(live, bytecode.LocalInfo{Name: name, Slot: s})
+		}
+	}
+	return live
 }
