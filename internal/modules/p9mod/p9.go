@@ -4,6 +4,7 @@ package p9mod
 
 import (
 	"errors"
+	"io/fs"
 	"net"
 
 	"github.com/hugelgupf/p9/linux"
@@ -583,6 +584,13 @@ func disk9(env value.Env, args []value.Value) (value.Value, error) {
 	}
 	d, err := openDisk(dir, readonly)
 	if err != nil {
+		// The directory and what went wrong, without Go's name of the
+		// operation, as module fs gives them ("p9::disk: nope: no such
+		// file or directory").
+		var pe *fs.PathError
+		if errors.As(err, &pe) {
+			return value.NilValue, a.Errorf(value.IOError, "%s: %v", dir, pe.Err)
+		}
 		return value.NilValue, a.Errorf(value.IOError, "%v", err)
 	}
 	return Disk.Object(d), nil

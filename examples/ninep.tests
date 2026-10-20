@@ -63,9 +63,9 @@ $ ls localhost:5640
 exit 2
 
 $ serve tcp://127.0.0.1:0 testdata/nope
-! ninep: p9::disk: open testdata/nope: no such file or directory
+! ninep: p9::disk: testdata/nope: no such file or directory
 exit 2
 
 $ demo testdata/nope
-! ninep: p9::disk: open testdata/nope: no such file or directory
+! ninep: p9::disk: testdata/nope: no such file or directory
 exit 2

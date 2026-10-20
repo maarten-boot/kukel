@@ -240,8 +240,8 @@ main(args) {
     top->mount("/", p9::disk(args[0]));
     println(t, top, replace(str(p9::disk(args[0], {"readonly": false})), args[0], "TOP"));
 }`, top)
-	want := `IOError: p9::disk: open TOP/nope: no such file or directory
-IOError: p9::disk: open TOP/a.txt: not a directory
+	want := `IOError: p9::disk: TOP/nope: no such file or directory
+IOError: p9::disk: TOP/a.txt: not a directory
 TypeError: p9::disk: option readonly must be true or false, not int
 ValueError: p9::disk: unknown option "writable" (the option is readonly)
 TypeError: p9::disk: argument 2 must be a map of options, not int
