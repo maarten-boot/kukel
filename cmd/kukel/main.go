@@ -60,9 +60,10 @@ commands:
                                   stepping, values (help inside)
   dap                             the debugger for editors (the Debug Adapter
                                   Protocol on standard input and output)
-  profile [-o file] [-cpu] a.kkl ... [-- args]
+  profile [-o file] [-pprof file] [-cpu] a.kkl ... [-- args]
                                   run, then report which functions and lines
-                                  took the time (to standard error, or -o)
+                                  took the time (to standard error, or -o;
+                                  -pprof: also for go tool pprof)
   disasm a.kkl ... | prog.kkc     show the bytecode in readable form
   tokens a.kkl ...                show the tokens of source files
   ast [-pos] a.kkl ...            show the syntax tree of source files

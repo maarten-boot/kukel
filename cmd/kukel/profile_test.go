@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/google/pprof/profile"
 )
 
 const profiled = `use time;
@@ -19,7 +21,7 @@ fib(n) {
 
 work() {
     local t = 0;
-    for (local i = 0; i < 300000; i++) t += i % 7;
+    for (local i = 0; i < 2000000; i++) t += i % 7;
     return t;
 }
 
@@ -49,7 +51,7 @@ func TestProfile(t *testing.T) {
 	t.Chdir(t.TempDir())
 	os.WriteFile("p.kkl", []byte(profiled), 0o644)
 	var out, errOut bytes.Buffer
-	if code := run([]string{"profile", "p.kkl"}, nil, &out, &errOut); code != 0 || out.String() != "2584\n899997\n" {
+	if code := run([]string{"profile", "p.kkl"}, nil, &out, &errOut); code != 0 || out.String() != "2584\n5999995\n" {
 		t.Fatalf("exit %d, %q, %s", code, out.String(), errOut.String())
 	}
 	report := errOut.String()
@@ -77,6 +79,46 @@ func TestProfile(t *testing.T) {
 		t.Errorf("-cpu: %.3f s on the sleep line", s)
 	}
 
+	// -pprof: Go's pprof format, read back with its package.
+	errOut.Reset()
+	if code := run([]string{"profile", "-pprof", "p.pb.gz", "p.kkl"}, nil, &out, &errOut); code != 0 {
+		t.Fatalf("-pprof: exit %d, %s", code, errOut.String())
+	}
+	f, err := os.Open("p.pb.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prof, err := profile.Parse(f)
+	f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prof.SampleType) != 2 || prof.SampleType[0].Type != "samples" || prof.SampleType[1].Type != "wall" || prof.SampleType[1].Unit != "nanoseconds" {
+		t.Errorf("sample types: %v", prof.SampleType)
+	}
+	names := map[string]string{}
+	for _, fn := range prof.Function {
+		names[fn.Name] = fn.Filename
+	}
+	if !strings.HasSuffix(names["main"], "p.kkl") || !strings.HasSuffix(names["work"], "p.kkl") { // (fib is too quick to be sampled for sure)
+		t.Errorf("functions: %v", names)
+	}
+	if _, ok := names["[worker 1: work]"]; !ok {
+		t.Errorf("no root frame for the worker: %v", names)
+	}
+	var wall int64
+	interps := map[string]bool{}
+	for _, s := range prof.Sample {
+		wall += s.Value[1]
+		interps[s.Label["interpreter"][0]] = true
+		if root := s.Location[len(s.Location)-1].Line[0].Function.Name; root != "["+s.Label["interpreter"][0]+"]" {
+			t.Errorf("a sample's stack starts with %s", root)
+		}
+	}
+	if !interps["main"] || !interps["worker 1: work"] || wall < 150e6 {
+		t.Errorf("samples of %v, %d ns", interps, wall)
+	}
+
 	// A program that fails, and one that calls exit: the report comes too.
 	os.WriteFile("f.kkl", []byte("main() {\n    local v = [];\n    for (local i = 0; i < 1000; i++) push(v, i);\n    v[2000];\n}\n"), 0o644)
 	errOut.Reset()
@@ -91,7 +133,7 @@ func TestProfile(t *testing.T) {
 	}
 
 	// Usage errors.
-	for _, args := range [][]string{{"profile"}, {"profile", "-o"}, {"profile", "-x", "p.kkl"}, {"profile", "-cpu"}} {
+	for _, args := range [][]string{{"profile"}, {"profile", "-o"}, {"profile", "-pprof"}, {"profile", "-x", "p.kkl"}, {"profile", "-cpu"}} {
 		errOut.Reset()
 		if code := run(args, nil, &out, &errOut); code != 2 || !strings.Contains(errOut.String(), "usage: kukel profile") {
 			t.Errorf("%v: exit %d, %q", args, code, errOut.String())
