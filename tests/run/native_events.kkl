@@ -11,23 +11,24 @@ main() {
     events::post(println, "posted 2");
     events::run();
 
-    // Timers fire in the order of their deadlines.
+    // Timers fire in the order of their deadlines (20 ms apart at least,
+    // so that a busy machine keeps the order).
     local n = 0, tick;
-    tick = events::every(0.02, fn() {
+    tick = events::every(0.04, fn() {
         n++;
         println("tick", n);
 
         if (n == 3) tick->cancel();
     });
-    events::after(0.05, fn(who) { println("after", who); }, "0.05");
+    events::after(0.1, fn(who) { println("after", who); }, "0.1");
     events::after(0.01, println, "after 0.01 (a built-in as handler)");
     println("pending:", events::pending(), tick);
     events::run();                    // returns when nothing is left
     println("done:", events::pending(), tick, tick->active());
 
     // stop() ends run() early; the timer stays active for the next run.
-    local t = events::every(0.01, println, "every 0.01");
-    events::after(0.025, events::stop);
+    local t = events::every(0.02, println, "every 0.02");
+    events::after(0.05, events::stop);
     events::run();
     println("stopped; active:", t->active());
     t->cancel();

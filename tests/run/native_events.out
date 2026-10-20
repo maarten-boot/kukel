@@ -1,15 +1,15 @@
 posted 1
 posted 2
 posted by a handler
-pending: 3 events::Timer(every 0.02s)
+pending: 3 events::Timer(every 0.04s)
 after 0.01 (a built-in as handler)
 tick 1
 tick 2
-after 0.05
+after 0.1
 tick 3
 done: 0 events::Timer(cancelled) false
-every 0.01
-every 0.01
+every 0.02
+every 0.02
 stopped; active: true
 caught: boom
 onerror: RangeError index 1 out of range for vector of length 0
