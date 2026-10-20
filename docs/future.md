@@ -701,8 +701,8 @@ ideas above make useful:
   layout) (*done*, Q50, with in-place appends for `s += x`);
 - a debugger hook (breakpoints, stepping) on the VM, which the
   disassembler and line tables already prepare for (*done*: `kukel debug`,
-  TODO.md Q60; the Debug Adapter Protocol for editors could follow on the
-  same hook);
+  TODO.md Q60; the Debug Adapter Protocol for editors followed on the
+  same hook: *done*, `kukel dap`, TODO.md Q77);
 - reading directories: the module `fs` of section 6.1 (*done*, Q61), and
   `examples/grep.kkl` searches trees (`-r`);
 - a faster VM (register-based, or fewer instructions per call): *done* by

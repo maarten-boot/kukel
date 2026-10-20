@@ -145,6 +145,7 @@ machine as `kukel:dev` (`IMAGE=...` names it otherwise).
 | `kukel disasm prog.kkc` (or `a.kkl ...`) | show the bytecode |
 | `kukel fmt [-w \| -l] a.kkl ...` | format source files (indentation, spacing, a blank line before `if`, `for`, ...); `kukel fmt -` formats standard input |
 | `kukel debug a.kkl ... [-- args]` | run a program under the debugger (breakpoints, stepping, values; it also stops where an exception nothing catches is thrown) |
+| `kukel dap` | the debugger for editors (the Debug Adapter Protocol): Visual Studio Code (with the extension in `editors/vscode`, `make vscode`), Neovim, Helix, Emacs; see [docs/debugging.md](docs/debugging.md) |
 | `kukel repl [a.kkl ...]` | read declarations and statements and run them as they come |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | show the tokens or the syntax tree |
 | `kukel version` | show the version and the modules written in Go |
@@ -194,11 +195,13 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/compiler` | name resolution, the language's rules, code generation |
 | `internal/bytecode` | instruction set, `.kkc` files, the verifier that checks loaded files |
 | `internal/vm` | the stack machine: calls, objects, closures, exceptions (specified in [docs/vm.md](docs/vm.md)) |
+| `internal/debugger` | the debuggers' core: breakpoints, stepping, expressions (front ends: `kukel debug`, `kukel dap`) |
 | `internal/value`, `internal/builtins` | values with their operators, built-in functions |
 | `examples/` | demo programs, such as a `grep`, and a Go program that embeds kukel ([examples/README.md](examples/README.md)) |
+| `editors/vscode` | the Visual Studio Code extension: highlighting and debugging ([docs/debugging.md](docs/debugging.md)) |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q76). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q77). Ideas for later are in [docs/future.md](docs/future.md).
 
 ## Development
 
@@ -213,6 +216,7 @@ design decisions (Q1–Q76). Ideas for later are in [docs/future.md](docs/future
 | `make fuzz FUZZTIME=1m` | fuzz the lexer, parser, compiler, bytecode loader and verifier (what they accept runs in the VM with a step limit), `json::decode`, time parsing and `kukel fmt` (each for 30s by default) |
 | `make bench` | benchmarks |
 | `make golden` | rewrite the expected outputs in `tests/` after an intended change |
+| `make vscode` | the Visual Studio Code extension (`editors/vscode`) as `dist/kukel-vscode-<version>.vsix`; needs Node.js (npx fetches vsce) |
 | `make docker` | the Docker image for this machine, `kukel:dev` (`IMAGE=...` for another name) |
 | `make dist VERSION=v1.2.3` | the archives of a release in `dist/`: `kukel` and `kukel-tk` for Linux, macOS and Windows on amd64 and arm64 (`PLATFORMS=...` picks others), with `SHA256SUMS` |
 

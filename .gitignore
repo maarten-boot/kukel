@@ -5,5 +5,8 @@ dist/
 # Claude Code conversation history (symlinked from ~/.claude/projects)
 .claude-sessions/
 
+# The license copied into the VS Code extension by make vscode
+editors/vscode/LICENSE
+
 # Worktrees of Claude Code agents (temporary)
 .claude/worktrees/

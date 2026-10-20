@@ -1,0 +1,91 @@
+{
+  "name": "kukel",
+  "displayName": "Kukel",
+  "description": "The Kukel language: syntax highlighting, and debugging with kukel dap",
+  "version": "0.28.0",
+  "publisher": "maarten-boot",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maarten-boot/kukel"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Programming Languages", "Debuggers"],
+  "main": "./extension.js",
+  "activationEvents": ["onDebugResolve:kukel", "onDebugDynamicConfigurations:kukel", "onLanguage:kukel"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "kukel",
+        "aliases": ["Kukel", "kukel"],
+        "extensions": [".kkl"],
+        "firstLine": "^#!.*\\bkukel\\b",
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "kukel",
+        "scopeName": "source.kukel",
+        "path": "./syntaxes/kukel.tmLanguage.json"
+      }
+    ],
+    "breakpoints": [{ "language": "kukel" }],
+    "debuggers": [
+      {
+        "type": "kukel",
+        "label": "Kukel",
+        "languages": ["kukel"],
+        "configurationAttributes": {
+          "launch": {
+            "required": ["program"],
+            "properties": {
+              "program": { "type": "string", "description": "The .kkl file with main.", "default": "${file}" },
+              "files": { "type": "array", "items": { "type": "string" }, "description": "More source files of the program.", "default": [] },
+              "args": { "type": "array", "items": { "type": "string" }, "description": "The program's arguments.", "default": [] },
+              "cwd": { "type": "string", "description": "The program's working directory.", "default": "${workspaceFolder}" },
+              "stdin": { "type": "string", "description": "A file for the program's standard input (without it the input is empty)." },
+              "env": { "type": "object", "additionalProperties": { "type": "string" }, "description": "More environment variables, such as KUKEL_PATH.", "default": {} },
+              "stopOnEntry": { "type": "boolean", "description": "Stop at the first line that runs.", "default": false }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "kukel",
+            "request": "launch",
+            "name": "Debug the Kukel program",
+            "program": "${file}",
+            "cwd": "${fileDirname}"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "Kukel: Launch",
+            "description": "Debug a Kukel program",
+            "body": {
+              "type": "kukel",
+              "request": "launch",
+              "name": "Debug ${1:the Kukel program}",
+              "program": "^\"\\${workspaceFolder}/${2:main.kkl}\"",
+              "args": [],
+              "cwd": "^\"\\${workspaceFolder}\""
+            }
+          }
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "Kukel",
+      "properties": {
+        "kukel.path": {
+          "type": "string",
+          "default": "kukel",
+          "description": "The kukel command (a path, or a name found in PATH) that debugging runs as \"kukel dap\"."
+        }
+      }
+    }
+  }
+}

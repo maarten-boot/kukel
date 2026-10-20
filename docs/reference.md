@@ -50,6 +50,7 @@ hello, Kukel
 | `kukel disasm prog.kkc` or `kukel disasm a.kkl ...` | Show the bytecode in readable form |
 | `kukel repl [a.kkl ...]` | Read declarations and statements and run them as they come (see [The REPL](#the-repl)); with files, their declarations come first (`main` is not called) |
 | `kukel debug a.kkl ... [-- args]` | Run the program under the debugger: breakpoints, stepping, values (see [The debugger](#the-debugger)) |
+| `kukel dap` | The debugger for editors: the Debug Adapter Protocol on standard input and output, which an editor starts (see [docs/debugging.md](debugging.md): Visual Studio Code, Neovim, Helix, Emacs) |
 | `kukel fmt [-w \| -l] a.kkl ...`, `kukel fmt -` | Format source files: indentation (4 spaces; `case` labels one level into the switch, their statements two) and the spaces between tokens (`{ }` becomes `{}`; a comment at the end of a line keeps its distance); line breaks and comments stay, at most one blank line in a row; CRLF line ends become LF. A line that continues a statement outside brackets (`return c &&` and then `d;`) is indented one level more than the statement's first line. A statement that starts a line with `if`, `while`, `do`, `for`, `switch`, `try` or `with` (also after a label: `outer: for`, and with the label on a line of its own, where the blank line goes above the label) gets a blank line before it (above the comments right above it), except as the first statement of a block, after a label on its own line or a `case`, as the statement of `else` or a header without braces, or as the `while` of a `do`. The output is checked to give the same tokens and comments as the input; a file it cannot format safely is refused with an "internal error".  Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`; `-w` and `-l` together are a usage error). A file with a syntax error or a NUL byte is left alone, and the exit code is 1. `kukel fmt -` formats standard input to standard output (for editors; with `-w`, `-l` or files it is a usage error) |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | Show the tokens or the syntax tree of each file (for debugging; `-pos`, before the files, adds positions) |
 | `kukel version` (also `-version`, `--version`) | Show the version (with the commit and the Go version), the bytecode format and the modules written in Go, with the databases `db` can open (`db (SQLite, PostgreSQL, MySQL)`): a `kukel` built with tags may lack some (see the README) |
@@ -208,12 +209,12 @@ the program ended (exit code 0)
 
 | Command | |
 |---|---|
-| `break file:line`, `break line`, `break function` (`b`) | Stop at that line (of the current file), or at the first line of a function (`main`, `Shape::area`, `util::f`); a line without code moves the breakpoint to the next line with code |
+| `break file:line`, `break line`, `break function` (`b`) | Stop at that line (of the current file), or at the first line of a function (`main`, `Shape::area`, `util::f`); a line without code moves the breakpoint to the next line with code. With `if condition` after it (`b 12 if i == 3`), only when the condition (an expression as `print` takes) holds there |
 | `delete [n]` (`d`), `breaks` | Remove breakpoint `n`, or all; list them |
 | `continue` (`c`) | Run to the next breakpoint |
 | `step` (`s`), `next` (`n`) | To the start of the next line: also into a call, or over calls |
 | `finish` (`f`) | Until the current function has returned (to the next line of its caller) |
-| `print path` (`p`) | A value: a variable (parameter, local, captured), `this`, a data member of `this`, a static data member (`count` in a member function of its class, `C::count` anywhere), or a global (`count`, `util::count`; in a function of a module its own globals come first), followed by `->member` and `[index]` steps (`p v[2]`, `p m["key"]`, `p this->items`). An index is an int, a float or a string as in Kukel (`m["a]\n"]`) |
+| `print expression` (`p`) | The value of an expression without side effects: literals, names (a variable (parameter, local, captured), `this`, a data member of `this`, a static data member (`count` in a member function of its class, `C::count` anywhere), or a global (`count`, `util::count`; in a function of a module its own globals come first)), the operators, `?:`, indexing and members (`p v[i] + 1`, `p m["key"]`, `p this->items`, `p n > 0 ? "yes" : "no"`). Calls, assignments, `++`/`--`, `new` and function literals are refused: they could change the program |
 | `locals` | The variables of the frame |
 | `backtrace` (`bt`), `frame n` | The calls, innermost first; look at frame `n` (for `print`, `locals` and `list`) |
 | `list [line]` (`l`) | The source around the current line, or around `line` |
@@ -223,6 +224,8 @@ the program ended (exit code 0)
 - It stops at the start of lines only (a line with several statements is
   one stop), also in global initializers and in event handlers.
 - Looking never changes the program: `print` reads, it calls nothing.
+  (`kukel dap`, the debugger for editors, can change values: see
+  [docs/debugging.md](debugging.md).)
   The locals of a function are its slots: a slot that two blocks share
   shows the name of the later one.
 - Only the main interpreter stops; workers run on. The program reads its

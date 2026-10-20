@@ -6,7 +6,7 @@ LDFLAGS  := -X main.version=$(VERSION)
 # The build tags that leave everything optional out (make small).
 SMALL    := nosqlite,nopostgres,nomysql,nozmq,no9p
 
-.PHONY: all build small tk install test test-small test-tk test-all vet fmt fuzz bench golden dist docker clean
+.PHONY: all build small tk install test test-small test-tk test-all vet fmt fuzz bench golden dist docker vscode clean
 
 all: vet test build
 
@@ -99,6 +99,16 @@ dist:
 IMAGE ?= kukel:dev
 docker:
 	docker build --build-arg VERSION=$(VERSION) -t $(IMAGE) .
+
+# The VS Code extension (editors/vscode: highlighting, debugging with kukel
+# dap) as dist/kukel-vscode-<version>.vsix; needs Node.js (npx fetches vsce).
+VSCE = @vscode/vsce@3.2.1
+vscode:
+	mkdir -p dist
+	cp LICENSE editors/vscode/LICENSE
+	cd editors/vscode && npx --yes $(VSCE) package --no-dependencies \
+		-o ../../dist/kukel-vscode-$$(node -p 'require("./package.json").version').vsix
+	rm editors/vscode/LICENSE
 
 clean:
 	rm -rf bin dist
