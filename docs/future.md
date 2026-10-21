@@ -714,7 +714,35 @@ ideas above make useful:
   vector);
 - a code formatter (`kukel fmt`): *done* for indentation and spacing
   (TODO.md Q47), and a blank line before `if`, `while`, `do`, `for`,
-  `switch`, `try` and `with` (Q53).
+  `switch`, `try` and `with` (Q53);
+- an HTML front end next to Tk, for example through
+  [Wails](https://wails.io) (a Go framework whose windows are the
+  system's web view: HTML, CSS and JS in front, Go functions bound for JS
+  to call, events both ways). *Not decided; a possible future item.* What
+  stands in the way: Wails needs cgo on Linux and macOS (WebKitGTK and its
+  development libraries, WKWebView), while the releases are built with
+  `CGO_ENABLED=0` for all platforms from one machine; it wants the main
+  thread and its own event loop, as Tk does (one app per process), so
+  calls from JS must be handed to the interpreter's event loop; and it is
+  made for its own build tool, which generates the JS bindings and embeds
+  the front end when compiling, while a Kukel script would bring its HTML
+  when it runs. The ways in, from least to most work:
+  - **A.** Kukel inside a Wails app: a Go program built with Wails runs
+    Kukel scripts through the embedding API (section 2.1). Nothing in
+    Kukel changes; an example under `examples/` with its own `go.mod`, so
+    that the main module does not depend on Wails;
+  - **B.** a module (say `ui`) for Kukel scripts: the script gives a
+    directory of HTML and binds its functions for JS to call
+    (`ui::bind("save", save)`, `ui::emit(...)`, run by `events::run()`),
+    behind a build tag in a separate cgo binary (`kukel-gui`) built on each
+    platform's own CI runner;
+  - **C.** the same model without Wails, in pure Go: the module serves the
+    script's HTML on localhost with a WebSocket for calls and events, and
+    opens the browser. No cgo, every release platform, the one event loop;
+    but a browser tab instead of a native window.
+
+  The suggestion was A as an example first, then C if scripts want an HTML
+  front end, and B only when a native window really matters (**F-27**).
 
 ---
 
@@ -737,5 +765,5 @@ Each step is usable on its own and prepares the next:
 Steps 4, 5, 7 and 8 are independent of each other once 1 and 3 exist. A
 `ffi` module (1.6) can come at any point after step 1.
 
-The open questions **F-1** to **F-26** are best answered just before the
+The open questions **F-1** to **F-27** are best answered just before the
 step that needs them.
