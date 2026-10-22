@@ -145,7 +145,7 @@ machine as `kukel:dev` (`IMAGE=...` names it otherwise).
 | `kukel disasm prog.kkc` (or `a.kkl ...`) | show the bytecode |
 | `kukel fmt [-w \| -l] a.kkl ...` | format source files (indentation, spacing, a blank line before `if`, `for`, ...); `kukel fmt -` formats standard input |
 | `kukel debug a.kkl ... [-- args]` | run a program under the debugger (breakpoints, stepping, values; it also stops where an exception nothing catches is thrown) |
-| `kukel profile [-o file] [-pprof file] [-cpu] a.kkl ... [-- args]` | run a program and report which functions and lines took the time, with call counts (also of workers); `-pprof` writes it for `go tool pprof` (flame graphs) |
+| `kukel profile [-o file] [-pprof file] [-cpu] a.kkl ... [-- args]` | run a program and report which functions and lines took the time, with call counts (also of workers); `-pprof` writes it for `go tool pprof` (flame graphs); Ctrl-C stops the program and writes the report |
 | `kukel dap` | the debugger for editors (the Debug Adapter Protocol): Visual Studio Code (with the extension in `editors/vscode`, `make vscode`), Neovim, Helix, Emacs; see [docs/debugging.md](docs/debugging.md) |
 | `kukel repl [a.kkl ...]` | read declarations and statements and run them as they come |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | show the tokens or the syntax tree |
