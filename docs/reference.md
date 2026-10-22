@@ -108,14 +108,16 @@ state with the pieces before it:
 ```
 
 - A statement without its final `;` gets one when that completes the
-  piece. A line that is the header of an `if`, `else`, `while` or `for`
-  (`if (x > 0)` alone) is not taken as a statement with an empty body: its
-  statement comes on the next line. A definition's `{` goes on the line of
+  piece. A line that is the header of an `if`, `else`, `while`, `for` or
+  `with` (`if (x > 0)` alone) is not taken as a statement with an empty
+  body: its statement comes on the next line. A definition's `{` goes on the line of
   its header (`f(x)` alone is a call).
 - An `if` without an `else` waits for one more line. A line that starts
   with `else` joins it; an empty line (or the end of the input) runs it at
   once; any other line runs it and is then read as the next piece (or by
   a `readline()` in the `if`). Comment lines in between stay with the `if`.
+  In the same way a `try` with a `catch` but no `finally` waits for a line
+  that starts with `finally`.
 
 ```
 > local x = 3

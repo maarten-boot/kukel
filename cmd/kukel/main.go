@@ -646,8 +646,9 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	// The pieces and what the programs read (readline()) come from the
 	// same input.
-	var input replInput = &pipeInput{in: in, out: out, prompts: interactive}
-	var programIn io.Reader = in
+	pi := &pipeInput{in: in, out: out, prompts: interactive}
+	var input replInput = pi
+	var programIn io.Reader = pi
 	if editor != nil {
 		ei := editor.input()
 		input, programIn = ei, ei
@@ -681,8 +682,9 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if interactive {
 		first, _, _ := strings.Cut(versionText(), "\n")
 		fmt.Fprintf(out, "%s\ntype declarations or statements; a blank line ends an incomplete piece, end of input (Ctrl-D) quits\n", first)
+		out.Flush() // the line editor writes its prompt to the terminal itself
 	}
-	ended := false // the end of the input came when looking for an else
+	ended := false // the end of the input came when looking for an else or finally
 	for n := 1; ; n++ {
 		if ended {
 			if interactive {
@@ -694,7 +696,7 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		var stmts []ast.Stmt
 		var decls *ast.File
 		name := fmt.Sprintf("<input %d>", n)
-		var joined []byte // the lines that joined an if through else
+		var joined []byte // the lines that joined an if through else, or a try through finally
 	read:
 		for {
 			prompt := "> "
@@ -730,11 +732,11 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			if err == nil {
 				src = fixed // with the ';' it added
 			}
-			if err == nil && !blank && !end && danglingIf(stmts) {
-				// An else may follow on the next line; comment lines between
-				// join the piece. An empty line runs the if, and so does any
-				// other line, which then stays in the input: the next piece,
-				// or what the if reads.
+			if els, fin := continuations(stmts); err == nil && !blank && !end && (els || fin) {
+				// An else (or a finally) may follow on the next line; comment
+				// lines between join the piece. An empty line runs the piece,
+				// and so does any other line, which then stays in the input:
+				// the next piece, or what the piece reads.
 				var comments []byte
 				for {
 					next, perr := input.peek("... ")
@@ -750,12 +752,12 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 						input.take()
 						break
 					}
-					switch startsWith(append(comments, next...)) {
-					case "comment":
+					switch k := startsWith(append(comments, next...)); {
+					case k == "comment":
 						input.take()
 						comments = append(comments, next...)
 						continue
-					case "else":
+					case k == "else" && els, k == "finally" && fin:
 						input.take()
 						joined = append(comments, next...)
 						continue read
@@ -806,41 +808,62 @@ type replInput interface {
 }
 
 // pipeInput reads from a pipe, a file or a terminal without line editing.
+// It is also the programs' standard input, which gets a line the REPL
+// looked at but did not take (peek) first. It reads a line at a time, so
+// that the programs' reader holds no more than the line they read.
 type pipeInput struct {
-	in      *bufio.Reader // the programs read it too
+	in      *bufio.Reader
 	out     *bufio.Writer
 	prompts bool
-}
-
-func (p *pipeInput) prompt(prompt string) {
-	if p.prompts {
-		fmt.Fprint(p.out, prompt)
-	}
-	p.out.Flush()
+	rest    []byte // of the last line read
 }
 
 func (p *pipeInput) line(prompt string) (string, error) {
-	p.prompt(prompt)
-	return p.in.ReadString('\n')
+	line, err := p.peek(prompt)
+	if err == nil {
+		p.take()
+	}
+	return line, err
 }
 
 func (p *pipeInput) peek(prompt string) (string, error) {
-	p.prompt(prompt)
-	for n := 1; ; {
-		b, err := p.in.Peek(n)
-		if i := bytes.IndexByte(b, '\n'); i >= 0 {
-			return string(b[:i+1]), nil
+	if len(p.rest) == 0 {
+		if p.prompts {
+			fmt.Fprint(p.out, prompt)
 		}
-		if err != nil { // the end of the input, or a line longer than the buffer
-			return string(b), err
+		p.out.Flush()
+		line, err := p.in.ReadString('\n')
+		if line == "" {
+			return "", err
 		}
-		if n = p.in.Buffered(); n <= len(b) {
-			n = len(b) + 1
-		}
+		p.rest = []byte(line)
+	}
+	if i := bytes.IndexByte(p.rest, '\n'); i >= 0 {
+		return string(p.rest[:i+1]), nil
+	}
+	return string(p.rest), nil
+}
+
+func (p *pipeInput) take() {
+	if i := bytes.IndexByte(p.rest, '\n'); i >= 0 {
+		p.rest = p.rest[i+1:]
+	} else {
+		p.rest = nil
 	}
 }
 
-func (p *pipeInput) take() { p.in.ReadString('\n') }
+func (p *pipeInput) Read(b []byte) (int, error) {
+	if len(p.rest) == 0 {
+		line, err := p.in.ReadString('\n')
+		if line == "" {
+			return 0, err
+		}
+		p.rest = []byte(line)
+	}
+	n := copy(b, p.rest)
+	p.rest = p.rest[n:]
+	return n, nil
+}
 
 // parseInput parses a piece read by the REPL: declarations, or else
 // statements. Statements without a final ';' get one when that completes
@@ -878,8 +901,8 @@ func parseInput(name string, src []byte, last bool) (decls *ast.File, stmts []as
 }
 
 // emptyBody reports whether s ends in an empty statement as the body of an
-// if, else, while or for: the ';' the REPL added, where the user's body is
-// still to come.
+// if, else, while, for or with: the ';' the REPL added, where the user's
+// body is still to come.
 func emptyBody(s ast.Stmt) bool {
 	for {
 		var body ast.Stmt
@@ -895,6 +918,8 @@ func emptyBody(s ast.Stmt) bool {
 			body = x.Body
 		case *ast.ForEachStmt:
 			body = x.Body
+		case *ast.WithStmt:
+			body = x.Body
 		case *ast.LabeledStmt:
 			body = x.Stmt
 		default:
@@ -907,37 +932,44 @@ func emptyBody(s ast.Stmt) bool {
 	}
 }
 
-// danglingIf reports whether the last of stmts ends in an if without an
-// else (also as the body of a loop or after a label): an else on the next
-// line would belong to it.
-func danglingIf(stmts []ast.Stmt) bool {
+// continuations reports what a next line may add to the last of stmts:
+// an else, when it ends in an if without one, and a finally, when it ends
+// in a try with a catch but no finally (also as the body of a loop, an if,
+// a with or after a label).
+func continuations(stmts []ast.Stmt) (els, fin bool) {
 	if len(stmts) == 0 {
-		return false
+		return false, false
 	}
 	s := stmts[len(stmts)-1]
 	for {
 		switch x := s.(type) {
 		case *ast.IfStmt:
-			if x.Else == nil {
-				return true
+			if x.Else != nil {
+				s = x.Else
+				continue
 			}
-			s = x.Else
+			els, s = true, x.Then // "if (c) try {} catch (e) {}" may get a finally too
+		case *ast.TryStmt:
+			return els, x.Catch != nil && x.Finally == nil
 		case *ast.WhileStmt:
 			s = x.Body
 		case *ast.ForStmt:
 			s = x.Body
 		case *ast.ForEachStmt:
 			s = x.Body
+		case *ast.WithStmt:
+			s = x.Body
 		case *ast.LabeledStmt:
 			s = x.Stmt
 		default:
-			return false
+			return els, false
 		}
 	}
 }
 
 // startsWith tells how lines start, by their first token: "else",
-// "comment" (nothing but comments, or a comment that goes on), or "".
+// "finally", "comment" (nothing but comments, or a comment that goes on),
+// or "".
 func startsWith(lines []byte) string {
 	t, err := lexer.New("", lines).Next()
 	switch {
@@ -949,6 +981,8 @@ func startsWith(lines []byte) string {
 		return "comment"
 	case t.Kind == token.ELSE:
 		return "else"
+	case t.Kind == token.FINALLY:
+		return "finally"
 	}
 	return ""
 }

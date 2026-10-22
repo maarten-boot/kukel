@@ -666,6 +666,18 @@ println("not run");
 		{"local j = 0\ndo {\n  j++;\n} while (j < 3)\nj\n", "3\n"},
 		{"local k = 0\nwhile (k < 2) if (k == 1) k = 5\nelse k++\nk\n", "5\n"},
 		{"if (1) {\n  println(1);\n}\n\nlocal else_ = 2\nelse_\n", "1\n2\n"},
+		// with on a line of its own takes the next line as its body
+		{"class L { close(); }\nL::close() { println(\"closed\"); }\nwith (local a = new L())\n  println(\"body\");\n", "body\nclosed\n"},
+		{"class L { close(); }\nL::close() { println(\"closed\"); }\nwith (local a = new L()) if (0) {}\nelse println(\"else\")\n", "else\nclosed\n"},
+		// a try with a catch waits for a finally on the next line
+		{"try { throw new Error(\"x\"); } catch (e) { println(1); }\nfinally { println(3); }\nprintln(\"after\")\n", "1\n3\nafter\n"},
+		{"try { println(1); }\ncatch (e) {}\n// c\nfinally {\n  println(2);\n}\n", "1\n2\n"},
+		{"try { println(4); } catch (e) { }\nprintln(5)\n", "4\n5\n"},
+		{"if (0) try {} catch (e) {}\nelse println(\"else\")\n", "else\n"},
+		{"if (1) try { println(6); } catch (e) {}\nfinally { println(7); }\n", "6\n7\n"},
+		// a line longer than the input's buffer, looked at after an if
+		{"if (false) println(1)\nelse println(len(\"" + strings.Repeat("a", 5000) + "\"))\nprintln(\"next\")\n", "5000\nnext\n"},
+		{"if (true) println(len(readline()))\n" + strings.Repeat("b", 6000) + "\nprintln(\"after\")\n", "6000\nafter\n"},
 	} {
 		out.Reset()
 		errOut.Reset()
