@@ -1896,7 +1896,8 @@ for `<Configure>`, the widget's position in its parent); `xroot` and
 `yroot` (the mouse on the screen: where a pop-up menu goes); `delta` (the
 mouse wheel; 0 for other events); `width` and `height` (for
 `<Configure>`, else nil). Binding a sequence again replaces the handler,
-and `bind(sequence, nil)` removes it. A binding on a window also gets the
+and `bind(sequence, nil)` removes it. A sequence Tk does not know
+(`"<Foo>"`) is a `ValueError`. A binding on a window also gets the
 events of the widgets in it (a key binding there works wherever the focus
 is in the window).
 
@@ -1914,7 +1915,10 @@ bound on that widget too, with a handler that returns `false`:
 The handlers of the widgets run for what the user does, not for the
 program's own changes: `setchecked`, `setvalue` and `setselected` do not
 call them. `invoke` of a button or menu entry calls the handler also when
-the button or entry is disabled (it is the program's own call). Note that
+the button or entry is disabled (it is the program's own call). `onenter`
+runs before a `bind("<Return>")` handler of the entry, and `onselect`
+before a `bind("<<ListboxSelect>>")` handler of the list box, so such a
+handler that returns `false` does not stop them. Note that
 a button takes the keyboard focus when clicked; an entry gets it back with
 `focus()`.
 
@@ -1927,8 +1931,10 @@ a button takes the keyboard focus when clicked; an entry gets it back with
 | `tk::savefile([options])` | Lets the user choose where to save; gives the path (the file need not exist; the dialog asks before an existing one is chosen), or nil. Options: `title`, `dir`, `file`, `types`, `ext` (added to a name without one, as `".txt"`), `parent` |
 | `tk::choosedir([options])` | Lets the user choose a directory; gives its path, or nil. Options: `title`, `dir`, `mustexist`, `parent` |
 
-The dialogs wait for the user: meanwhile the windows keep working and their
-handlers run, but timers and other events of the event loop wait.
+The dialogs wait for the user: until the user answers, the program's other
+windows take no input (they still redraw), and timers and other events of
+the event loop wait. What the program printed before a dialog is written
+out when it opens.
 
 **Windows and frames.**
 
@@ -1973,7 +1979,7 @@ closed)`), a frame as `tk::Frame`.
 | `l->items()`, `l->setitems(v)` | The lines |
 | `l->selected()`, `l->setselected(v)` | The indexes of the lines chosen, a vector (`[]`: none); an index that is not a line's is a `ValueError` |
 | `l->onselect(f)` | `f(selected)` is called when the user changes the lines chosen |
-| `new tk::Scale(parent [, options])` | A slider for a number. Options: `from` and `to` (the ends: 0 and 100 when left out; numbers from -1e9 to 1e9), `step` (the values are `from` plus a multiple of it; 0, the default: any value), `orient` (`"horizontal"`, the default, `"vertical"`), `length` (pixels), `state` (`"disabled"` greys the label and the value too); and in the constructor only, `label` (a text above the slider) and `showvalue` (`true`: the value beside it, as an int or with as many decimals as the step has, 2 without a step; as wide as the wider end, also when `configure` changes them). With either, the slider sits in a frame of its own with them, which `pack` and `grid` place |
+| `new tk::Scale(parent [, options])` | A slider for a number. Options: `from` and `to` (the ends: 0 and 100 when left out; numbers from -1e9 to 1e9), `step` (the values are `from` plus a multiple of it, with as many decimals as `step` and `from` have: in steps of 0.1, 0.3 and not 0.30000000000000004; 0, the default: any value), `orient` (`"horizontal"`, the default, `"vertical"`), `length` (pixels), `state` (`"disabled"` greys the label and the value too); and in the constructor only, `label` (a text above the slider) and `showvalue` (`true`: the value beside it, as an int or with as many decimals as the step has, 2 without a step; as wide as the wider end, also when `configure` changes them). With either, the slider sits in a frame of its own with them, which `pack` and `grid` place |
 | `s->value()`, `s->setvalue(x)` | The value (at first `from`): an int when a `step` is given and `from` and `step` are whole numbers, else a float; `setvalue` puts `x` (any number) within the range and on a step (the end of the range is a value only when the range holds whole steps: from 0 to 10 in steps of 3, the largest is 9) |
 | `s->onchange(f)` | `f(value)` is called when the user moves the slider to another value |
 | `new tk::Combobox(parent [, lines] [, options])` | A field with a drop-down list of lines to choose from (a vector of strings). Options: `width` (characters), `height` (lines in the list), `font`, `justify`, `state` (`"normal"`, the default: the text can also be typed; `"readonly"`: only chosen; `"disabled"`) |
@@ -1986,8 +1992,8 @@ A widget prints as its class and text: `tk::Label("Name:")`,
 `tk::Radiogroup("red")`, `tk::Listbox(3 lines)` (`1 line`), `tk::Text`,
 `tk::Scale(7)`, `tk::Combobox("green")`.
 
-A settings window, opened from the main one; closing it without OK asks
-first:
+A settings window, opened from the main one (one at a time); closing it
+without OK asks first:
 
 ```
 use tk;
@@ -2000,8 +2006,10 @@ main() {
     local open = new tk::Button(w, "Settings...");
     summary->pack();
     open->pack({"pady": 5});
+    local s = nil;
     open->onclick(fn() {
-        local s = new tk::Window("Settings");
+        if (s != nil && !s->closed()) return;   // one at a time
+        s = new tk::Window("Settings");
         local f = new tk::Frame(s, {"padding": 10});
         f->pack({"fill": "both", "expand": true});
         local sound = new tk::Checkbutton(f, "Sound")->setchecked(settings["sound"]);
@@ -2075,7 +2083,7 @@ main() {
 
 | Constructor or member function | Description |
 |---|---|
-| `new tk::Image(path)` | The picture in a PNG or GIF file (a regular file, at most 64 MB). The file is read by kukel: an `IOError` when it cannot be (or is not a regular file, such as a pipe or a device), a `ValueError` when it is not PNG or GIF (or Tk cannot read it) |
+| `new tk::Image(path)` | The picture in a PNG or GIF file (a regular file, at most 64 MB). The file is read by kukel: an `IOError` when it cannot be (or is not a regular file, such as a pipe or a device), a `ValueError` when it is larger than 64 MB or not PNG or GIF (or Tk cannot read it) |
 | `img->width()`, `img->height()` | Its size in pixels |
 | `img->free()` | Frees the picture in Tk (a program that makes many images frees those it no longer shows). Labels, buttons and canvas items that show it go blank (a canvas item stays, without a picture); giving it to a widget or canvas afterwards is a `ValueError`; `width()` and `height()` still give its size. Freeing again has no effect; after Tk ended (the picture went with Tk) it only marks the image freed (it prints as freed) |
 
@@ -2122,9 +2130,9 @@ coordinates are numbers (pixels, from -1e6 to 1e6), points are vectors
 | Constructor or member function | Description |
 |---|---|
 | `new tk::Canvas(parent [, options])` | Options: `width`, `height`, `background` (a colour), and in the constructor `scroll` (the scrollbars reach everything drawn) |
-| `c->line(points [, options])` | A line through at least 2 points. Options: `color`, `width`, `arrow` (`"none"`, `"first"`, `"last"`, `"both"`), `smooth` (`true`: a curve) |
-| `c->rect(x1, y1, x2, y2 [, options])`, `c->oval(x1, y1, x2, y2 [, options])` | A rectangle, or the oval in it. Options: `fill`, `outline` (colours; `""`: none), `width` (of the outline) |
-| `c->arc(x1, y1, x2, y2 [, options])` | A part of the oval in that rectangle. Options as for `rect`, and `start` (degrees, counterclockwise from 3 o'clock; 0 when left out), `extent` (degrees; 90 when left out, negative: clockwise), `style` (`"pieslice"`, the default, `"chord"`, `"arc"`: the curve only) |
+| `c->line(points [, options])` | A line through at least 2 points. Options: `color`, `width` (pixels, 0 to 1000), `arrow` (`"none"`, `"first"`, `"last"`, `"both"`), `smooth` (`true`: a curve) |
+| `c->rect(x1, y1, x2, y2 [, options])`, `c->oval(x1, y1, x2, y2 [, options])` | A rectangle, or the oval in it. Options: `fill`, `outline` (colours; `""`: none), `width` (of the outline: pixels, 0 to 1000) |
+| `c->arc(x1, y1, x2, y2 [, options])` | A part of the oval in that rectangle. Options as for `rect`, and `start` (degrees from -360 to 360, counterclockwise from 3 o'clock; 0 when left out), `extent` (degrees from -360 to 360; 90 when left out, negative: clockwise), `style` (`"pieslice"`, the default, `"chord"`, `"arc"`: the curve only) |
 | `c->polygon(points [, options])` | A polygon of at least 3 points; options as for `rect` |
 | `c->text(x, y, s [, options])` | A text at `x, y`. Options: `color`, `font`, `anchor` (which point of the text is at `x, y`: `"center"`, the default, `"nw"`, ...), `justify`, `width` (pixels before a line wraps) |
 | `c->image(x, y, img [, options])` | A `tk::Image` at `x, y`. Option: `anchor` (as for `text`) |
@@ -2134,7 +2142,7 @@ coordinates are numbers (pixels, from -1e6 to 1e6), points are vectors
 | `c->raise(item)`, `c->lower(item)` | Puts an item (or the items with a tag, in their order) above, or below, all the others |
 | `c->remove(item)`, `c->clear()` | Removes an item (or the items with a tag), or all |
 | `c->tag(id, tag)`, `c->untag(id, tag)`, `c->tagged(tag)` | Gives an item a tag, or takes it away; the ids of the items with a tag (bottom to top). A tag is a name of letters, digits and `_` not starting with a digit; an item may have several |
-| `c->binditem(item, sequence, f)` | Calls `f(e)` for events of `sequence` on an item, or on any item with a tag (nil: none); `e` also has `item`, the item's id. The item is the topmost one under the mouse, or while a mouse button is down, the one it went down on (so a drag follows the item). Item bindings are for mouse events; `"<Enter>"` and `"<Leave>"` are the item's: when the mouse moves onto it or off it, also into or out of the canvas, or when the items change under the mouse (one moved away, raised, made, removed); while a mouse button is down the item does not change. Item handlers run after the canvas's own bindings of the same event (`c->bind`), and neither hides the other; one that returns `false` stops the event, also for the item handlers after it |
+| `c->binditem(item, sequence, f)` | Calls `f(e)` for events of `sequence` on an item, or on any item with a tag (nil: none); `e` also has `item`, the item's id. The item is the topmost one under the mouse, or while a mouse button is down, the one it went down on (so a drag follows the item). Item bindings are for mouse events; `"<Enter>"` and `"<Leave>"` are the item's: when the mouse moves onto it or off it, also into or out of the canvas, or when the items change under the mouse (one moved away, raised, made, removed); while a mouse button is down the item does not change. Item handlers run after the canvas's own bindings of the same event (`c->bind`), and neither hides the other; one that returns `false` stops the event, also for the item handlers after it (and so do a removed item, and a closed window). The item's `"<Enter>"` and `"<Leave>"` are the exception: they follow the mouse before the canvas's own bindings (of `"<Enter>"`, `"<Leave>"`, `"<Motion>"`), which cannot stop them; at a button's release they come after the release's handlers |
 | `c->items()` | The ids, from the bottom to the top |
 | `c->itemat(x, y)` | The id of the topmost item at that point (on a rectangle, oval, polygon or arc's slice, near a line, on a text or image), or nil |
 

@@ -85,9 +85,93 @@ func TestExamples(t *testing.T) {
 	}
 }
 
-// TestNotes types the shortcuts of examples/notes.kkl into its text: they
-// must not edit the text (Tk's Text makes a new line at Ctrl+O), so the
-// text has no changes and Ctrl+O opens the file dialog at once.
+// TestSettings clicks the settings example of docs/reference.md: its
+// button "Settings..." twice (one settings window opens), then OK (it
+// closes).
+func TestSettings(t *testing.T) {
+	display(t)
+	if _, err := exec.LookPath("xdotool"); err != nil || os.Getenv("KUKEL_TK_NOCLICK") != "" {
+		t.Skip("no xdotool")
+	}
+	doc, err := os.ReadFile("../../../docs/reference.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var code string
+	blocks := strings.Split(string(doc), "```")
+	for i := 1; i < len(blocks); i += 2 {
+		if strings.Contains(blocks[i], `"Settings..."`) {
+			code = strings.TrimPrefix(blocks[i], "\n")
+		}
+	}
+	if code == "" {
+		t.Fatal("no settings example in docs/reference.md")
+	}
+	file := filepath.Join(t.TempDir(), "settings.kkl")
+	if err := os.WriteFile(file, []byte(code), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Env = append(os.Environ(), "KUKEL_TK_EXAMPLE="+file, "KUKEL_TK_ARG=stay") // closed by the test
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	defer func() {
+		cmd.Process.Kill() // it has no way to quit but its window
+		<-done
+	}()
+	main := findWindow("Main")
+	if main == "" {
+		t.Fatalf("no window Main\n%s", out.String())
+	}
+	// Without a window manager windows open at 0,0: Main moves away, so
+	// that the settings window does not cover it. The button is below the
+	// summary: near the bottom of the window.
+	exec.Command("xdotool", "windowmove", main, "400", "300").Run()
+	time.Sleep(300 * time.Millisecond)
+	bottom := func(win string, dx int) (int, int) {
+		geo, _ := exec.Command("xdotool", "getwindowgeometry", "--shell", win).Output()
+		var x, y, w, h int
+		for _, line := range strings.Split(string(geo), "\n") {
+			fmt.Sscanf(line, "X=%d", &x)
+			fmt.Sscanf(line, "Y=%d", &y)
+			fmt.Sscanf(line, "WIDTH=%d", &w)
+			fmt.Sscanf(line, "HEIGHT=%d", &h)
+		}
+		if dx < 0 {
+			return x + w + dx, y + h - 22
+		}
+		return x + w/2, y + h - 22
+	}
+	x, y := bottom(main, 0)
+	for i := 0; i < 2; i++ {
+		exec.Command("xdotool", "mousemove", fmt.Sprint(x), fmt.Sprint(y), "click", "1").Run()
+		time.Sleep(500 * time.Millisecond)
+	}
+	got, _ := exec.Command("xdotool", "search", "--onlyvisible", "--name", "^Settings$").Output()
+	wins := strings.Fields(string(got))
+	if len(wins) != 1 {
+		t.Fatalf("%d settings windows open, want 1", len(wins))
+	}
+	// OK, at the bottom right.
+	x, y = bottom(wins[0], -40)
+	exec.Command("xdotool", "mousemove", fmt.Sprint(x), fmt.Sprint(y), "click", "1").Run()
+	for i := 0; i < 30; i++ {
+		if exec.Command("xdotool", "search", "--onlyvisible", "--name", "^Settings$").Run() != nil {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Errorf("OK did not close the settings window")
+}
+
+// TestNotes presses Ctrl+O and Ctrl+Q in the text of examples/notes.kkl:
+// they must not edit the text (Tk's Text makes a new line at Ctrl+O), so
+// the text has no changes and Ctrl+O opens the file dialog at once.
 func TestNotes(t *testing.T) {
 	display(t)
 	if _, err := exec.LookPath("xdotool"); err != nil || os.Getenv("KUKEL_TK_NOCLICK") != "" {

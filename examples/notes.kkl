@@ -37,6 +37,8 @@ main(args) {
         text->bind("<Control-Key-" + key + ">", shortcut);
     }
     text->bind("<KeyRelease>", fn(e) { show(); });
+    // A middle click pastes, after this handler: show() comes after it.
+    text->bind("<ButtonRelease-2>", fn(e) { events::after(0, show); });
     status = new tk::Label(window, "", {"anchor": "w", "padding": [4, 2]});
     status->pack({"fill": "x"});
     window->onclose(asksave);   // false keeps the window open
