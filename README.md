@@ -203,7 +203,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `editors/vscode` | the Visual Studio Code extension: highlighting and debugging ([docs/debugging.md](docs/debugging.md)) |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q78). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q79). Ideas for later are in [docs/future.md](docs/future.md).
 
 ## Development
 
