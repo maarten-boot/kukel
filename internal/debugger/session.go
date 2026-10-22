@@ -44,11 +44,12 @@ type Stop struct {
 }
 
 // Breakpoint stops the program at a line of a file. A function breakpoint
-// is one at its function's first line (Func names it). With Cond, it stops
-// only when the condition is true there; with Hit, only when the count of
-// its hits so far meets it ("3": the 3rd time, ">= 3", "% 2", ...); with
-// Log, it shows the message instead of stopping, with {expression}s in it
-// replaced by their values.
+// (Func names the function) stops where a call of it starts, at its first
+// line, and not where a loop on that line comes back to it. With Cond, it
+// stops only when the condition is true there; with Hit, only when the
+// count of its hits so far meets it ("3": the 3rd time, ">= 3", "% 2",
+// ...); with Log, it shows the message instead of stopping, with
+// {expression}s in it replaced by their values.
 type Breakpoint struct {
 	ID             int
 	File           string // the file of the function whose line it is
@@ -56,6 +57,7 @@ type Breakpoint struct {
 	Func           string
 	Cond, Hit, Log string
 	hits           int
+	fn             *bytecode.Function // of a function breakpoint
 }
 
 // Session is the state of a debugger.
@@ -143,7 +145,11 @@ func (s *Session) at(f vm.DebugFrame) []*Breakpoint {
 	defer s.mu.Unlock()
 	var out []*Breakpoint
 	for _, b := range s.breaks {
-		if b.Line == f.Line && SameFile(f.Func.File, b.File) {
+		if b.fn != nil {
+			if f.Func == b.fn && f.PC == entry(b.fn) {
+				out = append(out, b)
+			}
+		} else if b.Line == f.Line && SameFile(f.Func.File, b.File) {
 			out = append(out, b)
 		}
 	}
@@ -168,8 +174,10 @@ func (s *Session) hit(m *vm.VM, frame int, b *Breakpoint) bool {
 	b.hits++
 	n := b.hits
 	s.mu.Unlock()
-	if b.Hit != "" && !hitCount(b.Hit, n) {
-		return false
+	if b.Hit != "" {
+		if hc, err := parseHit(b.Hit); err == nil && !hc.meets(n) {
+			return false
+		}
 	}
 	if b.Log != "" {
 		s.front.Log(Interpolate(m, frame, b.Log))
@@ -178,48 +186,56 @@ func (s *Session) hit(m *vm.VM, frame int, b *Breakpoint) bool {
 	return true
 }
 
-// hitCount tells whether n hits meet cond: "3" (exactly), "== 3", "!= 3",
+// hitCond is a hit count condition: op and a number.
+type hitCond struct {
+	op string
+	k  int
+}
+
+// parseHit reads a hit count condition: "3" (exactly), "== 3", "!= 3",
 // "> 3", ">= 3", "< 3", "<= 3" or "% 3" (every 3rd).
-func hitCount(cond string, n int) bool {
-	cond = strings.TrimSpace(cond)
+func parseHit(cond string) (hitCond, error) {
+	c := strings.TrimSpace(cond)
 	op := "=="
 	for _, o := range []string{"==", "!=", ">=", "<=", ">", "<", "%"} {
-		if strings.HasPrefix(cond, o) {
-			op, cond = o, strings.TrimSpace(cond[len(o):])
+		if strings.HasPrefix(c, o) {
+			op, c = o, strings.TrimSpace(c[len(o):])
 			break
 		}
 	}
-	k, err := strconv.Atoi(cond)
+	k, err := strconv.Atoi(c)
 	if err != nil {
-		return true // checked when set (CheckHit)
+		return hitCond{}, fmt.Errorf("a hit count is a number, or ==, !=, >, >=, <, <= or %% and a number, not %q", cond)
 	}
-	switch op {
+	if op == "%" && k <= 0 {
+		return hitCond{}, fmt.Errorf("a hit count %% n needs an n above 0, not %q", cond)
+	}
+	return hitCond{op, k}, nil
+}
+
+// meets tells whether n hits meet the condition.
+func (h hitCond) meets(n int) bool {
+	switch h.op {
 	case "!=":
-		return n != k
+		return n != h.k
 	case ">":
-		return n > k
+		return n > h.k
 	case ">=":
-		return n >= k
+		return n >= h.k
 	case "<":
-		return n < k
+		return n < h.k
 	case "<=":
-		return n <= k
+		return n <= h.k
 	case "%":
-		return k > 0 && n%k == 0
+		return n%h.k == 0
 	}
-	return n == k
+	return n == h.k
 }
 
 // CheckHit reports what is wrong with a hit count condition, or nil.
 func CheckHit(cond string) error {
-	c := strings.TrimSpace(cond)
-	for _, o := range []string{"==", "!=", ">=", "<=", ">", "<", "%"} {
-		c = strings.TrimSpace(strings.TrimPrefix(c, o))
-	}
-	if _, err := strconv.Atoi(c); err != nil {
-		return fmt.Errorf("a hit count is a number, or ==, !=, >, >=, <, <= or %% and a number, not %q", cond)
-	}
-	return nil
+	_, err := parseHit(cond)
+	return err
 }
 
 // Interpolate gives msg with each {expression} in it replaced by its value
@@ -233,7 +249,7 @@ func Interpolate(m *vm.VM, frame int, msg string) string {
 			b.WriteByte(c)
 			i++
 		case c == '{':
-			end := strings.IndexByte(msg[i:], '}')
+			end := closing(msg[i:])
 			if end < 0 {
 				b.WriteString(msg[i:])
 				return b.String()
@@ -241,9 +257,9 @@ func Interpolate(m *vm.VM, frame int, msg string) string {
 			if v, err := Eval(m, frame, msg[i+1:i+end]); err != nil {
 				b.WriteString("<" + err.Error() + ">")
 			} else if v.Kind() == value.String {
-				b.WriteString(v.AsString())
+				b.WriteString(cut(v.AsString(), showChars))
 			} else {
-				b.WriteString(v.Repr())
+				b.WriteString(Show(v))
 			}
 			i += end
 		default:
@@ -251,6 +267,30 @@ func Interpolate(m *vm.VM, frame int, msg string) string {
 		}
 	}
 	return b.String()
+}
+
+// closing gives the index of the } that closes the { s starts with: braces
+// of map literals in it pair up, and those in string and character
+// literals do not count. -1: there is none.
+func closing(s string) int {
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; c {
+		case '{':
+			depth++
+		case '}':
+			if depth--; depth == 0 {
+				return i
+			}
+		case '"', '\'':
+			for i++; i < len(s) && s[i] != c; i++ {
+				if s[i] == '\\' {
+					i++
+				}
+			}
+		}
+	}
+	return -1
 }
 
 // UncaughtHook stops where an exception is thrown that nothing catches
@@ -274,28 +314,38 @@ func (s *Session) UncaughtHook(m *vm.VM, re *vm.RuntimeError) error {
 
 // SetBreak sets a breakpoint at a line of a file (the first line with code
 // at or after it: the breakpoint's Line), or with a function's name at its
-// first line. A note says when the line moved.
+// first line. A note says when the line moved. A condition must be one
+// Eval can evaluate (Check), a hit count one CheckHit takes.
 func (s *Session) SetBreak(b Breakpoint) (bp *Breakpoint, note string, err error) {
-	if b.Func != "" {
-		fn := s.Function(b.Func)
-		if fn == nil || len(fn.Lines) == 0 {
-			return nil, "", fmt.Errorf("no function %q", b.Func)
+	if b.Cond != "" {
+		if err := Check(b.Cond); err != nil {
+			return nil, "", fmt.Errorf("the condition %s: %v", b.Cond, err)
 		}
-		b.File, b.Line = fn.File, fn.Lines[0].Line
 	}
 	if b.Hit != "" {
 		if err := CheckHit(b.Hit); err != nil {
 			return nil, "", err
 		}
 	}
-	file, line, err := s.CodeLine(b.File, b.Line)
-	if err != nil {
-		return nil, "", err
+	if b.Func != "" {
+		fn := s.Function(b.Func)
+		if fn == nil || entry(fn) < 0 {
+			return nil, "", fmt.Errorf("no function %q", b.Func)
+		}
+		b.fn, b.File, b.Line = fn, fn.File, fn.LineAt(entry(fn))
+	} else {
+		if b.Line < 1 {
+			return nil, "", fmt.Errorf("no line %d: lines start at 1", b.Line)
+		}
+		file, line, err := s.CodeLine(b.File, b.Line)
+		if err != nil {
+			return nil, "", err
+		}
+		if line != b.Line {
+			note = fmt.Sprintf("(no code on line %d: the next is %d)", b.Line, line)
+		}
+		b.File, b.Line = file, line
 	}
-	if line != b.Line && b.Line != 0 {
-		note = fmt.Sprintf("(no code on line %d: the next is %d)", b.Line, line)
-	}
-	b.File, b.Line = file, line
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.nextID++
@@ -305,15 +355,26 @@ func (s *Session) SetBreak(b Breakpoint) (bp *Breakpoint, note string, err error
 	return bp, note, nil
 }
 
+// entry gives the pc where a call of fn first stops (its first BREAK), or
+// -1 if it has none.
+func entry(fn *bytecode.Function) int {
+	for _, l := range fn.Lines {
+		if _, ok := fn.Saved[l.PC]; ok {
+			return l.PC
+		}
+	}
+	return -1
+}
+
 // CodeLine gives the first line with code at or after line in file, and
 // the file's name as the program has it.
 func (s *Session) CodeLine(file string, line int) (string, int, error) {
-	best := 0
+	best, known := 0, false
 	for _, fn := range append([]*bytecode.Function{s.Prog.Init}, s.Prog.Funcs...) {
 		if !SameFile(fn.File, file) {
 			continue
 		}
-		file = fn.File
+		file, known = fn.File, true
 		if fn.Name() == "<init>" && len(fn.Code) == 1 && bytecode.Op(fn.Code[0]) == bytecode.OpReturnNil {
 			continue // no initializers: nothing runs on its line
 		}
@@ -322,6 +383,9 @@ func (s *Session) CodeLine(file string, line int) (string, int, error) {
 				best = l.Line
 			}
 		}
+	}
+	if !known {
+		return file, 0, fmt.Errorf("%s is not a file of the program", file)
 	}
 	if best == 0 {
 		return file, 0, fmt.Errorf("no code at or after %s:%d", file, line)
@@ -380,8 +444,10 @@ func absolute(path string) string {
 // Sources reads source lines for showing, once per file.
 type Sources map[string][]string
 
-// Line gives line n (1-based) of file.
-func (src Sources) Line(file string, n int) (string, bool) {
+// Count gives the number of lines of file (0 if it cannot be read).
+func (src Sources) Count(file string) int { return len(src.lines(file)) }
+
+func (src Sources) lines(file string) []string {
 	lines, ok := src[file]
 	if !ok {
 		data, err := os.ReadFile(file)
@@ -390,6 +456,12 @@ func (src Sources) Line(file string, n int) (string, bool) {
 		}
 		src[file] = lines
 	}
+	return lines
+}
+
+// Line gives line n (1-based) of file.
+func (src Sources) Line(file string, n int) (string, bool) {
+	lines := src.lines(file)
 	if n < 1 || n > len(lines) {
 		return "", false
 	}

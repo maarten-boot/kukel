@@ -77,7 +77,7 @@ func TestHistory(t *testing.T) {
 	}
 }
 
-// lockedBuffer is a bytes.Buffer for one writer and one reader.
+// lockedBuffer is a bytes.Buffer several goroutines may use.
 type lockedBuffer struct {
 	mu sync.Mutex
 	b  bytes.Buffer

@@ -41,7 +41,7 @@ const debugHelp = `commands:
 type cliFront struct {
 	s       *debugger.Session
 	in      *bufio.Reader
-	out     *bufio.Writer // the program's output (flushed before the debugger writes)
+	m       *vm.VM // its output is flushed before the debugger writes
 	msg     io.Writer
 	frame   int // the frame print and locals look at (an index into the frames)
 	sources debugger.Sources
@@ -78,7 +78,7 @@ func cmdDebug(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	machine.SetStderr(stderr)
-	d := &cliFront{in: in, out: out, msg: stdout, sources: debugger.Sources{}}
+	d := &cliFront{in: in, m: machine, msg: stdout, sources: debugger.Sources{}}
 	d.s = debugger.New(prog, d, true)
 	d.s.Attach(machine)
 	code, err := machine.Run(progArgs)
@@ -94,7 +94,7 @@ func cmdDebug(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 // until one lets it go on. At an exception nothing catches, any command
 // that resumes ends the program.
 func (d *cliFront) Stopped(m *vm.VM, st debugger.Stop) error {
-	d.out.Flush()
+	m.FlushOutput()
 	frames := m.Frames()
 	d.frame = len(frames) - 1
 	switch {
@@ -111,9 +111,10 @@ func (d *cliFront) Stopped(m *vm.VM, st debugger.Stop) error {
 	return d.commands(m, frames)
 }
 
-// Log shows a logpoint's message (kukel debug sets none).
+// Log shows a logpoint's message (kukel debug sets none) or why a
+// condition failed.
 func (d *cliFront) Log(msg string) {
-	d.out.Flush()
+	d.m.FlushOutput()
 	fmt.Fprintln(d.msg, msg)
 }
 
@@ -155,26 +156,33 @@ func (d *cliFront) commands(m *vm.VM, frames []vm.DebugFrame) error {
 				fmt.Fprintln(d.msg, "no breakpoints")
 			}
 			for _, b := range breaks {
-				if b.Cond != "" {
-					fmt.Fprintf(d.msg, "%d: %s:%d if %s\n", b.ID, b.File, b.Line, b.Cond)
-				} else {
-					fmt.Fprintf(d.msg, "%d: %s:%d\n", b.ID, b.File, b.Line)
+				fmt.Fprintf(d.msg, "%d: ", b.ID)
+				if b.Func != "" {
+					fmt.Fprintf(d.msg, "%s at ", b.Func)
 				}
+				fmt.Fprintf(d.msg, "%s:%d", b.File, b.Line)
+				if b.Cond != "" {
+					fmt.Fprintf(d.msg, " if %s", b.Cond)
+				}
+				fmt.Fprintln(d.msg)
 			}
 		case "p", "print":
 			v, err := debugger.Eval(m, d.frame, arg)
 			if err != nil {
 				fmt.Fprintln(d.msg, err)
 			} else {
-				fmt.Fprintln(d.msg, v.Repr())
+				fmt.Fprintln(d.msg, debugger.Show(v))
 			}
 		case "locals":
 			vars := m.Vars(d.frame)
+			if this := frames[d.frame].This; this != nil {
+				vars = append([]vm.DebugVar{{Name: "this", Value: value.ObjectValue(this)}}, vars...)
+			}
 			if len(vars) == 0 {
 				fmt.Fprintln(d.msg, "no variables")
 			}
 			for _, v := range vars {
-				fmt.Fprintf(d.msg, "%s = %s\n", v.Name, v.Value.Repr())
+				fmt.Fprintf(d.msg, "%s = %s\n", v.Name, debugger.Show(v.Value))
 			}
 		case "bt", "backtrace":
 			for i := len(frames) - 1; i >= 0; i-- {
@@ -218,6 +226,10 @@ func (d *cliFront) where(f vm.DebugFrame) {
 }
 
 func (d *cliFront) list(file string, center, current int) {
+	if _, ok := d.sources.Line(file, max(1, center-3)); !ok || center < 1 {
+		fmt.Fprintf(d.msg, "no line %d in %s (it has %d)\n", center, file, d.sources.Count(file))
+		return
+	}
 	for l := max(1, center-3); l <= center+3; l++ {
 		text, ok := d.sources.Line(file, l)
 		if !ok {
@@ -235,8 +247,12 @@ func (d *cliFront) list(file string, center, current int) {
 // function's first line, with "if condition" after it for a conditional
 // one. A line without code moves to the next one with.
 func (d *cliFront) addBreak(arg string, top vm.DebugFrame) {
-	where, cond, _ := strings.Cut(arg, " if ")
+	where, cond, hasIf := strings.Cut(arg+" ", " if ")
 	where, cond = strings.TrimSpace(where), strings.TrimSpace(cond)
+	if hasIf && cond == "" {
+		fmt.Fprintln(d.msg, "break if what? (a condition after if, such as i == 3)")
+		return
+	}
 	b := debugger.Breakpoint{File: top.Func.File, Cond: cond}
 	if f, l, ok := strings.Cut(where, ":"); ok && !strings.Contains(l, ":") {
 		n, err := strconv.Atoi(l)

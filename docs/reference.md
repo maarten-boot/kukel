@@ -216,13 +216,13 @@ the program ended (exit code 0)
 
 | Command | |
 |---|---|
-| `break file:line`, `break line`, `break function` (`b`) | Stop at that line (of the current file), or at the first line of a function (`main`, `Shape::area`, `util::f`); a line without code moves the breakpoint to the next line with code. With `if condition` after it (`b 12 if i == 3`), only when the condition (an expression as `print` takes) holds there |
-| `delete [n]` (`d`), `breaks` | Remove breakpoint `n`, or all; list them |
+| `break file:line`, `break line`, `break function` (`b`) | Stop at that line (of the current file), or where a call of a function starts (`main`, `Shape::area`, `util::f`; once per call, also when a loop begins on its first line); a line without code moves the breakpoint to the next line with code. With `if condition` after it (`b 12 if i == 3`), only when the condition (an expression as `print` takes) holds there: one that `print` would refuse is refused here, and one that fails when checked (an unknown name, an index out of range) stops, with the error |
+| `delete [n]` (`d`), `breaks` | Remove breakpoint `n`, or all; list them (with the function of a function breakpoint) |
 | `continue` (`c`) | Run to the next breakpoint |
 | `step` (`s`), `next` (`n`) | To the start of the next line: also into a call, or over calls |
 | `finish` (`f`) | Until the current function has returned (to the next line of its caller) |
-| `print expression` (`p`) | The value of an expression without side effects: literals, names (a variable (parameter, local, captured), `this`, a data member of `this`, a static data member (`count` in a member function of its class, `C::count` anywhere), or a global (`count`, `util::count`; in a function of a module its own globals come first)), the operators, `?:`, indexing and members (`p v[i] + 1`, `p m["key"]`, `p this->items`, `p n > 0 ? "yes" : "no"`). Calls, assignments, `++`/`--`, `new` and function literals are refused: they could change the program |
-| `locals` | The variables of the frame |
+| `print expression` (`p`) | The value of an expression without side effects: literals, names (a variable (parameter, local, captured), `this`, a data member of `this`, a static data member (`count` in a member function of its class, `C::count` anywhere), or a global (`count`, `util::count`; in a function of a module its own globals come first)), the operators, `?:`, indexing and members (`p v[i] + 1`, `p m["key"]`, `p this->items`, `p n > 0 ? "yes" : "no"`). Calls, assignments, `++`/`--`, `new` and function literals are refused: they could change the program. Constants (`const`) are not found: the compiler puts their values into the code. A long value is shortened: at most 100 elements of a vector or map and about 1000 characters, `…` for the rest |
+| `locals` | The variables of the frame: `this` in a member function, captured variables, then the parameters and locals in scope (of two with one name, the later one is the one the code sees). Static data members are not listed: `print` them |
 | `backtrace` (`bt`), `frame n` | The calls, innermost first; look at frame `n` (for `print`, `locals` and `list`) |
 | `list [line]` (`l`) | The source around the current line, or around `line` |
 | `quit` (`q`) | End the program, with exit code 0 (also the end of the input) |
@@ -233,8 +233,9 @@ the program ended (exit code 0)
 - Looking never changes the program: `print` reads, it calls nothing.
   (`kukel dap`, the debugger for editors, can change values: see
   [docs/debugging.md](debugging.md).)
-  The locals of a function are its slots: a slot that two blocks share
-  shows the name of the later one.
+  A function shows the locals in scope where it is; one from a `.kkc`
+  module, compiled without that information, shows all its slots, and a
+  slot that two blocks share has both names (`i/w`).
 - Only the main interpreter stops; workers run on. The program reads its
   input (`readline`) from the same input as the debugger.
 - An exception that no `try` catches (a `finally` does not count) stops

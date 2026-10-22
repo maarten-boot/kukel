@@ -58,6 +58,10 @@
         {
           "name": "comment.line.double-slash.kukel",
           "match": "//.*$"
+        },
+        {
+          "name": "comment.line.number-sign.kukel",
+          "match": "#.*$"
         }
       ]
     },
@@ -76,7 +80,7 @@
     "strings": {
       "name": "string.quoted.double.kukel",
       "begin": "\"",
-      "end": "\"|$",
+      "end": "\"",
       "patterns": [
         {
           "include": "#escapes"
@@ -99,7 +103,8 @@
         },
         {
           "name": "constant.numeric.float.kukel",
-          "match": "\\b[0-9](?:_?[0-9])*(?:\\.[0-9](?:_?[0-9])*(?:[eE][+-]?[0-9]+)?|[eE][+-]?[0-9]+)\\b"
+          "comment": "1.5, 1., .5, 2e10, 1_000.5e1_0 (not the 1 of 1..)",
+          "match": "(?:\\b[0-9](?:_?[0-9])*\\.(?!\\.)(?:[0-9](?:_?[0-9])*)?|(?<![A-Za-z0-9_.])\\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?(?![A-Za-z0-9_])|\\b[0-9](?:_?[0-9])*[eE][+-]?[0-9](?:_?[0-9])*\\b"
         },
         {
           "name": "constant.numeric.integer.kukel",

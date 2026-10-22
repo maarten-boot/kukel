@@ -19,19 +19,93 @@ import (
 // and map literals. Nothing it does changes the program: calls,
 // assignments, ++, new and function literals are refused.
 func Eval(m *vm.VM, i int, src string) (value.Value, error) {
+	x, err := parse(src)
+	if err != nil {
+		return value.NilValue, err
+	}
+	return (&evaluator{m, i}).eval(x)
+}
+
+// Check reports what keeps Eval from evaluating src anywhere (it does not
+// parse, or it has a call, an assignment, ...), or nil: for the condition
+// of a breakpoint, when it is set.
+func Check(src string) error {
+	x, err := parse(src)
+	if err != nil {
+		return err
+	}
+	return check(x)
+}
+
+func parse(src string) (ast.Expr, error) {
 	if strings.TrimSpace(src) == "" {
-		return value.NilValue, fmt.Errorf("print what? (an expression, such as x, this->name or v[i] + 1)")
+		return nil, errors.New("print what? (an expression, such as x, this->name or v[i] + 1)")
 	}
 	x, err := parser.ParseExpr(src)
 	if err != nil {
 		var de *diag.Error
 		if errors.As(err, &de) {
-			return value.NilValue, errors.New(de.Msg) // a position in one line says nothing
+			return nil, errors.New(de.Msg) // a position in one line says nothing
 		}
-		return value.NilValue, err
+		return nil, err
 	}
-	return (&evaluator{m, i}).eval(x)
+	return x, nil
 }
+
+// check walks x as eval does, without values: it gives eval's error for
+// what eval refuses whatever the values are.
+func check(x ast.Expr) error {
+	switch x := x.(type) {
+	case *ast.IntLit, *ast.CharLit, *ast.FloatLit, *ast.StringLit, *ast.BoolLit, *ast.NilLit,
+		*ast.Ident, *ast.ThisExpr, *ast.StaticRef:
+		return nil
+	case *ast.UnaryExpr:
+		switch x.Op {
+		case token.MINUS, token.TILDE, token.BANG:
+			return check(x.X)
+		}
+	case *ast.BinaryExpr:
+		return checkAll(x.X, x.Y)
+	case *ast.CondExpr:
+		return checkAll(x.Cond, x.Then, x.Else)
+	case *ast.IndexExpr:
+		return checkAll(x.X, x.Index)
+	case *ast.MemberExpr:
+		return check(x.X)
+	case *ast.VectorLit:
+		for _, el := range x.Elems {
+			if _, spread := el.(*ast.Spread); spread {
+				return errSpread
+			}
+		}
+		return checkAll(x.Elems...)
+	case *ast.MapLit:
+		for _, en := range x.Entries {
+			if err := checkAll(en.Key, en.Value); err != nil {
+				return err
+			}
+		}
+		return nil
+	case *ast.CallExpr, *ast.MethodCall:
+		return errCall
+	}
+	return errSideEffects
+}
+
+func checkAll(xs ...ast.Expr) error {
+	for _, x := range xs {
+		if err := check(x); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+var (
+	errCall        = errors.New("calls are not evaluated: they could change the program")
+	errSpread      = errors.New("a vector literal with .. is not evaluated")
+	errSideEffects = errors.New("only expressions without side effects are evaluated (names, operators, ?:, [i], ->member)")
+)
 
 type evaluator struct {
 	m     *vm.VM
@@ -128,7 +202,7 @@ func (e *evaluator) eval(x ast.Expr) (value.Value, error) {
 		elems := make([]value.Value, len(x.Elems))
 		for j, el := range x.Elems {
 			if _, spread := el.(*ast.Spread); spread {
-				return value.NilValue, fmt.Errorf("a vector literal with .. is not evaluated")
+				return value.NilValue, errSpread
 			}
 			v, err := e.eval(el)
 			if err != nil {
@@ -154,9 +228,9 @@ func (e *evaluator) eval(x ast.Expr) (value.Value, error) {
 		}
 		return value.MakeMap(m), nil
 	case *ast.CallExpr, *ast.MethodCall:
-		return value.NilValue, fmt.Errorf("calls are not evaluated: they could change the program")
+		return value.NilValue, errCall
 	}
-	return value.NilValue, fmt.Errorf("only expressions without side effects are evaluated (names, operators, ?:, [i], ->member)")
+	return value.NilValue, errSideEffects
 }
 
 func (e *evaluator) name(name string) (value.Value, error) {
