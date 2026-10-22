@@ -11,6 +11,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/maarten-boot/kukel/internal/modules/fsmod"
@@ -103,7 +104,7 @@ func init() {
 				return value.NilValue, a.Errorf(value.IOError, "%s: %s", to, topRefused)
 			}
 			if err := c.do(func() error { return c.r.rename(p, to) }); err != nil {
-				return value.NilValue, c.fail(a, p, err)
+				return value.NilValue, c.fail(a, p+" -> "+to, err)
 			}
 			return value.NilValue, nil
 		}),
@@ -247,9 +248,9 @@ func dial9(env value.Env, args []value.Value) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, err
 	}
-	network, addr, ok := address(u, false)
-	if !ok {
-		return value.NilValue, a.Errorf(value.ValueError, "%q is not a 9P address such as \"tcp://host:564\" or \"unix:///path\"", u)
+	network, addr, err := address(u, false)
+	if err != nil {
+		return value.NilValue, a.Errorf(value.ValueError, "%q %v", u, err)
 	}
 	o := dialOptions{user: os.Getenv("USER"), timeout: 10 * time.Second}
 	if o.user == "" {
@@ -261,15 +262,39 @@ func dial9(env value.Env, args []value.Value) (value.Value, error) {
 		}
 	}
 	c := &client{url: u, l: localOf(env)}
-	if err := c.do(func() (err error) { c.r, err = dial(network, addr, o); return }); err != nil {
+	// The connection is handed over under mu: when the program is
+	// cancelled, do returns while dial still runs, and a connection made
+	// after that is closed at once.
+	var mu sync.Mutex
+	var r remote
+	gaveUp := false
+	err = c.do(func() error {
+		got, err := dial(network, addr, o)
+		mu.Lock()
+		defer mu.Unlock()
+		if gaveUp && got != nil {
+			got.close()
+		} else {
+			r = got
+		}
+		return err
+	})
+	mu.Lock()
+	gaveUp = true
+	c.r = r
+	mu.Unlock()
+	if err != nil {
 		var refused *attachError
 		switch {
 		case env.Err() != nil:
+			if c.r != nil {
+				c.r.close()
+			}
 			return value.NilValue, err
 		case errors.As(err, &refused):
 			return value.NilValue, a.Errorf(value.IOError, "%s: the server refuses the attach to %q: %s", u, o.aname, clean(refused.err))
 		}
-		return value.NilValue, a.Errorf(NetError, "%s: %v", u, err)
+		return value.NilValue, a.Errorf(NetError, "%s: %s", u, native.NetMessage(err))
 	}
 	return Client.Object(c), nil
 }
@@ -296,11 +321,11 @@ func dialOpts(a native.Args, o *dialOptions) error {
 			if v.Kind() == value.Int {
 				secs = float64(v.AsInt())
 			}
-			if secs != secs || secs <= 0 || secs > 1e9 {
+			if secs != secs || secs <= 0 {
 				bad = a.Errorf(value.ValueError, "%s seconds is not a usable timeout", v.String())
 				return
 			}
-			o.timeout = time.Duration(secs * float64(time.Second))
+			o.timeout = native.Duration(secs) // beyond about 292 years: no limit
 		case key == "user" || key == "aname" || key == "version":
 			if v.Kind() != value.String {
 				bad = a.Errorf(value.TypeError, "option %s must be a string, not %s", key, v.Kind())
@@ -358,7 +383,7 @@ func (c *client) fail(a native.Args, p string, err error) error {
 	case lost(err):
 		c.closed = true
 		c.r.close()
-		return a.Errorf(NetError, "%s: the connection is lost: %v", p, err)
+		return a.Errorf(NetError, "%s: the connection is lost: %s", p, lostMessage(err))
 	}
 	return a.Errorf(value.IOError, "%s: %s", p, clean(err))
 }
@@ -518,14 +543,22 @@ func serve9(env value.Env, args []value.Value) (value.Value, error) {
 	}
 	var t *tree
 	switch {
-	case Tree.Is(a.V[0]):
-		t = a.V[0].AsObject().State.(*tree)
+	case Tree.Derived(a.V[0]):
+		st, err := a.Object(0, Tree)
+		if err != nil {
+			return value.NilValue, err
+		}
+		t = st.(*tree)
 		if t.local.env != env {
 			return value.NilValue, a.Errorf(value.ValueError, "the tree belongs to another interpreter")
 		}
-	case Disk.Is(a.V[0]):
+	case Disk.Derived(a.V[0]):
+		st, err := a.Object(0, Disk)
+		if err != nil {
+			return value.NilValue, err
+		}
 		t = newTree(localOf(env))
-		t.root.disk, t.root.rel, t.root.kids = a.V[0].AsObject().State.(*disk), ".", nil
+		t.root.disk, t.root.rel, t.root.kids = st.(*disk), ".", nil
 	default:
 		return value.NilValue, a.TypeError(0, "a p9::Tree or a p9::Disk")
 	}
@@ -533,13 +566,13 @@ func serve9(env value.Env, args []value.Value) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, err
 	}
-	network, addr, ok := address(u, true)
-	if !ok {
-		return value.NilValue, a.Errorf(value.ValueError, "%q is not a 9P address such as \"tcp://*:564\" or \"unix:///path\"", u)
+	network, addr, err := address(u, true)
+	if err != nil {
+		return value.NilValue, a.Errorf(value.ValueError, "%q %v", u, err)
 	}
 	ln, err := net.Listen(network, addr)
 	if err != nil {
-		return value.NilValue, a.Errorf(NetError, "%v", err)
+		return value.NilValue, a.Errorf(NetError, "%s: %s", u, native.NetMessage(err))
 	}
 	endpoint := u
 	if network == "tcp" {
@@ -591,7 +624,7 @@ func disk9(env value.Env, args []value.Value) (value.Value, error) {
 		if errors.As(err, &pe) {
 			return value.NilValue, a.Errorf(value.IOError, "%s: %v", dir, pe.Err)
 		}
-		return value.NilValue, a.Errorf(value.IOError, "%v", err)
+		return value.NilValue, a.Errorf(value.IOError, "%s", native.IOMessage(err))
 	}
 	return Disk.Object(d), nil
 }

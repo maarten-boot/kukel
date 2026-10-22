@@ -9,7 +9,7 @@ import (
 	"io"
 	"net"
 	"os"
-	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -157,7 +157,7 @@ func regexp(s string) string {
 // The tree changes while it is served; dial finds the version itself;
 // aname attaches to a directory; a Unix socket.
 func TestTreeChanges(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "s")
+	sock := socketPath(t)
 	got := run(t, `use p9;
 main(args) {
     local t = new p9::Tree();
@@ -208,7 +208,9 @@ main() {
 }
 
 func TestErrors(t *testing.T) {
-	got := run(t, `use p9;
+	got := run(t, strings.ReplaceAll(`use p9;
+class T : p9::Tree { T(); }
+T::T() {}
 main() {
     local t = new p9::Tree();
     t->file("/f", "x");
@@ -232,12 +234,16 @@ main() {
                  fn() { p9::dial(s->endpoint(), {"timeout": -1}); },
                  fn() { p9::dial(s->endpoint(), {"user": 5}); },
                  fn() { p9::dial(s->endpoint(), []); },
-                 fn() { c->read("/f"); }];
-    for (local f in bad) try { f(); } catch (e) { println(e->kind + ":", e->message); }
+                 fn() { c->read("/f"); },
+                 fn() { p9::dial("tcp://127.0.0.1:99999"); },
+                 fn() { p9::serve(t, "unix:///LONG"); },
+                 fn() { p9::serve(new T(), "tcp://127.0.0.1:0"); },
+                 fn() { p9::dial(s->endpoint(), {"timeout": 1e300})->close(); throw new Error("no limit", "OK"); }];
+    for (local f in bad) try { f(); } catch (e) { println(e->kind + ":", replace(e->message, s->endpoint(), "EP")); }
     s->close();
-    try { p9::dial(s->endpoint(), {"timeout": 2}); } catch (e) { println(e->kind, find(e->message, "p9::dial: " + s->endpoint() + ": dial tcp") == 0); }
+    try { p9::dial(s->endpoint(), {"timeout": 2}); } catch (e) { println(e->kind, replace(e->message, s->endpoint(), "EP")); }
     println(c);
-}`)
+}`, "LONG", strings.Repeat("x", 200)))
 	want := `ValueError: p9::Tree::file: /f is a file, not a directory
 ValueError: p9::Tree::dir: /f is a file
 ValueError: p9::Tree::file: the top of the tree is a directory
@@ -247,7 +253,7 @@ ValueError: p9::Tree::remove: the top of the tree cannot be removed
 ValueError: p9::Tree::remove: /nope does not exist
 ValueError: p9::serve: "http://x" is not a 9P address such as "tcp://*:564" or "unix:///path"
 TypeError: p9::serve: argument 1 must be a p9::Tree or a p9::Disk, not int
-NetError: p9::serve: listen tcp ADDR: bind: address already in use
+NetError: p9::serve: EP: address already in use
 ValueError: p9::dial: "localhost:564" is not a 9P address such as "tcp://host:564" or "unix:///path"
 ValueError: p9::dial: "tcp://" is not a 9P address such as "tcp://host:564" or "unix:///path"
 ValueError: p9::dial: version "9P1": the versions are "9P2000.L" and "9P2000"
@@ -256,9 +262,17 @@ ValueError: p9::dial: -1 seconds is not a usable timeout
 TypeError: p9::dial: option user must be a string, not int
 TypeError: p9::dial: argument 2 must be a map of options, not vector
 ValueError: p9::Client::read: the client is closed
-NetError true
+ValueError: p9::dial: "tcp://127.0.0.1:99999" has no port number from 0 to 65535
+ValueError: p9::serve: "unix:///LONG" is a socket path longer than 107 bytes
+ValueError: p9::serve: argument 1: the p9::Tree part of this T object is not set up: its constructor must call p9::Tree::Tree(...)
+OK: no limit
+NetError p9::dial: EP: connection refused
 p9::Client(ENDPOINT, closed)
 `
+	got = strings.ReplaceAll(got, strings.Repeat("x", 200), "LONG")
+	if runtime.GOOS != "linux" {
+		want = strings.Replace(want, "107", "103", 1)
+	}
 	got = maskAddr(got)
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
@@ -284,7 +298,7 @@ func maskAddr(s string) string {
 // A server program in events::run(), and clients of other programs (here
 // Go, in both versions) that use it at the same time.
 func TestOtherClients(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "s")
+	sock := socketPath(t)
 	done := make(chan string)
 	go func() {
 		out, err := runErr(t, `use p9; use events;

@@ -17,6 +17,8 @@ import (
 	plan9client "9fans.net/go/plan9/client"
 	"github.com/hugelgupf/p9/linux"
 	"github.com/hugelgupf/p9/p9"
+
+	"github.com/maarten-boot/kukel/internal/native"
 )
 
 // What a p9::Client does, in either version of the protocol. Paths are
@@ -132,6 +134,25 @@ func lost(err error) bool {
 	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, net.ErrClosed) ||
 		errors.As(err, &ne) || strings.Contains(err.Error(), "socket error") ||
 		err.Error() == "connection has been closed" // 9fans.net/go/plan9/client
+}
+
+// lostMessage is what went wrong with a lost connection, without the words
+// of the libraries and of Go around it: "connection reset by peer" for
+// "wait: socket error: read tcp ...: read: connection reset by peer".
+func lostMessage(err error) string {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return "the server closed it"
+	}
+	msg := native.NetMessage(err)
+	if msg == err.Error() { // wrapped as text: its last part
+		msg = msg[strings.LastIndex(msg, ": ")+1:]
+		msg = strings.TrimSpace(msg)
+	}
+	switch msg {
+	case "EOF", "unexpected EOF", "connection has been closed":
+		return "the server closed it"
+	}
+	return msg
 }
 
 // notFound reports whether err says that the file is not there.

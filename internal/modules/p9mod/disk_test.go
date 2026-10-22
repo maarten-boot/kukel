@@ -72,7 +72,7 @@ p9::Client::write: a.txt: read-only file system
 p9::Client::write: new.txt: read-only file system
 p9::Client::mkdir: d: read-only file system
 p9::Client::remove: a.txt: read-only file system
-p9::Client::rename: a.txt: read-only file system
+p9::Client::rename: a.txt -> z.txt: read-only file system
 -- 9P2000.L
 a.txt 6 false -r--r--r--
 in 6 false -r--r--r--
@@ -88,13 +88,13 @@ p9::Client::write: a.txt: read-only file system
 p9::Client::write: new.txt: read-only file system
 p9::Client::mkdir: d: read-only file system
 p9::Client::remove: a.txt: read-only file system
-p9::Client::rename: a.txt: read-only file system
+p9::Client::rename: a.txt -> z.txt: read-only file system
 `
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 	// A client that walks ".." itself stays at the top.
-	sock := filepath.Join(t.TempDir(), "s")
+	sock := socketPath(t)
 	done := make(chan string)
 	go func() {
 		out, err := runErr(t, `use p9; use events;
@@ -129,6 +129,14 @@ main(args) {
 	if out := <-done; out != "true\n" {
 		t.Errorf("server: %s", out)
 	}
+}
+
+// socketPath is the path of a Unix socket for the test: relative, in a
+// temporary directory that the test works in, since an absolute path
+// under a long TMPDIR can be too long for a socket (108 bytes on Linux).
+func socketPath(t *testing.T) string {
+	t.Chdir(t.TempDir())
+	return "s"
 }
 
 func waitFor(t *testing.T, sock string) {
@@ -183,11 +191,11 @@ main(args) {
 README false
 data true
 made with 9P2000 changed with 9P2000 x true
-p9::Client::rename: /data/dir/y: 9P2000 renames only within a directory
+p9::Client::rename: /data/dir/y -> /data/y: 9P2000 renames only within a directory
 p9::Client::remove: /data/sub: directory not empty
 p9::Client::remove: /README: permission denied: the tree is made by the server program
 p9::Client::write: /x: permission denied: the tree is made by the server program
-p9::Client::rename: /data: permission denied: the tree is made by the server program
+p9::Client::rename: /data -> /data2: permission denied: the tree is made by the server program
 p9::Client::mkdir: /data/sub: file exists
 false
 -- 9P2000.L
@@ -198,7 +206,7 @@ moved x
 p9::Client::remove: /data/sub: directory not empty
 p9::Client::remove: /README: permission denied
 p9::Client::write: /x: permission denied
-p9::Client::rename: /data: permission denied
+p9::Client::rename: /data -> /data2: permission denied
 p9::Client::mkdir: /data/sub: file exists
 false
 p9::Tree::file: /data is a mounted disk directory: the tree does not reach into it

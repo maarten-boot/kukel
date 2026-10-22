@@ -5,25 +5,38 @@ package p9mod
 import (
 	"bufio"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/hugelgupf/p9/p9"
+
+	"github.com/maarten-boot/kukel/internal/native"
 )
 
 // address reads a 9P address: "tcp://host:port" (the port is 564 when
 // left out; for a server, host * or nothing is every interface) or
-// "unix:///path/of/socket".
-func address(u string, listen bool) (network, addr string, ok bool) {
+// "unix:///path/of/socket". The error says what is wrong with u, after
+// it ("%q %v").
+func address(u string, listen bool) (network, addr string, err error) {
 	if p, found := strings.CutPrefix(u, "unix://"); found && p != "" {
-		return "unix", p, true
+		if len(p) > native.MaxSocketPath {
+			return "", "", fmt.Errorf("is a socket path longer than %d bytes", native.MaxSocketPath)
+		}
+		return "unix", p, nil
 	}
 	rest, found := strings.CutPrefix(u, "tcp://")
 	if !found || rest == "" && !listen || strings.ContainsAny(rest, "/?#") {
-		return "", "", false
+		example := `"tcp://host:564" or "unix:///path"`
+		if listen {
+			example = `"tcp://*:564" or "unix:///path"`
+		}
+		return "", "", errors.New("is not a 9P address such as " + example)
 	}
 	host, port, err := net.SplitHostPort(rest)
 	if err != nil { // no port
@@ -32,10 +45,13 @@ func address(u string, listen bool) (network, addr string, ok bool) {
 			host = host[1 : len(host)-1]
 		}
 	}
+	if n, err := strconv.Atoi(port); err != nil || n < 0 || n > 65535 {
+		return "", "", errors.New("has no port number from 0 to 65535")
+	}
 	if listen && host == "*" {
 		host = ""
 	}
-	return "tcp", net.JoinHostPort(host, port), true
+	return "tcp", net.JoinHostPort(host, port), nil
 }
 
 // server is the state of a p9::Server object.

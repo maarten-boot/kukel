@@ -240,6 +240,13 @@ func (l *Loop) dispatch(err error) error {
 	if err == nil {
 		return nil
 	}
+	if ve, ok := err.(*value.Error); ok && !l.onerror.IsNil() {
+		// An error of Go code (a NetError of a socket's reads) becomes an
+		// exception as a built-in function throws it, for onerror.
+		_, err = l.env.Call(value.MakeBuiltin(&value.BuiltinObj{Name: "events::run", Fn: func(value.Env, []value.Value) (value.Value, error) {
+			return value.NilValue, ve
+		}}), nil)
+	}
 	thrown, ok := l.env.Thrown(err)
 	if !ok || l.onerror.IsNil() {
 		return err
@@ -365,12 +372,12 @@ func newTimer(name string, repeat bool) native.Func {
 			return value.NilValue, err
 		}
 		switch {
-		case secs != secs || secs < 0 || secs > 1e9:
+		case secs != secs || secs < 0:
 			return value.NilValue, a.Errorf(value.ValueError, "%s seconds is not a usable delay", a.V[0].String())
 		case repeat && secs < 0.001:
 			return value.NilValue, a.Errorf(value.ValueError, "an interval must be at least 0.001 seconds, got %s", value.FormatFloat(secs))
 		}
-		d := time.Duration(secs * float64(time.Second))
+		d := native.Duration(secs) // beyond about 292 years: never
 		t := &timer{deadline: time.Now().Add(d), fn: args[1], args: append([]value.Value(nil), args[2:]...)}
 		if repeat {
 			t.interval, t.every = d, a.V[0].String()

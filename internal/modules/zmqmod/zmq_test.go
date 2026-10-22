@@ -4,6 +4,7 @@ package zmqmod_test
 
 import (
 	"bytes"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -326,5 +327,106 @@ main() {
 }`)
 	if got != "false\ntrue\n" {
 		t.Errorf("got %q", got)
+	}
+}
+
+// An onmessage handler set on a REQ socket before its first request gets
+// every reply (zmq4 fails a read before the first request: the reads start
+// with it).
+func TestReqOnmessage(t *testing.T) {
+	for i := 0; i < 5; i++ {
+		got := run(t, `use zmq; use events;
+main() {
+    local rep = new zmq::Socket("REP"), req = new zmq::Socket("REQ"), n = 0;
+    rep->bind("tcp://127.0.0.1:0");
+    rep->onmessage(fn(m) { rep->send(upper(m)); });
+    req->connect(rep->endpoint());
+    local stuck = events::after(5, fn() { println("stuck"); req->close(); rep->close(); });
+    req->onmessage(fn(m) {
+        println(m);
+        if (++n < 3) req->send("again");
+        else { req->close(); rep->close(); stuck->cancel(); }
+    });
+    req->send("ping");
+    events::run();
+}`)
+		if got != "PING\nAGAIN\nAGAIN\n" {
+			t.Fatalf("run %d: got %q", i+1, got)
+		}
+	}
+}
+
+// A read for an onmessage handler that fails (here: the peer of a REQ
+// socket is gone) is a NetError of the event loop, not a silent end.
+func TestOnmessageReadError(t *testing.T) {
+	got := run(t, `use zmq; use events;
+main() {
+    local rep = new zmq::Socket("REP"), req = new zmq::Socket("REQ");
+    rep->bind("tcp://127.0.0.1:0");
+    req->connect(rep->endpoint());
+    req->onmessage(println);
+    req->send("ping");
+    println(rep->receive(5));
+    rep->close();                          // no reply comes
+    events::onerror(fn(e) { println(e->kind, e->message); req->close(); });
+    events::run();
+}`)
+	want := "ping\nNetError zmq::Socket::onmessage: the connection is lost: EOF\n"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// A send that no peer takes waits at most its timeout: then the message
+// has not left and the socket is closed.
+func TestSendTimeout(t *testing.T) {
+	got := run(t, `use zmq;
+main() {
+    for (local type in ["PUSH", "DEALER", "PAIR"]) {
+        local s = new zmq::Socket(type);
+        s->bind("tcp://127.0.0.1:0");
+        try { s->send("x", 0.1); } catch (e) { println(e->kind, e->message); }
+        println(s->closed());
+    }
+    try { new zmq::Socket("PUSH")->send("x", -1); } catch (e) { println(e->kind, e->message); }
+}`)
+	want := `NetError zmq::Socket::send: no peer took the message within 0.1 seconds: it was not sent, and the socket is closed
+true
+NetError zmq::Socket::send: no peer took the message within 0.1 seconds: it was not sent, and the socket is closed
+true
+NetError zmq::Socket::send: no peer took the message within 0.1 seconds: it was not sent, and the socket is closed
+true
+ValueError zmq::Socket::send: -1 seconds is not a usable timeout
+`
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// Endpoints that cannot be right are a ValueError before anything is
+// tried; a poll of an object whose zmq::Socket part is not set up says so.
+func TestBadEndpoints(t *testing.T) {
+	got := run(t, strings.ReplaceAll(`use zmq;
+class S : zmq::Socket { S(); }
+S::S() {}
+main() {
+    for (local f in [fn() { new zmq::Socket("REP")->bind("tcp://127.0.0.1"); }, fn() { new zmq::Socket("REP")->bind("tcp://127.0.0.1:99999"); },
+                     fn() { new zmq::Socket("REQ")->connect("tcp://h:x"); }, fn() { new zmq::Socket("REP")->bind("ipc:///LONG"); },
+                     fn() { zmq::poll([new S()]); }, fn() { zmq::poll([5]); }])
+        try { f(); } catch (e) { println(e->kind, e->message); }
+}`, "LONG", strings.Repeat("x", 200)))
+	got = strings.ReplaceAll(got, strings.Repeat("x", 200), "LONG")
+	want := `ValueError zmq::Socket::bind: "tcp://127.0.0.1" is not an endpoint such as "tcp://localhost:5555" (a host and a port)
+ValueError zmq::Socket::bind: "tcp://127.0.0.1:99999": the port must be a number from 0 to 65535
+ValueError zmq::Socket::connect: "tcp://h:x": the port must be a number from 0 to 65535
+ValueError zmq::Socket::bind: "ipc:///LONG": the socket path is longer than 107 bytes
+ValueError zmq::poll: element 1 of argument 1: the zmq::Socket part of this S object is not set up: its constructor must call zmq::Socket::Socket(...)
+TypeError zmq::poll: element 1 of argument 1 must be a zmq::Socket, not int
+`
+	if runtime.GOOS != "linux" {
+		want = strings.Replace(want, "107", "103", 1)
+	}
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }

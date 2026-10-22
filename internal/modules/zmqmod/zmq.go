@@ -4,13 +4,13 @@ package zmqmod
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
-	"os"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,7 +46,20 @@ type socket struct {
 	pending   chan result // the result of a Recv still running, or nil
 	got       *result     // a result poll took from pending, for the next receive
 	callbacks bool        // onmessage took over the messages
+	handler   *handler    // set by onmessage
+	requested bool        // a REQ socket sent a request: it may receive
 	lastSend  time.Time   // for the linger of close
+}
+
+// handler is what onmessage set up: the function, and the hold on the
+// event loop that keeps events::run() going until the socket is closed.
+type handler struct {
+	a       native.Args
+	env     value.Env
+	f       value.Value
+	loop    *eventsmod.Loop
+	release func()
+	started bool // its reads run (a REQ socket starts them with its first request)
 }
 
 // sendOnly are the socket types that cannot receive: reading one fails at
@@ -84,7 +97,7 @@ func init() {
 		"type": method("type", 0, 0, func(a native.Args, env value.Env, s *socket) (value.Value, error) {
 			return value.MakeString(s.kind), nil
 		}),
-		"send":        method("send", 1, 1, send),
+		"send":        method("send", 1, 2, send),
 		"receive":     method("receive", 0, 1, receive),
 		"onmessage":   method("onmessage", 1, 1, onmessage),
 		"subscribe":   method("subscribe", 1, 1, subscription(zmq4.OptionSubscribe)),
@@ -158,7 +171,9 @@ func newSocket(env value.Env, this *value.ObjectObj, args []value.Value) (value.
 		return value.NilValue, a.Errorf(value.ValueError, "unknown socket type %q (one of %s)", kind, strings.Join(typeNames(), ", "))
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	opts = append(opts, zmq4.WithLogger(quiet))
+	// zmq4 gives up a send after its timeout (5 minutes by default) and
+	// drops the message without an error: send has a timeout of its own.
+	opts = append(opts, zmq4.WithLogger(quiet), zmq4.WithTimeout(100*365*24*time.Hour))
 	this.State = &socket{kind: kind, s: newSock(ctx, opts...), cancel: cancel}
 	return value.NilValue, nil
 }
@@ -178,11 +193,25 @@ func endpointArg(a native.Args) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	scheme, _, found := strings.Cut(ep, "://")
+	scheme, rest, found := strings.Cut(ep, "://")
 	if !found {
 		return "", a.Errorf(value.ValueError, "%q is not an endpoint such as \"tcp://localhost:5555\"", ep)
 	}
-	if scheme != "tcp" && scheme != "ipc" && scheme != "inproc" {
+	switch scheme {
+	case "tcp":
+		_, port, err := net.SplitHostPort(rest)
+		if err != nil {
+			return "", a.Errorf(value.ValueError, "%q is not an endpoint such as \"tcp://localhost:5555\" (a host and a port)", ep)
+		}
+		if n, err := strconv.Atoi(port); port != "*" && port != "" && (err != nil || n < 0 || n > 65535) {
+			return "", a.Errorf(value.ValueError, "%q: the port must be a number from 0 to 65535", ep)
+		}
+	case "ipc":
+		if len(rest) > native.MaxSocketPath {
+			return "", a.Errorf(value.ValueError, "%q: the socket path is longer than %d bytes", ep, native.MaxSocketPath)
+		}
+	case "inproc":
+	default:
 		return "", a.Errorf(value.ValueError, "%q: the transports are tcp://, ipc:// and inproc://", ep)
 	}
 	return ep, nil
@@ -196,7 +225,7 @@ func bind(a native.Args, env value.Env, s *socket) (value.Value, error) {
 		return value.NilValue, err
 	}
 	if err := s.s.Listen(ep); err != nil {
-		return value.NilValue, a.Errorf(NetError, "%s: %s", ep, netMessage(err))
+		return value.NilValue, a.Errorf(NetError, "%s: %s", ep, native.NetMessage(err))
 	}
 	s.endpoint = ep
 	if addr := s.s.Addr(); addr != nil && strings.HasPrefix(ep, "tcp://") {
@@ -205,39 +234,35 @@ func bind(a native.Args, env value.Env, s *socket) (value.Value, error) {
 	return value.NilValue, nil
 }
 
-// s->connect(endpoint): connect to a socket bound at endpoint.
+// s->connect(endpoint): connect to a socket bound at endpoint. zmq4 retries
+// for a while; a program cancelled meanwhile closes the socket.
 func connect(a native.Args, env value.Env, s *socket) (value.Value, error) {
 	ep, err := endpointArg(a)
 	if err != nil {
 		return value.NilValue, err
 	}
 	native.Flush(env) // it may retry for a while
-	if err := s.s.Dial(ep); err != nil {
-		return value.NilValue, a.Errorf(NetError, "%s: %s", ep, netMessage(err))
+	done := make(chan error, 1)
+	sock := s.s
+	go func() { done <- sock.Dial(ep) }()
+	select {
+	case err = <-done:
+	case <-env.Done():
+		s.shut() // stops the retries
+		return value.NilValue, env.Err()
+	}
+	if err != nil {
+		return value.NilValue, a.Errorf(NetError, "%s: %s", ep, native.NetMessage(err))
 	}
 	s.endpoint = ep
 	return value.NilValue, nil
 }
 
-// netMessage is what went wrong in a bind or connect, without zmq4's and
-// Go's words around it ("connection refused", "address already in use").
-func netMessage(err error) string {
-	var dns *net.DNSError
-	var sys *os.SyscallError
-	var op *net.OpError
-	switch {
-	case errors.As(err, &dns):
-		return "host " + dns.Name + " not found"
-	case errors.As(err, &sys):
-		return sys.Err.Error()
-	case errors.As(err, &op):
-		return op.Err.Error()
-	}
-	return err.Error()
-}
-
-// s->send(message): a string, or a vector of strings for a message of
-// several parts.
+// s->send(message [, timeout]): a string, or a vector of strings for a
+// message of several parts. PUSH, DEALER, PAIR and ROUTER sockets wait
+// for a peer to take the message, at most timeout seconds if given: then
+// the message has not left, and the socket is closed, so that it never
+// does (zmq4 cannot take back a message it waits to send).
 func send(a native.Args, env value.Env, s *socket) (value.Value, error) {
 	if receiveOnly[s.kind] {
 		return value.NilValue, a.Errorf(value.ValueError, "a %s socket cannot send messages", s.kind)
@@ -254,7 +279,7 @@ func send(a native.Args, env value.Env, s *socket) (value.Value, error) {
 		frames := make([][]byte, len(elems))
 		for i, e := range elems {
 			if e.Kind() != value.String {
-				return value.NilValue, a.Errorf(value.TypeError, "part %d of the message must be a string, not %s", i+1, e.Kind())
+				return value.NilValue, a.Errorf(value.TypeError, "part %d of the message must be a string, not %s", i+1, native.TypeName(e))
 			}
 			frames[i] = []byte(e.AsString())
 		}
@@ -262,19 +287,57 @@ func send(a native.Args, env value.Env, s *socket) (value.Value, error) {
 	default:
 		return value.NilValue, a.TypeError(0, "a string or a vector of strings")
 	}
+	timeout := time.Duration(-1)
+	if a.Has(1) {
+		var err error
+		if timeout, err = a.Seconds(1, "a usable timeout"); err != nil {
+			return value.NilValue, err
+		}
+	}
+	done := make(chan error, 1)
+	sock := s.s
+	go func() {
+		if len(msg.Frames) > 1 {
+			done <- sock.SendMulti(msg)
+		} else {
+			done <- sock.Send(msg)
+		}
+	}()
 	var err error
-	if len(msg.Frames) > 1 {
-		err = s.s.SendMulti(msg)
-	} else {
-		err = s.s.Send(msg)
+	select {
+	case err = <-done: // it left at once
+	default:
+		native.Flush(env)
+		var expired <-chan time.Time
+		if timeout >= 0 {
+			t := time.NewTimer(timeout)
+			defer t.Stop()
+			expired = t.C
+		}
+		select {
+		case err = <-done:
+		case <-expired:
+			s.shut()
+			return value.NilValue, a.Errorf(NetError, "no peer took the message within %s seconds: it was not sent, and the socket is closed",
+				strconv.FormatFloat(timeout.Seconds(), 'g', -1, 64))
+		case <-env.Done(): // the program was cancelled
+			s.shut()
+			return value.NilValue, env.Err()
+		}
 	}
 	if err != nil {
 		if strings.Contains(err.Error(), "no connections available") { // zmq4 adds "%!w(<nil>)"
 			return value.NilValue, a.Errorf(NetError, "no peer is connected to send to")
 		}
-		return value.NilValue, a.Errorf(NetError, "%v", err)
+		return value.NilValue, a.Errorf(NetError, "%s", native.NetMessage(err))
 	}
 	s.lastSend = time.Now()
+	if s.kind == "REQ" {
+		s.requested = true
+		if h := s.handler; h != nil && !h.started { // the reply can come now
+			s.startHandler()
+		}
+	}
 	return value.NilValue, nil
 }
 
@@ -351,16 +414,23 @@ func receive(a native.Args, env value.Env, s *socket) (value.Value, error) {
 // received gives the message of a finished Recv, or its error.
 func received(a native.Args, r result) (value.Value, error) {
 	if r.err != nil {
-		if strings.Contains(r.err.Error(), "no connections available") {
-			return value.NilValue, a.Errorf(NetError, "no peer is connected (a REQ socket receives only after it sent a request)")
-		}
-		return value.NilValue, a.Errorf(NetError, "%v", r.err)
+		return value.NilValue, recvError(a, r.err)
 	}
 	return message(r.msg), nil
 }
 
+// recvError is the NetError for a Recv that failed.
+func recvError(a native.Args, err error) error {
+	if strings.Contains(err.Error(), "no connections available") {
+		return a.Errorf(NetError, "no peer is connected (a REQ socket receives only after it sent a request)")
+	}
+	return a.Errorf(NetError, "the connection is lost: %s", native.NetMessage(err))
+}
+
 // s->onmessage(f): the event loop calls f(message) for every message, and
-// events::run() keeps going until the socket is closed.
+// events::run() keeps going until the socket is closed. A REQ socket
+// starts reading when it sends its first request (zmq4 fails a read
+// before that).
 func onmessage(a native.Args, env value.Env, s *socket) (value.Value, error) {
 	f := a.V[0]
 	switch f.Kind() {
@@ -375,6 +445,21 @@ func onmessage(a native.Args, env value.Env, s *socket) (value.Value, error) {
 		return value.NilValue, a.Errorf(value.ValueError, "an onmessage handler is already set")
 	}
 	s.callbacks = true
+	loop := eventsmod.For(env)
+	s.handler = &handler{a: a, env: env, f: f, loop: loop, release: loop.Hold()}
+	if s.kind != "REQ" || s.requested || s.got != nil || s.pending != nil {
+		s.startHandler()
+	}
+	return value.NilValue, nil
+}
+
+// startHandler starts the goroutine that reads the messages for the
+// handler and posts them to the event loop. A read that fails, other than
+// because the socket was closed, is a NetError of the loop (events::run()
+// throws it, or the onerror handler gets it), and ends the reads.
+func (s *socket) startHandler() {
+	h := s.handler
+	h.started = true
 	var first chan result
 	if s.got != nil { // poll took a result: it is the first message
 		first = make(chan result, 1)
@@ -384,27 +469,30 @@ func onmessage(a native.Args, env value.Env, s *socket) (value.Value, error) {
 		first = s.startRecv() // a Recv may already be running
 	}
 	s.pending = nil
-	loop := eventsmod.For(env)
-	release := loop.Hold()
 	sock := s.s
 	go func() {
-		defer release()
+		defer h.release()
 		r := <-first
 		for r.err == nil {
 			msg := message(r.msg)
-			loop.Post(func() error { // on the interpreter's goroutine
+			h.loop.Post(func() error { // on the interpreter's goroutine
 				if s.closed { // by a handler: the messages queued after that are dropped
 					return nil
 				}
-				_, err := env.Call(f, []value.Value{msg})
+				_, err := h.env.Call(h.f, []value.Value{msg})
 				return err
 			})
 			m, err := sock.Recv()
 			r = result{m, err}
 		}
-		// Recv fails once the socket is closed (or broken): the source ends.
+		err := r.err
+		h.loop.Post(func() error {
+			if s.closed { // Recv fails once the socket is closed
+				return nil
+			}
+			return recvError(h.a, err)
+		})
 	}()
-	return value.NilValue, nil
 }
 
 // subscription implements s->subscribe(prefix) and s->unsubscribe(prefix)
@@ -419,7 +507,7 @@ func subscription(option string) func(a native.Args, env value.Env, s *socket) (
 			return value.NilValue, err
 		}
 		if err := s.s.SetOption(option, prefix); err != nil {
-			return value.NilValue, a.Errorf(NetError, "%v", err)
+			return value.NilValue, a.Errorf(NetError, "%s", native.NetMessage(err))
 		}
 		return value.NilValue, nil
 	}
@@ -433,11 +521,23 @@ func closeSocket(a native.Args, env value.Env, s *socket) (value.Value, error) {
 		if wait := linger - time.Since(s.lastSend); wait > 0 {
 			time.Sleep(wait)
 		}
-		s.closed = true
-		s.s.Close()
-		s.cancel()
+		s.shut()
 	}
 	return value.NilValue, nil
+}
+
+// shut closes the socket at once, and lets events::run() end if only an
+// onmessage handler of the socket kept it going.
+func (s *socket) shut() {
+	if s.closed {
+		return
+	}
+	s.closed = true
+	s.s.Close()
+	s.cancel()
+	if s.handler != nil {
+		s.handler.release()
+	}
 }
 
 // zmq::poll(sockets [, timeout]): waits until one of the sockets (a vector)
@@ -459,8 +559,11 @@ func poll(env value.Env, args []value.Value) (value.Value, error) {
 	elems := args[0].AsVector().Elems
 	socks := make([]*socket, len(elems))
 	for i, v := range elems {
-		if !Socket.Is(v) {
-			return value.NilValue, a.Errorf(value.TypeError, "element %d of argument 1 must be a zmq::Socket, not %s", i+1, v.Kind())
+		switch {
+		case !Socket.Derived(v):
+			return value.NilValue, a.Errorf(value.TypeError, "element %d of argument 1 must be a zmq::Socket, not %s", i+1, native.TypeName(v))
+		case !Socket.Is(v):
+			return value.NilValue, a.NotSetUp(fmt.Sprintf("element %d of argument 1", i+1), Socket, v)
 		}
 		s := v.AsObject().State.(*socket)
 		switch {
