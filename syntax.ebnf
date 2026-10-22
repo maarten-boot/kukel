@@ -1,5 +1,5 @@
 (*
-   Kukel syntax, as implemented by kukel v0.7 and later (syntax version 6).
+   Kukel syntax, as implemented by kukel v0.31 and later (syntax version 7).
 
    Notation: ISO/IEC 14977 EBNF.
        =  definition        ;  end of rule        |  alternative
@@ -12,7 +12,14 @@
    What programs mean is described in docs/reference.md; how they are
    compiled and run in docs/vm.md.
 
-   History: syntax version 6 added the with statement ("with" is a new
+   History: syntax version 7 allows a comma after the last item of a
+   list closed by a bracket: arguments (of calls, method calls and new),
+   parameters (of definitions, declarations and function literals), vector
+   literals and map literals, as in f(a, b,) and [1, 2,]. Lists that end
+   with ";" (global, const, local, data members), the variables of with and
+   of a for loop, and the comma operator do not take one.
+
+   Syntax version 6 added the with statement ("with" is a new
    keyword).
 
    Syntax version 5 removed "elseif" (write "else if"; elseif is
@@ -146,7 +153,7 @@ member_declaration  = [ "static" ] , Identifier ,
                          compiling (new C(...), C::f(...), Base::m(...)),
                          else a runtime error. *)
 
-declared_parameters = Identifier , { "," , Identifier } , [ ".." ] ;
+declared_parameters = Identifier , { "," , Identifier } , [ ".." ] , [ "," ] ;
                       (* Names are documentation only. Rule: a default value
                          ("=") here is an error; it belongs in the definition. *)
 
@@ -161,7 +168,8 @@ member_function_definition
                          or not; names may differ).
                          A function declared "static" has no 'this'. *)
 
-parameters          = parameter , { "," , parameter } ;
+parameters          = parameter , { "," , parameter } , [ "," ] ;
+                      (* A comma may end the list: f(a, b,) { ... }. *)
 
 parameter           = Identifier                          (* required *)
                     | Identifier , "=" , assignment        (* optional, with default *)
@@ -378,7 +386,9 @@ postfix_operator    = "(" , [ arguments ] , ")"                      (* call *)
                        constructor is called as C::C(...)); a class in a
                        variable fails when the call runs. *)
 
-arguments           = argument , { "," , argument } ;
+arguments           = argument , { "," , argument } , [ "," ] ;
+                      (* A comma may end the list, as in f(a, b,); a lone
+                         comma, f(,), is an error. *)
 
 argument            = assignment , [ ".." ] ;
                       (* "v.." spreads the elements of vector v as separate
@@ -431,10 +441,10 @@ function_literal    = "fn" , "(" , [ parameters ] , ")" , block ;
                          member function. return leaves the literal's own
                          body; break and continue do not cross it. *)
 
-vector_literal      = "[" , [ argument , { "," , argument } ] , "]" ;
+vector_literal      = "[" , [ arguments ] , "]" ;
                       (* "v.." inserts the elements of vector v. *)
 
-map_literal         = "{" , [ map_entry , { "," , map_entry } ] , "}" ;
+map_literal         = "{" , [ map_entry , { "," , map_entry } , [ "," ] ] , "}" ;
                       (* Only where an expression is expected: a "{" that
                          starts a statement is a block. *)
 

@@ -693,6 +693,29 @@ are strings and numbers (not `nan`); `1` and `1.0` are the same key.
 `name`; write `{"name": 1}` for a string key. A `{` that starts a statement
 is a block, never a map.
 
+**A comma at the end**: a list closed by a bracket may end with a comma:
+the arguments of a call, a method call or `new`, the parameters of a
+function, a member function's declaration or a function literal, and the
+elements of a vector or map literal. So a list written one item per line
+can end every line with a comma, and lines can be added or moved freely:
+
+```
+main() {
+    local colours = [
+        "red",
+        "green",
+    ];
+    local sizes = {"s": 1, "m": 2,};
+
+    println(len(colours), sizes["m"]);   // 2 2
+}
+```
+
+A lone comma (`f(,)`, `[,]`) is an error. The lists that end with `;`
+(`global`, `const`, `local`, data members), the variables of `with` and of
+a `for` loop, and the comma operator take no comma at the end. (Syntax
+version 7, Kukel v0.31.)
+
 **Assignable**: variables, a module's globals (`m::x`), `C::x` (static data member), `v[i]`, `p->x`. In
 `v[f()] += 1` and `p->x++`, `v`, `f()` and `p` are evaluated once.
 

@@ -147,6 +147,15 @@ func TestExpressions(t *testing.T) {
 		{"true && false || nil", "(|| (&& true false) nil)"},
 		{`"a" + 'b'`, `(+ "a" 'b')`},
 		{"0xFF | 0b1010_0101", "(| 0xFF 0b1010_0101)"},
+		// a trailing comma (syntax version 7)
+		{"f(a, b,)", "(call f a b)"},
+		{"f(\n  a,\n  v..,\n)", "(call f a (.. v))"},
+		{"x->m(1,)", "(method x m 1)"},
+		{"new C(1, 2,)", "(new C 1 2)"},
+		{"[1, 2,]", "[1 2]"},
+		{"[v..,]", "[(.. v)]"},
+		{`{"a": 1, "b": 2,}`, `{"a":1 "b":2}`},
+		{"fn(a, b = 1,) { }", "fn"},
 	}
 	for _, tt := range tests {
 		x, err := ParseExpr(tt.src)
@@ -288,7 +297,18 @@ func TestErrors(t *testing.T) {
 		{"main() { break 1; }", "1:16", "expected ';' after break, found number 1"},
 		{"class A { x = 1; }", "1:13", "expected ';' after data member declaration, found '='"},
 		{"class A { f(a = 1); }", "1:15", "a default value belongs in the definition of f"},
-		{"class A { f(a.., b); }", "1:16", "expected ')' after declared parameters, found ','"},
+		{"class A { f(a.., b); }", "1:18", "expected ')' after declared parameters, found identifier 'b'"},
+		// a trailing comma, but not a lone one
+		{"main() { f(,); }", "1:12", "expected expression, found ','"},
+		{"main() { f(a,,); }", "1:14", "expected expression, found ','"},
+		{"main() { x = [,]; }", "1:15", "expected expression, found ','"},
+		{"main() { x = {,}; }", "1:15", "expected expression, found ','"},
+		{"f(,) {}", "1:3", "expected ')' after parameters, found ','"},
+		{"class A { f(,); }", "1:13", "expected ')' after declared parameters, found ','"},
+		{"global a = 1, ;", "1:15", "expected global variable name, found ';'"},
+		{"main() { local a, ; }", "1:19", "expected local variable name, found ';'"},
+		{"main() { with (local a = 1,) ; }", "1:28", "expected local variable name, found ')'"},
+		{"main() { for (i = 0,; ; ) ; }", "1:21", "expected expression, found ';'"},
 		{"class A {}\n;", "2:1", "unexpected ';' (no ';' follows a class or function body)"},
 		{"class A { x;", "1:13", "expected '}' to close the class body opened at t.kkl:1:9"},
 		{"class : B {}", "1:7", "expected class name, found ':'"},
@@ -340,10 +360,44 @@ func FuzzParser(f *testing.F) {
 		"global g = [1, v.., {a: fn() { return this->x; }}]; const C = 1 << 2;",
 		"main() { if (a) b; else if (c) d; else { do e; while (f); } }",
 		"main() { x = - - -1; !!y; a->b->c(); (p->f)(); C::x++; }",
+		"main() { f(1, [2, 3,], {4: 5,},); }",
 	} {
 		f.Add([]byte(s))
 	}
 	f.Fuzz(func(t *testing.T, src []byte) {
 		ParseFile("f.kkl", src)
 	})
+}
+
+// TestTrailingComma checks the parameter lists that may end with a comma:
+// definitions, declarations in a class, rest parameters.
+func TestTrailingComma(t *testing.T) {
+	src := `
+class A { m(a, b,); r(a, v..,); }
+A::m(a, b,) { }
+A::r(
+    a,
+    v..,
+) { }
+f(a, b = 2,) { }
+`
+	f, err := ParseFile("t.kkl", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := f.Decls[0].(*ast.ClassDecl)
+	if m := c.Members[0].(*ast.MethodDecl); len(m.Params) != 2 || m.Rest {
+		t.Errorf("declaration m: %+v", m)
+	}
+	if r := c.Members[1].(*ast.MethodDecl); len(r.Params) != 2 || !r.Rest {
+		t.Errorf("declaration r: %+v", r)
+	}
+	for i := range 3 {
+		if fd := f.Decls[1+i].(*ast.FuncDecl); len(fd.Params.Params) != 2 {
+			t.Errorf("definition %s: %d parameters, want 2", fd.Name.Name, len(fd.Params.Params))
+		}
+	}
+	if !f.Decls[2].(*ast.FuncDecl).Params.Params[1].Rest {
+		t.Errorf("A::r: the rest parameter is lost")
+	}
 }

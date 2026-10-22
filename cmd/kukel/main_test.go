@@ -967,7 +967,7 @@ func TestDebug(t *testing.T) {
 	// print takes expressions without side effects; break takes a condition.
 	os.WriteFile("x.kkl", []byte("main() {\n    local v = [10, 20, 30];\n    for (local i = 0; i < 3; i++) {\n        println(v[i]);\n    }\n}\n"), 0o644)
 	out.Reset()
-	cmds := "b 4 if i == 2\nbreaks\nc\np v[i] + i * 2\np i > 1 && v[0] == 10 ? \"yes\" : \"no\"\np len(v)\np i = 5\np i++\np [i, {\"k\": -i}]\nc\n"
+	cmds := "b 4 if i == 2\nbreaks\nc\np v[i] + i * 2\np i > 1 && v[0] == 10 ? \"yes\" : \"no\"\np len(v)\np i = 5\np i++\np [i, {\"k\": -i,},]\nc\n"
 	if run([]string{"debug", "x.kkl"}, strings.NewReader(cmds), &out, &out); !strings.Contains(out.String(),
 		"(kdb) breakpoint 1 at x.kkl:4\n(kdb) 1: x.kkl:4 if i == 2\n(kdb) 10\n20\nbreakpoint 1, main at x.kkl:4\n    4          println(v[i]);\n(kdb) 34\n(kdb) \"yes\"\n"+
 			"(kdb) calls are not evaluated: they could change the program\n(kdb) only expressions without side effects are evaluated (names, operators, ?:, [i], ->member)\n"+

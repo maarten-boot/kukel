@@ -1,0 +1,51 @@
+// A comma may end a list closed by a bracket: arguments, parameters,
+// vector and map literals (syntax version 7).
+
+class Point {
+    x, y;
+    Point(x, y,);
+    sum(extra..,);
+}
+
+Point::Point(x, y,) {
+    this->x = x;
+    this->y = y;
+}
+
+Point::sum(extra..,) {
+    local s = x + y;
+
+    for (local e in extra) s += e;
+    return s;
+}
+
+add(
+    a,
+    b = 10,
+) {
+    return a + b;
+}
+
+main() {
+    local v = [
+        1,
+        2,
+        3,
+    ];
+    local m = {
+        "one": 1,
+        "two": 2,
+    };
+    local p = new Point(
+        3,
+        4,
+    );
+    local f = fn(a, b,) { return a * b; };
+
+    println(v, len(v));
+    println(m, len(m));
+    println(add(1,), add(1, 2,));
+    println(p->sum(), p->sum(5, 6,));
+    println(f(6, 7,));
+    println(max(v..,), [v.., 4,]);
+}

@@ -11,15 +11,16 @@ import (
 )
 
 // TestLarkGrammar parses the programs of the repository with syntax.lark,
-// so that the grammar keeps up with the language: examples/, tests/run (with
-// its modules) and the programs of docs/reference.md and the README. It
+// so that the grammar keeps up with the language: examples/ (also the
+// embedding example's), tests/run (with its modules), tests/ast and the
+// programs of docs/reference.md and the README. It
 // needs Python with lark (pip install lark), else it skips; CI has them.
 func TestLarkGrammar(t *testing.T) {
 	if err := exec.Command("python3", "-c", "import lark").Run(); err != nil {
 		t.Skip("needs python3 with lark (pip install lark)")
 	}
 	var files []string
-	for _, pattern := range []string{"../../examples/*.kkl", "../../tests/run/*.kkl", "../../tests/run/lib/*.kkl"} {
+	for _, pattern := range []string{"../../examples/*.kkl", "../../examples/embed/*.kkl", "../../tests/run/*.kkl", "../../tests/run/lib/*.kkl", "../../tests/ast/*.kkl"} {
 		more, _ := filepath.Glob(pattern)
 		files = append(files, more...)
 	}

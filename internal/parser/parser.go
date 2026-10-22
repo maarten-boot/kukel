@@ -274,9 +274,10 @@ func (p *parser) parseMember() ast.Member {
 			}
 			if p.accept(token.DOTDOT) {
 				m.Rest = true
+				p.accept(token.COMMA) // a trailing comma
 				break
 			}
-			if !p.accept(token.COMMA) {
+			if !p.accept(token.COMMA) || p.at(token.RPAREN) {
 				break
 			}
 		}
@@ -312,8 +313,8 @@ func (p *parser) parseParamList() *ast.ParamList {
 				prm.Rest = true
 			}
 			pl.Params = append(pl.Params, prm)
-			if !p.accept(token.COMMA) {
-				break
+			if !p.accept(token.COMMA) || p.at(token.RPAREN) {
+				break // a trailing comma may come before the ")"
 			}
 		}
 	}
@@ -749,8 +750,9 @@ func (p *parser) parsePostfix() ast.Expr {
 	}
 }
 
-// parseArgs parses "[argument {, argument}]" up to (not including) close.
-// An argument may be spread: "v..".
+// parseArgs parses "[argument {, argument} [,]]" up to (not including)
+// close: a trailing comma may come before it. An argument may be spread:
+// "v..".
 func (p *parser) parseArgs(close token.Kind) []ast.Expr {
 	if p.at(close) {
 		return nil
@@ -762,7 +764,7 @@ func (p *parser) parseArgs(close token.Kind) []ast.Expr {
 			x = &ast.Spread{X: x}
 		}
 		args = append(args, x)
-		if !p.accept(token.COMMA) {
+		if !p.accept(token.COMMA) || p.at(close) {
 			return args
 		}
 	}
@@ -835,8 +837,8 @@ func (p *parser) parseMap() *ast.MapLit {
 			p.expect(token.COLON, "after map key")
 			e.Value = p.parseAssign()
 			m.Entries = append(m.Entries, e)
-			if !p.accept(token.COMMA) {
-				break
+			if !p.accept(token.COMMA) || p.at(token.RBRACE) {
+				break // a trailing comma may come before the "}"
 			}
 		}
 	}

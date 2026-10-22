@@ -1,4 +1,4 @@
-// Lark grammar for Kukel (syntax.ebnf, syntax version 6; kukel v0.7 and later).
+// Lark grammar for Kukel (syntax.ebnf, syntax version 7; kukel v0.31 and later).
 //
 // Intended for:  Lark(grammar, parser="lalr", lexer="contextual")
 // (the default lexer for LALR; the start rule is "start"). The contextual
@@ -60,13 +60,13 @@ class_definition: "class" IDENTIFIER [":" [IDENTIFIER "::"] IDENTIFIER] "{" memb
 member_declaration: [STATIC] IDENTIFIER "(" [declared_parameters] ")" ";"   -> member_function_declaration
                   | [STATIC] IDENTIFIER ("," IDENTIFIER)* ";"              -> member_data_declaration
 
-declared_parameters: IDENTIFIER ("," IDENTIFIER)* [REST]
+declared_parameters: IDENTIFIER ("," IDENTIFIER)* [REST] [","]
 
 function_definition: IDENTIFIER "(" [parameters] ")" block
 
 member_function_definition: IDENTIFIER "::" IDENTIFIER "(" [parameters] ")" block
 
-parameters: parameter ("," parameter)*
+parameters: parameter ("," parameter)* [","]
 
 parameter: IDENTIFIER                    -> required_parameter
          | IDENTIFIER "=" assignment     -> optional_parameter
@@ -206,7 +206,7 @@ throw_statement: "throw" expression ";"
         | postfix "->" IDENTIFIER                           -> member
         | postfix incdec                                    -> postincdec
 
-arguments: argument ("," argument)*
+arguments: argument ("," argument)* [","]
 
 ?argument: assignment
          | assignment ".."                                  -> spread
@@ -228,9 +228,9 @@ new_expression: "new" [IDENTIFIER "::"] IDENTIFIER "(" [arguments] ")"
 
 function_literal: "fn" "(" [parameters] ")" block
 
-vector_literal: "[" [argument ("," argument)*] "]"
+vector_literal: "[" [argument ("," argument)* [","]] "]"
 
-map_literal: "{" [map_entry ("," map_entry)*] "}"
+map_literal: "{" [map_entry ("," map_entry)* [","]] "}"
 
 map_entry: conditional ":" assignment
 
