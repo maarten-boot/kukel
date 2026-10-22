@@ -100,7 +100,8 @@ func TestLinks(t *testing.T) {
 	}
 	os.Mkdir(filepath.Join(dir, "d"), 0o777)
 	os.Symlink("..", filepath.Join(dir, "d", "up"))
-	want := "d false true\ndangling true false\n4 false true true\n"
+	os.Symlink("loop", filepath.Join(dir, "loop")) // a loop is a link to nothing too
+	want := "d false true\ndangling true false\nloop true false\n5 false false true true\n"
 	if got := run(t, linksSrc, dir); got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
@@ -110,7 +111,7 @@ const fsSrc = "use fs;\nmain(args) {\n    local root = fs::join(args[0], \"tree\
 
 const fsOut = "a true true false object 10\nempty true true false object 10\ntop.kkl false true false object 10\ntop.kkl 3 false true false\ntree dir\ntree/a dir\ntree/a/b dir\ntree/a/one.txt 1\ntree/empty dir\ntree/top.kkl 3\ntrue y.kkl /x .kkl b/c\nIOError: fs:\nIOError: fs:\nIOError: fs:\nTypeError: fs:\nKeyError: \nIOError: fs:\nfalse\n"
 
-const linksSrc = "use fs;\nmain(a) {\n    for (local e in fs::readdir(a[0])) println(e[\"name\"], e[\"link\"], e[\"dir\"]);\n    local n = 0;\n    fs::walk(a[0], fn(p, e) { n++; });\n    println(n, fs::exists(a[0] + \"/dangling\"), fs::stat(a[0] + \"/d/up\")[\"link\"], fs::stat(a[0] + \"/d/up\")[\"dir\"]);\n}\n"
+const linksSrc = "use fs;\nmain(a) {\n    for (local e in fs::readdir(a[0])) println(e[\"name\"], e[\"link\"], e[\"dir\"]);\n    local n = 0;\n    fs::walk(a[0], fn(p, e) { n++; });\n    println(n, fs::exists(a[0] + \"/dangling\"), fs::exists(a[0] + \"/loop\"), fs::stat(a[0] + \"/d/up\")[\"link\"], fs::stat(a[0] + \"/d/up\")[\"dir\"]);\n}\n"
 
 func TestModeString(t *testing.T) {
 	for m, want := range map[fs.FileMode]string{

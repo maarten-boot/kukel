@@ -127,10 +127,19 @@ func (q *queue) pop(timeout time.Duration, cancel <-chan struct{}, wait func()) 
 // ----------------------------------------------------------------------
 // Copying messages
 
+// uncopyable is the error of copyValue for a value that cannot go to
+// another interpreter (an object, a function).
+type uncopyable struct{ v value.Value }
+
+func (e uncopyable) Error() string { return native.TypeName(e.v) + " cannot be copied" }
+
+// copyable names what can go to another interpreter, for messages.
+const copyable = "only nil, booleans, numbers, strings, vectors and maps"
+
 // copyValue copies v for another interpreter. Vectors and maps are copied
 // deeply; a part that occurs twice (or contains itself) is copied once, so
 // the copy has the same shape.
-func copyValue(a native.Args, v value.Value, seen map[any]value.Value) (value.Value, error) {
+func copyValue(v value.Value, seen map[any]value.Value) (value.Value, error) {
 	switch v.Kind() {
 	case value.Nil, value.Bool, value.Int, value.Float:
 		return v, nil // immutable
@@ -146,7 +155,7 @@ func copyValue(a native.Args, v value.Value, seen map[any]value.Value) (value.Va
 		seen[v.Obj()] = c
 		for i, e := range src {
 			var err error
-			if elems[i], err = copyValue(a, e, seen); err != nil {
+			if elems[i], err = copyValue(e, seen); err != nil {
 				return value.NilValue, err
 			}
 		}
@@ -162,18 +171,24 @@ func copyValue(a native.Args, v value.Value, seen map[any]value.Value) (value.Va
 		v.AsMap().Each(func(k, e value.Value) {
 			if err == nil {
 				var ce value.Value
-				if ce, err = copyValue(a, e, seen); err == nil {
+				if ce, err = copyValue(e, seen); err == nil {
 					err = m.Set(value.Detached(k), ce) // keys are strings and numbers
 				}
 			}
 		})
 		return c, err
 	}
-	return value.NilValue, a.Errorf(value.TypeError, "cannot send %s to another interpreter (only nil, booleans, numbers, strings, vectors and maps)", v.Kind())
+	return value.NilValue, uncopyable{v}
 }
 
+// copyMessage copies v for another interpreter; what cannot be copied is
+// a TypeError of the function a.
 func copyMessage(a native.Args, v value.Value) (value.Value, error) {
-	return copyValue(a, v, map[any]value.Value{})
+	c, err := copyValue(v, map[any]value.Value{})
+	if u, ok := err.(uncopyable); ok {
+		return value.NilValue, a.Errorf(value.TypeError, "cannot send %s to another interpreter (%s)", native.TypeName(u.v), copyable)
+	}
+	return c, err
 }
 
 // ----------------------------------------------------------------------
@@ -221,6 +236,7 @@ func launch(parent value.Env, name string, prog *bytecode.Program, fn value.Valu
 		child.StartProfile(prof, prof.WorkerName(name))
 	}
 	go func() {
+		defer w.inbox.close() // after done: nobody takes its messages any more (ends a worker::onmessage)
 		defer close(w.done)
 		defer w.outbox.close()
 		defer child.StopProfile()
@@ -233,7 +249,10 @@ func launch(parent value.Env, name string, prog *bytecode.Program, fn value.Valu
 			w.err = err
 			return
 		}
-		if w.result, err = copyMessage(native.Args{Name: "its result"}, r); err != nil {
+		if w.result, err = copyValue(r, map[any]value.Value{}); err != nil {
+			if u, ok := err.(uncopyable); ok {
+				err = value.Errorf(value.TypeError, "its result, %s, cannot go back to the parent (%s)", native.TypeName(u.v), copyable)
+			}
 			w.err = err
 		}
 	}()
@@ -326,10 +345,13 @@ func onmessage(a native.Args, env value.Env, q *queue, f value.Value) error {
 	q.mu.Unlock()
 	loop := eventsmod.For(env)
 	release := loop.Hold()
+	// Done is read here, on the interpreter's goroutine: a Go program's
+	// calls (CallContext) change the canceller of the interpreter.
+	done := env.Done()
 	go func() {
 		defer release()
 		for {
-			v, ok := q.pop(-1, env.Done(), nil)
+			v, ok := q.pop(-1, done, nil)
 			if !ok {
 				return
 			}
@@ -534,7 +556,7 @@ func load(a native.Args, config *native.Config, path string) (*bytecode.Program,
 	if strings.HasSuffix(path, ".kkc") {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return nil, a.Errorf(value.IOError, "%v", err)
+			return nil, a.Errorf(value.IOError, "%s", native.IOMessage(err))
 		}
 		prog, err := bytecode.Decode(data) // Decode also verifies
 		if err != nil {
@@ -551,7 +573,7 @@ func load(a native.Args, config *native.Config, path string) (*bytecode.Program,
 	}
 	var pe *os.PathError
 	if errors.As(err, &pe) {
-		return nil, a.Errorf(value.IOError, "%v", err)
+		return nil, a.Errorf(value.IOError, "%s", native.IOMessage(err))
 	}
 	return nil, a.Errorf("CompileError", "%v", err)
 }
@@ -568,8 +590,10 @@ func kindName(v value.Value) string {
 		return "a built-in function"
 	case value.Nil:
 		return "nil"
-	case value.Int, value.Object:
-		return "an " + v.Kind().String()
+	case value.Int:
+		return "an int"
+	case value.Object:
+		return native.TypeName(v)
 	}
 	return "a " + v.Kind().String()
 }

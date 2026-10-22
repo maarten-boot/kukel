@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -222,7 +223,32 @@ main() {}
 		// closed, so a second run (-count) would find the address in use.
 		cancelRuns++
 		defs += fmt.Sprintf(`listen() { local s = new zmq::Socket("PULL"); s->bind("inproc://nobody%d"); s->receive(); }`, cancelRuns) + "\n"
-		names = append(names, "listen")
+		// A send that waits for a peer, and a connect that retries.
+		defs += fmt.Sprintf(`pushing() { local s = new zmq::Socket("PUSH"); s->bind("inproc://nopeer%d"); s->send("x"); }`, cancelRuns) + "\n"
+		defs += `dial() { new zmq::Socket("REQ")->connect("tcp://127.0.0.1:1"); }` + "\n"
+		names = append(names, "listen", "pushing", "dial")
+	}
+	if slices.Contains(kukel.StandardModules(), "p9") { // not when built with the tag no9p
+		// A server that takes the connection and never answers: dial
+		// waits for its 9P answer (go test -race: the dial that goes on
+		// after the cancellation does not touch the client).
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer ln.Close()
+		go func() {
+			for {
+				c, err := ln.Accept()
+				if err != nil {
+					return
+				}
+				defer c.Close()
+			}
+		}()
+		uses += "use p9;\n"
+		defs += `silent9p() { p9::dial("tcp://` + ln.Addr().String() + `"); }` + "\n"
+		names = append(names, "silent9p")
 	}
 	if dbmod.Has("SQLite") { // not when built with the tag nosqlite
 		uses += "use db;\n"
@@ -617,6 +643,31 @@ main() {}`, kukel.CompileOptions{}), kukel.Options{})
 	}
 	if n, err := in.CallContext(ctx, "finish"); err != nil || n.String() != "1" {
 		t.Errorf("commit after the call that began: %v, %v", n, err)
+	}
+}
+
+// A worker's onmessage handler set in one call with a context, and the
+// event loop run in a later one: the handler's goroutine does not read
+// the interpreter's canceller, which each call changes (go test -race;
+// cross-check 10).
+func TestWorkerOnmessageAcrossCalls(t *testing.T) {
+	in := interp(t, compile(t, `use worker; use events;
+global w, got = [];
+echo() { for (local m = worker::receive(); m != nil; m = worker::receive()) worker::send(m); }
+setup() {
+    w = worker::start(echo);
+    w->onmessage(fn(m) { push(got, m); if (len(got) == 3) w->stop(); });
+    for (local i = 1; i <= 3; i++) w->send(i);
+}
+loop() { events::run(); return got; }
+main() {}`, kukel.CompileOptions{}), kukel.Options{})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := in.CallContext(ctx, "setup"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := in.CallContext(ctx, "loop"); err != nil || got.String() != "[1, 2, 3]" {
+		t.Errorf("got %v, %v", got, err)
 	}
 }
 

@@ -3,6 +3,9 @@
 package dbmod
 
 import (
+	"errors"
+	"fmt"
+	"net"
 	"strings"
 	"testing"
 )
@@ -27,6 +30,42 @@ func TestSourceOf(t *testing.T) {
 		} else if s := err.Error(); strings.Contains(s, "pw@") {
 			t.Errorf("%s: the message shows the password: %s", bad, s)
 		}
+	}
+}
+
+// What is wrong with a URL is a ValueError before connecting: options the
+// driver does not take, a @ in a password (cross-check 10). The messages
+// leave out the password.
+func TestSourceChecks(t *testing.T) {
+	tests := []struct{ url, want string }{
+		{"postgres://u:p@ss@host/db", `"postgres://u:***@host/db": write a @ in the user name or password as %40`},
+		{"mysql://u:pw@host/db?tls=bogus", `"mysql://u:***@host/db?tls=bogus": invalid value / unknown config name: bogus`},
+	}
+	if checkPostgres != nil { // not with the tag nopostgres
+		tests = append(tests, struct{ url, want string }{"postgres://u:pw@host/db?sslmode=bogus",
+			`"postgres://u:***@host/db?sslmode=bogus": failed to configure TLS (sslmode is invalid)`})
+	}
+	for _, tc := range tests {
+		if _, err := sourceOf(tc.url); err == nil || err.Error() != tc.want {
+			t.Errorf("%s: got %v, want %s", tc.url, err, tc.want)
+		}
+	}
+}
+
+// Opening fails with the reason in a line, without Go's words around it.
+func TestOpenMessage(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skip(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	_, err = net.Dial("tcp", addr)
+	if got := openMessage(fmt.Errorf("failed to connect: %w", err)); got != "connection refused" {
+		t.Errorf("got %q", got)
+	}
+	if got := openMessage(errors.New("failed to connect to `user=u`:\n\thost: server error: FATAL: no\n\thost: server error: FATAL: no")); got != "host: server error: FATAL: no" {
+		t.Errorf("got %q", got)
 	}
 }
 

@@ -207,11 +207,40 @@ main(args) {
         try { f(); } catch (e) { println(e->kind + ":", e->message); }
 }`, filepath.Join(dir, "nodir", "x.db"))
 	got = strings.ReplaceAll(got, dir, "DIR")
-	want := `DBError: db::Conn::exec: parameter 2 has no value: the statement has more parameters (?) than the 1 value(s) given
-DBError: db::Conn::query: parameter 1 has no value: the statement has more parameters (?) than the 0 value(s) given
+	want := `DBError: db::Conn::exec: parameter 2 has no value: the statement has more parameters (?) than the 1 value given
+DBError: db::Conn::query: parameter 1 has no value: the statement has more parameters (?) than the 0 values given
 DBError: db::open: sqlite:` + filepath.Join("DIR", "nodir", "x.db") + `: unable to open database file (14)
 ValueError: db::Conn::migrate: Doc::relations(): docs: the key cannot be id (the key is the data member that holds the id of the object on the other side)
 TypeError: db::Query::where: argument 2 cannot be stored in a database: vector (nil, booleans, numbers, strings and time::Time can)
+`
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// Messages of cross-check 10: a time::Time whose Go part is not set up, an
+// object by its class, a URL that cannot mean one thing.
+func TestMessagesCrossCheck10(t *testing.T) {
+	got := run(t, `use db; use time;
+class Stamp : time::Time { Stamp(); }
+Stamp::Stamp() {}
+class P { x; }
+main() {
+    local c = db::open("sqlite::memory:");
+    c->exec("CREATE TABLE t (a)");
+    for (local f in [fn() { c->exec("INSERT INTO t VALUES (?)", new Stamp()); },
+                     fn() { c->exec("INSERT INTO t VALUES (?)", new P()); },
+                     fn() { db::open("postgres://u:p@ss@host/db"); }])
+        try { f(); } catch (e) { println(e->kind + ":", e->message); }
+    local cu = c->cursor("SELECT a FROM t");
+    local before = cu->closed();
+    cu->close();
+    println(before, cu->closed());
+}`)
+	want := `ValueError: db::Conn::exec: argument 2: the time::Time part of this Stamp object is not set up: its constructor must call time::Time::Time(...)
+TypeError: db::Conn::exec: argument 2 cannot be stored in a database: P (nil, booleans, numbers, strings and time::Time can)
+ValueError: db::open: "postgres://u:***@host/db": write a @ in the user name or password as %40
+false true
 `
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)

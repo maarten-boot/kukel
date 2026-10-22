@@ -43,8 +43,14 @@ func Has(kind string) bool {
 }
 
 // mysqlDSN makes the data source name of the MySQL driver from a URL
-// (driver_mysql.go; nil without it).
-var mysqlDSN func(p *url.URL) string
+// (driver_mysql.go; nil without it); the error says what is wrong with
+// the URL's options.
+var mysqlDSN func(p *url.URL) (string, error)
+
+// checkPostgres reads a PostgreSQL URL as the driver does, without
+// connecting (driver_postgres.go; nil without it); the error says what is
+// wrong with it.
+var checkPostgres func(u string) error
 
 // The databases db::open reaches (TODO.md Q54): SQLite in a file or in
 // memory, and PostgreSQL and MySQL (or MariaDB) servers. Programs write ?
@@ -82,6 +88,14 @@ func sourceOf(u string) (source, error) {
 		return source{"sqlite", dsn, sqlite, u}, nil
 	}
 	shown := password.ReplaceAllString(u, "${1}***@")
+	if scheme, rest, ok := strings.Cut(u, "://"); ok && (scheme == "postgres" || scheme == "postgresql" || scheme == "mysql") {
+		// Go's url.Parse takes the last @ before the host, the drivers
+		// may take the first: the URL means one thing only with %40.
+		authority, _, _ := strings.Cut(rest, "/")
+		if strings.Count(authority, "@") > 1 {
+			return source{}, fmt.Errorf("%q: write a @ in the user name or password as %%40", shown)
+		}
+	}
 	p, err := url.Parse(u)
 	switch {
 	case err == nil && p.Host == "" && (p.Scheme == "postgres" || p.Scheme == "postgresql" || p.Scheme == "mysql"):
@@ -91,11 +105,18 @@ func sourceOf(u string) (source, error) {
 	}
 	switch p.Scheme {
 	case "postgres", "postgresql":
+		if checkPostgres != nil {
+			if err := checkPostgres(u); err != nil {
+				return source{}, fmt.Errorf("%q: %v", shown, err)
+			}
+		}
 		return source{"pgx", u, postgres, shown}, nil
 	case "mysql":
 		dsn := ""
 		if mysqlDSN != nil {
-			dsn = mysqlDSN(p)
+			if dsn, err = mysqlDSN(p); err != nil {
+				return source{}, fmt.Errorf("%q: %v", shown, err)
+			}
 		}
 		return source{"mysql", dsn, mysqlDB, shown}, nil
 	}
@@ -104,7 +125,7 @@ func sourceOf(u string) (source, error) {
 
 // password finds the password of a URL ("//user:password@"), which
 // messages and printed connections leave out.
-var password = regexp.MustCompile(`(//[^/:@]*:)[^@/]*@`)
+var password = regexp.MustCompile(`(//[^/:@]*:)[^/]*@`)
 
 // sqlFor gives the SQL text for the database: for PostgreSQL each ? that
 // is a parameter (not inside a quoted string or name, or a comment)

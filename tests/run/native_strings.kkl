@@ -15,6 +15,7 @@ main() {
 
     b->reset();
     println(b->len(), "[" + b->str() + "]");
+    println(b->add("old")->reset()->add("new")->str());   // reset gives the builder too
 
     try {
         b->size();

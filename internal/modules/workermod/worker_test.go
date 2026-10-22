@@ -203,3 +203,28 @@ main() {
 		t.Errorf("got %q, want %q", out, want)
 	}
 }
+
+// Messages of cross-check 10: files without Go's names of the operations,
+// objects by their class.
+func TestWorkerMessages10(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.Mkdir("dir.kkc", 0o777)
+	out, _ := run(t, `use worker;
+class P { x; }
+object() { return new P(); }
+main() {
+    for (local f in [fn() { worker::startfile("nope.kkl"); }, fn() { worker::startfile("nope.kkc"); }, fn() { worker::startfile("dir.kkc"); },
+                     fn() { worker::start(object)->wait(); }, fn() { worker::start(new P()); }, fn() { worker::start(object, [new P()]); }])
+        try { f(); } catch (e) { println(e->kind, e->message); }
+}`, 0)
+	want := `IOError worker::startfile: nope.kkl: no such file or directory
+IOError worker::startfile: nope.kkc: no such file or directory
+IOError worker::startfile: dir.kkc: is a directory
+WorkerError worker object failed: TypeError: its result, P, cannot go back to the parent (only nil, booleans, numbers, strings, vectors and maps)
+TypeError worker::start: argument 1 must be a top-level or static member function, not P (a closure, bound method or built-in cannot run in another interpreter)
+TypeError worker::start: cannot send P to another interpreter (only nil, booleans, numbers, strings, vectors and maps)
+`
+	if out != want {
+		t.Errorf("got:\n%s\nwant:\n%s", out, want)
+	}
+}

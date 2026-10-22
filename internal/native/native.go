@@ -254,11 +254,16 @@ func (a Args) Has(i int) bool { return i < len(a.V) }
 // TypeError is the error for argument i of the wrong type: it names the
 // kind of the argument, or for an object its class.
 func (a Args) TypeError(i int, want string) error {
-	got := a.V[i].Kind().String()
-	if a.V[i].Kind() == value.Object {
-		got = a.V[i].AsObject().Class.Name
+	return value.Errorf(value.TypeError, "%s: argument %d must be %s, not %s", a.Name, i+1, want, TypeName(a.V[i]))
+}
+
+// TypeName names what v is, for a message: its kind ("int", "vector"),
+// or for an object its class ("geo::Point").
+func TypeName(v value.Value) string {
+	if v.Kind() == value.Object {
+		return v.AsObject().Class.Name
 	}
-	return value.Errorf(value.TypeError, "%s: argument %d must be %s, not %s", a.Name, i+1, want, got)
+	return v.Kind().String()
 }
 
 // String returns argument i, which must be a string.
@@ -370,16 +375,29 @@ func (a Args) Object(i int, c *Class) (any, error) {
 		if s := v.AsObject().State; s != nil {
 			return s, nil
 		}
-		return nil, a.Errorf(value.ValueError, "argument %d: the %s part of this %s object is not set up: its constructor must call %s::%s(...)",
-			i+1, c.QualifiedName(), v.AsObject().Class.Name, c.QualifiedName(), c.Name)
+		return nil, a.NotSetUp(fmt.Sprintf("argument %d", i+1), c, v)
 	}
 	return nil, a.TypeError(i, "a "+c.QualifiedName())
+}
+
+// NotSetUp is the ValueError for v, an object of a class derived from c
+// whose constructor did not call c's; what says where v is ("argument 2",
+// "element 1 of argument 1").
+func (a Args) NotSetUp(what string, c *Class, v value.Value) error {
+	return a.Errorf(value.ValueError, "%s: the %s part of this %s object is not set up: its constructor must call %s::%s(...)",
+		what, c.QualifiedName(), TypeName(v), c.QualifiedName(), c.Name)
 }
 
 // Is reports whether v is an object of class c, or of a class derived from
 // it, with its Go value set up.
 func (c *Class) Is(v value.Value) bool {
-	return v.Kind() == value.Object && v.AsObject().Class.IsSubclassOf(c.obj) && v.AsObject().State != nil
+	return c.Derived(v) && v.AsObject().State != nil
+}
+
+// Derived reports whether v is an object of class c, or of a class derived
+// from it, set up or not (see NotSetUp).
+func (c *Class) Derived(v value.Value) bool {
+	return v.Kind() == value.Object && v.AsObject().Class.IsSubclassOf(c.obj)
 }
 
 // Errorf returns a Kukel exception of the given kind (value.ValueError,

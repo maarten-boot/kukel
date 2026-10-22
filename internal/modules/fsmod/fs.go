@@ -99,15 +99,7 @@ func ModeString(m fs.FileMode) string {
 // Go's name of the operation ("fs::readdir: nope: no such file or
 // directory"; "from -> to: ..." for rename).
 func ioError(a native.Args, err error) error {
-	var pe *fs.PathError
-	var le *os.LinkError
-	switch {
-	case errors.As(err, &pe):
-		return a.Errorf(value.IOError, "%s: %v", pe.Path, pe.Err)
-	case errors.As(err, &le):
-		return a.Errorf(value.IOError, "%s -> %s: %v", le.Old, le.New, le.Err)
-	}
-	return a.Errorf(value.IOError, "%v", err)
+	return a.Errorf(value.IOError, "%s", native.IOMessage(err))
 }
 
 // fs::readdir(path): the entries of a directory, by name; a symbolic link
@@ -156,9 +148,9 @@ func stat(env value.Env, args []value.Value) (value.Value, error) {
 }
 
 // fs::exists(path): whether there is a file or directory (a link to
-// nothing does not count). It is false when the path, or a directory on
-// the way, is not there or is a file; other failures (no permission) are
-// an IOError.
+// nothing, or a loop of links, does not count). It is false when the
+// path, or a directory on the way, is not there or is a file; other
+// failures (no permission) are an IOError.
 func exists(env value.Env, args []value.Value) (value.Value, error) {
 	a, path, err := pathArg("fs::exists", args, 1)
 	if err != nil {
@@ -167,7 +159,7 @@ func exists(env value.Env, args []value.Value) (value.Value, error) {
 	switch _, err = os.Stat(path); {
 	case err == nil:
 		return value.True, nil
-	case errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR):
+	case errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) || errors.Is(err, syscall.ELOOP):
 		return value.False, nil
 	}
 	return value.NilValue, ioError(a, err)
