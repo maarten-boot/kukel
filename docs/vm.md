@@ -407,11 +407,15 @@ each source line (each entry of `Lines` not marked `Cont`) is replaced by `BREAK
 replaced instruction kept in `Function.Saved`. `BREAK` calls the VM's
 `Debug` hook, if it has one, with the frame's `ip` at the line's start, and
 then runs the saved instruction. The hook looks at the frames
-(`Frames`: function and line of each call; `Vars`: the parameters and
-locals in scope at its pc, by `Locals`, and the captured variables of
-one) and decides whether to stop; while it reads
-commands the program waits. An error from the hook stops the program
-(quitting is an `exit`). A second hook, `DebugUncaught` (Kukel v0.27),
+(`Frames`: function, line and pc of each call; `Vars`: the captured
+variables of one, then the parameters and locals in scope at its pc, by
+`Locals`, so that of two with one name the later is the one the code
+sees) and decides whether to stop; while it reads
+commands the program waits. Before it writes, it flushes the program's
+output with `FlushOutput` (through the lock workers share it with). An
+error from the hook stops the program (quitting is an `exit`; `kukel
+dap`'s terminate cancels the program and returns the fatal
+`CancelledError`, which no `try` catches). A second hook, `DebugUncaught` (Kukel v0.27),
 runs when an exception is thrown that no `try` of the program catches (a
 `finally` does not count), before the frames are dropped: the debugger
 stops there, at the line that threw, and an error the hook gives ends
