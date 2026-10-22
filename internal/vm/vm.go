@@ -795,7 +795,12 @@ func (vm *VM) newObject(argc int) error {
 	if c.Ctor.Native != nil {
 		// A native constructor fills in the object's Go value; new gives
 		// the object, whatever the constructor returns.
-		if _, err := c.Ctor.Native(vm, obj.AsObject(), vm.stack[vm.sp-argc:vm.sp:vm.sp]); err != nil {
+		if s := vm.prof; s != nil {
+			s.countGo(nil, c.Ctor)
+		}
+		_, err := c.Ctor.Native(vm, obj.AsObject(), vm.stack[vm.sp-argc:vm.sp:vm.sp])
+		vm.afterGo()
+		if err != nil {
 			return err
 		}
 		vm.sp -= argc
@@ -1023,10 +1028,9 @@ func objectOf(v value.Value) *value.ObjectObj {
 	return nil
 }
 
-// step counts a backward jump, a call or a throw against StepLimit.
-// step counts a step for the step limit, and sees whether the program is
-// cancelled or a sample is wanted (profiling); pc is where the top frame is
-// (pcTop, pcCaller: see sample).
+// step counts a backward jump, a call or a throw against StepLimit, and
+// sees whether the program is cancelled or a sample is wanted (profiling);
+// pc is where the top frame is (pcTop, pcCaller: see sample).
 func (vm *VM) step(pc int) error {
 	if !vm.watched {
 		return nil

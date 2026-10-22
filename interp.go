@@ -215,8 +215,15 @@ func (in *Interp) enter(ctx context.Context, f func() (value.Value, error)) (Val
 	if in.depth == 0 {
 		in.vm.ResetSteps()
 		if in.profile != nil {
-			in.vm.StartProfile(in.profile.p, in.profileName)
-			defer in.vm.StopProfile()
+			// The profiling goes on from call to call (a call shorter than
+			// the interval adds to the next sample), without the time
+			// between them.
+			if in.vm.Profiler() == nil {
+				in.vm.StartProfile(in.profile.p, in.profileName)
+			} else {
+				in.vm.ResumeProfile()
+			}
+			defer in.vm.PauseProfile()
 		}
 	}
 	if ctx.Done() != nil {

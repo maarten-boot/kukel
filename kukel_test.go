@@ -733,3 +733,64 @@ main() {}`, kukel.CompileOptions{Modules: []*kukel.Module{app}})
 		t.Errorf("pprof: %v, %v", err, prof)
 	}
 }
+
+// Calls shorter than the interval: the profiling goes on from call to
+// call, so that many short calls are profiled as a long one would be.
+func TestProfileShortCalls(t *testing.T) {
+	prog := compile(t, "work(n) { local t = 0; for (local i = 0; i < n; i++) t += i % 7; return t; }\nmain() {}", kukel.CompileOptions{})
+	p := kukel.NewProfile(kukel.ProfileOptions{Interval: 5 * time.Millisecond})
+	in, err := kukel.New(prog, kukel.Options{Profile: p})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var took time.Duration
+	for range 2000 {
+		start := time.Now()
+		if _, err := in.Call("work", kukel.Int(2000)); err != nil {
+			t.Fatal(err)
+		}
+		took += time.Since(start)
+		if took > 2*time.Second {
+			break // a slow machine
+		}
+	}
+	var report strings.Builder
+	if err := p.WriteReport(&report); err != nil {
+		t.Fatal(err)
+	}
+	var total float64
+	fmt.Sscanf(report.String(), "%f s", &total)
+	if total < took.Seconds()/2 || total > took.Seconds()+0.01 {
+		t.Errorf("%.3f s in all, the calls took %.3f s:\n%s", total, took.Seconds(), report.String())
+	}
+}
+
+// A report while a worker runs: its time shows, its calls up to its latest
+// sample, and the report says so.
+func TestProfileWorkerRunning(t *testing.T) {
+	prog := compile(t, `use worker;
+spin(s) { local t = clock(); while (clock() - t < s) {} return 1; }
+begin() { worker::start(spin, 2); }
+main() {}`, kukel.CompileOptions{})
+	p := kukel.NewProfile(kukel.ProfileOptions{})
+	in, err := kukel.New(prog, kukel.Options{Profile: p})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer in.Close() // (cancels the worker)
+	if _, err := in.Call("begin"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	var report strings.Builder
+	if err := p.WriteReport(&report); err != nil {
+		t.Fatal(err)
+	}
+	r := report.String()
+	for _, want := range []string{"worker 1: spin still runs: its calls are counted up to its latest sample.", "1  begin (t.kkl:3) [main]",
+		"1  spin (t.kkl:2) [worker 1: spin]"} {
+		if !strings.Contains(r, want) {
+			t.Errorf("no %q in the report:\n%s", want, r)
+		}
+	}
+}
