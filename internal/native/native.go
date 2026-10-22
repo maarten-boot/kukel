@@ -325,6 +325,44 @@ func Flush(env value.Env) {
 	}
 }
 
+// Waiter is a wait that Wait began; Done ends it.
+type Waiter struct {
+	env   waitEnv
+	start time.Time
+}
+
+// waitEnv is an Env that wants to know when its Go functions wait: the
+// VM, for kukel profile -cpu, which leaves the waiting out.
+type waitEnv interface {
+	WaitStart() time.Time
+	WaitEnd(start time.Time)
+}
+
+// Wait is called by a function that begins to wait, for time, a message,
+// an event or input: it flushes output (see Flush), and the Done of what
+// it gives tells when the wait ended, so that a profile of running time
+// (kukel profile -cpu) can leave the wait out:
+//
+//	defer native.Wait(env).Done()
+//
+// When nothing profiles the program, it costs no more than Flush.
+func Wait(env value.Env) Waiter {
+	Flush(env)
+	if e, ok := env.(waitEnv); ok {
+		if start := e.WaitStart(); !start.IsZero() {
+			return Waiter{e, start}
+		}
+	}
+	return Waiter{}
+}
+
+// Done ends the wait (a zero Waiter: nothing).
+func (w Waiter) Done() {
+	if w.env != nil {
+		w.env.WaitEnd(w.start)
+	}
+}
+
 // Object returns the Go value of argument i, which must be an object of
 // class c or of a class derived from it.
 func (a Args) Object(i int, c *Class) (any, error) {

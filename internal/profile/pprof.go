@@ -3,7 +3,7 @@ package profile
 import (
 	"io"
 	"path/filepath"
-	"time"
+	"strings"
 
 	"github.com/google/pprof/profile"
 
@@ -19,7 +19,8 @@ import (
 // "worker 1: f"); with workers, each stack starts with a frame named after
 // its interpreter, so that a flame graph shows them apart.
 func Pprof(w io.Writer, p *vm.Profiler) error {
-	samples, total := p.Samples()
+	samples := p.Samples()
+	sum := p.Summary()
 	kind := "wall"
 	if p.CPU {
 		kind = "cpu"
@@ -32,23 +33,22 @@ func Pprof(w io.Writer, p *vm.Profiler) error {
 		DefaultSampleType: kind,
 		PeriodType:        &profile.ValueType{Type: kind, Unit: "nanoseconds"},
 		Period:            p.Interval.Nanoseconds(),
-		TimeNanos:         time.Now().Add(-total).UnixNano(),
-		DurationNanos:     total.Nanoseconds(),
+		DurationNanos:     sum.Duration.Nanoseconds(), // wall time, from the start of the first interpreter to the end of the last
+	}
+	if !sum.Start.IsZero() {
+		prof.TimeNanos = sum.Start.UnixNano()
 	}
 	// One mapping, "kukel", that has its functions, files and lines already:
 	// pprof then looks for no binary to read them from.
 	mapping := &profile.Mapping{ID: 1, File: "kukel", HasFunctions: true, HasFilenames: true, HasLineNumbers: true}
 	prof.Mapping = []*profile.Mapping{mapping}
-	interps := map[string]bool{}
-	for _, s := range samples {
-		interps[s.Interp] = true
-	}
+	mark := marked(sum, p.Calls())
 	funcs := map[*bytecode.Function]*profile.Function{}
 	function := func(fn *bytecode.Function) *profile.Function {
 		f := funcs[fn]
 		if f == nil {
 			file := fn.File
-			if abs, err := filepath.Abs(file); err == nil {
+			if abs, err := filepath.Abs(file); err == nil && !strings.HasPrefix(file, "<") { // not <prelude>
 				file = abs
 			}
 			f = &profile.Function{ID: uint64(len(prof.Function) + 1), Name: fn.FuncName, SystemName: fn.FuncName,
@@ -91,7 +91,7 @@ func Pprof(w io.Writer, p *vm.Profiler) error {
 		for i := len(s.Stack) - 1; i >= 0; i-- {
 			stack = append(stack, location(s.Stack[i].Func, s.Stack[i].Line))
 		}
-		if len(interps) > 1 {
+		if mark {
 			stack = append(stack, root(s.Interp))
 		}
 		prof.Sample = append(prof.Sample, &profile.Sample{

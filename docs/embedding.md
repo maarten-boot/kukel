@@ -334,17 +334,27 @@ f.Close()
 
 - Each outermost call from Go (`Run`, `Call`, `CallValue`, ...) is
   profiled from its start to its end; the time between calls does not
-  count. Workers the calls start are profiled too.
-- `ProfileOptions`: `Interval` between samples (0: a millisecond); `CPU`
-  leaves waiting out (by default a sample weighs the time since the one
-  before, so waiting in `time::sleep`, `events::run()` or a Go function
-  shows on the line that called it).
+  count. The profiling goes on from call to call: the time of a call
+  shorter than the interval adds to the next sample, so many short calls
+  show as a long one would. Workers the calls start are profiled too.
+- `ProfileOptions`: `Interval` between samples (0 or less: a
+  millisecond). By default a sample weighs the time since the one before,
+  so waiting in `time::sleep`, `events::run()` or a Go function shows on
+  the line that called it. `CPU` takes off the time spent waiting in the
+  standard Go functions that wait (as `kukel profile -cpu` does); the time
+  of your own Go functions counts in full, also when they wait.
 - Several interpreters may share a `Profile`: the first is `main` in the
-  report, the next ones `interp 2`, `interp 3`, ... The methods of a
-  `Profile` are safe for concurrent use; the reports show the calls that
-  have finished.
+  report, the next ones `interp 2`, `interp 3`, ... Give their programs
+  different file names: the report finds the source of a line by its file
+  name. The percentages are of the time of all interpreters together; in
+  the pprof format the duration is the wall time from the start of the
+  first call to the end of the last.
+- The methods of a `Profile` are safe for concurrent use. A report
+  written during a call, or while a worker runs, has the time of their
+  samples so far and their calls up to their latest sample; it names the
+  interpreters still running.
 - The report shows the source of the slowest lines: of the programs given
   to `CompileSource`, and of the files of `CompileFiles` (read when the
   report is written).
-- An interpreter without a `Profile` pays nothing; profiling costs a few
-  percent.
+- An interpreter without a `Profile` pays nothing; profiling costs up to
+  about 10%.

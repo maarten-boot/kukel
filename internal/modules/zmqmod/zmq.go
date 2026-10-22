@@ -211,7 +211,7 @@ func connect(a native.Args, env value.Env, s *socket) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, err
 	}
-	native.Flush(env) // it may retry for a while
+	defer native.Wait(env).Done() // it may retry for a while
 	if err := s.s.Dial(ep); err != nil {
 		return value.NilValue, a.Errorf(NetError, "%s: %s", ep, netMessage(err))
 	}
@@ -336,7 +336,7 @@ func receive(a native.Args, env value.Env, s *socket) (value.Value, error) {
 		return received(a, r)
 	default:
 	}
-	native.Flush(env)
+	defer native.Wait(env).Done()
 	select {
 	case r := <-s.startRecv():
 		s.pending = nil
@@ -494,8 +494,9 @@ func poll(env value.Env, args []value.Value) (value.Value, error) {
 		defer t.Stop()
 		cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(t.C)})
 	}
-	native.Flush(env)
+	waiting := native.Wait(env)
 	chosen, recv, _ := reflect.Select(cases)
+	waiting.Done()
 	switch {
 	case chosen < len(socks):
 		r := recv.Interface().(result)

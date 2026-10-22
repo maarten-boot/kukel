@@ -544,16 +544,19 @@ func exceptionMessage(v value.Value) string {
 // wait waits until done is closed, running the jobs of the program's own
 // servers meanwhile.
 func (l *local) wait(done <-chan struct{}) error {
-	native.Flush(l.env)
 	for {
+		waiting := native.Wait(l.env) // (not the jobs: they run)
 		select {
 		case <-done:
+			waiting.Done()
 			return nil
 		case <-l.signal:
+			waiting.Done()
 			if err := l.runJobs(); err != nil {
 				return err
 			}
 		case <-l.env.Done():
+			waiting.Done()
 			return l.env.Err()
 		}
 	}

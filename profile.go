@@ -17,9 +17,12 @@ import (
 // functions and lines of the program, with their calls (also of workers).
 // Give it to New in Options.Profile; then the calls of that interpreter
 // from Go (Run, Call, ...) are profiled, and WriteReport and WritePprof
-// show what the finished calls gave. Several interpreters may share a
-// Profile (the first is "main", the others "interp 2", ...). Its methods
-// are safe for concurrent use.
+// show what they gave (of a call or worker still running: its samples so
+// far, its calls up to its latest sample). Several interpreters may share
+// a Profile (the first is "main", the others "interp 2", ...); their
+// programs should have different file names, as the report finds the
+// source of a line by its file name. Its methods are safe for concurrent
+// use.
 type Profile struct {
 	p      *vm.Profiler
 	mu     sync.Mutex
@@ -29,11 +32,13 @@ type Profile struct {
 
 // ProfileOptions configure a Profile.
 type ProfileOptions struct {
-	// Interval is the time between samples (0: a millisecond).
+	// Interval is the time between samples (0 or less: a millisecond).
 	Interval time.Duration
-	// CPU leaves waiting out: by default each sample weighs the time since
-	// the one before, so that time::sleep, events::run(), receive, ...
-	// show on the line that waits.
+	// CPU leaves out the time spent waiting in the standard Go functions
+	// that wait (time::sleep, events::run(), receive, readline, ...): by
+	// default each sample weighs the time since the one before, so that
+	// waiting shows on the line that waits. The time of the Go functions
+	// of your modules counts in full, also when they wait.
 	CPU bool
 }
 
@@ -46,7 +51,7 @@ func NewProfile(opts ProfileOptions) *Profile {
 func (p *Profile) use(prog *Program) string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	for name, src := range prog.source {
+	for name, src := range prog.source { // (the same name twice: the last program's source)
 		p.source[name] = strings.Split(strings.TrimSuffix(src, "\n"), "\n")
 	}
 	p.n++

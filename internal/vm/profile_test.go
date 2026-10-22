@@ -43,7 +43,7 @@ main() {
 	m.StopProfile()
 	took := time.Since(start)
 
-	samples, total := p.Samples()
+	samples, total := p.Samples(), p.Summary().Total
 	if total < 150*time.Millisecond || total > took {
 		t.Errorf("total %v, the run took %v", total, took)
 	}

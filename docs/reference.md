@@ -50,7 +50,7 @@ hello, Kukel
 | `kukel disasm prog.kkc` or `kukel disasm a.kkl ...` | Show the bytecode in readable form |
 | `kukel repl [a.kkl ...]` | Read declarations and statements and run them as they come (see [The REPL](#the-repl)); with files, their declarations come first (`main` is not called) |
 | `kukel debug a.kkl ... [-- args]` | Run the program under the debugger: breakpoints, stepping, values (see [The debugger](#the-debugger)) |
-| `kukel profile [-o report.txt] [-pprof prof.pb.gz] [-cpu] a.kkl ... [-- args]` | Run the program as `run` does, then report where its time went: the functions and lines that took it, with call counts, also of workers (see [The profiler](#the-profiler)); `-pprof` also for `go tool pprof` |
+| `kukel profile [-o report.txt] [-pprof prof.pb.gz] [-cpu] a.kkl ... [-- args]` | Run the program as `run` does, then report where its time went: the functions and lines that took it, with call counts, also of workers (see [The profiler](#the-profiler)); `-pprof` also for `go tool pprof`; Ctrl-C stops the program and writes the report |
 | `kukel dap` | The debugger for editors: the Debug Adapter Protocol on standard input and output, which an editor starts (see [docs/debugging.md](debugging.md): Visual Studio Code, Neovim, Helix, Emacs) |
 | `kukel fmt [-w \| -l] a.kkl ...`, `kukel fmt -` | Format source files: indentation (4 spaces; `case` labels one level into the switch, their statements two) and the spaces between tokens (`{ }` becomes `{}`; a comment at the end of a line keeps its distance); line breaks and comments stay, at most one blank line in a row; CRLF line ends become LF. A line that continues a statement outside brackets (`return c &&` and then `d;`) is indented one level more than the statement's first line. A statement that starts a line with `if`, `while`, `do`, `for`, `switch`, `try` or `with` (also after a label: `outer: for`, and with the label on a line of its own, where the blank line goes above the label) gets a blank line before it (above the comments right above it), except as the first statement of a block, after a label on its own line or a `case`, as the statement of `else` or a header without braces, or as the `while` of a `do`. The output is checked to give the same tokens and comments as the input; a file it cannot format safely is refused with an "internal error".  Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`; `-w` and `-l` together are a usage error). A file with a syntax error or a NUL byte is left alone, and the exit code is 1. `kukel fmt -` formats standard input to standard output (for editors; with `-w`, `-l` or files it is a usage error) |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | Show the tokens or the syntax tree of each file (for debugging; `-pos`, before the files, adds positions) |
@@ -266,20 +266,20 @@ main() {
 the report (on standard error) is:
 
 ```
-0.504 s in 373 samples, one every 1ms (wall time, with waiting).
+0.430 s in 313 samples, one every 1.38 ms on average (wall time, with waiting).
 The time of built-ins and Go functions counts on the line that calls them.
 
 Functions, by their own time (total: with the functions they call):
         own      %      total      %       calls  function
-    0.383 s  76.1%    0.383 s  76.1%      200000  isPrime (primes.kkl:4)
-    0.120 s  23.9%    0.504 s 100.0%           1  main (primes.kkl:10)
+    0.313 s  72.7%    0.313 s  72.7%      200000  isPrime (primes.kkl:4)
+    0.118 s  27.3%    0.430 s 100.0%           1  main (primes.kkl:10)
 
 Lines, by their own time (the 4 slowest):
         own      %  line
-    0.383 s  76.1%  primes.kkl:5  for (local d = 2; d * d <= n; d++)
-    0.101 s  20.1%  primes.kkl:14  time::sleep(0.1);                    // waiting counts too
-    0.010 s   1.9%  primes.kkl:13  if (isPrime(n)) count++;
-    0.010 s   1.9%  primes.kkl:12  for (local n = 0; n < 200000; n++)
+    0.313 s  72.7%  primes.kkl:5  for (local d = 2; d * d <= n; d++)
+    0.101 s  23.4%  primes.kkl:14  time::sleep(0.1);                    // waiting counts too
+    0.015 s   3.5%  primes.kkl:12  for (local n = 0; n < 200000; n++)
+    0.002 s   0.5%  primes.kkl:13  if (isPrime(n)) count++;
 
 Built-ins and Go functions, by calls:
        calls  function
@@ -291,29 +291,44 @@ Built-ins and Go functions, by calls:
 |---|---|
 | `-o report.txt` | The report to that file instead of standard error |
 | `-pprof prof.pb.gz` | Also the profile in Go's pprof format: `go tool pprof -http=: prof.pb.gz` shows it as a flame graph or a call graph, `-list isPrime` the source with the time of each line, `-top` the functions |
-| `-cpu` | Running time only: waiting (`time::sleep`, `events::run()`, `receive`, `readline`, files, the network) is left out |
+| `-cpu` | Running time only: the time spent waiting in `time::sleep`, `events::run()`, a worker's `receive` and `wait`, `readline`, and the waits of modules `zmq` and `p9` is left out. All other time counts, also the work of built-ins and Go functions (`sort`); so does the time of reading and writing files |
 
 - It samples: every millisecond the VM notes where the program is, at
   the next point where it looks anyway (where a loop jumps back, at a
   call, after a built-in or Go function returns). The times are close for
   what runs long enough (a tenth of a second or more); the calls are
   counted exactly.
+- Each sample weighs the time since the one before (with `-cpu`, less the
+  waiting meanwhile), so the times add up also when samples come late:
+  after a long built-in, or with `GOMAXPROCS=1` (one CPU), where they come
+  about every 20 ms instead of every millisecond. The header gives the
+  real average time between samples; with few samples the times are
+  rougher.
 - A function's own time is the time it was the innermost call; its total
   time adds what it called. A recursive function counts once in a stack.
-- The time is wall time: a sample weighs the time since the one before.
-  So waiting shows on the line that waits (above: the `time::sleep`), as
-  does the time of a built-in or Go function (`sort` of a large vector):
-  on the line that calls it.
+  Deep stacks are kept whole.
+- The time is wall time: waiting shows on the line that waits (above: the
+  `time::sleep`), as does the time of a built-in or Go function (`sort` of
+  a large vector): on the line that calls it.
 - Lines: the time inside a loop shows on the loop's own line, where it
   jumps back (above: line 5 has the time of line 6 too); calls and
   built-ins show on their lines. For finer lines, move the work into a
   function.
 - Workers are profiled too: their functions and Go functions are marked
-  with the worker's name (`[worker 1: f]`). Event handlers show under the
-  `events::run()` that runs them.
+  with the worker's name (`[worker 1: f]`), and a list gives the time of
+  each interpreter. The percentages are then of the time of all
+  interpreters together, which can be more than the wall time of the run
+  (the list gives that too). A worker still running when the report is
+  written has its calls counted up to its latest sample; the report says
+  so. Event handlers show under the `events::run()` that runs them.
 - The report also comes when the program fails or calls `exit`; the exit
-  code is the program's. Profiling slows a program by a few percent; a
-  program that is not profiled pays nothing for it.
+  code is the program's. On Ctrl-C (SIGINT) the program is stopped (its
+  workers too), the report (and the `-pprof` file) is written, and kukel
+  ends as an interrupted program does (exit status 130 in a shell). A
+  program that does not stop within a second, because it waits where it
+  cannot be stopped (`readline`), gets its report while it waits.
+- Profiling slows a program by up to about 10%; a program that is not
+  profiled pays nothing for it.
 
 ## 2. Lexical structure
 
