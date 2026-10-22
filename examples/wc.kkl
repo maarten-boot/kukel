@@ -92,7 +92,8 @@ count() {
 
             for (local c in text) {
                 if (c == '\n') lines++;
-                local space = c == ' ' || c == '\t' || c == '\n' || c == '\r';
+                // white space as for the system's wc: also \v and \f
+                local space = c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\x0B' || c == '\x0C';
 
                 if (!space && !inword) words++;
                 inword = !space;

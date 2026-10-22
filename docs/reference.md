@@ -48,11 +48,12 @@ hello, Kukel
 | `kukel build -module [-o m.kkc] m.kkl` | Compile module `m` on its own into `m.kkc`, which programs can use instead of `m.kkl` (see [Modules](#modules)). The file name must be the module's name (`util.kkl`, not `my-util.kkl`); a file with a NUL byte is refused. `-o` and `-module` (also `--module`) may come anywhere among the arguments |
 | `kukel exec prog.kkc [--] [args]` | Run a bytecode file (a first `--` is skipped). A module compiled on its own is not a program: `exec` and `disasm` refuse it |
 | `kukel disasm prog.kkc` or `kukel disasm a.kkl ...` | Show the bytecode in readable form |
+| `kukel run -nofuse ...`, `kukel build -nofuse ...`, `kukel disasm -nofuse ...` | Compile without the instructions that do the work of several (`-nofuse` comes first), to compare; see [docs/vm.md](vm.md) |
 | `kukel repl [a.kkl ...]` | Read declarations and statements and run them as they come (see [The REPL](#the-repl)); with files, their declarations come first (`main` is not called) |
 | `kukel debug a.kkl ... [-- args]` | Run the program under the debugger: breakpoints, stepping, values (see [The debugger](#the-debugger)) |
 | `kukel profile [-o report.txt] [-pprof prof.pb.gz] [-cpu] a.kkl ... [-- args]` | Run the program as `run` does, then report where its time went: the functions and lines that took it, with call counts, also of workers (see [The profiler](#the-profiler)); `-pprof` also for `go tool pprof`; Ctrl-C stops the program and writes the report |
 | `kukel dap` | The debugger for editors: the Debug Adapter Protocol on standard input and output, which an editor starts (see [docs/debugging.md](debugging.md): Visual Studio Code, Neovim, Helix, Emacs) |
-| `kukel fmt [-w \| -l] a.kkl ...`, `kukel fmt -` | Format source files: indentation (4 spaces; `case` labels one level into the switch, their statements two) and the spaces between tokens (`{ }` becomes `{}`; a comment at the end of a line keeps its distance); line breaks and comments stay, at most one blank line in a row; CRLF line ends become LF. A line that continues a statement outside brackets (`return c &&` and then `d;`) is indented one level more than the statement's first line. A statement that starts a line with `if`, `while`, `do`, `for`, `switch`, `try` or `with` (also after a label: `outer: for`, and with the label on a line of its own, where the blank line goes above the label) gets a blank line before it (above the comments right above it), except as the first statement of a block, after a label on its own line or a `case`, as the statement of `else` or a header without braces, or as the `while` of a `do`. The output is checked to give the same tokens and comments as the input; a file it cannot format safely is refused with an "internal error".  Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`; `-w` and `-l` together are a usage error). A file with a syntax error or a NUL byte is left alone, and the exit code is 1. `kukel fmt -` formats standard input to standard output (for editors; with `-w`, `-l` or files it is a usage error) |
+| `kukel fmt [-w \| -l] a.kkl ...`, `kukel fmt -` | Format source files: indentation (4 spaces; `case` labels one level into the switch, their statements two) and the spaces between tokens (`{ }` becomes `{}`; a comment at the end of a line keeps its distance); line breaks and comments stay, at most one blank line in a row; CRLF line ends become LF (not inside a string or a `/* */` comment: those stay as written). A line that continues a statement outside brackets (`return c &&` and then `d;`) is indented one level more than the statement's first line. A line that starts with a closing bracket lines up with the line that opened it, also when more follows (`}, 1);` after `f(fn() {`); a comma at the end of a list stays, so a list with one item per line and its closing bracket on a line of its own formats as in Go. A statement that starts a line with `if`, `while`, `do`, `for`, `switch`, `try` or `with` (also after a label: `outer: for`, and with the label on a line of its own, where the blank line goes above the label) gets a blank line before it (above the comments right above it), except as the first statement of a block, after a label on its own line or a `case`, as the statement of `else` or a header without braces, or as the `while` of a `do`. The output is checked to give the same tokens and comments as the input; a file it cannot format safely is refused with an "internal error".  Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`; `-w` and `-l` together are a usage error). A file with a syntax error or a NUL byte is left alone, and the exit code is 1. `kukel fmt -` formats standard input to standard output (for editors; with `-w`, `-l` or files it is a usage error) |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | Show the tokens or the syntax tree of each file (for debugging; `-pos`, before the files, adds positions) |
 | `kukel version` (also `-version`, `--version`) | Show the version (with the commit and the Go version), the bytecode format and the modules written in Go, with the databases `db` can open (`db (SQLite, PostgreSQL, MySQL)`): a `kukel` built with tags may lack some (see the README) |
 | `kukel help` (also `-h`, `-help`, `--help`) | Show the commands (`kukel` without a command shows them too, with exit code 2) |
@@ -70,9 +71,12 @@ program with that code. A wrong command line (an unknown command, a missing
 file name, `-o` without a name or naming a source file, an option the
 command does not have, such as `kukel fmt -d`: a file whose name starts
 with `-` is given as `./-name`; `-` as a file anywhere but in `kukel fmt -`,
-`kukel run` of a `.kkc` file) gives exit code 2. Messages that are not
-about a place in the source start with `kukel:` (`kukel: open a.kkl: no
-such file or directory`). The operating system keeps only the low 8 bits
+a `.kkc` file where source files go (only `exec` and `disasm` take one),
+arguments after `kukel help` or `kukel version`) gives exit code 2.
+Messages that are not about a place in the source start with `kukel:`
+(`kukel: open a.kkl: no such file or directory`). Output that cannot be
+written (standard output on a full disk, say) is such an error, with exit
+code 1: `kukel: write /dev/stdout: no space left on device`. The operating system keeps only the low 8 bits
 of an exit code: `return 263` exits with 7, `return -1` with 255.
 
 Files used as modules (`use name;`) are found next to the file that uses
@@ -108,14 +112,16 @@ state with the pieces before it:
 ```
 
 - A statement without its final `;` gets one when that completes the
-  piece. A line that is the header of an `if`, `else`, `while` or `for`
-  (`if (x > 0)` alone) is not taken as a statement with an empty body: its
-  statement comes on the next line. A definition's `{` goes on the line of
+  piece. A line that is the header of an `if`, `else`, `while`, `for` or
+  `with` (`if (x > 0)` alone) is not taken as a statement with an empty
+  body: its statement comes on the next line. A definition's `{` goes on the line of
   its header (`f(x)` alone is a call).
 - An `if` without an `else` waits for one more line. A line that starts
   with `else` joins it; an empty line (or the end of the input) runs it at
   once; any other line runs it and is then read as the next piece (or by
   a `readline()` in the `if`). Comment lines in between stay with the `if`.
+  In the same way a `try` with a `catch` but no `finally` waits for a line
+  that starts with `finally`.
 
 ```
 > local x = 3
@@ -256,6 +262,7 @@ isPrime(n) {
 
 main() {
     local count = 0;
+
     for (local n = 0; n < 200000; n++)
         if (isPrime(n)) count++;
     time::sleep(0.1);                    // waiting counts too
@@ -708,6 +715,29 @@ are strings and numbers (not `nan`); `1` and `1.0` are the same key.
 `name`; write `{"name": 1}` for a string key. A `{` that starts a statement
 is a block, never a map.
 
+**A comma at the end**: a list closed by a bracket may end with a comma:
+the arguments of a call, a method call or `new`, the parameters of a
+function, a member function's declaration or a function literal, and the
+elements of a vector or map literal. So a list written one item per line
+can end every line with a comma, and lines can be added or moved freely:
+
+```
+main() {
+    local colours = [
+        "red",
+        "green",
+    ];
+    local sizes = {"s": 1, "m": 2,};
+
+    println(len(colours), sizes["m"]);   // 2 2
+}
+```
+
+A lone comma (`f(,)`, `[,]`) is an error. The lists that end with `;`
+(`global`, `const`, `local`, data members), the variables of `with` and of
+a `for` loop, and the comma operator take no comma at the end. (Syntax
+version 7, Kukel v0.31.)
+
 **Assignable**: variables, a module's globals (`m::x`), `C::x` (static data member), `v[i]`, `p->x`. In
 `v[f()] += 1` and `p->x++`, `v`, `f()` and `p` are evaluated once.
 
@@ -780,7 +810,10 @@ main() {
 - In a member function, a literal also sees `this` and the members.
 - In stack traces a literal is called `<function>/fn@<line>`. The global
   initializers of a file run in a function called `<init>`: an exception
-  there shows `at <init> (file.kkl:line)`.
+  there shows `at <init> (file.kkl:line)`. The class `Error` is written in
+  Kukel, in a part of every program called the prelude, so a trace can
+  show its frames as `<prelude>`: `new Error(5)` gives
+  `at Error::Error (<prelude>:9)`, above the caller's frame.
 
 ---
 
@@ -954,7 +987,7 @@ work with an `ArgumentError`.
 
 | Function | Description |
 |---|---|
-| `print(x, ...)` | Writes the values separated by single spaces (strings as they are); no values write nothing. Output that cannot be written is an `IOError` (also for the others below) |
+| `print(x, ...)` | Writes the values separated by single spaces (strings as they are); no values write nothing. Output that cannot be written is an `IOError` (also for the others below). Output is buffered, so a failure may show only later; what fails to be written when the program ends is reported by `kukel` (`kukel: write ...`, exit code 1) |
 | `println(x, ...)` | Like `print`, then a newline |
 | `eprint(x, ...)` | Like `print`, to standard error |
 | `eprintln(x, ...)` | Like `println`, to standard error |
@@ -980,7 +1013,7 @@ a program printed before a wait is seen during it.
 | `typeof(x)` | `"nil"`, `"bool"`, `"int"`, `"float"`, `"string"`, `"vector"`, `"map"`, `"function"`, `"class"` or `"object"` |
 | `str(x)` | `x` as text, as `print` writes it |
 | `int(x)` | An int: floats are truncated toward zero; strings in decimal, `0x` or `0b` form with an optional sign (`"42"`, `"-0x10"`, `"0b11"`), surrounding spaces allowed and every `_` ignored (`"1_000"`); `true` is 1, `false` 0. A string that is not a number is a `ValueError`, one too large a `RangeError`; hexadecimal and binary use all 64 bits, as literals do (`int("0xffffffffffffffff")` is -1) |
-| `float(x)` | A float from an int, float or string (`"2.5"`, `"1e3"`, `"inf"`, also Go's other forms such as `"0x1p3"`; surrounding spaces and `_` between digits are allowed, as for `int`: `" 1_000.5 "`). A string beyond the float range is a `RangeError`; one too small gives 0.0 |
+| `float(x)` | A float from an int, float or string (`"2.5"`, `"1e3"`, `"inf"`, also Go's other forms such as `"0x1p3"`; surrounding spaces are allowed and every `_` is ignored, as for `int`: `" 1_000.5 "`, also `"_1_"`). A string beyond the float range is a `RangeError`; one too small gives 0.0 |
 | `classof(obj)` | The class of an object |
 | `instanceof(x, C)` | Whether `x` is an object of class `C` or of a class derived from it |
 
@@ -988,6 +1021,7 @@ a program printed before a wait is seen during it.
 main() {
     println(int("42") + 1, int(" -0x10 "), int("1_000"), int(3.9), int(-3.9));
     println(float("2.5") * 2, float(" 1e3 "), str(1.0 / 4) + "!");
+
     try { int("12abc"); } catch (e) { println(e->kind, e->message); }
 }
 ```
@@ -2022,6 +2056,7 @@ main() {
         local sound = new tk::Checkbutton(f, "Sound")->setchecked(settings["sound"]);
         sound->grid({"row": 0, "column": 0, "sticky": "w"});
         local size = new tk::Radiogroup(settings["size"]), row = 1;
+
         for (local name in ["small", "medium", "large"]) {
             new tk::Radiobutton(f, name, size, name)->grid({"row": row, "column": 0, "sticky": "w"});
             row = row + 1;
@@ -2077,6 +2112,7 @@ main() {
     local file = new tk::Menu(w)->submenu("File");
     file->item("Save as...", fn() {
         local path = tk::savefile({"ext": ".txt", "parent": w});
+
         if (path != nil) writefile(path, text->text());
     }, {"accelerator": "Ctrl+S"});
     file->separator();
@@ -2171,6 +2207,7 @@ main() {
     c->bind("<Button-1>", fn(e) {
         item = c->itemat(e["x"], e["y"]);
         last = e;
+
         if (item != nil) c->raise(item);
     });
     c->bind("<B1-Motion>", fn(e) {

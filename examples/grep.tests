@@ -60,6 +60,35 @@ $ -r -l -i todo testdata/tree testdata/words.txt
 testdata/tree/lib/util.kkl
 testdata/tree/main.kkl
 
+# -r names the files it finds in a directory, also when there is one; a
+# file given alone is not named, as without -r.
+$ -r helpers testdata/tree/lib
+testdata/tree/lib/util.kkl:// TODO: more helpers
+
+$ -r alpha testdata/words.txt
+alpha
+
+$ -r -h helpers testdata/tree/lib
+// TODO: more helpers
+
+# A directory without -r is an error; -r without files searches the
+# current directory.
+$ alpha testdata/tree testdata/words.txt
+testdata/words.txt:alpha
+! grep: readfile: testdata/tree: is a directory
+exit 2
+
+$ -r -l '^\s+// TODO'
+testdata/tree/main.kkl
+
+# A file named - is standard input.
+$ -n alpha - testdata/words.txt < testdata/words.txt
+(standard input):1:alpha
+testdata/words.txt:1:alpha
+
+$ -c a - < testdata/words.txt
+3
+
 # -o prints no empty matches; -l wins over -c; -o -v prints nothing.
 $ -o a* testdata/words.txt
 a

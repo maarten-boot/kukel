@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
@@ -525,6 +526,80 @@ func TestMessagePrefix(t *testing.T) {
 	}
 }
 
+// A NUL byte refused by fmt and build -module is a message with the
+// prefix too; so are help and version with arguments (usage errors).
+func TestMessagePrefixNUL(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("n.kkl", []byte("f() {}\x00\n"), 0o644)
+	for _, args := range [][]string{{"fmt", "n.kkl"}, {"build", "-module", "n.kkl"}} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, nil, &stdout, &stderr); code != 1 || !strings.HasPrefix(stderr.String(), "kukel: n.kkl: ") {
+			t.Errorf("%q: exit %d, %q", args, code, stderr.String())
+		}
+	}
+	for _, args := range [][]string{{"help", "x"}, {"version", "x"}} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, nil, &stdout, &stderr); code != 2 || !strings.HasPrefix(stderr.String(), "kukel "+args[0]+": takes no arguments") {
+			t.Errorf("%q: exit %d, %q", args, code, stderr.String())
+		}
+	}
+}
+
+// A compiled program among the source files is refused with one message
+// (only exec, and disasm on its own, take one).
+func TestCompiledAmongSources(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("a.kkl", []byte("main() {}\n"), 0o644)
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"build", "-o", "r.kkc", "a.kkl"}, nil, &stdout, &stderr); code != 0 {
+		t.Fatal(stderr.String())
+	}
+	for _, tc := range []struct {
+		args []string
+		msg  string
+	}{
+		{[]string{"run", "r.kkc"}, "kukel run: r.kkc is a compiled program: run it with kukel exec r.kkc (or kukel r.kkc)"},
+		{[]string{"debug", "a.kkl", "r.kkc"}, "kukel debug: r.kkc is a compiled program: run it with kukel exec r.kkc"},
+		{[]string{"profile", "r.kkc"}, "kukel profile: r.kkc is a compiled program: run it with kukel exec r.kkc"},
+		{[]string{"check", "r.kkc"}, "kukel check: r.kkc is a compiled program, not a source file (.kkl)"},
+		{[]string{"build", "r.kkc"}, "kukel build: r.kkc is a compiled program, not a source file (.kkl)"},
+		{[]string{"repl", "r.kkc"}, "kukel repl: r.kkc is a compiled program, not a source file (.kkl)"},
+		{[]string{"tokens", "r.kkc"}, "kukel tokens: r.kkc is a compiled program, not a source file (.kkl)"},
+		{[]string{"fmt", "r.kkc"}, "kukel fmt: r.kkc is a compiled program, not a source file (.kkl)"},
+		{[]string{"disasm", "a.kkl", "r.kkc"}, "kukel disasm: r.kkc is a compiled program: give it alone (kukel disasm r.kkc)"},
+		{[]string{"disasm", "r.kkc", "a.kkl"}, "kukel disasm: r.kkc is a compiled program: give it alone (kukel disasm r.kkc)"},
+	} {
+		stderr.Reset()
+		if code := run(tc.args, strings.NewReader(""), &stdout, &stderr); code != 2 || !strings.HasPrefix(stderr.String(), tc.msg) {
+			t.Errorf("%q: exit %d, %q", tc.args, code, stderr.String())
+		}
+	}
+	if _, err := compileFiles([]string{"a.kkl", "r.kkc"}); err == nil || err.Error() != "kukel: r.kkc is a compiled program, not a source file (.kkl)" {
+		t.Errorf("compileFiles (kukel dap): %v", err)
+	}
+}
+
+// failWriter fails every write, as standard output on a full disk does.
+type failWriter struct{}
+
+func (failWriter) Write([]byte) (int, error) {
+	return 0, errors.New("write /dev/stdout: no space left on device")
+}
+
+// Output that cannot be written is reported, with exit code 1.
+func TestWriteErrors(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("a.kkl", []byte("main() { println(\"x\"); }\n"), 0o644)
+	os.WriteFile("m.kkl", []byte("main(){}\n"), 0o644)
+	for _, args := range [][]string{{"run", "a.kkl"}, {"a.kkl"}, {"fmt", "a.kkl"}, {"fmt", "-l", "m.kkl"}, {"fmt", "-"},
+		{"tokens", "a.kkl"}, {"ast", "a.kkl"}, {"disasm", "a.kkl"}, {"help"}, {"version"}} {
+		var stderr bytes.Buffer
+		if code := run(args, strings.NewReader("main() {}\n"), failWriter{}, &stderr); code != 1 || stderr.String() != "kukel: write /dev/stdout: no space left on device\n" {
+			t.Errorf("%q: exit %d, %q", args, code, stderr.String())
+		}
+	}
+}
+
 // build -o refuses to write a source file.
 func TestBuildOutputNotSource(t *testing.T) {
 	t.Chdir(t.TempDir())
@@ -666,6 +741,18 @@ println("not run");
 		{"local j = 0\ndo {\n  j++;\n} while (j < 3)\nj\n", "3\n"},
 		{"local k = 0\nwhile (k < 2) if (k == 1) k = 5\nelse k++\nk\n", "5\n"},
 		{"if (1) {\n  println(1);\n}\n\nlocal else_ = 2\nelse_\n", "1\n2\n"},
+		// with on a line of its own takes the next line as its body
+		{"class L { close(); }\nL::close() { println(\"closed\"); }\nwith (local a = new L())\n  println(\"body\");\n", "body\nclosed\n"},
+		{"class L { close(); }\nL::close() { println(\"closed\"); }\nwith (local a = new L()) if (0) {}\nelse println(\"else\")\n", "else\nclosed\n"},
+		// a try with a catch waits for a finally on the next line
+		{"try { throw new Error(\"x\"); } catch (e) { println(1); }\nfinally { println(3); }\nprintln(\"after\")\n", "1\n3\nafter\n"},
+		{"try { println(1); }\ncatch (e) {}\n// c\nfinally {\n  println(2);\n}\n", "1\n2\n"},
+		{"try { println(4); } catch (e) { }\nprintln(5)\n", "4\n5\n"},
+		{"if (0) try {} catch (e) {}\nelse println(\"else\")\n", "else\n"},
+		{"if (1) try { println(6); } catch (e) {}\nfinally { println(7); }\n", "6\n7\n"},
+		// a line longer than the input's buffer, looked at after an if
+		{"if (false) println(1)\nelse println(len(\"" + strings.Repeat("a", 5000) + "\"))\nprintln(\"next\")\n", "5000\nnext\n"},
+		{"if (true) println(len(readline()))\n" + strings.Repeat("b", 6000) + "\nprintln(\"after\")\n", "6000\nafter\n"},
 	} {
 		out.Reset()
 		errOut.Reset()
@@ -967,7 +1054,7 @@ func TestDebug(t *testing.T) {
 	// print takes expressions without side effects; break takes a condition.
 	os.WriteFile("x.kkl", []byte("main() {\n    local v = [10, 20, 30];\n    for (local i = 0; i < 3; i++) {\n        println(v[i]);\n    }\n}\n"), 0o644)
 	out.Reset()
-	cmds := "b 4 if i == 2\nbreaks\nc\np v[i] + i * 2\np i > 1 && v[0] == 10 ? \"yes\" : \"no\"\np len(v)\np i = 5\np i++\np [i, {\"k\": -i}]\nc\n"
+	cmds := "b 4 if i == 2\nbreaks\nc\np v[i] + i * 2\np i > 1 && v[0] == 10 ? \"yes\" : \"no\"\np len(v)\np i = 5\np i++\np [i, {\"k\": -i,},]\nc\n"
 	if run([]string{"debug", "x.kkl"}, strings.NewReader(cmds), &out, &out); !strings.Contains(out.String(),
 		"(kdb) breakpoint 1 at x.kkl:4\n(kdb) 1: x.kkl:4 if i == 2\n(kdb) 10\n20\nbreakpoint 1, main at x.kkl:4\n    4          println(v[i]);\n(kdb) 34\n(kdb) \"yes\"\n"+
 			"(kdb) calls are not evaluated: they could change the program\n(kdb) only expressions without side effects are evaluated (names, operators, ?:, [i], ->member)\n"+

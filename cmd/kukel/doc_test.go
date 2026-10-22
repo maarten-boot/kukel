@@ -8,18 +8,21 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/maarten-boot/kukel/internal/format"
 )
 
 // TestLarkGrammar parses the programs of the repository with syntax.lark,
-// so that the grammar keeps up with the language: examples/, tests/run (with
-// its modules) and the programs of docs/reference.md and the README. It
+// so that the grammar keeps up with the language: examples/ (also the
+// embedding example's), tests/run (with its modules), tests/ast and the
+// programs of docs/reference.md and the README. It
 // needs Python with lark (pip install lark), else it skips; CI has them.
 func TestLarkGrammar(t *testing.T) {
 	if err := exec.Command("python3", "-c", "import lark").Run(); err != nil {
 		t.Skip("needs python3 with lark (pip install lark)")
 	}
 	var files []string
-	for _, pattern := range []string{"../../examples/*.kkl", "../../tests/run/*.kkl", "../../tests/run/lib/*.kkl"} {
+	for _, pattern := range []string{"../../examples/*.kkl", "../../examples/embed/*.kkl", "../../tests/run/*.kkl", "../../tests/run/lib/*.kkl", "../../tests/ast/*.kkl"} {
 		more, _ := filepath.Glob(pattern)
 		files = append(files, more...)
 	}
@@ -116,6 +119,19 @@ func TestReferenceSessions(t *testing.T) {
 	}
 	if repls < 2 || debugs < 1 {
 		t.Errorf("found %d REPL and %d debugger sessions", repls, debugs)
+	}
+}
+
+// TestDocsFormatted checks that the programs of the documents are written
+// as kukel fmt writes them, as the examples are.
+func TestDocsFormatted(t *testing.T) {
+	for i, code := range docPrograms(t) {
+		out, err := format.Source(fmt.Sprintf("doc%d.kkl", i+1), []byte(code))
+		if err != nil {
+			t.Errorf("program %d: %v", i+1, err)
+		} else if string(out) != code {
+			t.Errorf("program %d is not formatted; kukel fmt gives\n%s\ninstead of\n%s", i+1, out, code)
+		}
 	}
 }
 

@@ -455,6 +455,10 @@ func (l *Lexer) operator(start token.Pos) (token.Token, error) {
 	}
 	c := l.peek(0)
 	if c == '.' {
+		if l.off >= 2 && l.src[l.off-1] == '.' && isDigit(l.src[l.off-2]) {
+			// "1.." is the float "1." and a lone ".".
+			return token.Token{}, l.errorf(start, "unexpected '.' (a number followed by '..' reads as a float and a lone '.': only a vector can be spread)")
+		}
 		return token.Token{}, l.errorf(start, "unexpected '.' (a lone '.' is not a token; did you mean '..' or '->'?)")
 	}
 	return token.Token{}, l.errorf(start, "unexpected character %s", printable(c))

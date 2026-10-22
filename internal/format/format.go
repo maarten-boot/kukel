@@ -83,7 +83,7 @@ func same(a, b []token.Token) bool {
 type open struct {
 	kind      token.Kind // LBRACE, LPAREN or LBRACK
 	header    bool       // the "(" of if, while, for, switch, catch or with
-	line      int        // the source line it was opened on
+	line      int        // the source line it was opened on (see openLine)
 	hang      int        // the hanging levels of that line (if (...) under a for without braces)
 	isMap     bool       // a "{" of a map literal (not a block)
 	isSwitch  bool       // the "{" of a switch body
@@ -114,6 +114,7 @@ type formatter struct {
 	closedDo      bool          // the current line closed the braces of a do: a while next is the do's
 	stmtHanging   int           // the hanging levels of the line that started the current statement
 	ternaryColon  bool          // the last ":" was the one of ?:
+	openLine      int           // the line brackets opened on the current line count as theirs
 }
 
 func layout(toks []token.Token, src []byte) []byte {
@@ -208,7 +209,19 @@ func (f *formatter) startLine(rest []token.Token) {
 		}
 		n--
 	}
+	// It lines up with the line that opened the last of them, so the other
+	// brackets opened on that line count no more: the "(" of "f(fn() {"
+	// for a line "}, 1);".
+	for n > 0 && n < len(f.stack) && f.stack[n-1].line == f.stack[n].line {
+		n--
+	}
 	entries := f.stack[:n]
+	// Brackets opened on this line count as opened on that line too: in
+	// "}, [" the "[" holds lines one level deeper than "}".
+	f.openLine = t.Pos.Line
+	if n < len(f.stack) {
+		f.openLine = f.stack[n].line
+	}
 	label := t.Kind == token.CASE || t.Kind == token.DEFAULT
 	if label { // a label of the innermost switch around it, also from a nested block
 		for i := len(entries) - 1; i >= 0; i-- {
@@ -237,7 +250,7 @@ func (f *formatter) startLine(rest []token.Token) {
 	if t.Kind == token.LBRACE {
 		hanging = 0
 	}
-	if n < len(f.stack) && (len(entries) == 0 || f.stack[n].line != entries[len(entries)-1].line) {
+	if n < len(f.stack) {
 		hanging = f.stack[n].hang // a closing bracket lines up with the line that opened it
 	}
 	// An else on its own line lines up with its if: the last if that
@@ -394,7 +407,7 @@ func (f *formatter) after(t *token.Token) {
 	case token.SWITCH:
 		f.switchAt = len(f.stack)
 	case token.LPAREN, token.LBRACK:
-		o := &open{kind: t.Kind, line: t.Pos.Line, hang: f.lineHanging}
+		o := &open{kind: t.Kind, line: f.openLine, hang: f.lineHanging}
 		if t.Kind == token.LPAREN && f.last != nil {
 			switch f.last.Kind {
 			case token.IF, token.WHILE, token.FOR, token.SWITCH, token.CATCH, token.WITH:
@@ -403,7 +416,7 @@ func (f *formatter) after(t *token.Token) {
 		}
 		f.stack = append(f.stack, o)
 	case token.LBRACE:
-		o := &open{kind: t.Kind, line: t.Pos.Line, hang: f.lineHanging, isMap: f.mapBrace()}
+		o := &open{kind: t.Kind, line: f.openLine, hang: f.lineHanging, isMap: f.mapBrace()}
 		o.isDo = f.last != nil && f.last.Kind == token.DO
 		if f.switchAt == len(f.stack) && !o.isMap {
 			o.isSwitch, f.switchAt = true, -1

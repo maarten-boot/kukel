@@ -726,7 +726,7 @@ main() {
 		{"too few arguments with optional parameters", "f(a, b = 1, c = 2) {}\nmain() { local g = f; g(); }",
 			"ArgumentError: f expects 1 to 3 arguments, got 0\n  at main (t.kkl:2)"},
 		{"too many arguments with optional parameters", "f(a = 1) {}\nmain() { local g = f; g(1, 2); }",
-			"ArgumentError: f expects 0 to 1 arguments, got 2\n  at main (t.kkl:2)"},
+			"ArgumentError: f expects at most 1 argument, got 2\n  at main (t.kkl:2)"},
 		{"too few arguments with a rest parameter", "f(a, b, c..) {}\nmain() { local g = f; g(1); }",
 			"ArgumentError: f expects at least 2 arguments, got 1\n  at main (t.kkl:2)"},
 		{"spread of a non-vector", "f(x..) {}\nmain() { local n = 1; f(n..); }",

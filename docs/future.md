@@ -703,6 +703,9 @@ ideas above make useful:
   disassembler and line tables already prepare for (*done*: `kukel debug`,
   TODO.md Q60; the Debug Adapter Protocol for editors followed on the
   same hook: *done*, `kukel dap`, TODO.md Q77);
+- a profiler: which functions and lines take the time, with call counts
+  (*done*: `kukel profile`, also in Go's pprof format with `-pprof`, and
+  from the Go API, TODO.md Q78);
 - reading directories: the module `fs` of section 6.1 (*done*, Q61), and
   `examples/grep.kkl` searches trees (`-r`);
 - a faster VM (register-based, or fewer instructions per call): *done* by

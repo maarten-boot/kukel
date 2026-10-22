@@ -8,11 +8,12 @@
 //     -l  only the names of the files with a match
 //     -o  only the matching parts of the lines
 //     -F  the pattern is plain text, not a regular expression
-//     -h  no file names before the lines (the default for one file)
+//     -h  no file names before the lines (the default for one file,
+//         unless -r found it in a directory)
 //     -r  search the files in the directories given (none: the current one),
 //         and below them (module fs)
 //
-// The exit code is 0 when a line matched, 1 when none did, 2 after an error.
+// A file named - is standard input, as no file is. The exit code is 0 when a line matched, 1 when none did, 2 after an error.
 use re;
 use fs;
 
@@ -21,6 +22,9 @@ global opts = {};
 
 // Whether a file or directory could not be read (exit code 2).
 global failed = false;
+
+// Whether -r went into a directory: the lines then show their file's name.
+global walked = false;
 
 usage(why) {
     eprintln("grep:", why);
@@ -62,11 +66,15 @@ main(args) {
     if (len(files) == 0) {
         found = search(rx, "(standard input)", stdinLines(), false);
     } else {
+        local named = (len(files) > 1 || walked) && !haskey(opts, "h");
+
         for (local f in files) {
             try {
-                local text = readfile(f);
-
-                if (search(rx, f, lines(text), len(files) > 1 && !haskey(opts, "h"))) found = true;
+                if (f == "-") {
+                    if (search(rx, "(standard input)", stdinLines(), named)) found = true;
+                } else if (search(rx, f, lines(readfile(f)), named)) {
+                    found = true;
+                }
             } catch (e) {
                 eprintln("grep:", e->message);
                 failed = true;
@@ -132,7 +140,8 @@ below(paths) {
 
     for (local p in paths) {
         try {
-            if (fs::exists(p) && fs::stat(p)["dir"]) {
+            if (p != "-" && fs::exists(p) && fs::stat(p)["dir"]) {
+                walked = true;
                 fs::walk(p, fn(path, e) {
                     if (!e["dir"] && !e["link"]) push(out, path);
                 });

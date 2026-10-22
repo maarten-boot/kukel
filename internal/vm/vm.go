@@ -1075,8 +1075,8 @@ func argCountError(fn *bytecode.Function, argc int) error {
 	case fn.HasRest:
 		return value.Errorf(value.ArgumentError, "%s expects at least %s, got %d", fn.FuncName, value.Arguments(fn.NumParams), argc)
 	case fn.NumOptional > 0:
-		return value.Errorf(value.ArgumentError, "%s expects %d to %d arguments, got %d",
-			fn.FuncName, fn.NumParams, fn.NumParams+fn.NumOptional, argc)
+		return value.Errorf(value.ArgumentError, "%s expects %s, got %d",
+			fn.FuncName, value.ArgumentRange(fn.NumParams, fn.NumParams+fn.NumOptional), argc)
 	}
 	return value.Errorf(value.ArgumentError, "%s expects %s, got %d", fn.FuncName, value.Arguments(fn.NumParams), argc)
 }

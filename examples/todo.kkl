@@ -23,7 +23,8 @@
 // The database is sqlite:todo.db unless -db names another (any URL
 // db::open takes; "sqlite::memory:" is gone at the end). Each command is a
 // transaction: it changes everything it should, or nothing. The exit code
-// is 0, 1 when a command failed, 2 for a wrong command line.
+// is 0, 1 when a command failed, 2 for a wrong command line or a database
+// that cannot be opened.
 use db;
 use json;
 use time;

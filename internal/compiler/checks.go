@@ -43,7 +43,7 @@ func (c *compiler) checkArgs(ps *paramShape, args []ast.Expr, pos token.Pos) {
 		c.errorf(pos, "%s expects at least %s, got %d", ps.name, value.Arguments(ps.required), n)
 	case ps.rest:
 	case ps.optional > 0 && (n < ps.required || n > ps.required+ps.optional):
-		c.errorf(pos, "%s expects %d to %d arguments, got %d", ps.name, ps.required, ps.required+ps.optional, n)
+		c.errorf(pos, "%s expects %s, got %d", ps.name, value.ArgumentRange(ps.required, ps.required+ps.optional), n)
 	case ps.optional == 0 && n != ps.required:
 		c.errorf(pos, "%s expects %s, got %d", ps.name, value.Arguments(ps.required), n)
 	}
