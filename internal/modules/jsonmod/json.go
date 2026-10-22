@@ -98,7 +98,7 @@ func (e *encoder) value(v value.Value, depth int) error {
 			return e.value(val, depth+1)
 		})
 	default:
-		return e.a.Errorf(value.TypeError, "cannot encode %s as JSON", v.Kind())
+		return e.a.Errorf(value.TypeError, "cannot encode %s as JSON", native.TypeName(v))
 	}
 	return nil
 }
@@ -142,7 +142,12 @@ func (e *encoder) newline(depth int) {
 
 func (e *encoder) str(s string) error {
 	if !utf8.ValidString(s) {
-		return e.a.Errorf(value.ValueError, "string %s is not valid UTF-8", strconv.Quote(s))
+		shown := s
+		if len(shown) > 40 { // the string may be long: its start
+			shown = shown[:40]
+			return e.a.Errorf(value.ValueError, "string %s... (%d bytes) is not valid UTF-8", strconv.Quote(shown), len(s))
+		}
+		return e.a.Errorf(value.ValueError, "string %s is not valid UTF-8", strconv.Quote(shown))
 	}
 	e.b.WriteByte('"')
 	for i := 0; i < len(s); i++ {
@@ -488,6 +493,9 @@ func (p *parser) number() (value.Value, error) {
 	}
 	if p.i < len(p.s) && p.s[p.i] == '0' {
 		p.i++
+		if p.i < len(p.s) && p.s[p.i] >= '0' && p.s[p.i] <= '9' {
+			return value.NilValue, p.errorf("a number cannot start with 0 and another digit")
+		}
 	} else if err := digits(); err != nil {
 		return value.NilValue, err
 	}

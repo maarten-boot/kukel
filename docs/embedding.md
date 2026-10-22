@@ -294,8 +294,10 @@ opts := kukel.CompileOptions{
 - `in.CallContext(ctx, ...)` stops the call when `ctx` ends (a timeout, a
   cancelled request) with a `"CancelledError"`, also for a call a Go function
   makes back into Kukel. The program stops at its next step; Go functions
-  that wait (`time::sleep`, `worker` `receive` and `wait`, `events::run`)
-  return at once. Workers started during the call are cancelled if `ctx`
+  that wait (`time::sleep`, `worker` `receive` and `wait`, `events::run`,
+  `zmq` `receive`, `poll`, `send` and `connect`, `p9` calls, `db` queries)
+  return at once. A `zmq::Socket` whose `send` or `connect` is cancelled is
+  closed (zmq4 cannot take back a message it waits to send). Workers started during the call are cancelled if `ctx`
   ends while the call runs; `in.Close()` cancels the ones that outlive it.
 - Neither interrupts a single long operation of a built-in function (sorting
   a huge vector, `split` of a huge string); it is noticed when the operation

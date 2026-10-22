@@ -949,8 +949,9 @@ work with an `ArgumentError`.
 out what is buffered first, so a prompt appears before the input is read
 and the order of output and errors stays as written. So do the
 functions of modules that wait (`time::sleep`, `events::run`, `receive`,
-`wait` and `poll` of `worker` and `zmq`, the calls of a `p9` client): what
-a program printed before a wait is seen during it.
+`wait` and `poll` of `worker` and `zmq`, `send` and `connect` of `zmq`,
+the calls of a `p9` client, `db::open` and the calls that run SQL): what a
+program printed before a wait is seen during it.
 
 | Function | Description |
 |---|---|
@@ -1176,12 +1177,12 @@ same name (from a join) keep the last value, so name them with `AS`.
 
 | Function or member function | Description |
 |---|---|
-| `db::open(url)` | A `db::Conn`: `"sqlite:path"` opens the file `path` (relative to the current directory; any characters, also `?`, `#` and `%`), creating it if needed; `"sqlite::memory:"` is a database in memory, gone when closed. `"postgres://user:password@host:5432/database?sslmode=disable"` (also `postgresql://`; the options are PostgreSQL's) and `"mysql://user:password@host:3306/database"` (the port defaults to 3306; options such as `?tls=true` are the MySQL driver's) connect to a server; such a URL needs a host. A database that cannot be opened or reached is a `DBError`, another URL a `ValueError`, as is a kind of database this `kukel` was built without ("this kukel was built without PostgreSQL (build tag nopostgres)"; `kukel version` lists the ones it has). A `kukel` built without any of the three has no module `db`: `use db;` says which build tags left it out. In SQLite, foreign keys are enforced and a database another program is writing is waited for up to 5 seconds |
+| `db::open(url)` | A `db::Conn`: `"sqlite:path"` opens the file `path` (relative to the current directory; any characters, also `?`, `#` and `%`), creating it if needed; `"sqlite::memory:"` is a database in memory, gone when closed. `"postgres://user:password@host:5432/database?sslmode=disable"` (also `postgresql://`; the options are PostgreSQL's) and `"mysql://user:password@host:3306/database"` (the port defaults to 3306; options such as `?tls=true` are the MySQL driver's) connect to a server; such a URL needs a host. A database that cannot be opened or reached is a `DBError` whose message has the URL (without the password) and the reason (`db::open: postgres://u:***@db.example/shop: connection refused`, `host x not found`); another URL a `ValueError`, also one with options the driver does not take (`sslmode=bogus`) and one with a `@` in the user name or password (write it as `%40`), as is a kind of database this `kukel` was built without ("this kukel was built without PostgreSQL (build tag nopostgres)"; `kukel version` lists the ones it has). A `kukel` built without any of the three has no module `db`: `use db;` says which build tags left it out. In SQLite, foreign keys are enforced and a database another program is writing is waited for up to 5 seconds |
 | `conn->exec(sql, args...)` | Runs a statement that gives no rows (`CREATE`, `INSERT`, `UPDATE`, `DELETE`, ...) and gives the number of rows it touched (for an `UPDATE`, the rows its `WHERE` found, also in MySQL; 0 for a statement that changes no rows, such as `CREATE`) |
 | `conn->lastid()` | The id the database chose for the row the last `INSERT` (or `REPLACE`) added (SQLite's `last_insert_rowid`, MySQL's `LAST_INSERT_ID`), or `nil`: after an `exec` of another statement (one that does not start with `INSERT` or `REPLACE`: so also an `INSERT` after a `WITH`) or of one that added no row (`INSERT OR IGNORE` of a row already there, `ON CONFLICT DO NOTHING`, `INSERT ... SELECT` that selects nothing), after the object calls `migrate`, `delete(p)` and `query->delete()` (they run statements of their own), and in MySQL for a row whose id the statement gave (`query`, `first` and `cursor`, `get`, `find` and `count`, and an `exec` that fails, leave it as it was). PostgreSQL has none for `exec` (write `INSERT ... RETURNING id` and use `first`); after `save` it is the id of the saved row, new or not, on every database |
 | `conn->query(sql, args...)` | All rows of a query, as a vector of maps |
 | `conn->first(sql, args...)` | The first row of a query, or `nil` |
-| `conn->cursor(sql, args...)` | A `db::Cursor` for results too large to hold at once: `cursor->next()` gives the next row, or `nil` at the end (which closes it); `cursor->close()` stops early. While a cursor is open, the other calls that run SQL (`exec`, `query`, `first`, `cursor`, `begin`, `commit`, `rollback`, and those of objects: `migrate`, `save`, `delete`, `get`, `find`, `load`, and the member functions of `db::Query`, also those that only refine it) are a `ValueError`; `lastid`, `intransaction` and `close` still work |
+| `conn->cursor(sql, args...)` | A `db::Cursor` for results too large to hold at once: `cursor->next()` gives the next row, or `nil` at the end (which closes it); `cursor->close()` stops early, and `cursor->closed()` tells whether it is closed. While a cursor is open, the other calls that run SQL (`exec`, `query`, `first`, `cursor`, `begin`, `commit`, `rollback`, and those of objects: `migrate`, `save`, `delete`, `get`, `find`, `load`, and the member functions of `db::Query`, also those that only refine it) are a `ValueError`; `lastid`, `intransaction` and `close` still work |
 | `conn->begin()` | Starts a transaction: the statements until `commit()` or `rollback()` count together, or not at all. Transactions do not nest (`ValueError`) |
 | `conn->commit()`, `conn->rollback()` | Ends the transaction, keeping or undoing its changes (`ValueError` without one) |
 | `conn->intransaction()` | Whether a transaction is open |
@@ -1405,12 +1406,13 @@ nothing posted, no open source) or after `events::stop()`; it can be
 called again later. Durations are seconds (ints or floats). A handler that
 throws an exception it does not catch ends `run()` with that exception
 (timers and posted calls stay for the next `run()`), unless
-`events::onerror` has a handler for it.
+`events::onerror` has a handler for it. An error of a source goes the same
+way (a `NetError` of a `zmq` socket whose connection is lost).
 
 | Function | Description |
 |---|---|
-| `events::after(seconds, f, args...)` | Calls `f(args...)` once, that many seconds (0 to 1e9) from now; gives an `events::Timer`. `f` must be a function (`TypeError`) |
-| `events::every(seconds, f, args...)` | Calls `f(args...)` every that many seconds (0.001 to 1e9), the first time after one interval; a timer that falls behind skips the missed calls. A delay out of range (or `nan`) is a `ValueError`, an `f` that is not a function a `TypeError` (also for `after`) |
+| `events::after(seconds, f, args...)` | Calls `f(args...)` once, that many seconds (0 or more) from now; gives an `events::Timer`. A delay beyond about 292 years (also `inf`) never comes: the timer keeps `run()` going until it is cancelled. `f` must be a function (`TypeError`) |
+| `events::every(seconds, f, args...)` | Calls `f(args...)` every that many seconds (0.001 or more; beyond about 292 years, as for `after`), the first time after one interval; a timer that falls behind skips the missed calls. A delay out of range (or `nan`) is a `ValueError`, an `f` that is not a function a `TypeError` (also for `after`) |
 | `events::post(f, args...)` | Calls `f(args...)` soon, after the calls already posted (a call posted by a handler runs in the next round, after the timers that are due); `f` must be a function |
 | `events::run()` | Dispatches events as described above. Calling it from a handler is a `ValueError` |
 | `events::stop()` | Makes `run()` return after the current handler (outside `run()` it has no effect) |
@@ -1456,7 +1458,7 @@ An **entry** is a map: `name` (the last part of the path), `size` (bytes),
 |---|---|
 | `fs::readdir(path)` | The entries of a directory, by name. A symbolic link is an entry of its own (`link` true, and `dir` false), not what it points to |
 | `fs::stat(path)` | The entry of a file or directory; for a symbolic link, of what it points to, with `link` true |
-| `fs::exists(path)` | Whether there is a file or directory there (a link to nothing does not count). It is `false` when the path, or a directory on the way, is missing or a file (`"notes.txt/x"`); another failure, such as a directory that cannot be searched, is an `IOError` |
+| `fs::exists(path)` | Whether there is a file or directory there (a link to nothing, or a loop of links, does not count). It is `false` when the path, or a directory on the way, is missing or a file (`"notes.txt/x"`); another failure, such as a directory that cannot be searched, is an `IOError` |
 | `fs::walk(path, f)` | Calls `f(p, entry)` for `path` and everything below it, depth first and by name; `p` is `path` joined with the names. When `f` returns `false` for a directory, `walk` does not go into it. Symbolic links are reported, never followed (so a link cannot make a loop), also when `path` itself is one. A directory that cannot be read ends the walk with an `IOError`; an exception in `f` ends it too, and is passed on unchanged |
 | `fs::mkdir(path)`, `fs::mkdirall(path)` | Makes a directory; `mkdirall` also the ones above it that are missing (and is fine when it exists) |
 | `fs::remove(path)` | Removes a file or an empty directory |
@@ -1531,13 +1533,13 @@ and `"/a/b"` are the same, and `..` stops at the top.
 
 | Function or member function | Description |
 |---|---|
-| `p9::dial(address [, options])` | Connects to a 9P server and gives a `p9::Client`. The options are a map: `"version"` (`"9P2000.L"` or `"9P2000"`; without it 9P2000.L is tried first, then 9P2000), `"aname"` (the tree to attach to, for a server that has several; for a Kukel server, a directory of its tree), `"user"` (the user name sent with 9P2000; the user running the program by default) and `"timeout"` (seconds for the connection, the agreement on the version and the attach together, 10 by default; the requests after `dial` have none: a server that stops answering keeps the program waiting until it is stopped). A server that cannot be reached is a `NetError`, and so is one that takes the connection but gives no 9P answer in time ("no 9P answer within 10 seconds"); one that refuses the attach (an `aname` it does not have, or one that names a file: the top must be a directory) an `IOError`; a wrong address or option a `ValueError` (`TypeError` for an option of the wrong type) |
+| `p9::dial(address [, options])` | Connects to a 9P server and gives a `p9::Client`. The options are a map: `"version"` (`"9P2000.L"` or `"9P2000"`; without it 9P2000.L is tried first, then 9P2000), `"aname"` (the tree to attach to, for a server that has several; for a Kukel server, a directory of its tree), `"user"` (the user name sent with 9P2000; the user running the program by default) and `"timeout"` (seconds for the connection, the agreement on the version and the attach together, more than 0, 10 by default; beyond about 292 years: no limit; the requests after `dial` have none: a server that stops answering keeps the program waiting until it is stopped). A server that cannot be reached is a `NetError` (`p9::dial: tcp://127.0.0.1:1: connection refused`, `host x not found`), and so is one that takes the connection but gives no 9P answer in time ("no 9P answer within 10 seconds"); one that refuses the attach (an `aname` it does not have, or one that names a file: the top must be a directory) an `IOError`; a wrong address (also a port beyond 65535, or a socket path longer than the system takes, 107 bytes on Linux) or option a `ValueError` (`TypeError` for an option of the wrong type) |
 | `c->readdir(path)` | The entries of a directory, by name. An **entry** is a map as for `fs`: `name`, `size`, `dir`, `link`, `mode` (`"-rw-r--r--"`) and `time` (a `time::Time`; 9P2000 has whole seconds only). `link` is true only for a symbolic link a server shows as one: a Kukel server follows links |
 | `c->stat(path)`, `c->exists(path)` | The entry of a file or directory (the top is named `"/"`); whether there is one (`false` only for "not there", also for a path through a file: other failures are exceptions, as for `stat`) |
 | `c->read(path)` | The content of a file, as a string |
 | `c->write(path, s)` | Makes the content of a file `s`: the file is truncated first, or made if it is not there (when the server allows that) |
 | `c->mkdir(path)`, `c->remove(path)` | Makes a directory; removes a file or an empty directory |
-| `c->rename(from, to)` | Renames (moves) a file or directory. 9P2000 can only rename within a directory (another directory is an `IOError`); 9P2000.L can also move |
+| `c->rename(from, to)` | Renames (moves) a file or directory. 9P2000 can only rename within a directory (another directory is an `IOError`); 9P2000.L can also move. Its messages name both paths (`p9::Client::rename: /a.txt -> /nodir/x: no such file or directory`) |
 | `c->version()` | The version spoken: `"9P2000.L"` or `"9P2000"` |
 | `c->close()` | Closes the connection (closing again has no effect). Using a closed client is a `ValueError`, except `version()`, `close()` and `closed()` |
 | `c->closed()` | Whether the client is closed: by `close()`, or because the connection was lost |
@@ -1547,7 +1549,7 @@ and `"/a/b"` are the same, and `..` stops at the top.
 | `t->remove(path)` | Takes the file or directory (with everything in it) out of the tree. A client that has it open goes on reading what it read |
 | `p9::disk(dir [, options])` | The directory `dir` of the local disk, as a `p9::Disk` for `serve` and `mount`. It is read-only for clients unless the options say `{"readonly": false}`. A directory that is not there, or a file, is an `IOError`; another option a `ValueError` |
 | `t->mount(path, disk)` | The disk directory appears at `path` in the tree (the directories above it are made; what was at `path` is replaced). `"/"` mounts it on a tree that is still empty. The tree's own `file`, `dir` and `remove` do not reach into a mounted directory (`ValueError`) |
-| `p9::serve(tree, address)` | Serves the tree (or a `p9::Disk` on its own) at `address`, in both versions (each client picks one), and gives a `p9::Server`. An address that cannot be listened on (in use, no permission) is a `NetError` |
+| `p9::serve(tree, address)` | Serves the tree (or a `p9::Disk` on its own) at `address`, in both versions (each client picks one), and gives a `p9::Server`. An address that cannot be listened on (in use, no permission) is a `NetError` (`p9::serve: tcp://127.0.0.1:564: address already in use`); a wrong address a `ValueError`, as for `dial`; so is a tree or disk of a derived class whose constructor did not call `p9::Tree::Tree()` |
 | `s->endpoint()` | The address served, with the port that port 0 picked (`"tcp://127.0.0.1:43127"`); for every interface, the address the system reports (`"tcp://[::]:5640"`) |
 | `s->close()` | Stops the server: it no longer listens, and closes each connection once the request it is answering is answered (so a function of the tree may close its own server). Closing again has no effect |
 | `s->closed()` | Whether the server is closed |
@@ -1576,7 +1578,9 @@ whose message names the function and the path, with the server's message:
 error number, so its messages are the system's (`no such file or
 directory`). Writing, making, renaming or removing the top directory
 (`"/"`) is an `IOError` in both versions. A connection that is lost (the
-server went away) is a `NetError`, and the client is closed from then on.
+server went away) is a `NetError` (`p9::Client::read: /a: the connection is
+lost: connection reset by peer`, or `... the server closed it`), and the
+client is closed from then on.
 
 In a **disk directory** clients see the files as they are on the disk,
 with their sizes, permissions and times; they belong to the user running
@@ -1618,7 +1622,8 @@ main() {
 A client prints as `p9::Client(tcp://localhost:564, 9P2000.L)`, a tree as
 `p9::Tree(3 files)`, a disk as `p9::Disk(/srv/data, read-only)` (or
 without `read-only`), a server as `p9::Server(tcp://127.0.0.1:43127)`, each
-with `closed` when closed. There is no authentication or encryption: use 9P
+with `closed` when closed. A tree has no notion of closed: it can be
+served again after its server is closed. There is no authentication or encryption: use 9P
 on a trusted network, or over an SSH tunnel or a VPN. A Go program that
 embeds Kukel keeps a program off the network by leaving `p9` out of
 `StandardModules`.
@@ -1684,7 +1689,7 @@ it appends to `s` in place when nothing else was added after `s`.)
 | `b->add(x, ...)` | Appends the values as `print` writes them; gives `b`, so calls can be chained |
 | `b->str()` | The string built so far |
 | `b->len()` | Its length in bytes |
-| `b->reset()` | Empties the builder |
+| `b->reset()` | Empties the builder; gives `b`, as `add` does |
 
 A builder prints as `strings::Builder(6 bytes)`.
 
@@ -1714,7 +1719,7 @@ when it has one: `2026-10-14T09:30:01.5Z`).
 | `time::now()` | The current time, in the local time zone (its `zone()` is `"Local"`, unless the environment variable `TZ` names a zone; when `TZ` is set but empty, the zone is `"UTC"`) |
 | `time::sleep(seconds)` | Waits that long (`ValueError` if negative or `nan`; beyond about 292 years it waits as long as the program runs) |
 | `new time::Time(year, month, day [, hour [, minute [, second [, zone]]]])` | That time in `zone` (default `"UTC"`, as is `""`; an unknown zone is a `ValueError`); `year` to `minute` are ints, `second` may have a fraction. Values out of range carry over (month 13 is January of the next year); a `second` of `nan` or `inf`, or a time beyond about 2.9e11 years from 1970, is a `ValueError` |
-| `time::Time::parse(text [, format [, zone]])` | The time `text` stands for: without `format` in RFC 3339 (`"2026-10-14T09:30:00+02:00"`), else by `format` (below). A text without an offset is in `zone` (default `"UTC"`; `zone` needs a `format`, since RFC 3339 text has an offset; an offset in the text, `%z`, wins over `zone`). A text that does not match, or a date that does not exist (`"2026-02-30"`), is a `ValueError`. A local time that a daylight-saving change skips or repeats is not an error: it gets the offset of one of the two sides (in Europe/Amsterdam, 02:30 on the day clocks jump from 02:00 to 03:00 becomes 03:30); which side is not specified |
+| `time::Time::parse(text [, format [, zone]])` | The time `text` stands for: without `format` in RFC 3339 (`"2026-10-14T09:30:00+02:00"`), else by `format` (below). A text without an offset is in `zone` (default `"UTC"`; `zone` needs a `format`, since RFC 3339 text has an offset; an offset in the text, `%z`, wins over `zone`). A text that does not match, or a date that does not exist (`"2026-02-30"`), is a `ValueError`, as is a year beyond about 2.9e11 years from 1970. A local time that a daylight-saving change skips or repeats is not an error: it gets the offset of one of the two sides (in Europe/Amsterdam, 02:30 on the day clocks jump from 02:00 to 03:00 becomes 03:30); which side is not specified |
 | `time::Time::fromunix(seconds)` | The time that many seconds after 1970-01-01 00:00 UTC, in UTC (`nan`, `inf` and values beyond about 2.9e11 years are a `ValueError`, as for `add`) |
 
 | Member function | Description |
@@ -2263,14 +2268,15 @@ copied once, so the copy has the same shape. Objects, functions and
 classes cannot be sent (`TypeError`). `nil` cannot be sent with `send`
 either: a `receive()` that gives `nil` means there are no more messages
 (`nil` is fine inside a message, and as an argument of `start`). Messages
-queue up (`send` never waits) and arrive in the order they were sent. A
+queue up (`send` never waits, unlike `zmq::Socket::send`) and arrive in the order they were sent. A
 result that cannot be copied (an object) makes the worker fail: `wait()`
-gives a `WorkerError`.
+gives a `WorkerError` (`worker f failed: TypeError: its result, geo::Point,
+cannot go back to the parent (...)`).
 
 | Function | Description |
 |---|---|
 | `worker::start(f, args...)` | Runs `f(args...)` in a new interpreter of this program; `f` is a top-level or static member function (not a function literal, bound method or built-in: `TypeError`). Gives a `worker::Worker` |
-| `worker::startfile(path, args...)` | Compiles the program in `path` (a `.kkl` file with the modules it uses, found as `kukel run` finds them; or a `.kkc` file) and runs its `main` with the vector of the arguments. `path` is relative to the current directory, as for `readfile`. A compile error (also a module not found) is a `CompileError`, a missing file an `IOError`, a damaged `.kkc` file or a module compiled on its own (`kukel build -module`) a `ValueError`; so is `startfile` in a program run by a Go program that does not allow it to read program files ([embedding.md](embedding.md)) |
+| `worker::startfile(path, args...)` | Compiles the program in `path` (a `.kkl` file with the modules it uses, found as `kukel run` finds them; or a `.kkc` file) and runs its `main` with the vector of the arguments. `path` is relative to the current directory, as for `readfile`. A compile error (also a module not found) is a `CompileError`, a missing file an `IOError` (`worker::startfile: nope.kkl: no such file or directory`), a damaged `.kkc` file or a module compiled on its own (`kukel build -module`) a `ValueError`; so is `startfile` in a program run by a Go program that does not allow it to read program files ([embedding.md](embedding.md)) |
 | `worker::send(v)` | In a worker: a copy of `v` goes to the parent |
 | `worker::receive([timeout])` | In a worker: the next message from the parent; waits for it, at most `timeout` seconds if given (beyond about 292 years: no limit). `nil` after the parent's `stop()` (once the messages sent before are taken) or when the time is up. A negative or `nan` timeout is a `ValueError`, and so is `receive()` after `worker::onmessage` |
 | `worker::onmessage(f)` | In a worker: the event loop (`events`) calls `f(message)` for each message from the parent, and `events::run()` keeps going until the parent's `stop()`. `f` must be a function (`TypeError`); a second `onmessage` is a `ValueError` |
@@ -2341,10 +2347,10 @@ on every interface), `"ipc://path"` (a Unix socket file) or `"inproc://name"`
 |---|---|
 | `new zmq::Socket(type [, identity])` | A socket of that type (`ValueError` for another type). The identity (1 to 255 bytes) is how a ROUTER the socket connects to names it; without one the ROUTER makes one up |
 | `s->bind(endpoint)` | Listens on `endpoint`. Port 0 (`"tcp://127.0.0.1:0"`) picks a free port, which `endpoint()` then shows. A busy or forbidden address is a `NetError` |
-| `s->connect(endpoint)` | Connects to a socket bound at `endpoint`. Unlike C ZeroMQ, it waits for the other side: it retries for about 2.5 seconds, then gives a `NetError` (`zmq::Socket::connect: tcp://localhost:5555: connection refused`), so bind first |
-| `s->send(message)` | Sends a string, or a vector of strings as one message of several parts (`TypeError` for other values, `ValueError` for an empty vector). A PULL or SUB socket cannot send (`ValueError`); a REQ socket that has no peer gives a `NetError` |
+| `s->connect(endpoint)` | Connects to a socket bound at `endpoint`. Unlike C ZeroMQ, it waits for the other side: it retries for about 2.5 seconds, then gives a `NetError` (`zmq::Socket::connect: tcp://localhost:5555: connection refused`), so bind first. A Go program that cancels the call meanwhile closes the socket |
+| `s->send(message [, timeout])` | Sends a string, or a vector of strings as one message of several parts (`TypeError` for other values, `ValueError` for an empty vector). A PUSH, DEALER, PAIR or ROUTER socket waits until a peer takes the message (one is connected, and the connection takes more data): with `timeout`, at most that many seconds (as for `receive`). A message that cannot leave in time is a `NetError` (`no peer took the message within 5 seconds: it was not sent, and the socket is closed`): the socket is closed, so that the message never leaves later (C ZeroMQ keeps the socket). A PULL or SUB socket cannot send (`ValueError`); a REQ socket that has no peer gives a `NetError` at once, and a PUB socket drops a message no one subscribes to |
 | `s->receive([timeout])` | The next message; waits for it, at most `timeout` seconds if given (beyond about 292 years: no limit), then gives `nil`. A message that arrives after the timeout is kept for the next `receive`. A negative or `nan` timeout is a `ValueError`, as is `receive` on a PUSH or PUB socket (they only send); a broken connection a `NetError`, and so is `receive` on a REQ socket that has not sent a request |
-| `s->onmessage(f)` | The event loop (`events`) calls `f(message)` for each message, and `events::run()` keeps going until the socket is closed. Afterwards `receive()` is a `ValueError`, as is a second `onmessage`, and `onmessage` on a PUSH or PUB socket; `f` must be a function (`TypeError`). When a handler closes the socket, messages that arrived but were not handled yet are dropped |
+| `s->onmessage(f)` | The event loop (`events`) calls `f(message)` for each message, and `events::run()` keeps going until the socket is closed. Afterwards `receive()` is a `ValueError`, as is a second `onmessage`, and `onmessage` on a PUSH or PUB socket; `f` must be a function (`TypeError`). When a handler closes the socket, messages that arrived but were not handled yet are dropped. A REQ socket's handler may be set before the first request: it gets each reply. A read that fails (a lost connection) is a `NetError` of the event loop: `events::run()` throws it, or `events::onerror` gets it |
 | `s->subscribe(prefix)`, `s->unsubscribe(prefix)` | A SUB socket receives the messages that start with one of its prefixes (`""`: all of them); other socket types give a `ValueError`. Subscriptions take a moment to reach the PUB socket: messages published right after `subscribe` may be missed |
 | `s->type()`, `s->endpoint()` | The type, and the last endpoint bound to or connected to (`""` if none; after a bind, the address as bound, with the port that port 0 picked; for every interface, the address the system reports: `"tcp://[::]:5555"` after `bind("tcp://*:5555")`) |
 | `zmq::poll(sockets [, timeout])` | Waits until one of the sockets (a vector) has a message and gives that socket, whose `receive()` then gives the message at once; `nil` after `timeout` seconds (beyond about 292 years: no limit). When several have one, the earliest in the vector wins. No message is lost: the others stay with their sockets. An empty vector, a closed socket, one with an `onmessage` handler, or a PUSH or PUB socket is a `ValueError` |
@@ -2355,7 +2361,9 @@ A socket prints as `zmq::Socket(REQ, tcp://localhost:5555)`, without an
 endpoint as `zmq::Socket(REQ)`, and once closed as `zmq::Socket(REQ,
 closed)`. An endpoint without `://` (`"localhost:5555"`), or with another
 transport than `tcp`, `ipc` and `inproc`, is a `ValueError` for `bind` and
-`connect`; a host that cannot be found is a `NetError`. Close sockets when done; a program that ends closes
+`connect`, and so is a `tcp://` endpoint without a port or with one beyond
+65535, and an `ipc://` path longer than the system takes (107 bytes on
+Linux); a host that cannot be found is a `NetError`. Close sockets when done; a program that ends closes
 nothing for you. A Go program that embeds Kukel can keep the network away
 from a program by leaving `zmq` out of `StandardModules`.
 

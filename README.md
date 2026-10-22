@@ -84,10 +84,11 @@ make            # vet, test and build bin/kukel
 make install    # install kukel into $GOBIN, else $(go env GOPATH)/bin
 ```
 
-`kukel` holds everything (about 23 MB). Build tags leave parts out for a
-smaller binary: `nopostgres`, `nomysql`, `nosqlite` (all three: no module
-`db`), `nozmq` and `no9p`. With all five it is about 7 MB; with SQLite as
-the only database about 15 MB:
+`kukel` holds everything (about 25 MB; 18 MB stripped, as the release
+archives are). Build tags leave parts out for a smaller binary:
+`nopostgres`, `nomysql`, `nosqlite` (all three: no module `db`), `nozmq`
+and `no9p`. With all five it is about 8 MB; with SQLite as the only
+database about 17 MB:
 
 ```
 go install -tags nopostgres,nomysql github.com/maarten-boot/kukel/cmd/kukel@latest

@@ -116,6 +116,10 @@ func TestParseChecks(t *testing.T) {
 		{"000", "%j", "day of the year 0 out of range"},
 		{"+2500", "%z", "zone offset 25:00 out of range"},
 		{"+0175", "%z", "zone offset 01:75 out of range"},
+		// Years Go's time.Date would wrap around (cross-check 10).
+		{"999999999999", "%Y", "the time is out of range (about 2.9e11 years from 1970)"},
+		{"300000000000", "%Y", "the time is out of range"},
+		{"-300000000000", "%Y", "the time is out of range"},
 	}
 	for _, tc := range bad {
 		_, err := parseFormat(tc.text, tc.format, time.UTC)

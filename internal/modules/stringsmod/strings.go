@@ -65,7 +65,7 @@ var Builder = &native.Class{
 				return value.NilValue, err
 			}
 			this.State.(*strings.Builder).Reset()
-			return value.NilValue, nil
+			return value.ObjectValue(this), nil // as add, for chaining
 		},
 	},
 	Show: func(o *value.ObjectObj) string {

@@ -15,8 +15,9 @@ var _ = addDriver(mysqlDB)
 func init() { mysqlDSN = dsnOfMySQL }
 
 // dsnOfMySQL turns "mysql://user:password@host:port/database?options"
-// into the driver's DSN ("user:password@tcp(host:port)/database?...").
-func dsnOfMySQL(p *url.URL) string {
+// into the driver's DSN ("user:password@tcp(host:port)/database?..."),
+// and checks the options as the driver reads them.
+func dsnOfMySQL(p *url.URL) (string, error) {
 	c := mysql.NewConfig()
 	c.User = p.User.Username()
 	c.Passwd, _ = p.User.Password()
@@ -35,5 +36,8 @@ func dsnOfMySQL(p *url.URL) string {
 		}
 		dsn += sep + p.RawQuery
 	}
-	return dsn
+	if _, err := mysql.ParseDSN(dsn); err != nil {
+		return "", err
+	}
+	return dsn, nil
 }

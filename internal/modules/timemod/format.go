@@ -3,6 +3,7 @@ package timemod
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	stdtime "time"
 )
@@ -266,6 +267,8 @@ func parseFormat(text, f string, loc *stdtime.Location) (stdtime.Time, error) {
 		return stdtime.Time{}, fmt.Errorf("%q: month %d out of range", text, month)
 	case hour > 23 || minute > 59 || second > 60:
 		return stdtime.Time{}, fmt.Errorf("%q: time of day out of range", text)
+	case math.Abs((float64(year)-1970)*3.16e7) >= maxUnix: // Date would wrap around
+		return stdtime.Time{}, fmt.Errorf("%q: the time is out of range (about 2.9e11 years from 1970)", text)
 	}
 	// A leap second (60) is checked as 59 and added afterwards, so that it
 	// does not move the date before the date is checked.

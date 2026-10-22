@@ -146,7 +146,7 @@ main() {
     println(conn->lastid());
 }`)
 	want := `1 1
-TypeError: db::Conn::migrate: Note derives from time::Time, a class written in Go: its Go part cannot be stored, so the class cannot be
+TypeError: db::Conn::migrate: Note derives from time::Time, a class written in Go: its Go part cannot be stored, so the class cannot be mapped to a table
 1
 nil
 2

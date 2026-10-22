@@ -2,4 +2,5 @@ squares: 1 4 9 16 25
 20 strings::Builder(20 bytes) object
 squares: 1 4 9 16 25 and more!
 0 []
+new
 MemberError: class strings::Builder has no member function size

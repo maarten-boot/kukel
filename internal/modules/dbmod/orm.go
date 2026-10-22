@@ -40,7 +40,7 @@ func ormInit() {
 			}
 			for i, v := range a.V[1:] { // here, so that the message names where
 				if _, ok := dbValue(v); !ok {
-					return value.NilValue, a.Errorf(value.TypeError, "argument %d cannot be stored in a database: %s (nil, booleans, numbers, strings and time::Time can)", i+2, kindOf(v))
+					return value.NilValue, a.Errorf(value.TypeError, "argument %d cannot be stored in a database: %s (nil, booleans, numbers, strings and time::Time can)", i+2, native.TypeName(v))
 				}
 			}
 			r := q.copy()
@@ -161,7 +161,7 @@ func modelOf(a native.Args, env value.Env, c *conn, k *value.ClassObj) (*model, 
 			return nil, a.Errorf(value.TypeError, "%s is a class written in Go: only Kukel classes can be stored", k.Name)
 		}
 		if b.Native { // a loaded object would have no Go part
-			return nil, a.Errorf(value.TypeError, "%s derives from %s, a class written in Go: its Go part cannot be stored, so the class cannot be", k.Name, b.Name)
+			return nil, a.Errorf(value.TypeError, "%s derives from %s, a class written in Go: its Go part cannot be stored, so the class cannot be mapped to a table", k.Name, b.Name)
 		}
 	}
 	if _, ok := k.FieldIndex["id"]; !ok {
@@ -181,7 +181,7 @@ func modelOf(a native.Args, env value.Env, c *conn, k *value.ClassObj) (*model, 
 		return nil, err
 	} else if ok {
 		if v.Kind() != value.Map {
-			return nil, a.Errorf(value.TypeError, "%s::columns() must give a map from data members to SQL types, not %s", k.Name, kindOf(v))
+			return nil, a.Errorf(value.TypeError, "%s::columns() must give a map from data members to SQL types, not %s", k.Name, native.TypeName(v))
 		}
 		var bad error
 		v.AsMap().Each(func(col, typ value.Value) {
@@ -269,7 +269,7 @@ func (m *model) columnValues(a native.Args, obj *value.ObjectObj) ([]string, []v
 			continue
 		}
 		if _, ok := dbValue(obj.Fields[i]); !ok {
-			return nil, nil, a.Errorf(value.TypeError, "%s->%s cannot be stored in a database: %s (nil, booleans, numbers, strings and time::Time can)", m.class.Name, f, kindOf(obj.Fields[i]))
+			return nil, nil, a.Errorf(value.TypeError, "%s->%s cannot be stored in a database: %s (nil, booleans, numbers, strings and time::Time can)", m.class.Name, f, native.TypeName(obj.Fields[i]))
 		}
 		cols = append(cols, f)
 		vals = append(vals, obj.Fields[i])
@@ -377,7 +377,7 @@ func save(a native.Args, env value.Env, c *conn) (value.Value, error) {
 		return a.V[0], nil
 	}
 	if _, ok := dbValue(id); !ok {
-		return value.NilValue, a.Errorf(value.TypeError, "%s->id cannot be stored in a database: %s", m.class.Name, kindOf(id))
+		return value.NilValue, a.Errorf(value.TypeError, "%s->id cannot be stored in a database: %s", m.class.Name, native.TypeName(id))
 	}
 	text := "INSERT INTO " + m.quote(m.table) + " (" + m.names(append([]string{"id"}, cols...)) + ") VALUES (" + marks(len(cols)+1) + ")"
 	if c.dialect == mysqlDB {
@@ -683,7 +683,7 @@ func (m *model) readRelations(a native.Args, env value.Env) error {
 		return err
 	}
 	if v.Kind() != value.Map {
-		return a.Errorf(value.TypeError, "%s::relations() must give a map from data members to db::many(...) and db::one(...), not %s", k.Name, kindOf(v))
+		return a.Errorf(value.TypeError, "%s::relations() must give a map from data members to db::many(...) and db::one(...), not %s", k.Name, native.TypeName(v))
 	}
 	var bad error
 	v.AsMap().Each(func(name, rv value.Value) {

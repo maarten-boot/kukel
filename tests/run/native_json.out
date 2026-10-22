@@ -17,4 +17,4 @@ ValueError: json::decode: invalid JSON at byte 4: text after the value
 ValueError: json::decode: invalid JSON at byte 2: invalid character '1' where an object key (a string) should be
 ValueError: json::encode: the value contains itself
 ValueError: json::encode: inf has no JSON form
-TypeError: json::encode: cannot encode object as JSON
+TypeError: json::encode: cannot encode Error as JSON

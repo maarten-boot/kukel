@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	stdtime "time"
@@ -96,6 +97,11 @@ func init() {
 			cu.finish()
 			return value.NilValue, nil
 		}),
+		// closed(): whether the cursor is closed (also when next() gave nil
+		// at the end).
+		"closed": cursorMethod("closed", func(a native.Args, env value.Env, cu *cursor) (value.Value, error) {
+			return value.MakeBool(cu.done), nil
+		}),
 	}
 	Cursor.Show = func(o *value.ObjectObj) string {
 		if o.State.(*cursor).done {
@@ -150,10 +156,11 @@ func open(env value.Env, args []value.Value) (value.Value, error) {
 		err = d.PingContext(ctx) // open the file or reach the server now, so that a bad URL fails here
 		done()
 	}
-	if err != nil && src.dialect == sqlite { // its messages do not name the file
-		return value.NilValue, a.Errorf(DBError, "%s: %v", src.shown, err)
-	} else if err != nil {
-		return value.NilValue, a.Errorf(DBError, "%v", err)
+	if err != nil {
+		if e := env.Err(); e != nil && errors.Is(err, context.Canceled) {
+			return value.NilValue, e
+		}
+		return value.NilValue, a.Errorf(DBError, "%s: %s", src.shown, openMessage(err))
 	}
 	return Conn.Object(&conn{url: src.shown, dialect: src.dialect, db: d, lastID: value.NilValue}), nil
 }
@@ -194,10 +201,27 @@ func connMethod(name string, min, max int, fn func(a native.Args, env value.Env,
 	}
 }
 
+// openMessage is what went wrong in opening a database, in a line: for a
+// server that cannot be reached without Go's words around it ("connection
+// refused", "host x not found"), else the last line of the driver's
+// message (PostgreSQL's driver gives one line for each address it tried).
+func openMessage(err error) string {
+	var dns *net.DNSError
+	var op *net.OpError
+	if errors.As(err, &dns) || errors.As(err, &op) {
+		return native.NetMessage(err)
+	}
+	lines := strings.Split(strings.TrimSpace(err.Error()), "\n")
+	return strings.TrimSpace(lines[len(lines)-1])
+}
+
 // contextOf gives a context that ends when the program is cancelled (a Go
 // program that embeds Kukel stops a call), and a function to call when
-// the database call is done.
+// the database call is done. The database may take a while (a server far
+// away, a file another program is writing): what the program wrote is
+// flushed first.
 func contextOf(env value.Env) (context.Context, func()) {
+	native.Flush(env)
 	done := env.Done()
 	if done == nil {
 		return context.Background(), func() {}
@@ -222,7 +246,11 @@ func dbError(a native.Args, env value.Env, err error) error {
 	}
 	// SQLite's driver counts the parameters from 1, in its own words.
 	if n, ok := strings.CutPrefix(err.Error(), "missing argument with index "); ok {
-		return a.Errorf(DBError, "parameter %s has no value: the statement has more parameters (?) than the %d value(s) given", n, len(a.V)-1)
+		given := "the 1 value given"
+		if k := len(a.V) - 1; k != 1 {
+			given = fmt.Sprintf("the %d values given", k)
+		}
+		return a.Errorf(DBError, "parameter %s has no value: the statement has more parameters (?) than %s", n, given)
 	}
 	return a.Errorf(DBError, "%v", err)
 }
@@ -253,8 +281,11 @@ func params(a native.Args) (string, []any, error) {
 	ps := make([]any, len(a.V)-1)
 	for i, v := range a.V[1:] {
 		p, ok := dbValue(v)
+		if !ok && timemod.Time.Derived(v) {
+			return "", nil, a.NotSetUp(fmt.Sprintf("argument %d", i+2), timemod.Time, v)
+		}
 		if !ok {
-			return "", nil, a.Errorf(value.TypeError, "argument %d cannot be stored in a database: %s (nil, booleans, numbers, strings and time::Time can)", i+2, kindOf(v))
+			return "", nil, a.Errorf(value.TypeError, "argument %d cannot be stored in a database: %s (nil, booleans, numbers, strings and time::Time can)", i+2, native.TypeName(v))
 		}
 		ps[i] = p
 	}
@@ -280,14 +311,6 @@ func dbValue(v value.Value) (p any, ok bool) {
 		return v.AsObject().State.(stdtime.Time), true
 	}
 	return nil, false
-}
-
-// kindOf names the kind of v for messages: its class for an object.
-func kindOf(v value.Value) string {
-	if v.Kind() == value.Object {
-		return v.AsObject().Class.Name
-	}
-	return v.Kind().String()
 }
 
 // conn->exec(sql, args...): runs a statement that gives no rows (INSERT,
