@@ -1009,11 +1009,62 @@ func TestDebugLookupAndUncaught(t *testing.T) {
 	}
 }
 
+// Conditions checked when set, breaks with a function's name, a function
+// breakpoint on a loop's line (one stop per call), a local before a
+// captured variable of its name, this in locals, list past the end, and
+// workers that write while the program stops (run with -race).
+func TestDebugBreaksAndLocals(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("d.kkl", []byte("class K { n; K(); count(m); }\nK::K() { n = 0; }\nK::count(m) {\n    for (local i = 0; i < m; i++) { n++; }\n    return n;\n}\n"+
+		"main() {\n    local x = 1, k = new K();\n    local f = fn() {\n        println(x);\n        {\n            local x = 2;\n            println(x);\n        }\n    };\n    f();\n    println(k->count(3));\n}\n"), 0o644)
+	cmds := "b 13 if x ==\nb 13 if len(x) > 0\nb 13 if\nb 13 if x == 2\nb K::count\nb 0\nbreaks\nc\np x\nlocals\nc\nlocals\nlist 100\nc\n"
+	want := "main at d.kkl:8\n    8      local x = 1, k = new K();\n" +
+		"(kdb) the condition x ==: expected expression, found end of file\n" +
+		"(kdb) the condition len(x) > 0: calls are not evaluated: they could change the program\n" +
+		"(kdb) break if what? (a condition after if, such as i == 3)\n" +
+		"(kdb) breakpoint 1 at d.kkl:13\n(kdb) breakpoint 2 at d.kkl:4\n(kdb) no line 0: lines start at 1\n" +
+		"(kdb) 1: d.kkl:13 if x == 2\n2: K::count at d.kkl:4\n" +
+		"(kdb) 1\nbreakpoint 1, main/fn@9 at d.kkl:13\n   13              println(x);\n(kdb) 2\n(kdb) x = 1\nx = 2\n" +
+		"(kdb) 2\nbreakpoint 2, K::count at d.kkl:4\n    4      for (local i = 0; i < m; i++) { n++; }\n(kdb) this = K{n: 0}\nm = 3\n" +
+		"(kdb) no line 100 in d.kkl (it has 18)\n(kdb) 3\nthe program ended (exit code 0)\n"
+	var out bytes.Buffer
+	if code := run([]string{"debug", "d.kkl"}, strings.NewReader(cmds), &out, &out); code != 0 || out.String() != want {
+		t.Errorf("exit %d:\n%s\nwant:\n%s", code, out.String(), want)
+	}
+
+	os.WriteFile("w.kkl", []byte("use worker;\nchat(n) {\n    for (local i = 0; i < n; i++) {\n        println(\"w\", i);\n    }\n    return n;\n}\n"+
+		"main() {\n    local w = worker::start(chat, 2000);\n    for (local i = 0; i < 5; i++) {\n        println(\"m\", i);\n    }\n    println(w->wait());\n}\n"), 0o644)
+	// (The debugger and a worker write at once, as to a terminal: a buffer
+	// with a lock.)
+	var lout lockedBuffer
+	if code := run([]string{"debug", "w.kkl"}, strings.NewReader("b 11\nc\nc\nc\nc\nc\nc\n"), &lout, &lout); code != 0 || !strings.Contains(lout.String(), "\n2000\nthe program ended") {
+		t.Errorf("workers: exit %d:\n%.300s", code, lout.String())
+	}
+}
+
+// lockedBuffer is a bytes.Buffer several goroutines may write to.
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
 const debugSrc = "class Acc { total; Acc(); add(x); }\nAcc::Acc() { total = 0; }\nAcc::add(x) {\n    total += x;\n    return this;\n}\n\nsquare(n) {\n    local r = n * n;\n    return r;\n}\n\nmain(args) {\n    local acc = new Acc(), v = [1, 2, 3], m = {\"k\": \"v\"};\n    println(\"start\", args);\n\n    for (local x in v) {\n        acc->add(square(x));\n    }\n    println(\"total\", acc->total);\n    local f = fn(y) { return y + acc->total; };\n    println(f(1));\n}\n"
 
 const debugCmds = "b square\nc\nbt\np n\nfinish\np acc->total\np v[1]\np m[\"k\"]\np v[9]\nframe 9\nd 1\nb p.kkl:22\nbreaks\nc\nstep\nlocals\nlist 22\nb nosuch\nb 999\nwhat\nquit\n"
 
-const debugOut = "main at p.kkl:14\n   14      local acc = new Acc(), v = [1, 2, 3], m = {\"k\": \"v\"};\n(kdb) breakpoint 1 at p.kkl:9\n(kdb) start [\"hello\"]\nbreakpoint 1, square at p.kkl:9\n    9      local r = n * n;\n(kdb) *0 square (p.kkl:9)\n 1 main (p.kkl:18)\n(kdb) 1\n(kdb) main at p.kkl:18\n   18          acc->add(square(x));\n(kdb) 1\n(kdb) 2\n(kdb) \"v\"\n(kdb) index 9 out of range for vector of length 3\n(kdb) no frame \"9\" (0 to 0, as bt numbers them)\n(kdb) breakpoint 1 deleted\n(kdb) breakpoint 2 at p.kkl:22\n(kdb) 2: p.kkl:22\n(kdb) total 14\nbreakpoint 2, main at p.kkl:22\n   22      println(f(1));\n(kdb) main/fn@21 at p.kkl:21\n   21      local f = fn(y) { return y + acc->total; };\n(kdb) y = 1\nacc = Acc{total: 14}\n(kdb)    19      }\n   20      println(\"total\", acc->total);\n>  21      local f = fn(y) { return y + acc->total; };\n   22      println(f(1));\n   23  }\n(kdb) no function \"nosuch\"\n(kdb) no code at or after p.kkl:999\n(kdb) unknown command \"what\" (help lists them)\n(kdb) the program ended (exit code 0)\n"
+const debugOut = "main at p.kkl:14\n   14      local acc = new Acc(), v = [1, 2, 3], m = {\"k\": \"v\"};\n(kdb) breakpoint 1 at p.kkl:9\n(kdb) start [\"hello\"]\nbreakpoint 1, square at p.kkl:9\n    9      local r = n * n;\n(kdb) *0 square (p.kkl:9)\n 1 main (p.kkl:18)\n(kdb) 1\n(kdb) main at p.kkl:18\n   18          acc->add(square(x));\n(kdb) 1\n(kdb) 2\n(kdb) \"v\"\n(kdb) index 9 out of range for vector of length 3\n(kdb) no frame \"9\" (0 to 0, as bt numbers them)\n(kdb) breakpoint 1 deleted\n(kdb) breakpoint 2 at p.kkl:22\n(kdb) 2: p.kkl:22\n(kdb) total 14\nbreakpoint 2, main at p.kkl:22\n   22      println(f(1));\n(kdb) main/fn@21 at p.kkl:21\n   21      local f = fn(y) { return y + acc->total; };\n(kdb) acc = Acc{total: 14}\ny = 1\n(kdb)    19      }\n   20      println(\"total\", acc->total);\n>  21      local f = fn(y) { return y + acc->total; };\n   22      println(f(1));\n   23  }\n(kdb) no function \"nosuch\"\n(kdb) no code at or after p.kkl:999\n(kdb) unknown command \"what\" (help lists them)\n(kdb) the program ended (exit code 0)\n"
 
 // An error in a global initializer names the file it is in: a module's,
 // or the second file of a program.

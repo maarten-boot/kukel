@@ -2034,6 +2034,7 @@ type DebugFrame struct {
 	Func *bytecode.Function
 	Line int              // the line it is at (where it called the next frame)
 	This *value.ObjectObj // the object of a member function call, or nil
+	PC   int              // the instruction it is at (of the call, for a caller)
 }
 
 // Frames gives the calls the program is in, outermost first; the last is
@@ -2041,9 +2042,20 @@ type DebugFrame struct {
 func (vm *VM) Frames() []DebugFrame {
 	out := make([]DebugFrame, len(vm.frames))
 	for i, f := range vm.frames {
-		out[i] = DebugFrame{Func: f.fn, Line: f.fn.LineAt(vm.framePC(i)), This: f.this}
+		pc := vm.framePC(i)
+		out[i] = DebugFrame{Func: f.fn, Line: f.fn.LineAt(pc), This: f.this, PC: pc}
 	}
 	return out
+}
+
+// FlushOutput flushes the program's standard output if it is buffered (as
+// eprint does), also while workers write to it: for a debugger, before it
+// shows something.
+func (vm *VM) FlushOutput() error {
+	if f, ok := vm.stdout.(interface{ Flush() error }); ok {
+		return f.Flush()
+	}
+	return nil
 }
 
 // framePC is the pc frame i is at.
@@ -2061,20 +2073,14 @@ type DebugVar struct {
 	Value value.Value
 }
 
-// Vars gives the variables of frame i (an index into Frames): the
-// parameters and locals in scope where it is, by their slots, then captured
-// variables. A function without Locals (from a .kkc file) gives all its
-// slots by SlotNames (a slot that two blocks share has both names).
+// Vars gives the variables of frame i (an index into Frames), outer scopes
+// first: the captured variables, then the parameters and locals in scope
+// where it is, by their slots. Of two with the same name, the later one is
+// the one the code sees. A function without Locals (from a .kkc file) gives
+// all its slots by SlotNames (a slot that two blocks share has both names).
 func (vm *VM) Vars(i int) []DebugVar {
 	f := vm.frames[i]
 	var vars []DebugVar
-	for _, l := range vm.slots(i) {
-		v := vm.stack[f.base+l.Slot]
-		if v.Kind() == value.Cell {
-			v = v.AsCell().V
-		}
-		vars = append(vars, DebugVar{l.Name, v})
-	}
 	if f.cl != nil {
 		for j, u := range f.fn.Upvalues {
 			if j < len(f.cl.Cells) {
@@ -2082,22 +2088,21 @@ func (vm *VM) Vars(i int) []DebugVar {
 			}
 		}
 	}
+	for _, l := range vm.slots(i) {
+		v := vm.stack[f.base+l.Slot]
+		if v.Kind() == value.Cell {
+			v = v.AsCell().V
+		}
+		vars = append(vars, DebugVar{l.Name, v})
+	}
 	return vars
 }
 
 // SetVar gives the variable name of frame i (as Vars names it; of two
-// with that name, the inner one) the value v, and reports whether there
+// with that name, the later one) the value v, and reports whether there
 // is one.
 func (vm *VM) SetVar(i int, name string, v value.Value) bool {
 	f := vm.frames[i]
-	if f.cl != nil {
-		for j := len(f.fn.Upvalues) - 1; j >= 0; j-- {
-			if f.fn.Upvalues[j].Name == name && j < len(f.cl.Cells) {
-				f.cl.Cells[j].V = v
-				return true
-			}
-		}
-	}
 	live := vm.slots(i)
 	for j := len(live) - 1; j >= 0; j-- {
 		if live[j].Name == name {
@@ -2108,6 +2113,14 @@ func (vm *VM) SetVar(i int, name string, v value.Value) bool {
 				*at = v
 			}
 			return true
+		}
+	}
+	if f.cl != nil {
+		for j := len(f.fn.Upvalues) - 1; j >= 0; j-- {
+			if f.fn.Upvalues[j].Name == name && j < len(f.cl.Cells) {
+				f.cl.Cells[j].V = v
+				return true
+			}
 		}
 	}
 	return false
