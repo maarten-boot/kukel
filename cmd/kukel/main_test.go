@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
@@ -520,6 +521,80 @@ func TestMessagePrefix(t *testing.T) {
 		{"disasm", "util.kkc"}, {"exec", "util.kkc"}, {"disasm", "nosuch.kkc"}, {"repl", "nosuch.kkl"}, {"debug", "nosuch.kkl"}, {"tokens", "nosuch.kkl"}} {
 		stderr.Reset()
 		if code := run(args, nil, &stdout, &stderr); code != 1 || !strings.HasPrefix(stderr.String(), "kukel: ") {
+			t.Errorf("%q: exit %d, %q", args, code, stderr.String())
+		}
+	}
+}
+
+// A NUL byte refused by fmt and build -module is a message with the
+// prefix too; so are help and version with arguments (usage errors).
+func TestMessagePrefixNUL(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("n.kkl", []byte("f() {}\x00\n"), 0o644)
+	for _, args := range [][]string{{"fmt", "n.kkl"}, {"build", "-module", "n.kkl"}} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, nil, &stdout, &stderr); code != 1 || !strings.HasPrefix(stderr.String(), "kukel: n.kkl: ") {
+			t.Errorf("%q: exit %d, %q", args, code, stderr.String())
+		}
+	}
+	for _, args := range [][]string{{"help", "x"}, {"version", "x"}} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, nil, &stdout, &stderr); code != 2 || !strings.HasPrefix(stderr.String(), "kukel "+args[0]+": takes no arguments") {
+			t.Errorf("%q: exit %d, %q", args, code, stderr.String())
+		}
+	}
+}
+
+// A compiled program among the source files is refused with one message
+// (only exec, and disasm on its own, take one).
+func TestCompiledAmongSources(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("a.kkl", []byte("main() {}\n"), 0o644)
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"build", "-o", "r.kkc", "a.kkl"}, nil, &stdout, &stderr); code != 0 {
+		t.Fatal(stderr.String())
+	}
+	for _, tc := range []struct {
+		args []string
+		msg  string
+	}{
+		{[]string{"run", "r.kkc"}, "kukel run: r.kkc is a compiled program: run it with kukel exec r.kkc (or kukel r.kkc)"},
+		{[]string{"debug", "a.kkl", "r.kkc"}, "kukel debug: r.kkc is a compiled program: run it with kukel exec r.kkc"},
+		{[]string{"profile", "r.kkc"}, "kukel profile: r.kkc is a compiled program: run it with kukel exec r.kkc"},
+		{[]string{"check", "r.kkc"}, "kukel check: r.kkc is a compiled program, not a source file (.kkl)"},
+		{[]string{"build", "r.kkc"}, "kukel build: r.kkc is a compiled program, not a source file (.kkl)"},
+		{[]string{"repl", "r.kkc"}, "kukel repl: r.kkc is a compiled program, not a source file (.kkl)"},
+		{[]string{"tokens", "r.kkc"}, "kukel tokens: r.kkc is a compiled program, not a source file (.kkl)"},
+		{[]string{"fmt", "r.kkc"}, "kukel fmt: r.kkc is a compiled program, not a source file (.kkl)"},
+		{[]string{"disasm", "a.kkl", "r.kkc"}, "kukel disasm: r.kkc is a compiled program: give it alone (kukel disasm r.kkc)"},
+		{[]string{"disasm", "r.kkc", "a.kkl"}, "kukel disasm: r.kkc is a compiled program: give it alone (kukel disasm r.kkc)"},
+	} {
+		stderr.Reset()
+		if code := run(tc.args, strings.NewReader(""), &stdout, &stderr); code != 2 || !strings.HasPrefix(stderr.String(), tc.msg) {
+			t.Errorf("%q: exit %d, %q", tc.args, code, stderr.String())
+		}
+	}
+	if _, err := compileFiles([]string{"a.kkl", "r.kkc"}); err == nil || err.Error() != "kukel: r.kkc is a compiled program, not a source file (.kkl)" {
+		t.Errorf("compileFiles (kukel dap): %v", err)
+	}
+}
+
+// failWriter fails every write, as standard output on a full disk does.
+type failWriter struct{}
+
+func (failWriter) Write([]byte) (int, error) {
+	return 0, errors.New("write /dev/stdout: no space left on device")
+}
+
+// Output that cannot be written is reported, with exit code 1.
+func TestWriteErrors(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("a.kkl", []byte("main() { println(\"x\"); }\n"), 0o644)
+	os.WriteFile("m.kkl", []byte("main(){}\n"), 0o644)
+	for _, args := range [][]string{{"run", "a.kkl"}, {"a.kkl"}, {"fmt", "a.kkl"}, {"fmt", "-l", "m.kkl"}, {"fmt", "-"},
+		{"tokens", "a.kkl"}, {"ast", "a.kkl"}, {"disasm", "a.kkl"}, {"help"}, {"version"}} {
+		var stderr bytes.Buffer
+		if code := run(args, strings.NewReader("main() {}\n"), failWriter{}, &stderr); code != 1 || stderr.String() != "kukel: write /dev/stdout: no space left on device\n" {
 			t.Errorf("%q: exit %d, %q", args, code, stderr.String())
 		}
 	}

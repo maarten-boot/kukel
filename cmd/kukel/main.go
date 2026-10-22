@@ -75,6 +75,9 @@ commands:
   version                         show the version, bytecode format and Go modules
   help                            show this text
 
+run, build and disasm take -nofuse as their first option: compile without
+the instructions that do the work of several (to compare; docs/vm.md).
+
 Modules ("use name;") are name.kkl files (or name.kkc, compiled on their
 own) in the directory of the file that uses them, or in the directories of
 KUKEL_PATH.
@@ -92,7 +95,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	cmd, args := args[0], args[1:]
 	// run, build and disasm -nofuse: compile without the instructions
-	// that do the work of several, to compare (docs/vm.md, not in usage).
+	// that do the work of several, to compare (docs/vm.md).
 	if (cmd == "run" || cmd == "build" || cmd == "disasm") && len(args) > 0 && args[0] == "-nofuse" {
 		compiler.Fuse = false
 		defer func() { compiler.Fuse = true }()
@@ -100,10 +103,18 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	switch cmd {
 	case "help", "-h", "-help", "--help":
-		fmt.Fprint(stdout, usage)
-		return 0
+		if len(args) > 0 {
+			fmt.Fprintf(stderr, "kukel help: takes no arguments\nusage: kukel help\n")
+			return 2
+		}
+		_, err := io.WriteString(stdout, usage)
+		return writeResult(err, stderr)
 	case "version", "-version", "--version":
-		return cmdVersion(stdout)
+		if len(args) > 0 {
+			fmt.Fprintf(stderr, "kukel version: takes no arguments\nusage: kukel version\n")
+			return 2
+		}
+		return writeResult(cmdVersion(stdout), stderr)
 	case "tokens":
 		return cmdTokens(args, stdout, stderr)
 	case "ast":
@@ -154,6 +165,11 @@ func cliConfig() *native.Config {
 // compileFiles parses and compiles source files, with the modules they use,
 // into one program.
 func compileFiles(files []string) (*bytecode.Program, error) {
+	for _, f := range files {
+		if strings.HasSuffix(f, ".kkc") {
+			return nil, fmt.Errorf("kukel: %s is a compiled program, not a source file (.kkl)", f)
+		}
+	}
 	parsed, err := loader.LoadWith(files, cliConfig())
 	if err != nil {
 		return nil, toolError(err)
@@ -187,12 +203,6 @@ func cmdRun(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		return 2
 	}
-	for _, f := range files {
-		if strings.HasSuffix(f, ".kkc") {
-			fmt.Fprintf(stderr, "kukel run: %s is a compiled program: run it with kukel exec %s (or kukel %s)\n", f, f, f)
-			return 2
-		}
-	}
 	prog, err := compileFiles(files)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -204,9 +214,21 @@ func cmdRun(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 // badFiles reports a usage error for an argument taken as a file name that
 // starts with "-": an option the command does not have. A file whose name
 // starts with "-" is given as ./-name. Only kukel fmt reads standard input
-// ("-").
+// ("-"). A compiled program (.kkc) is not a source file: only exec and
+// disasm (on its own) take one.
 func badFiles(cmd string, files []string, usage string, stderr io.Writer) bool {
 	for _, f := range files {
+		if strings.HasSuffix(f, ".kkc") && cmd != "exec" && !(cmd == "disasm" && len(files) == 1) {
+			switch cmd {
+			case "run", "debug", "profile":
+				fmt.Fprintf(stderr, "kukel %s: %s is a compiled program: run it with kukel exec %s (or kukel %s)\n", cmd, f, f, f)
+			case "disasm":
+				fmt.Fprintf(stderr, "kukel disasm: %s is a compiled program: give it alone (kukel disasm %s)\n", f, f)
+			default:
+				fmt.Fprintf(stderr, "kukel %s: %s is a compiled program, not a source file (.kkl)\n", cmd, f)
+			}
+			return true
+		}
 		if f == "-" {
 			fmt.Fprintf(stderr, "kukel %s: - (standard input) is only for kukel fmt (a file named so is given as ./-)\nusage: %s\n", cmd, usage)
 			return true
@@ -220,9 +242,10 @@ func badFiles(cmd string, files []string, usage string, stderr io.Writer) bool {
 }
 
 // runProgram runs a compiled program and returns its exit code.
+// Output that cannot be written to the end (a full disk) is reported, with
+// exit code 1.
 func runProgram(prog *bytecode.Program, progArgs []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	out := bufio.NewWriter(stdout)
-	defer out.Flush()
 	machine, err := vm.NewWith(prog, builtins.Lookup, cliConfig(), out, stdin)
 	if err != nil {
 		fmt.Fprintln(stderr, "kukel:", err)
@@ -230,12 +253,25 @@ func runProgram(prog *bytecode.Program, progArgs []string, stdin io.Reader, stdo
 	}
 	machine.SetStderr(stderr)
 	code, err := machine.Run(progArgs)
+	ferr := out.Flush()
 	if err != nil {
-		out.Flush()
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	if ferr != nil {
+		return writeResult(ferr, stderr)
+	}
 	return code
+}
+
+// writeResult reports an error writing the output, as "kukel: write ...",
+// and gives the exit code: 1 after an error, else 0.
+func writeResult(err error, stderr io.Writer) int {
+	if err != nil {
+		fmt.Fprintln(stderr, "kukel:", err)
+		return 1
+	}
+	return 0
 }
 
 // cmdCheck compiles the source files as one program and reports the first
@@ -267,7 +303,7 @@ func cmdBuild(args []string, stderr io.Writer) int {
 		}
 		if args[i] == "-o" {
 			if i+1 == len(args) {
-				fmt.Fprintln(stderr, "kukel build: -o needs a file name\nusage: kukel build [-o prog.kkc] a.kkl ...")
+				fmt.Fprintln(stderr, "kukel build: -o needs a file name\nusage: kukel build [-module] [-o prog.kkc] a.kkl ...")
 				return 2
 			}
 			out = args[i+1]
@@ -277,7 +313,7 @@ func cmdBuild(args []string, stderr io.Writer) int {
 		files = append(files, args[i])
 	}
 	if len(files) == 0 {
-		fmt.Fprintln(stderr, "usage: kukel build [-o prog.kkc] a.kkl ...")
+		fmt.Fprintln(stderr, "usage: kukel build [-module] [-o prog.kkc] a.kkl ...")
 		return 2
 	}
 	if badFiles("build", files, "kukel build [-module] [-o prog.kkc] a.kkl ...", stderr) {
@@ -297,7 +333,7 @@ func cmdBuild(args []string, stderr io.Writer) int {
 		}
 		mod, err := compileModule(files[0])
 		if err != nil {
-			fmt.Fprintln(stderr, err)
+			fmt.Fprintln(stderr, toolError(err))
 			return 1
 		}
 		data, err = bytecode.EncodeModule(mod)
@@ -415,10 +451,6 @@ func cmdDisasm(files []string, stdout, stderr io.Writer) int {
 	var prog *bytecode.Program
 	var err error
 	if strings.HasSuffix(files[0], ".kkc") {
-		if len(files) > 1 {
-			fmt.Fprintln(stderr, "usage: kukel disasm prog.kkc | a.kkl ...")
-			return 2
-		}
 		prog, err = loadKKC(files[0])
 	} else {
 		prog, err = compileFiles(files)
@@ -464,7 +496,9 @@ func cmdTokens(files []string, stdout, stderr io.Writer) int {
 				break
 			}
 		}
-		w.Flush()
+		if err := w.Flush(); err != nil {
+			return writeResult(err, stderr)
+		}
 	}
 	return 0
 }
@@ -574,8 +608,8 @@ func cmdFmt(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if err == nil {
 			var out []byte
 			if out, err = format.Source("<stdin>", src); err == nil {
-				stdout.Write(out)
-				return 0
+				_, err = stdout.Write(out)
+				return writeResult(err, stderr)
 			}
 		}
 		fmt.Fprintln(stderr, toolError(err))
@@ -594,14 +628,14 @@ func cmdFmt(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		out, err := format.Source(file, src)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
+			fmt.Fprintln(stderr, toolError(err))
 			code = 1
 			continue
 		}
 		switch {
 		case list:
 			if !bytes.Equal(src, out) {
-				fmt.Fprintln(stdout, file)
+				_, err = fmt.Fprintln(stdout, file)
 			}
 		case write:
 			if !bytes.Equal(src, out) {
@@ -611,7 +645,10 @@ func cmdFmt(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				}
 			}
 		default:
-			stdout.Write(out)
+			_, err = stdout.Write(out)
+		}
+		if err != nil && !write {
+			return writeResult(err, stderr) // the output is gone: the other files would fail too
 		}
 	}
 	return code

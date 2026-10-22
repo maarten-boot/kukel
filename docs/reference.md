@@ -48,6 +48,7 @@ hello, Kukel
 | `kukel build -module [-o m.kkc] m.kkl` | Compile module `m` on its own into `m.kkc`, which programs can use instead of `m.kkl` (see [Modules](#modules)). The file name must be the module's name (`util.kkl`, not `my-util.kkl`); a file with a NUL byte is refused. `-o` and `-module` (also `--module`) may come anywhere among the arguments |
 | `kukel exec prog.kkc [--] [args]` | Run a bytecode file (a first `--` is skipped). A module compiled on its own is not a program: `exec` and `disasm` refuse it |
 | `kukel disasm prog.kkc` or `kukel disasm a.kkl ...` | Show the bytecode in readable form |
+| `kukel run -nofuse ...`, `kukel build -nofuse ...`, `kukel disasm -nofuse ...` | Compile without the instructions that do the work of several (`-nofuse` comes first), to compare; see [docs/vm.md](vm.md) |
 | `kukel repl [a.kkl ...]` | Read declarations and statements and run them as they come (see [The REPL](#the-repl)); with files, their declarations come first (`main` is not called) |
 | `kukel debug a.kkl ... [-- args]` | Run the program under the debugger: breakpoints, stepping, values (see [The debugger](#the-debugger)) |
 | `kukel profile [-o report.txt] [-pprof prof.pb.gz] [-cpu] a.kkl ... [-- args]` | Run the program as `run` does, then report where its time went: the functions and lines that took it, with call counts, also of workers (see [The profiler](#the-profiler)); `-pprof` also for `go tool pprof` |
@@ -70,9 +71,12 @@ program with that code. A wrong command line (an unknown command, a missing
 file name, `-o` without a name or naming a source file, an option the
 command does not have, such as `kukel fmt -d`: a file whose name starts
 with `-` is given as `./-name`; `-` as a file anywhere but in `kukel fmt -`,
-`kukel run` of a `.kkc` file) gives exit code 2. Messages that are not
-about a place in the source start with `kukel:` (`kukel: open a.kkl: no
-such file or directory`). The operating system keeps only the low 8 bits
+a `.kkc` file where source files go (only `exec` and `disasm` take one),
+arguments after `kukel help` or `kukel version`) gives exit code 2.
+Messages that are not about a place in the source start with `kukel:`
+(`kukel: open a.kkl: no such file or directory`). Output that cannot be
+written (standard output on a full disk, say) is such an error, with exit
+code 1: `kukel: write /dev/stdout: no space left on device`. The operating system keeps only the low 8 bits
 of an exit code: `return 263` exits with 7, `return -1` with 255.
 
 Files used as modules (`use name;`) are found next to the file that uses
@@ -965,7 +969,7 @@ work with an `ArgumentError`.
 
 | Function | Description |
 |---|---|
-| `print(x, ...)` | Writes the values separated by single spaces (strings as they are); no values write nothing. Output that cannot be written is an `IOError` (also for the others below) |
+| `print(x, ...)` | Writes the values separated by single spaces (strings as they are); no values write nothing. Output that cannot be written is an `IOError` (also for the others below). Output is buffered, so a failure may show only later; what fails to be written when the program ends is reported by `kukel` (`kukel: write ...`, exit code 1) |
 | `println(x, ...)` | Like `print`, then a newline |
 | `eprint(x, ...)` | Like `print`, to standard error |
 | `eprintln(x, ...)` | Like `println`, to standard error |

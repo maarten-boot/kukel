@@ -49,10 +49,9 @@ func versionText() string {
 	return fmt.Sprintf("%s, %s, bytecode format %d", text, runtime.Version(), bytecode.FormatVersion)
 }
 
-func cmdVersion(stdout io.Writer) int {
-	fmt.Fprintln(stdout, versionText())
-	fmt.Fprintln(stdout, "modules written in Go:", strings.Join(moduleNames(), ", "))
-	return 0
+func cmdVersion(stdout io.Writer) error {
+	_, err := fmt.Fprintf(stdout, "%s\nmodules written in Go: %s\n", versionText(), strings.Join(moduleNames(), ", "))
+	return err
 }
 
 // moduleNames lists the modules written in Go that this kukel has; for db,
