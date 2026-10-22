@@ -167,14 +167,23 @@ func (n *node) bind(a native.Args, seq string, f value.Value) error {
 				stop(e, call(f, n.eventMap(e)))
 			}
 		}))
-		if err := tkError(); err != nil {
-			return a.Errorf(TkError, "%v", err)
+		if err := badSequence(a, seq); err != nil {
+			return err
 		}
 		if n.binds == nil {
 			n.binds = map[string]value.Value{}
 		}
 	}
 	n.binds[seq] = f
+	return nil
+}
+
+// badSequence is the ValueError for the event sequence seq after Tk
+// refused to bind it (an unknown event or key: "<Foo>"), or nil.
+func badSequence(a native.Args, seq string) error {
+	if err := tkError(); err != nil {
+		return a.Errorf(value.ValueError, "%s is not an event sequence Tk knows (%v)", value.Quote(seq), err)
+	}
 	return nil
 }
 

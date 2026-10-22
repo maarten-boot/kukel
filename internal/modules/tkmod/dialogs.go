@@ -12,9 +12,9 @@ import (
 	"github.com/maarten-boot/kukel/internal/value"
 )
 
-// The dialogs are modal: until the user answers, Tk handles its own events
-// (widgets keep working, their handlers run) but the event loop does not
-// run, so timers and other events wait.
+// The dialogs are modal: until the user answers, the dialog has Tk's grab,
+// so the program's other windows take no input (they still redraw), and
+// the event loop does not run, so timers and other events wait.
 
 func text(v value.Value) (any, string) {
 	if v.Kind() != value.String {
@@ -114,6 +114,7 @@ func dialog(name string, texts int, options []option, check func(a native.Args) 
 		if err := start(a, env); err != nil {
 			return value.NilValue, err
 		}
+		native.Flush(env) // it waits for the user
 		v, err := show(a, opts)
 		if terr := tkError(); err == nil && terr != nil {
 			err = a.Errorf(TkError, "%v", terr)
@@ -145,6 +146,9 @@ func defaultButton(a native.Args) error {
 		kind = b.AsString() // checked already
 	}
 	if buttons := messageButtons[kind]; !slices.Contains(buttons, def.AsString()) {
+		if len(buttons) == 1 {
+			return a.Errorf(value.ValueError, "option default: %s is not a button (the only button is %s)", value.Quote(def.AsString()), buttons[0])
+		}
 		return a.Errorf(value.ValueError, "option default: %s is not one of the buttons %s", value.Quote(def.AsString()), strings.Join(buttons, ", "))
 	}
 	return nil

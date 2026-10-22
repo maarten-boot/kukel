@@ -79,12 +79,21 @@ func (s *slider) text(x float64) string {
 	}
 	decimals := 2
 	if s.step > 0 {
-		decimals = 0
-		if _, frac, ok := strings.Cut(strconv.FormatFloat(s.step, 'f', -1, 64), "."); ok {
-			decimals = len(frac)
-		}
+		decimals = s.decimals()
 	}
 	return strconv.FormatFloat(x, 'f', decimals, 64)
+}
+
+// decimals is the number of decimals of the values on the steps: as many
+// as the step or from has (from 0 in steps of 0.25: 2).
+func (s *slider) decimals() int {
+	n := 0
+	for _, x := range []float64{s.step, s.from} {
+		if _, frac, ok := strings.Cut(strconv.FormatFloat(x, 'f', -1, 64), "."); ok {
+			n = max(n, len(frac))
+		}
+	}
+	return n
 }
 
 // numberOf gives v as a float, if it is a number other than nan.
@@ -109,7 +118,9 @@ func limit(v value.Value) (any, string) {
 
 // snap gives x on the slider: within its range, and with a step, on a
 // step (the end of the range is one only when the range holds whole steps:
-// from 0 to 10 in steps of 3, the largest value is 9).
+// from 0 to 10 in steps of 3, the largest value is 9). A value on a step
+// has the decimals of the step and from, no more: from 0 in steps of 0.1,
+// 0.3 is 0.3, not 0.30000000000000004.
 func (s *slider) snap(x float64) float64 {
 	if s.step <= 0 {
 		return math.Max(math.Min(s.from, s.to), math.Min(math.Max(s.from, s.to), x))
@@ -119,8 +130,13 @@ func (s *slider) snap(x float64) float64 {
 		dir = -1
 	}
 	k := math.Round(dir * (x - s.from) / s.step)
-	k = math.Max(0, math.Min(math.Floor(math.Abs(s.to-s.from)/s.step), k))
-	return s.from + dir*k*s.step
+	steps := math.Floor(math.Abs(s.to-s.from)/s.step + 1e-9) // 0.3 / 0.1 is 2.9999999999999996
+	k = math.Max(0, math.Min(steps, k))
+	x = s.from + dir*k*s.step
+	if !s.ints {
+		x, _ = strconv.ParseFloat(strconv.FormatFloat(x, 'f', s.decimals(), 64), 64)
+	}
+	return x
 }
 
 func (s *slider) number(x float64) value.Value {

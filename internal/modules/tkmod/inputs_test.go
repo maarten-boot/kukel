@@ -22,3 +22,24 @@ func TestSliderText(t *testing.T) {
 		}
 	}
 }
+
+// A value on a step has the decimals of the step and from, no more.
+func TestSliderSnap(t *testing.T) {
+	for _, tt := range []struct {
+		s       slider
+		x, want float64
+	}{
+		{slider{to: 1, step: 0.1}, 0.3, 0.3},
+		{slider{to: 1, step: 0.1}, 0.7, 0.7},
+		{slider{to: 1, step: 0.1}, 0.66, 0.7},
+		{slider{to: 0.3, step: 0.1}, 5, 0.3},
+		{slider{from: 0.05, to: 1, step: 0.1}, 0.3, 0.35},
+		{slider{from: 1, to: 0, step: 0.1}, 0.3, 0.3},
+		{slider{to: 10, step: 3, ints: true}, 100, 9},
+		{slider{to: 1}, 0.123456, 0.123456},
+	} {
+		if got := tt.s.snap(tt.x); got != tt.want {
+			t.Errorf("%+v: snap(%v) = %v, want %v", tt.s, tt.x, got, tt.want)
+		}
+	}
+}
