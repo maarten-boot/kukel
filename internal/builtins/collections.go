@@ -366,7 +366,7 @@ func stringMap(name string, f func(byte) byte) func(value.Env, []value.Value) (v
 
 func argRange(name string, args []value.Value, min, max int) error {
 	if len(args) < min || len(args) > max {
-		return value.Errorf(value.ArgumentError, "%s expects %d to %d arguments, got %d", name, min, max, len(args))
+		return value.Errorf(value.ArgumentError, "%s expects %s, got %d", name, value.ArgumentRange(min, max), len(args))
 	}
 	return nil
 }

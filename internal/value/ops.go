@@ -41,6 +41,15 @@ func Arguments(n int) string {
 	return fmt.Sprintf("%d arguments", n)
 }
 
+// ArgumentRange gives a range of numbers of arguments in words, for
+// messages: "1 to 3 arguments", "at most 1 argument".
+func ArgumentRange(min, max int) string {
+	if min == 0 {
+		return "at most " + Arguments(max)
+	}
+	return fmt.Sprintf("%d to %d arguments", min, max)
+}
+
 // ArithOp is a binary arithmetic or bitwise operator.
 type ArithOp uint8
 

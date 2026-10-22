@@ -243,7 +243,7 @@ func Check(name string, args []value.Value, min, max int) (Args, error) {
 	case max >= 0 && min == max && n != min:
 		return a, value.Errorf(value.ArgumentError, "%s expects %s, got %d", name, value.Arguments(min), n)
 	case max >= 0 && (n < min || n > max):
-		return a, value.Errorf(value.ArgumentError, "%s expects %d to %d arguments, got %d", name, min, max, n)
+		return a, value.Errorf(value.ArgumentError, "%s expects %s, got %d", name, value.ArgumentRange(min, max), n)
 	}
 	return a, nil
 }

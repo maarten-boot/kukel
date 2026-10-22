@@ -358,6 +358,12 @@ func (p *parser) parseStmt() ast.Stmt {
 	pos := p.tok.Pos
 	switch p.tok.Kind {
 	case token.LBRACE: // a "{" that starts a statement is a block
+		switch p.peek(1).Kind {
+		case token.STRING, token.INT, token.FLOAT, token.CHAR:
+			if p.peek(2).Kind == token.COLON { // {"a": 1} written as a statement
+				p.errorf(p.peek(2).Pos, "a '{' that starts a statement is a block, not a map literal (in parentheses, ({...}), it is a map)")
+			}
+		}
 		return p.parseBlock("")
 	case token.SEMICOLON:
 		p.next()
