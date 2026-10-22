@@ -8,6 +8,7 @@
   "6e14d8e54fdd": "pen 1.5\n",
   "768358c33cbb": "true\n[\"ann@example.com\", \"ann\", \"example\"]\nb:a, d:c\n[\"1\", \"22\", \"333\"]\n",
   "81bc83f3cb5a": "1.5\n",
+  "8293afc21884": "2 2\n",
   "84dda2a3ea46": "14.10.2026 09:30 3\n71 days\ntime::Time(2026-10-14T18:30:00+09:00)\n",
   "911c1eb5d566": "nil nil\nAnn 2\nmon Ann pen\n",
   "a15f02cb751d": "{\"name\":\"Kukel\",\"tags\":[\"fun\"],\"ratio\":2.0}\nfun\n",

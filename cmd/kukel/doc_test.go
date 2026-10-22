@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/maarten-boot/kukel/internal/format"
 )
 
 // TestLarkGrammar parses the programs of the repository with syntax.lark,
@@ -117,6 +119,19 @@ func TestReferenceSessions(t *testing.T) {
 	}
 	if repls < 2 || debugs < 1 {
 		t.Errorf("found %d REPL and %d debugger sessions", repls, debugs)
+	}
+}
+
+// TestDocsFormatted checks that the programs of the documents are written
+// as kukel fmt writes them, as the examples are.
+func TestDocsFormatted(t *testing.T) {
+	for i, code := range docPrograms(t) {
+		out, err := format.Source(fmt.Sprintf("doc%d.kkl", i+1), []byte(code))
+		if err != nil {
+			t.Errorf("program %d: %v", i+1, err)
+		} else if string(out) != code {
+			t.Errorf("program %d is not formatted; kukel fmt gives\n%s\ninstead of\n%s", i+1, out, code)
+		}
 	}
 }
 

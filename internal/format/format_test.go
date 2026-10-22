@@ -42,6 +42,15 @@ func TestFormat(t *testing.T) {
 	// label on its own line gets the blank line above it
 	tests = append(tests, struct{ in, want string }{"f(c, d) {\nlocal x = 1;\nouter:\nfor (;;) break outer;\nreturn c &&\nd;\n}\nglobal g = 1 +\n2;\nh(a) {\nif (a)\na = a +\n1;\nlocal y = a ?\n1 :\n2;\nreturn y\n// c\n+ a;\n}\n",
 		"f(c, d) {\n    local x = 1;\n\n    outer:\n    for (;;) break outer;\n    return c &&\n        d;\n}\nglobal g = 1 +\n    2;\nh(a) {\n    if (a)\n        a = a +\n            1;\n    local y = a ?\n        1 :\n        2;\n    return y\n        // c\n        + a;\n}\n"})
+	// a closing bracket lines up with the line that opened it, also when
+	// more arguments follow it ("}, 1);"), and with the other brackets
+	// opened on that line
+	tests = append(tests, struct{ in, want string }{"main() {\nf(fn() {\nx();\n}, 1);\ng({\n\"a\": 1\n}, [\n2\n]);\nif (a) {\nh([\n3\n], 4);\n}\n}\n",
+		"main() {\n    f(fn() {\n        x();\n    }, 1);\n    g({\n        \"a\": 1\n    }, [\n        2\n    ]);\n\n    if (a) {\n        h([\n            3\n        ], 4);\n    }\n}\n"})
+	// trailing commas: kept; the closing bracket on its own line lines up
+	// with the line that opened the list
+	tests = append(tests, struct{ in, want string }{"f(\na,\nb = 1 ,\n) {\nlocal v = [\n1,\n2 ,\n];\nlocal m = {\"a\": 1 , };\nreturn g(\nv,\nm,\n);\n}\n",
+		"f(\n    a,\n    b = 1,\n) {\n    local v = [\n        1,\n        2,\n    ];\n    local m = {\"a\": 1,};\n    return g(\n        v,\n        m,\n    );\n}\n"})
 	// CRLF line ends become LF
 	tests = append(tests, struct{ in, want string }{"main() {\r\nx = 1;\r\n}\r\n", "main() {\n    x = 1;\n}\n"})
 	for _, tc := range tests {

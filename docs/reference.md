@@ -52,7 +52,7 @@ hello, Kukel
 | `kukel debug a.kkl ... [-- args]` | Run the program under the debugger: breakpoints, stepping, values (see [The debugger](#the-debugger)) |
 | `kukel profile [-o report.txt] [-pprof prof.pb.gz] [-cpu] a.kkl ... [-- args]` | Run the program as `run` does, then report where its time went: the functions and lines that took it, with call counts, also of workers (see [The profiler](#the-profiler)); `-pprof` also for `go tool pprof` |
 | `kukel dap` | The debugger for editors: the Debug Adapter Protocol on standard input and output, which an editor starts (see [docs/debugging.md](debugging.md): Visual Studio Code, Neovim, Helix, Emacs) |
-| `kukel fmt [-w \| -l] a.kkl ...`, `kukel fmt -` | Format source files: indentation (4 spaces; `case` labels one level into the switch, their statements two) and the spaces between tokens (`{ }` becomes `{}`; a comment at the end of a line keeps its distance); line breaks and comments stay, at most one blank line in a row; CRLF line ends become LF. A line that continues a statement outside brackets (`return c &&` and then `d;`) is indented one level more than the statement's first line. A statement that starts a line with `if`, `while`, `do`, `for`, `switch`, `try` or `with` (also after a label: `outer: for`, and with the label on a line of its own, where the blank line goes above the label) gets a blank line before it (above the comments right above it), except as the first statement of a block, after a label on its own line or a `case`, as the statement of `else` or a header without braces, or as the `while` of a `do`. The output is checked to give the same tokens and comments as the input; a file it cannot format safely is refused with an "internal error".  Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`; `-w` and `-l` together are a usage error). A file with a syntax error or a NUL byte is left alone, and the exit code is 1. `kukel fmt -` formats standard input to standard output (for editors; with `-w`, `-l` or files it is a usage error) |
+| `kukel fmt [-w \| -l] a.kkl ...`, `kukel fmt -` | Format source files: indentation (4 spaces; `case` labels one level into the switch, their statements two) and the spaces between tokens (`{ }` becomes `{}`; a comment at the end of a line keeps its distance); line breaks and comments stay, at most one blank line in a row; CRLF line ends become LF (not inside a string or a `/* */` comment: those stay as written). A line that continues a statement outside brackets (`return c &&` and then `d;`) is indented one level more than the statement's first line. A line that starts with a closing bracket lines up with the line that opened it, also when more follows (`}, 1);` after `f(fn() {`); a comma at the end of a list stays, so a list with one item per line and its closing bracket on a line of its own formats as in Go. A statement that starts a line with `if`, `while`, `do`, `for`, `switch`, `try` or `with` (also after a label: `outer: for`, and with the label on a line of its own, where the blank line goes above the label) gets a blank line before it (above the comments right above it), except as the first statement of a block, after a label on its own line or a `case`, as the statement of `else` or a header without braces, or as the `while` of a `do`. The output is checked to give the same tokens and comments as the input; a file it cannot format safely is refused with an "internal error".  Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`; `-w` and `-l` together are a usage error). A file with a syntax error or a NUL byte is left alone, and the exit code is 1. `kukel fmt -` formats standard input to standard output (for editors; with `-w`, `-l` or files it is a usage error) |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | Show the tokens or the syntax tree of each file (for debugging; `-pos`, before the files, adds positions) |
 | `kukel version` (also `-version`, `--version`) | Show the version (with the commit and the Go version), the bytecode format and the modules written in Go, with the databases `db` can open (`db (SQLite, PostgreSQL, MySQL)`): a `kukel` built with tags may lack some (see the README) |
 | `kukel help` (also `-h`, `-help`, `--help`) | Show the commands (`kukel` without a command shows them too, with exit code 2) |
@@ -256,6 +256,7 @@ isPrime(n) {
 
 main() {
     local count = 0;
+
     for (local n = 0; n < 200000; n++)
         if (isPrime(n)) count++;
     time::sleep(0.1);                    // waiting counts too
@@ -996,6 +997,7 @@ a program printed before a wait is seen during it.
 main() {
     println(int("42") + 1, int(" -0x10 "), int("1_000"), int(3.9), int(-3.9));
     println(float("2.5") * 2, float(" 1e3 "), str(1.0 / 4) + "!");
+
     try { int("12abc"); } catch (e) { println(e->kind, e->message); }
 }
 ```
@@ -2030,6 +2032,7 @@ main() {
         local sound = new tk::Checkbutton(f, "Sound")->setchecked(settings["sound"]);
         sound->grid({"row": 0, "column": 0, "sticky": "w"});
         local size = new tk::Radiogroup(settings["size"]), row = 1;
+
         for (local name in ["small", "medium", "large"]) {
             new tk::Radiobutton(f, name, size, name)->grid({"row": row, "column": 0, "sticky": "w"});
             row = row + 1;
@@ -2085,6 +2088,7 @@ main() {
     local file = new tk::Menu(w)->submenu("File");
     file->item("Save as...", fn() {
         local path = tk::savefile({"ext": ".txt", "parent": w});
+
         if (path != nil) writefile(path, text->text());
     }, {"accelerator": "Ctrl+S"});
     file->separator();
@@ -2179,6 +2183,7 @@ main() {
     c->bind("<Button-1>", fn(e) {
         item = c->itemat(e["x"], e["y"]);
         last = e;
+
         if (item != nil) c->raise(item);
     });
     c->bind("<B1-Motion>", fn(e) {
