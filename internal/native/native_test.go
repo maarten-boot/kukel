@@ -1,7 +1,10 @@
 package native
 
 import (
+	"errors"
 	"math"
+	"net"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +19,7 @@ func TestRegisterAndGlobal(t *testing.T) {
 	}
 	c := &Class{Name: "C", New: meth, Methods: map[string]value.NativeMethod{"m": meth}, Statics: map[string]Func{"s": fn}}
 	Register(&Module{Name: "ntest", Funcs: map[string]Func{"f": fn}, Classes: []*Class{c}})
+	t.Cleanup(func() { delete(modules, "ntest") }) // go test -count=2 registers it again
 
 	if m, ok := Lookup("ntest"); !ok || m.Name != "ntest" {
 		t.Fatal("Lookup")
@@ -154,5 +158,33 @@ func TestObjectNotSetUp(t *testing.T) {
 	want := "m::f: argument 1: the m::C part of this D object is not set up: its constructor must call m::C::C(...)"
 	if _, err := a.Object(0, c); err == nil || err.Error() != want {
 		t.Errorf("got %v, want %q", err, want)
+	}
+}
+
+// The messages of other modules' failures, without Go's names of the
+// operations.
+func TestMessages(t *testing.T) {
+	_, err := os.Open("nope.kkl")
+	if got := IOMessage(err); got != "nope.kkl: no such file or directory" {
+		t.Errorf("IOMessage(open) = %q", got)
+	}
+	if got := IOMessage(os.Rename("nope", "new")); got != "nope -> new: no such file or directory" {
+		t.Errorf("IOMessage(rename) = %q", got)
+	}
+	if got := IOMessage(errors.New("other")); got != "other" {
+		t.Errorf("IOMessage(other) = %q", got)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skip(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	_, err = net.Dial("tcp", addr)
+	if got := NetMessage(err); got != "connection refused" {
+		t.Errorf("NetMessage(dial) = %q", got)
+	}
+	if got := NetMessage(&net.DNSError{Name: "nosuchhost.invalid", Err: "no such host"}); got != "host nosuchhost.invalid not found" {
+		t.Errorf("NetMessage(DNS) = %q", got)
 	}
 }
