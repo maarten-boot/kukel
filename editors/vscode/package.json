@@ -2,7 +2,7 @@
   "name": "kukel",
   "displayName": "Kukel",
   "description": "The Kukel language: syntax highlighting, and debugging with kukel dap",
-  "version": "0.28.0",
+  "version": "0.0.0",
   "publisher": "maarten-boot",
   "license": "MIT",
   "repository": {
@@ -14,7 +14,7 @@
   },
   "categories": ["Programming Languages", "Debuggers"],
   "main": "./extension.js",
-  "activationEvents": ["onDebugResolve:kukel", "onDebugDynamicConfigurations:kukel", "onLanguage:kukel"],
+  "activationEvents": ["onDebugResolve:kukel", "onLanguage:kukel"],
   "contributes": {
     "languages": [
       {

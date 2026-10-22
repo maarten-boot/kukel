@@ -102,13 +102,17 @@ docker:
 
 # The VS Code extension (editors/vscode: highlighting, debugging with kukel
 # dap) as dist/kukel-vscode-<version>.vsix; needs Node.js (npx fetches vsce).
+# Its version is kukel's: the last tag's numbers (v0.30.0 gives 0.30.0; VS
+# Code takes only those), set in a copy in dist/vscode, with the LICENSE.
 VSCE = @vscode/vsce@3.2.1
+VSCODE_VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null | sed -n 's/^v\([0-9]*\.[0-9]*\.[0-9]*\).*/\1/p')
 vscode:
-	mkdir -p dist
-	cp LICENSE editors/vscode/LICENSE
-	cd editors/vscode && npx --yes $(VSCE) package --no-dependencies \
-		-o ../../dist/kukel-vscode-$$(node -p 'require("./package.json").version').vsix
-	rm editors/vscode/LICENSE
+	@test -n "$(VSCODE_VERSION)" || { echo "make vscode: no version tag (set VSCODE_VERSION=x.y.z)"; exit 1; }
+	rm -rf dist/vscode && mkdir -p dist/vscode
+	cp -R editors/vscode/. LICENSE dist/vscode/
+	(cd dist/vscode && node -e 'const fs = require("fs"), p = JSON.parse(fs.readFileSync("package.json")); p.version = process.argv[1]; fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n")' $(VSCODE_VERSION) && \
+		npx --yes $(VSCE) package --no-dependencies -o ../kukel-vscode-$(VSCODE_VERSION).vsix); \
+		status=$$?; rm -rf dist/vscode; exit $$status
 
 clean:
 	rm -rf bin dist

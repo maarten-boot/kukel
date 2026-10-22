@@ -27,6 +27,11 @@ function activate(context) {
         if (!config.program) {
           return vscode.window.showInformationMessage("Name the .kkl file to debug as \"program\".").then(() => undefined);
         }
+        // Without cwd, the program would run (and its program, files and
+        // stdin be found) in VS Code's own working directory.
+        if (!config.cwd) {
+          config.cwd = folder ? folder.uri.fsPath : "${fileDirname}";
+        }
         return config;
       },
     })
