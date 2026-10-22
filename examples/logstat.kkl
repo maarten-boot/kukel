@@ -10,7 +10,8 @@
 // -since keeps the entries at or after TIME: "2026-10-16", "2026-10-16
 // 09:30", "2026-10-16 09:30:00" (in UTC, as the log's times are) or RFC
 // 3339 ("2026-10-16T11:30:00+02:00"). -last keeps those of the last
-// DURATION ("90s", "45m", "2h", "1d") before the newest entry. -json prints
+// DURATION ("90s", "45m", "2h", "1d"; at most 36500 days) before the newest
+// entry. -json prints
 // the statistics as JSON (module json). Without files it reads standard
 // input. Levels count in upper case ("error" is ERROR). Lines that start no
 // entry (a stack trace) belong to the entry before them, and count as other
@@ -53,7 +54,7 @@ main(args) {
         } else {
             last = duration(args[i]);
 
-            if (last == nil) return usage("-last: cannot read the duration " + args[i] + " (such as 90s, 45m, 2h, 1d)");
+            if (last == nil) return usage("-last: cannot read the duration " + args[i] + " (such as 90s, 45m, 2h, 1d; at most 36500d)");
         }
     }
 
@@ -148,12 +149,15 @@ parsetime(text) {
     return nil;
 }
 
-// duration reads "90s", "45m", "2h" or "1d" as seconds, or gives nil.
+// duration reads "90s", "45m", "2h" or "1d" as seconds, or gives nil; at
+// most 36500 days (nine digits keep the product far from the int range).
 duration(text) {
-    local g = re::compile("^(\\d+)([smhd])$")->groups(text);
+    local g = re::compile("^(\\d{1,9})([smhd])$")->groups(text);
 
     if (g == nil) return nil;
-    return int(g[1]) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[g[2]];
+    local seconds = int(g[1]) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[g[2]];
+
+    return seconds <= 36500 * 86400 ? seconds : nil;
 }
 
 newest(entries) {

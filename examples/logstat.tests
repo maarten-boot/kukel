@@ -122,7 +122,18 @@ $ -since
 exit 2
 
 $ -last 5w testdata/app.log
-! logstat: -last: cannot read the duration 5w (such as 90s, 45m, 2h, 1d)
+! logstat: -last: cannot read the duration 5w (such as 90s, 45m, 2h, 1d; at most 36500d)
+! usage: logstat [-since TIME | -last DURATION] [-json] [file ...]
+exit 2
+
+# Too long: more than 36500 days, or too many digits for an int.
+$ -last 36501d testdata/app.log
+! logstat: -last: cannot read the duration 36501d (such as 90s, 45m, 2h, 1d; at most 36500d)
+! usage: logstat [-since TIME | -last DURATION] [-json] [file ...]
+exit 2
+
+$ -last 99999999999999999999d testdata/app.log
+! logstat: -last: cannot read the duration 99999999999999999999d (such as 90s, 45m, 2h, 1d; at most 36500d)
 ! usage: logstat [-since TIME | -last DURATION] [-json] [file ...]
 exit 2
 

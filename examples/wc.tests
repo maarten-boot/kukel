@@ -72,3 +72,7 @@ $
 ! wc: no files
 ! usage: wc [-j N] [-json] [--] path ...
 exit 2
+
+# A vertical tab and a form feed separate words too, as for the system's wc.
+$ testdata/spaces.txt
+      2       4      21 testdata/spaces.txt
