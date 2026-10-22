@@ -217,16 +217,18 @@ func (l *Loop) run(a native.Args) error {
 			wait = time.NewTimer(time.Until(deadline))
 			due = wait.C
 		}
-		native.Flush(l.env)
+		waiting := native.Wait(l.env)
 		select {
 		case <-l.wake:
 		case <-due:
 		case <-l.env.Done(): // the program was cancelled
+			waiting.Done()
 			if wait != nil {
 				wait.Stop()
 			}
 			return l.env.Err()
 		}
+		waiting.Done()
 		if wait != nil {
 			wait.Stop()
 		}

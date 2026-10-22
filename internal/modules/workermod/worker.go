@@ -300,7 +300,9 @@ func receive(a native.Args, env value.Env, q *queue, timeoutArg int) (value.Valu
 	if callbacks {
 		return value.NilValue, a.Errorf(value.ValueError, "messages go to the onmessage handler, receive() cannot take them")
 	}
-	v, _ := q.pop(timeout, env.Done(), func() { native.Flush(env) })
+	var waiting native.Waiter
+	v, _ := q.pop(timeout, env.Done(), func() { waiting = native.Wait(env) })
+	waiting.Done()
 	if err := env.Err(); err != nil {
 		return value.NilValue, err // cancelled
 	}
@@ -387,7 +389,7 @@ func init() {
 		// gives a WorkerError.
 		"wait": method("wait", 0, 0, func(a native.Args, env value.Env, w *worker) (value.Value, error) {
 			if w.state() == "running" {
-				native.Flush(env)
+				defer native.Wait(env).Done()
 			}
 			select {
 			case <-w.done:

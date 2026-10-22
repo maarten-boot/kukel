@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/value"
 )
 
@@ -31,8 +32,9 @@ func init() {
 		if err := wantArgs("readline", args, 0); err != nil {
 			return value.NilValue, err
 		}
-		flushStdout(env) // a prompt printed before must be visible
+		waiting := native.Wait(env) // flushes: a prompt printed before must be visible
 		line, err := env.Stdin().ReadString('\n')
+		waiting.Done()
 		if err != nil && err != io.EOF {
 			return value.NilValue, value.Errorf(value.IOError, "readline: %v", err)
 		}

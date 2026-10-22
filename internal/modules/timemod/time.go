@@ -206,7 +206,7 @@ func sleep(env value.Env, args []value.Value) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, err
 	}
-	native.Flush(env)
+	defer native.Wait(env).Done()
 	t := stdtime.NewTimer(d)
 	defer t.Stop()
 	select {
