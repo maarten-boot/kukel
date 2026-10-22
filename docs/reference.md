@@ -795,7 +795,10 @@ main() {
 - In a member function, a literal also sees `this` and the members.
 - In stack traces a literal is called `<function>/fn@<line>`. The global
   initializers of a file run in a function called `<init>`: an exception
-  there shows `at <init> (file.kkl:line)`.
+  there shows `at <init> (file.kkl:line)`. The class `Error` is written in
+  Kukel, in a part of every program called the prelude, so a trace can
+  show its frames as `<prelude>`: `new Error(5)` gives
+  `at Error::Error (<prelude>:9)`, above the caller's frame.
 
 ---
 
@@ -995,7 +998,7 @@ a program printed before a wait is seen during it.
 | `typeof(x)` | `"nil"`, `"bool"`, `"int"`, `"float"`, `"string"`, `"vector"`, `"map"`, `"function"`, `"class"` or `"object"` |
 | `str(x)` | `x` as text, as `print` writes it |
 | `int(x)` | An int: floats are truncated toward zero; strings in decimal, `0x` or `0b` form with an optional sign (`"42"`, `"-0x10"`, `"0b11"`), surrounding spaces allowed and every `_` ignored (`"1_000"`); `true` is 1, `false` 0. A string that is not a number is a `ValueError`, one too large a `RangeError`; hexadecimal and binary use all 64 bits, as literals do (`int("0xffffffffffffffff")` is -1) |
-| `float(x)` | A float from an int, float or string (`"2.5"`, `"1e3"`, `"inf"`, also Go's other forms such as `"0x1p3"`; surrounding spaces and `_` between digits are allowed, as for `int`: `" 1_000.5 "`). A string beyond the float range is a `RangeError`; one too small gives 0.0 |
+| `float(x)` | A float from an int, float or string (`"2.5"`, `"1e3"`, `"inf"`, also Go's other forms such as `"0x1p3"`; surrounding spaces are allowed and every `_` is ignored, as for `int`: `" 1_000.5 "`, also `"_1_"`). A string beyond the float range is a `RangeError`; one too small gives 0.0 |
 | `classof(obj)` | The class of an object |
 | `instanceof(x, C)` | Whether `x` is an object of class `C` or of a class derived from it |
 
