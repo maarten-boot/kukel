@@ -63,7 +63,8 @@ commands:
   profile [-o file] [-pprof file] [-cpu] a.kkl ... [-- args]
                                   run, then report which functions and lines
                                   took the time (to standard error, or -o;
-                                  -pprof: also for go tool pprof)
+                                  -pprof: also for go tool pprof); Ctrl-C
+                                  stops the program and gives the report
   disasm a.kkl ... | prog.kkc     show the bytecode in readable form
   tokens a.kkl ...                show the tokens of source files
   ast [-pos] a.kkl ...            show the syntax tree of source files

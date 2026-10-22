@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/pprof/profile"
 )
@@ -138,5 +140,92 @@ func TestProfile(t *testing.T) {
 		if code := run(args, nil, &out, &errOut); code != 2 || !strings.Contains(errOut.String(), "usage: kukel profile") {
 			t.Errorf("%v: exit %d, %q", args, code, errOut.String())
 		}
+	}
+
+	// A compiled program: the same kind of message as kukel run gives.
+	errOut.Reset()
+	if code := run([]string{"profile", "p.kkc"}, nil, &out, &errOut); code != 2 || !strings.Contains(errOut.String(), "p.kkc is a compiled program") {
+		t.Errorf("p.kkc: exit %d, %q", code, errOut.String())
+	}
+}
+
+// kukel profile -cpu: the work of built-ins counts (also of a native
+// constructor, whose calls are counted), the waiting does not.
+func TestProfileCPU(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("c.kkl", []byte(`use strings;
+use time;
+
+main() {
+    local v = [];
+    for (local i = 0; i < 200000; i++) push(v, (i * 7919) % 200003);
+    for (local i = 0; i < 100; i++) new strings::Builder("x");
+    sort(v);
+    time::sleep(0.2);
+}
+`), 0o644)
+	var out, errOut bytes.Buffer
+	if code := run([]string{"profile", "-cpu", "c.kkl"}, nil, &out, &errOut); code != 0 {
+		t.Fatalf("exit %d, %s", code, errOut.String())
+	}
+	report := errOut.String()
+	if !strings.Contains(report, "       100  strings::Builder::Builder\n") {
+		t.Errorf("no calls of the constructor:\n%s", report)
+	}
+	if s := lineTime(t, report, "time::sleep(0.2);"); s > 0.05 {
+		t.Errorf("%.3f s on the sleep line:\n%s", s, report)
+	}
+	if s := lineTime(t, report, "sort(v);"); s < 0.02 {
+		t.Errorf("%.3f s on the sort line:\n%s", s, report)
+	}
+}
+
+// Ctrl-C: the program stops, the report is written, and kukel ends as
+// interrupted. A program that waits where it cannot be cancelled gets its
+// report after a second, while it waits.
+func TestProfileInterrupt(t *testing.T) {
+	t.Chdir(t.TempDir())
+	signals := make(chan chan<- os.Signal, 1)
+	notify, stop, die, exit := notifyInterrupt, stopInterrupt, dieInterrupted, exitProcess
+	defer func() { notifyInterrupt, stopInterrupt, dieInterrupted, exitProcess = notify, stop, die, exit }()
+	notifyInterrupt = func(c chan<- os.Signal) { signals <- c }
+	stopInterrupt = func(chan<- os.Signal) {}
+	dieInterrupted = func() int { return 130 }
+	exited := make(chan int, 1)
+	exitProcess = func(code int) { exited <- code }
+
+	os.WriteFile("loop.kkl", []byte("main() {\n    println(\"start\");\n    while (true) {}\n}\n"), 0o644)
+	var out, errOut bytes.Buffer
+	go func() {
+		c := <-signals
+		time.Sleep(50 * time.Millisecond)
+		c <- os.Interrupt
+	}()
+	if code := run([]string{"profile", "-pprof", "l.pb.gz", "loop.kkl"}, nil, &out, &errOut); code != 130 || out.String() != "start\n" {
+		t.Fatalf("exit %d, %q:\n%s", code, out.String(), errOut.String())
+	}
+	if r := errOut.String(); !strings.Contains(r, "main (loop.kkl:1)") || strings.Contains(r, "CancelledError") {
+		t.Errorf("report:\n%s", r)
+	}
+	if _, err := os.Stat("l.pb.gz"); err != nil {
+		t.Error(err)
+	}
+
+	// readline waits for input that does not come: no cancelling it.
+	os.WriteFile("read.kkl", []byte("main() {\n    readline();\n}\n"), 0o644)
+	in, w := io.Pipe()
+	errOut.Reset()
+	go func() {
+		c := <-signals
+		time.Sleep(50 * time.Millisecond)
+		c <- os.Interrupt
+		<-exited // the report is written
+		w.Close()
+	}()
+	if code := run([]string{"profile", "read.kkl"}, in, &out, &errOut); code != 130 {
+		t.Fatalf("exit %d:\n%s", code, errOut.String())
+	}
+	if r := errOut.String(); strings.Count(r, "main still runs") != 1 { // (no sample yet, so no calls)
+		t.Errorf("report:\n%s", r)
 	}
 }
