@@ -95,20 +95,9 @@ func ModeString(m fs.FileMode) string {
 	return string(b)
 }
 
-// ioError is the IOError for err: the path and what went wrong, without
-// Go's name of the operation ("fs::readdir: nope: no such file or
-// directory"; "from -> to: ..." for rename).
-func ioError(a native.Args, err error) error {
-	var pe *fs.PathError
-	var le *os.LinkError
-	switch {
-	case errors.As(err, &pe):
-		return a.Errorf(value.IOError, "%s: %v", pe.Path, pe.Err)
-	case errors.As(err, &le):
-		return a.Errorf(value.IOError, "%s -> %s: %v", le.Old, le.New, le.Err)
-	}
-	return a.Errorf(value.IOError, "%v", err)
-}
+// ioError is the IOError for err (native.IOError: without Go's name of
+// the operation).
+var ioError = native.IOError
 
 // fs::readdir(path): the entries of a directory, by name; a symbolic link
 // is an entry of its own (link true), not what it points to.

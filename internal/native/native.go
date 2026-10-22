@@ -12,9 +12,12 @@
 package native
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -323,6 +326,21 @@ func Flush(env value.Env) {
 			f.Flush()
 		}
 	}
+}
+
+// IOError is the IOError for err: the path and what went wrong, without
+// Go's name of the operation ("fs::readdir: nope: no such file or
+// directory"; "from -> to: ..." for a rename).
+func IOError(a Args, err error) error {
+	var pe *fs.PathError
+	var le *os.LinkError
+	switch {
+	case errors.As(err, &pe):
+		return a.Errorf(value.IOError, "%s: %v", pe.Path, pe.Err)
+	case errors.As(err, &le):
+		return a.Errorf(value.IOError, "%s -> %s: %v", le.Old, le.New, le.Err)
+	}
+	return a.Errorf(value.IOError, "%v", err)
 }
 
 // Object returns the Go value of argument i, which must be an object of
