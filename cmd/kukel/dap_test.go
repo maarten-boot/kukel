@@ -185,7 +185,7 @@ func TestDap(t *testing.T) {
 	c.ok("launch", map[string]any{"program": "p.kkl", "args": []string{"x"}, "stdin": "in.txt"})
 	c.event("initialized")
 	bps := c.ok("setBreakpoints", map[string]any{"source": map[string]any{"path": "p.kkl"},
-		"breakpoints": []map[string]any{{"line": 12, "condition": "i == 1"}, {"line": 14, "logMessage": "t is {t}, {{literally}}"}, {"line": 99}}}).(*dap.SetBreakpointsResponse)
+		"breakpoints": []map[string]any{{"line": 12, "condition": "i == 1"}, {"line": 14, "logMessage": "t is {t}, {{literally}} {t > 0 ? \"}\" : {\"k\": \"{\"}}"}, {"line": 99}}}).(*dap.SetBreakpointsResponse)
 	if b := bps.Body.Breakpoints; len(b) != 3 || !b[0].Verified || b[0].Line != 12 || !b[1].Verified || b[2].Verified || !strings.Contains(b[2].Message, "no code at or after") {
 		t.Errorf("breakpoints: %+v", b)
 	}
@@ -253,7 +253,7 @@ func TestDap(t *testing.T) {
 	if code := c.stop(); code != 0 || ex.Body.ExitCode != 0 {
 		t.Errorf("exit code %d, %d", code, ex.Body.ExitCode)
 	}
-	want := "console: t is 204, {literally}\nstdout: total 204\nstdout: hello [\"x\"]\n"
+	want := "console: t is 204, {literally} }\nstdout: total 204\nstdout: hello [\"x\"]\n"
 	if got := c.output.String(); got != want {
 		t.Errorf("output:\n%s\nwant:\n%s", got, want)
 	}
@@ -361,4 +361,260 @@ func TestDapStepsAndEnds(t *testing.T) {
 		t.Errorf("noDebug: exit code %d", ex.Body.ExitCode)
 	}
 	c.stop()
+}
+
+// launchDap starts a session of a program (launch's arguments), with
+// breakpoints at lines of its file, up to configurationDone.
+func launchDap(t *testing.T, launch map[string]any, lines ...int) *dapClient {
+	t.Helper()
+	c := startDap(t)
+	c.ok("initialize", nil)
+	c.ok("launch", launch)
+	c.event("initialized")
+	if len(lines) > 0 {
+		var bps []map[string]any
+		for _, l := range lines {
+			bps = append(bps, map[string]any{"line": l})
+		}
+		c.ok("setBreakpoints", map[string]any{"source": map[string]any{"path": launch["program"]}, "breakpoints": bps})
+	}
+	c.ok("configurationDone", nil)
+	return c
+}
+
+// noStop reports a stopped event among those read but not asked for.
+func (c *dapClient) noStop(what string) {
+	c.t.Helper()
+	for _, m := range c.pending {
+		if e, ok := m.(*dap.StoppedEvent); ok {
+			c.t.Errorf("%s: stopped again: %+v", what, e.Body)
+		}
+	}
+}
+
+// Terminate and disconnect end the program in every state: try cannot
+// catch that, it does not stop again, and kukel dap does not hang.
+func TestDapTerminate(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("tr.kkl", []byte("main() {\n    for (local i = 0; i < 3; i++) {\n        try {\n            println(\"line\", i);\n        } catch (e) {\n            println(\"caught\", e->kind);\n        }\n    }\n    println(\"end\");\n}\n"), 0o644)
+	os.WriteFile("loop.kkl", []byte("main() {\n    local n = 0;\n    while (true) {\n        n++;\n    }\n}\n"), 0o644)
+	os.WriteFile("ex.kkl", []byte("main() {\n    throw new Error(\"boom\");\n}\n"), 0o644)
+
+	// Terminate at a breakpoint inside a try.
+	c := launchDap(t, map[string]any{"program": "tr.kkl"}, 4)
+	c.event("stopped")
+	c.ok("terminate", nil)
+	c.event("exited")
+	c.event("terminated")
+	c.noStop("terminate in a try")
+	c.stop()
+	if out := c.output.String(); out != "" {
+		t.Errorf("terminate in a try: output %q", out)
+	}
+
+	// Disconnect at the entry stop.
+	c = launchDap(t, map[string]any{"program": "loop.kkl", "stopOnEntry": true})
+	c.event("stopped")
+	c.stop()
+
+	// Disconnect in a try: no output after it.
+	c = launchDap(t, map[string]any{"program": "tr.kkl"}, 4)
+	c.event("stopped")
+	c.stop()
+	if out := c.output.String(); out != "" {
+		t.Errorf("disconnect in a try: output %q", out)
+	}
+
+	// Terminate at an exception nothing catches.
+	c = launchDap(t, map[string]any{"program": "ex.kkl"})
+	if stop := c.event("stopped").(*dap.StoppedEvent); stop.Body.Reason != "exception" {
+		t.Errorf("exception: %+v", stop.Body)
+	}
+	c.ok("terminate", nil)
+	c.event("terminated")
+	c.noStop("terminate at an exception")
+	c.stop()
+
+	// Terminate while it runs: no error in the console.
+	c = launchDap(t, map[string]any{"program": "loop.kkl"})
+	c.ok("terminate", nil)
+	c.event("terminated")
+	c.stop()
+	if out := c.output.String(); strings.Contains(out, "Error") {
+		t.Errorf("terminate while running: output %q", out)
+	}
+
+	// Terminate before configurationDone: terminated at once.
+	c = startDap(t)
+	c.ok("initialize", nil)
+	c.ok("launch", map[string]any{"program": "loop.kkl"})
+	c.event("initialized")
+	c.ok("terminate", nil)
+	c.event("terminated")
+	c.ok("configurationDone", nil) // it does not start now
+	if code := c.stop(); code != 0 {
+		t.Errorf("terminate before configurationDone: exit %d", code)
+	}
+}
+
+// Requests with what does not fit: a bad frame, configurationDone twice,
+// bad breakpoints and names; launch that fails changes nothing; pause
+// without debugging.
+func TestDapBadRequests(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	os.WriteFile("p.kkl", []byte(dapProgram), 0o644)
+	c := launchDap(t, map[string]any{"program": "p.kkl"}, 12)
+	c.ok("configurationDone", nil) // again: no harm
+	c.event("stopped")
+	st := c.ok("stackTrace", map[string]any{"threadId": 1}).(*dap.StackTraceResponse)
+	if id := st.Body.StackFrames[0].Id; id != 1 {
+		t.Errorf("frame id %d, want 1", id)
+	}
+	c.send("scopes", map[string]any{"frameId": 99})
+	if r := c.response(); r.GetResponse().Success || r.GetResponse().Message != "no frame 99" {
+		t.Errorf("scopes of frame 99: %+v", r.GetResponse())
+	}
+	c.ok("variables", map[string]any{"variablesReference": 1})
+	c.send("evaluate", map[string]any{"expression": "t", "frameId": 2})
+	if r := c.response(); r.GetResponse().Success || r.GetResponse().Message != "no frame 2" {
+		t.Errorf("evaluate in frame 2: %+v", r.GetResponse())
+	}
+	sc := c.ok("scopes", map[string]any{"frameId": 1}).(*dap.ScopesResponse)
+	locals := c.vars(sc.Body.Scopes[0].VariablesReference)
+	c.send("setVariable", map[string]any{"variablesReference": locals["v"].VariablesReference, "name": "abc", "value": "1"})
+	if r := c.response(); r.GetResponse().Success || r.GetResponse().Message != "no element abc" {
+		t.Errorf("set v's element abc: %+v", r.GetResponse())
+	}
+	bps := c.ok("setBreakpoints", map[string]any{"source": map[string]any{"path": "p.kkl"}, "breakpoints": []map[string]any{
+		{"line": 0}, {"line": 12, "condition": "len(v) > 1"}, {"line": 12, "condition": "t ="}, {"line": 12, "hitCondition": "% 0"},
+		{"line": 12, "hitCondition": "==!=3"}}}).(*dap.SetBreakpointsResponse)
+	want := []string{"no line 0: lines start at 1", "the condition len(v) > 1: calls are not evaluated", "the condition t =: expected expression",
+		`a hit count % n needs an n above 0, not "% 0"`, `a hit count is a number`}
+	for i, b := range bps.Body.Breakpoints {
+		if b.Verified || !strings.HasPrefix(b.Message, want[i]) {
+			t.Errorf("breakpoint %d: %+v, want %q", i, b, want[i])
+		}
+	}
+	other := c.ok("setBreakpoints", map[string]any{"source": map[string]any{"path": "/elsewhere/x.kkl"}, "breakpoints": []map[string]any{{"line": 3}}}).(*dap.SetBreakpointsResponse)
+	if b := other.Body.Breakpoints[0]; b.Verified || b.Message != "/elsewhere/x.kkl is not a file of the program" {
+		t.Errorf("a breakpoint in another file: %+v", b)
+	}
+	c.ok("continue", map[string]any{"threadId": 1})
+	c.event("terminated")
+	c.stop()
+
+	// A launch that fails leaves the working directory and environment as
+	// they were; a second launch works.
+	os.Mkdir("sub", 0o755)
+	c = startDap(t)
+	c.ok("initialize", nil)
+	c.send("launch", map[string]any{"program": "nosuch.kkl", "cwd": "sub", "env": map[string]string{"KUKEL_DAP_TEST": "x"}})
+	if r := c.response(); r.GetResponse().Success {
+		t.Error("launch of a missing program worked")
+	}
+	if wd, _ := os.Getwd(); wd != dir {
+		t.Errorf("after a failed launch, the working directory is %s", wd)
+	}
+	if _, set := os.LookupEnv("KUKEL_DAP_TEST"); set {
+		t.Error("after a failed launch, the environment is changed")
+	}
+	c.ok("launch", map[string]any{"program": "p.kkl", "noDebug": true, "stdin": "p.kkl"})
+	c.event("initialized")
+	c.send("pause", map[string]any{"threadId": 1})
+	if r := c.response(); r.GetResponse().Success {
+		t.Error("pause without debugging worked")
+	}
+	c.ok("configurationDone", nil)
+	c.event("terminated")
+	c.stop()
+}
+
+// The variables a frame sees: a local before a captured variable of the
+// same name; large values shortened, and a large map in parts; a function
+// breakpoint stops once per call, not where a loop on its first line
+// comes back.
+func TestDapValues(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("v.kkl", []byte(`count(n) {
+    for (local i = 0; i < n; i++) { }
+}
+main() {
+    local x = 1, big = [], m = {};
+    for (local i = 0; i < 100000; i++) {
+        push(big, i);
+        m[i] = i;
+    }
+    local f = fn() {
+        println(x);
+        {
+            local x = 2;
+            println(x);
+        }
+    };
+    f();
+    count(4);
+}
+`), 0o644)
+	c := launchDap(t, map[string]any{"program": "v.kkl"}, 14)
+	c.ok("setFunctionBreakpoints", map[string]any{"breakpoints": []map[string]any{{"name": "count"}}})
+	c.event("stopped")
+	if ev := c.ok("evaluate", map[string]any{"expression": "x"}).(*dap.EvaluateResponse); ev.Body.Result != "2" {
+		t.Errorf("x in the inner block: %s", ev.Body.Result)
+	}
+	// main's frame (1; f's is 2).
+	sc := c.ok("scopes", map[string]any{"frameId": 1}).(*dap.ScopesResponse)
+	vars := c.vars(sc.Body.Scopes[0].VariablesReference)
+	if b := vars["big"]; len(b.Value) > 1100 || !strings.HasSuffix(b.Value, "…]") || b.IndexedVariables != 100000 {
+		t.Errorf("big: %d bytes, %d indexed", len(b.Value), b.IndexedVariables)
+	}
+	mv := vars["m"]
+	if mv.IndexedVariables != 100000 || mv.NamedVariables != 0 {
+		t.Errorf("m: %+v", mv)
+	}
+	part := c.ok("variables", map[string]any{"variablesReference": mv.VariablesReference, "filter": "indexed", "start": 500, "count": 3}).(*dap.VariablesResponse)
+	if v := part.Body.Variables; len(v) != 3 || v[0].Name != "500" || v[2].Value != "502" || v[1].EvaluateName != "m[501]" {
+		t.Errorf("m from 500: %+v", v)
+	}
+	c.ok("setVariable", map[string]any{"variablesReference": mv.VariablesReference, "name": "501", "value": "-1"})
+	if ev := c.ok("evaluate", map[string]any{"expression": "m[501]", "frameId": 1}).(*dap.EvaluateResponse); ev.Body.Result != "-1" {
+		t.Errorf("m[501] set: %s", ev.Body.Result)
+	}
+	// In f's frame: x (captured) first, then the local x.
+	sc = c.ok("scopes", map[string]any{"frameId": 2}).(*dap.ScopesResponse)
+	r := c.ok("variables", map[string]any{"variablesReference": sc.Body.Scopes[0].VariablesReference}).(*dap.VariablesResponse)
+	if v := r.Body.Variables; len(v) != 2 || v[0].Value != "1" || v[1].Value != "2" {
+		t.Errorf("f's variables: %+v", v)
+	}
+	c.ok("setVariable", map[string]any{"variablesReference": sc.Body.Scopes[0].VariablesReference, "name": "x", "value": "3"})
+	c.ok("continue", map[string]any{"threadId": 1})
+	if stop := c.event("stopped").(*dap.StoppedEvent); stop.Body.Reason != "function breakpoint" {
+		t.Errorf("count: %+v", stop.Body)
+	}
+	c.ok("continue", map[string]any{"threadId": 1})
+	c.event("exited")
+	c.noStop("count's loop")
+	c.stop()
+	if out := c.output.String(); out != "stdout: 1\nstdout: 3\n" {
+		t.Errorf("output %q", out)
+	}
+}
+
+// The program's output with workers that write too, flushed where it
+// stops (run with -race).
+func TestDapWorkerOutput(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("w.kkl", []byte("use worker;\nchat(n) {\n    for (local i = 0; i < n; i++) {\n        println(\"w\", i);\n    }\n    return n;\n}\n"+
+		"main() {\n    local w = worker::start(chat, 2000);\n    for (local i = 0; i < 5; i++) {\n        println(\"m\", i);\n    }\n    println(w->wait());\n}\n"), 0o644)
+	c := launchDap(t, map[string]any{"program": "w.kkl"}, 11)
+	for range 5 {
+		c.event("stopped")
+		c.ok("continue", map[string]any{"threadId": 1})
+	}
+	c.event("exited")
+	c.stop()
+	// (An output event may end inside a line: the text without the categories.)
+	if out := strings.ReplaceAll(c.output.String(), "stdout: ", ""); !strings.HasSuffix(out, "\n2000\n") || !strings.Contains(out, "m 4\n") {
+		t.Errorf("output %.300q", out)
+	}
 }

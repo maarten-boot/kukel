@@ -12,13 +12,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/google/go-dap"
 
 	"github.com/maarten-boot/kukel/internal/builtins"
 	"github.com/maarten-boot/kukel/internal/bytecode"
 	"github.com/maarten-boot/kukel/internal/debugger"
-	"github.com/maarten-boot/kukel/internal/parser"
 	"github.com/maarten-boot/kukel/internal/value"
 	"github.com/maarten-boot/kukel/internal/vm"
 )
@@ -58,11 +58,13 @@ type dapServer struct {
 	cancel  *vm.Canceller
 	args    launchArgs
 	stdout  *bufio.Writer // the program's standard output, as output events
+	stdin   io.Closer     // the file of its standard input, or nil
 
 	launched chan struct{} // closed by launch (when it compiled)
 	started  chan struct{} // closed by configurationDone
 	done     chan struct{} // closed when the reader ends (disconnect, end of input)
 	once     sync.Once
+	ending   atomic.Bool // terminate or disconnect: the program is to end
 
 	// While the program is stopped (stopped is set on its goroutine, read by
 	// the reader under mu): the requests that need its state come as
@@ -106,7 +108,10 @@ func cmdDap(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 func (s *dapServer) runProgram() int {
 	code, err := s.machine.Run(s.args.Args)
 	s.stdout.Flush()
-	if err != nil && !errors.Is(err, errDisconnected) {
+	if s.stdin != nil {
+		s.stdin.Close()
+	}
+	if err != nil && !s.ending.Load() {
 		s.output("stderr", err.Error()+"\n")
 	}
 	s.send(&dap.ExitedEvent{Event: s.event("exited"), Body: dap.ExitedEventBody{ExitCode: code}})
@@ -139,14 +144,25 @@ func (s *dapServer) read() {
 	}
 }
 
-// end ends the program, if it runs: stopped, by letting it go on with an
-// error; running, by cancelling it.
+// end ends the program, if it runs: it is cancelled (try cannot catch
+// that), and a stopped program goes on with the cancellation's error.
 func (s *dapServer) end() {
-	if s.going() {
-		s.resume <- func() error { return errDisconnected }
-	} else if s.cancel != nil {
+	s.ending.Store(true)
+	if s.cancel != nil {
 		s.cancel.Cancel(errDisconnected)
 	}
+	if s.going() {
+		s.resume <- s.endError
+	}
+}
+
+// endError is the error that ends the program after end: its
+// cancellation (fatal, as exit).
+func (s *dapServer) endError() error {
+	if err := s.machine.Err(); err != nil {
+		return err
+	}
+	return &value.ExitError{Code: 1}
 }
 
 // handle answers a request; false ends the session.
@@ -188,10 +204,8 @@ func (s *dapServer) handle(req dap.RequestMessage) bool {
 		s.send(&dap.SetExceptionBreakpointsResponse{Response: s.response(r.Request)})
 	case *dap.ConfigurationDoneRequest:
 		s.send(&dap.ConfigurationDoneResponse{Response: s.response(r.Request)})
-		select {
-		case <-s.launched:
+		if s.isLaunched() && !s.isStarted() && !s.ending.Load() {
 			close(s.started)
-		default:
 		}
 	case *dap.ThreadsRequest:
 		s.send(&dap.ThreadsResponse{Response: s.response(r.Request),
@@ -199,7 +213,7 @@ func (s *dapServer) handle(req dap.RequestMessage) bool {
 	case *dap.StackTraceRequest:
 		s.whileStopped(r.Request, func(m *vm.VM) dap.ResponseMessage { return s.stackTrace(m, r) })
 	case *dap.ScopesRequest:
-		s.whileStopped(r.Request, func(m *vm.VM) dap.ResponseMessage { return s.scopes(r) })
+		s.whileStopped(r.Request, func(m *vm.VM) dap.ResponseMessage { return s.scopes(m, r) })
 	case *dap.VariablesRequest:
 		s.whileStopped(r.Request, func(m *vm.VM) dap.ResponseMessage { return s.variables(m, r) })
 	case *dap.EvaluateRequest:
@@ -218,13 +232,21 @@ func (s *dapServer) handle(req dap.RequestMessage) bool {
 	case *dap.StepOutRequest:
 		s.goOn(r.Request, s.sess.Finish, &dap.StepOutResponse{})
 	case *dap.PauseRequest:
-		if s.sess != nil {
+		switch {
+		case s.sess == nil:
+			s.fail(r.Request, errors.New("no program is launched"))
+		case s.args.NoDebug:
+			s.fail(r.Request, errors.New("the program runs without debugging: it cannot pause"))
+		default:
 			s.sess.Pause()
+			s.send(&dap.PauseResponse{Response: s.response(r.Request)})
 		}
-		s.send(&dap.PauseResponse{Response: s.response(r.Request)})
 	case *dap.TerminateRequest:
 		s.send(&dap.TerminateResponse{Response: s.response(r.Request)})
 		s.end()
+		if !s.isStarted() { // else runProgram says it, when the program ended
+			s.send(&dap.TerminatedEvent{Event: s.event("terminated")})
+		}
 	case *dap.DisconnectRequest:
 		s.end()
 		s.send(&dap.DisconnectResponse{Response: s.response(r.Request)})
@@ -235,59 +257,104 @@ func (s *dapServer) handle(req dap.RequestMessage) bool {
 	return true
 }
 
-// launch compiles the program in its working directory, with its input,
-// environment and output, for configurationDone to start.
-func (s *dapServer) launch(r *dap.LaunchRequest) error {
+// isLaunched and isStarted tell whether launch and configurationDone
+// were.
+func (s *dapServer) isLaunched() bool { return closed(s.launched) }
+func (s *dapServer) isStarted() bool  { return closed(s.started) }
+
+func closed(c chan struct{}) bool {
+	select {
+	case <-c:
+		return true
+	default:
+		return false
+	}
+}
+
+// launch compiles the program in its working directory (program, files
+// and stdin are relative to it), with its input, environment and output,
+// for configurationDone to start. If it fails, it changes nothing.
+func (s *dapServer) launch(r *dap.LaunchRequest) (err error) {
 	if s.sess != nil {
 		return errors.New("a program is launched already")
 	}
-	if err := json.Unmarshal(r.Arguments, &s.args); err != nil {
+	var a launchArgs
+	if err := json.Unmarshal(r.Arguments, &a); err != nil {
 		return fmt.Errorf("the launch configuration: %v", err)
 	}
-	a := &s.args
 	if a.Program == "" {
 		return errors.New(`the launch configuration names no "program" (the .kkl file with main)`)
 	}
+	var undo []func() // what to take back if it fails
+	defer func() {
+		if err != nil {
+			for i := len(undo) - 1; i >= 0; i-- {
+				undo[i]()
+			}
+		}
+	}()
 	if a.Cwd != "" {
+		old, err := os.Getwd()
+		if err != nil {
+			return err
+		}
 		if err := os.Chdir(a.Cwd); err != nil {
 			return err
 		}
+		undo = append(undo, func() { os.Chdir(old) })
 	}
 	for k, v := range a.Env {
+		old, had := os.LookupEnv(k)
 		os.Setenv(k, v)
+		undo = append(undo, func() {
+			if had {
+				os.Setenv(k, old)
+			} else {
+				os.Unsetenv(k)
+			}
+		})
 	}
 	var input io.Reader = strings.NewReader("")
+	var file *os.File
 	if a.Stdin != "" {
-		f, err := os.Open(a.Stdin)
-		if err != nil {
+		if file, err = os.Open(a.Stdin); err != nil {
 			return fmt.Errorf("stdin: %v", err)
 		}
-		input = f // read until the program ends
+		undo = append(undo, func() { file.Close() })
+		input = file // read until the program ends
 	}
 	prog, err := compileFiles(append([]string{a.Program}, a.Files...))
 	if err != nil {
 		return err
 	}
 	prog = bytecode.Debuggable(prog)
-	s.stdout = bufio.NewWriter(dapWriter{s, "stdout"})
-	s.machine, err = vm.NewWith(prog, builtins.Lookup, cliConfig(), s.stdout, bufio.NewReader(input))
+	stdout := bufio.NewWriter(dapWriter{s, "stdout"})
+	machine, err := vm.NewWith(prog, builtins.Lookup, cliConfig(), stdout, bufio.NewReader(input))
 	if err != nil {
 		return err
 	}
-	s.machine.SetStderr(dapWriter{s, "stderr"})
-	s.cancel = s.machine.Cancellable()
+	machine.SetStderr(dapWriter{s, "stderr"})
+	s.args, s.machine, s.stdout = a, machine, stdout
+	if file != nil {
+		s.stdin = file
+	}
+	s.cancel = machine.Cancellable()
 	s.sess = debugger.New(prog, s, a.StopOnEntry && !a.NoDebug)
 	if !a.NoDebug {
-		s.sess.Attach(s.machine)
+		s.sess.Attach(machine)
 	}
 	close(s.launched)
 	return nil
 }
 
 // Stopped tells the editor where the program stopped, then runs its
-// requests on this goroutine until one lets the program go on.
+// requests on this goroutine until one lets the program go on. After
+// terminate or disconnect, it ends the program.
 func (s *dapServer) Stopped(m *vm.VM, st debugger.Stop) error {
-	s.stdout.Flush()
+	m.FlushOutput()
+	if s.ending.Load() {
+		return s.endError()
+	}
 	s.mu.Lock()
 	s.stopped, s.refs, s.thrown = true, nil, st.Thrown
 	s.mu.Unlock()
@@ -307,13 +374,16 @@ func (s *dapServer) Stopped(m *vm.VM, st debugger.Stop) error {
 		case f := <-s.resume: // going() marked the program running
 			s.refs, s.thrown = nil, nil
 			return f()
+		case <-s.done: // no more requests (end has cancelled the program)
+			return s.endError()
 		}
 	}
 }
 
-// Log shows a logpoint's message in the debug console.
+// Log shows a logpoint's message, or why a condition failed, in the debug
+// console.
 func (s *dapServer) Log(msg string) {
-	s.stdout.Flush()
+	s.machine.FlushOutput()
 	s.output("console", msg+"\n")
 }
 
@@ -365,7 +435,7 @@ func (s *dapServer) stackTrace(m *vm.VM, r *dap.StackTraceRequest) dap.ResponseM
 	var out []dap.StackFrame
 	for i := len(frames) - 1; i >= 0; i-- {
 		f := frames[i]
-		out = append(out, dap.StackFrame{Id: i, Name: f.Func.FuncName, Line: f.Line, Column: 1, Source: source(f.Func.File)})
+		out = append(out, dap.StackFrame{Id: i + 1, Name: f.Func.FuncName, Line: f.Line, Column: 1, Source: source(f.Func.File)})
 	}
 	if start := r.Arguments.StartFrame; start > 0 {
 		out = out[min(start, len(out)):]
@@ -385,8 +455,24 @@ func source(file string) *dap.Source {
 	return &dap.Source{Name: filepath.Base(file), Path: path}
 }
 
-func (s *dapServer) scopes(r *dap.ScopesRequest) dap.ResponseMessage {
-	frame := r.Arguments.FrameId
+// frameIndex gives the index into m.Frames() of a frameId (stackTrace's: one
+// more than the index, so that 0, as when there is none, is the top frame).
+func frameIndex(m *vm.VM, id int) (int, error) {
+	n := len(m.Frames())
+	switch {
+	case id == 0:
+		return n - 1, nil
+	case id < 0 || id > n:
+		return 0, fmt.Errorf("no frame %d", id)
+	}
+	return id - 1, nil
+}
+
+func (s *dapServer) scopes(m *vm.VM, r *dap.ScopesRequest) dap.ResponseMessage {
+	frame, err := frameIndex(m, r.Arguments.FrameId)
+	if err != nil {
+		return failure(err)
+	}
 	locals := s.ref(dapRef{scope: "locals", frame: frame})
 	globals := s.ref(dapRef{scope: "globals", frame: frame})
 	return &dap.ScopesResponse{Body: dap.ScopesResponseBody{Scopes: []dap.Scope{
@@ -422,14 +508,15 @@ func (s *dapServer) variables(m *vm.VM, r *dap.VariablesRequest) dap.ResponseMes
 			vars = append(vars, s.variable(ref.frame, name, name, v))
 		}
 	default:
-		vars = s.children(ref, r.Arguments.Start, r.Arguments.Count)
+		vars = s.children(ref, r.Arguments.Filter, r.Arguments.Start, r.Arguments.Count)
 	}
 	return &dap.VariablesResponse{Body: dap.VariablesResponseBody{Variables: vars}}
 }
 
-// children gives the elements of a vector (count of them from start, if
-// count > 0), the entries of a map, or the data members of an object.
-func (s *dapServer) children(ref dapRef, start, count int) []dap.Variable {
+// children gives the elements of a vector or the entries of a map (they
+// are "indexed": count of them from start, if count > 0, so that an editor
+// can ask for a large one in parts), or the data members of an object.
+func (s *dapServer) children(ref dapRef, filter string, start, count int) []dap.Variable {
 	out := []dap.Variable{}
 	child := func(name, expr string, v value.Value) {
 		if ref.name == "" {
@@ -437,7 +524,13 @@ func (s *dapServer) children(ref dapRef, start, count int) []dap.Variable {
 		}
 		out = append(out, s.variable(ref.frame, name, expr, v))
 	}
-	switch v := ref.v; v.Kind() {
+	v := ref.v
+	if filter == "named" && v.Kind() != value.Object || filter == "indexed" && v.Kind() == value.Object {
+		return out
+	}
+	// in tells whether element i is one asked for.
+	in := func(i int) bool { return i >= start && (count <= 0 || i < start+count) }
+	switch v.Kind() {
 	case value.Vector:
 		elems := v.AsVector().Elems
 		end := len(elems)
@@ -448,8 +541,12 @@ func (s *dapServer) children(ref dapRef, start, count int) []dap.Variable {
 			child("["+strconv.Itoa(i)+"]", ref.name+"["+strconv.Itoa(i)+"]", elems[i])
 		}
 	case value.Map:
+		i := 0
 		v.AsMap().Each(func(k, e value.Value) {
-			child(k.Repr(), ref.name+"["+k.Repr()+"]", e)
+			if in(i) {
+				child(debugger.Show(k), ref.name+"["+k.Repr()+"]", e)
+			}
+			i++
 		})
 	case value.Object:
 		o := v.AsObject()
@@ -464,7 +561,7 @@ func (s *dapServer) children(ref dapRef, start, count int) []dap.Variable {
 // can be expanded. expr is an expression for it ("" if none).
 func (s *dapServer) variable(frame int, name, expr string, v value.Value) dap.Variable {
 	ref, named, indexed := s.expandable(frame, expr, v)
-	return dap.Variable{Name: name, Value: v.Repr(), Type: typeName(v), EvaluateName: expr,
+	return dap.Variable{Name: name, Value: debugger.Show(v), Type: typeName(v), EvaluateName: expr,
 		VariablesReference: ref, NamedVariables: named, IndexedVariables: indexed}
 }
 
@@ -476,7 +573,7 @@ func (s *dapServer) expandable(frame int, expr string, v value.Value) (ref, name
 		}
 	case value.Map:
 		if n := v.AsMap().Len(); n > 0 {
-			return s.ref(dapRef{frame: frame, v: v, name: expr}), n, 0
+			return s.ref(dapRef{frame: frame, v: v, name: expr}), 0, n // indexed: in parts when large
 		}
 	case value.Object:
 		if n := len(v.AsObject().Fields); n > 0 {
@@ -496,16 +593,16 @@ func typeName(v value.Value) string {
 }
 
 func (s *dapServer) evaluate(m *vm.VM, r *dap.EvaluateRequest) dap.ResponseMessage {
-	frame := r.Arguments.FrameId
-	if frame < 0 || frame >= len(m.Frames()) {
-		frame = len(m.Frames()) - 1
+	frame, err := frameIndex(m, r.Arguments.FrameId)
+	if err != nil {
+		return failure(err)
 	}
 	v, err := debugger.Eval(m, frame, r.Arguments.Expression)
 	if err != nil {
 		return failure(err)
 	}
 	ref, named, indexed := s.expandable(frame, r.Arguments.Expression, v)
-	return &dap.EvaluateResponse{Body: dap.EvaluateResponseBody{Result: v.Repr(), Type: typeName(v),
+	return &dap.EvaluateResponse{Body: dap.EvaluateResponseBody{Result: debugger.Show(v), Type: typeName(v),
 		VariablesReference: ref, NamedVariables: named, IndexedVariables: indexed}}
 }
 
@@ -533,14 +630,15 @@ func (s *dapServer) setVariable(m *vm.VM, r *dap.SetVariableRequest) dap.Respons
 	default:
 		switch x := ref.v; x.Kind() {
 		case value.Vector:
-			var i int
-			if i, err = strconv.Atoi(strings.Trim(name, "[]")); err == nil {
+			if i, e := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(name, "["), "]")); e != nil {
+				err = fmt.Errorf("no element %s", name)
+			} else {
 				err = value.SetIndex(x, value.MakeInt(int64(i)), v)
 			}
 		case value.Map:
 			err = fmt.Errorf("no entry %s", name)
 			x.AsMap().Each(func(k, _ value.Value) {
-				if k.Repr() == name {
+				if debugger.Show(k) == name {
 					err = value.SetIndex(x, k, v)
 				}
 			})
@@ -552,7 +650,7 @@ func (s *dapServer) setVariable(m *vm.VM, r *dap.SetVariableRequest) dap.Respons
 		return failure(err)
 	}
 	ref2, named, indexed := s.expandable(ref.frame, "", v)
-	return &dap.SetVariableResponse{Body: dap.SetVariableResponseBody{Value: v.Repr(), Type: typeName(v),
+	return &dap.SetVariableResponse{Body: dap.SetVariableResponseBody{Value: debugger.Show(v), Type: typeName(v),
 		VariablesReference: ref2, NamedVariables: named, IndexedVariables: indexed}}
 }
 
@@ -597,11 +695,6 @@ func (s *dapServer) setFunctionBreakpoints(r *dap.SetFunctionBreakpointsRequest)
 func (s *dapServer) setBreak(b debugger.Breakpoint) dap.Breakpoint {
 	if s.sess == nil {
 		return dap.Breakpoint{Message: "no program is launched"}
-	}
-	if b.Cond != "" {
-		if _, err := parser.ParseExpr(b.Cond); err != nil {
-			return dap.Breakpoint{Message: "the condition: " + err.Error()}
-		}
 	}
 	bp, _, err := s.sess.SetBreak(b)
 	if err != nil {
