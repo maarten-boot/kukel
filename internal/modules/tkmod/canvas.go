@@ -90,6 +90,11 @@ type item struct {
 	img    *picture
 	opts   []optionValue // by option, the last value given
 	tags   []string
+
+	// The bounding box of a text or image item, as Tk gave it (boxed:
+	// known); draw forgets it.
+	box   [4]float64
+	boxed bool
 }
 
 func (it *item) hasTag(tag string) bool {
@@ -139,6 +144,7 @@ func (cv *canvas) draw(it *item) {
 		args = append(args, v.make(v.x))
 	}
 	args = append(args, tk.Tags(it.tag()))
+	it.boxed = false
 	switch it.kind {
 	case "line":
 		cv.c.CreateLine(args[0], args[1], args[2:]...)
@@ -177,6 +183,12 @@ func (cv *canvas) redraw(i int) {
 // and the item under the mouse may be another one.
 func (cv *canvas) changed() {
 	cv.setRegion()
+	cv.look()
+}
+
+// look posts a new look at the item under the mouse, at its last event:
+// after the change, or the event, being handled now.
+func (cv *canvas) look() {
 	if cv.hoverTag == "" || !cv.inside || cv.posted {
 		return
 	}
@@ -545,17 +557,30 @@ func (cv *canvas) hit(it *item, x, y float64) bool {
 		}
 		return inside
 	case "text", "image":
-		box := cv.c.Bbox(it.tag())
-		if len(box) != 4 {
-			return false
-		}
-		var b [4]float64
-		for i, s := range box {
-			b[i], _ = strconv.ParseFloat(s, 64)
-		}
-		return x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]
+		b, ok := cv.bbox(it)
+		return ok && x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]
 	}
 	return false
+}
+
+// bbox gives the bounding box of a text or image item (false: it has
+// none). Tk is asked once after each draw (a call to Tk per item made the
+// mouse slow on a canvas with many of them); for a freed image every time.
+func (cv *canvas) bbox(it *item) ([4]float64, bool) {
+	fresh := it.img == nil || !it.img.freed
+	if it.boxed && fresh {
+		return it.box, true
+	}
+	box := cv.c.Bbox(it.tag())
+	if len(box) != 4 {
+		return it.box, false
+	}
+	var b [4]float64
+	for i, s := range box {
+		b[i], _ = strconv.ParseFloat(s, 64)
+	}
+	it.box, it.boxed = b, fresh
+	return b, true
 }
 
 // segmentDistance is the distance of the point x, y to the segment from
@@ -625,13 +650,17 @@ func (cv *canvas) at(e *tk.Event) *item {
 // specific binding of each tag, so the canvas's "<Double-Button-1>" does
 // not hide an item's "<Button-1>"), and at each press of a mouse button
 // the item under the mouse (none: nil) is noted for the events while the
-// button is down. The press bindings are those of ButtonPress-1 to -5
-// themselves: a general ButtonPress would lose to the program's Button-1.
+// button is down. The presses are noted on another tag of their own,
+// before all others: there no handler that returns false can skip it, and
+// no more specific binding of the items ("<Control-Button-1>") hides it.
+// Its bindings are those of ButtonPress-1 to -5 themselves: a general
+// ButtonPress would lose to the program's Button-1.
 func (cv *canvas) itemBindings() {
 	canvases++
 	cv.itemTag = fmt.Sprintf("kukelitems%d", canvases)
+	pressTag := cv.itemTag + "press"
 	tags := tk.Bindtags(cv.c.Window)
-	list := []any{cv.c.Window.String(), cv.itemTag}
+	list := []any{pressTag, cv.c.Window.String(), cv.itemTag}
 	for _, t := range tags {
 		if t != cv.c.Window.String() {
 			list = append(list, t)
@@ -639,7 +668,7 @@ func (cv *canvas) itemBindings() {
 	}
 	tk.Bindtags(cv.c.Window, list...)
 	for b := 1; b <= 5; b++ {
-		tk.BindAppend(cv.itemTag, fmt.Sprintf("<ButtonPress-%d>", b), tk.Command(func(e *tk.Event) { cv.pressed = cv.at(e) }))
+		tk.BindAppend(pressTag, fmt.Sprintf("<ButtonPress-%d>", b), tk.Command(func(e *tk.Event) { cv.pressed = cv.at(e) }))
 	}
 }
 
@@ -667,8 +696,8 @@ func (cv *canvas) dispatch(seq string, e *tk.Event) {
 // it.
 func (cv *canvas) fire(seq string, it *item, e *tk.Event) {
 	for _, b := range cv.binds[seq] {
-		if !cv.has(it) {
-			return // a handler removed it
+		if cv.node.win.closed || !cv.has(it) {
+			return // a handler closed the window, or removed the item
 		}
 		if b.id == it.id || b.tag != "" && it.hasTag(b.tag) {
 			em := cv.node.eventMap(e)
@@ -686,9 +715,11 @@ func hoverSequence(seq string) bool { return seq == "<Enter>" || seq == "<Leave>
 
 // followMouse has the canvas follow the item under the mouse, for the
 // <Enter> and <Leave> of items: on a binding tag of its own before all
-// others (whose handlers could stop the event). While a mouse button is
-// down the item stays, as in Tk (a drag keeps its item); at the release
-// the mouse is looked at again.
+// others (whose handlers could stop the event), so their handlers run
+// before the canvas's own of the same event. While a mouse button is down
+// the item stays, as in Tk (a drag keeps its item); at the release the
+// mouse is looked at again after the release's handlers (as Tk gives an
+// item's <ButtonRelease> before its <Leave>).
 func (cv *canvas) followMouse() {
 	cv.hoverTag = cv.itemTag + "mouse"
 	list := []any{cv.hoverTag}
@@ -702,7 +733,10 @@ func (cv *canvas) followMouse() {
 		tk.BindAppend(cv.hoverTag, seq, tk.Command(func(e *tk.Event) {
 			cv.inside = in
 			if release {
-				e.State &^= buttons // the state is that before the release
+				cv.mouse = *e
+				cv.mouse.State &^= buttons // the state is that before the release
+				cv.look()
+				return
 			}
 			cv.moved(e)
 		}))
@@ -1027,8 +1061,8 @@ func registerCanvas() {
 			}
 		} else if _, ok := cv.binds[seq]; !ok {
 			tk.BindAppend(cv.itemTag, seq, tk.Command(func(e *tk.Event) { cv.dispatch(seq, e) }))
-			if err := tkError(); err != nil {
-				return value.NilValue, a.Errorf(TkError, "%v", err)
+			if err := badSequence(a, seq); err != nil {
+				return value.NilValue, err
 			}
 		}
 		list := cv.binds[seq][:0:0]

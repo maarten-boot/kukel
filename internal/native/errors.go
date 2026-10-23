@@ -6,6 +6,8 @@ import (
 	"net"
 	"os"
 	"runtime"
+
+	"github.com/maarten-boot/kukel/internal/value"
 )
 
 // IOMessage is what went wrong with a file, without Go's name of the
@@ -22,6 +24,11 @@ func IOMessage(err error) string {
 		return le.Old + " -> " + le.New + ": " + le.Err.Error()
 	}
 	return err.Error()
+}
+
+// IOError is the IOError for err, worded by IOMessage.
+func IOError(a Args, err error) error {
+	return a.Errorf(value.IOError, "%s", IOMessage(err))
 }
 
 // NetMessage is what went wrong in reaching or listening on a network

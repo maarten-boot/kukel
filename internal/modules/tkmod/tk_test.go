@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -55,9 +56,48 @@ func onMain(f func()) {
 	<-done
 }
 
+// output is the standard output of a program. It notes what was written
+// when the program flushed it last; the test's goroutines may read it.
+type output struct {
+	mu      sync.Mutex
+	buf     bytes.Buffer
+	flushed string
+}
+
+func (o *output) Write(p []byte) (int, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.buf.Write(p)
+}
+
+func (o *output) Flush() error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.flushed = o.buf.String()
+	return nil
+}
+
+// Flushed gives what was written when the program flushed it last.
+func (o *output) Flushed() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.flushed
+}
+
+func (o *output) String() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.buf.String()
+}
+
 // runProgram compiles a Kukel program and runs it with args, on the main
 // goroutine or (onmain false) on the test's own, giving its output.
 func runProgram(t *testing.T, src string, onmain bool, args ...string) (string, error) {
+	return runProgramTo(t, &output{}, src, onmain, args...)
+}
+
+// runProgramTo is runProgram with the output out.
+func runProgramTo(t *testing.T, out *output, src string, onmain bool, args ...string) (string, error) {
 	f, err := parser.ParseFile("t.kkl", []byte(src))
 	if err != nil {
 		t.Fatal(err)
@@ -66,8 +106,7 @@ func runProgram(t *testing.T, src string, onmain bool, args ...string) (string, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	var out bytes.Buffer
-	m, err := vm.New(prog, builtins.Lookup, &out, strings.NewReader(""))
+	m, err := vm.New(prog, builtins.Lookup, out, strings.NewReader(""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +133,7 @@ func display(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.Close()
-	x := exec.Command("Xvfb", "-displayfd", "3", "-screen", "0", "800x600x24")
+	x := exec.Command("Xvfb", "-displayfd", "3", "-screen", "0", "1024x768x24")
 	x.ExtraFiles = []*os.File{w}
 	err = x.Start()
 	w.Close()
@@ -136,7 +175,8 @@ main(args) {
         entry->focus(); // a themed button takes the focus when clicked
         if (n == 3) throw new Error("three");
     });
-    local guard = clicks ? events::after(20, fn() { println("no Enter: timed out"); w->close(); }) : nil;
+    // A minute: the clicks take about 20 seconds, more with -race.
+    local guard = clicks ? events::after(60, fn() { println("no Enter: timed out"); w->close(); }) : nil;
     entry->onenter(fn(text) {
         println("enter:", text, n);
         guard->cancel();
@@ -220,6 +260,7 @@ main(args) {
                      fn() { new tk::Canvas(box, {"scroll": nil}); },
                      fn() { t->configure({"scroll": nil}); },
                      fn() { l->setselected([5]); },
+                     fn() { new tk::Listbox(box)->setselected([0]); },
                      fn() { l->setitems(["a", 1]); },
                      fn() { new tk::Listbox(box, "x"); },
                      fn() { c->setchecked(1); },
@@ -271,6 +312,9 @@ main(args) {
     println(cb->items(), cb->settext("green")->text(), cb->setitems(["a", "b"])->items(), cb);
     local fs = new tk::Scale(box, {"from": 0.0, "to": 1.0});
     println(fs->setvalue(0.25)->value(), fs->configure({"step": 0.5})->value());
+    // A value on a step has the step's decimals, no more.
+    local tenth = new tk::Scale(box, {"from": 0, "to": 1, "step": 0.1});
+    println(tenth->setvalue(0.3)->value() == 0.3, tenth->setvalue(0.7)->value(), tenth->setvalue(0.66)->value());
     // Clamped values stay on a step; ranges up to 1e9; no endless files.
     local st = new tk::Scale(box, {"from": 0, "to": 10, "step": 3}), sr = new tk::Scale(box, {"from": 10, "to": 0, "step": 3});
     println(st->setvalue(100)->value(), sr->setvalue(-5)->value(), new tk::Scale(box, {"to": 5000000})->setvalue(2000000)->value(), new tk::Scale(box, {"from": 5, "to": 9, "step": 2})->value());
@@ -327,6 +371,8 @@ main(args) {
     local tx = cv->text(100, 75, "Hello [x] {y} $z", {"anchor": "center", "color": "blue", "font": {"size": 9}});
     println(cv, cv->items(), [r, o, ln, p, tx]);
     println(cv->itemat(20, 20), cv->itemat(110, 30), cv->itemat(50, 100), cv->itemat(170, 20), cv->itemat(100, 75), cv->itemat(5, 145));
+    // A text item's box follows its text.
+    println(cv->itemat(130, 75), cv->configureitem(tx, {"text": "a"})->itemat(130, 75), cv->itemat(100, 75));
     println(cv->move(r, 5, 5.5)->coords(r), cv->coords(ln));
     cv->setcoords(ln, [0, 0, 10, 10])->configureitem(o, {"fill": "pink", "outline": "black"})->raise(r)->lower(tx);
     println(cv->items(), cv->coords(ln), cv->itemat(20, 20));
@@ -382,7 +428,8 @@ main(args) {
                      fn() { ac->configureitem(p3, {"image": png}); },
                      fn() { ac->configureitem(t1, {"text": 5}); },
                      fn() { new tk::Label(art, "x", {"image": png}); },
-                     fn() { ac->move(1.5, 1, 1); }])
+                     fn() { ac->move(1.5, 1, 1); },
+                     fn() { ac->binditem(1, "<Nonsense>", fn(e) {}); }])
         try { h(); } catch (e) { println(e->kind + ":", e->message); }
     art->close();
 
@@ -446,6 +493,24 @@ main(args) {
     hv->binditem("h", "<Enter>", fn(e) { println("hover: enter", e["item"]); });
     hv->binditem("h", "<Leave>", fn(e) { println("hover: leave", e["item"]); });
     hv->bind("<Button-3>", fn(e) { hv->move(2, 0, 100); });
+    // A drag out of the canvas: at the release the item's handlers of the
+    // release run before those of its <Leave>, as in Tk.
+    hv->binditem("h", "<ButtonRelease-1>", fn(e) { println("hover: release", e["item"]); });
+    // The item a mouse button went down on is noted also when the
+    // canvas's own handler stops the press (on the right, x > 200), and
+    // when a more specific binding of the items takes it (Ctrl+click).
+    local pc = new tk::Canvas(new tk::Window("Press"), {"width": 300, "height": 60});
+    pc->pack();
+    for (local px in [0, 105, 210]) pc->tag(pc->rect(px, 0, px + 90, 60, {"fill": "green"}), "p");
+    pc->bind("<Button-1>", fn(e) { return e["x"] <= 200; });
+    pc->binditem("p", "<Control-Button-1>", fn(e) { println("press: ctrl", e["item"]); });
+    pc->binditem("p", "<ButtonRelease-1>", fn(e) { println("press: released", e["item"]); });
+    // The handlers of an item stop once one closed the window.
+    local gw = new tk::Window("Gone"), gc = new tk::Canvas(gw, {"width": 100, "height": 60});
+    gc->pack();
+    gc->tag(gc->rect(0, 0, 100, 60, {"fill": "black"}), "g");
+    gc->binditem(1, "<Button-1>", fn(e) { println("gone: first"); gw->close(); });
+    gc->binditem("g", "<Button-1>", fn(e) { println("gone: second", gc->items()); });
     // A key binding of a text that returns false keeps the key from the
     // text (Tk's Text makes a new line at Ctrl+O) and from the window's
     // binding; the window's binding of Ctrl+T comes after the text swapped
@@ -473,7 +538,7 @@ main(args) {
     // Tk is not available any more; an image is freed in kukel only; a
     // new image reads its file first.
     gif->free();
-    try { new tk::Image(args[1] + "/none.png"); } catch (e) { println(tk::available(), find(str(gif), "/b.gif\", freed)") > 0, e->kind); }
+    try { new tk::Image(args[1] + "/none.png"); } catch (e) { println(tk::available(), find(str(gif), "/b.gif\", freed)") > 0, e->kind, e->message == "tk::Image::Image: " + args[1] + "/none.png: no such file or directory"); }
 }
 `
 
@@ -499,15 +564,16 @@ func TestTk(t *testing.T) {
 		clicks = "clicks"
 	}
 	clicked := make(chan error, 1)
+	out := &output{}
 	if clicks == "clicks" {
-		go func() { clicked <- click(t) }()
+		go func() { clicked <- click(t, out) }()
 	}
 	dir := t.TempDir()
 	if err := os.WriteFile(dir+"/a.kkl", nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	writeImages(t, dir)
-	got, err := runProgram(t, program, true, clicks, dir)
+	got, err := runProgramTo(t, out, program, true, clicks, dir)
 	if clicks == "clicks" {
 		if cerr := <-clicked; cerr != nil {
 			t.Errorf("xdotool: %v", cerr)
@@ -538,7 +604,7 @@ ValueError: tk::Label::grid: option rowspan must be a number of rows or columns 
 ValueError: tk::Frame::columnconfigure: column -1 is not from 0 to 10000
 ValueError: tk::Frame::rowconfigure: option uniform must be a name of letters, digits and _ ("" for none), not "a b"
 ValueError: tk::Label::bind: "Key" is not an event sequence such as "<Key>", "<Button-1>" or "<Control-Key-s>"
-TkError: tk::Label::bind: bad event type or keysym "Nonsense"
+ValueError: tk::Label::bind: "<Nonsense>" is not an event sequence Tk knows (bad event type or keysym "Nonsense")
 TypeError: tk::Label::bind: argument 2 must be a function or nil, not int
 TypeError: tk::Label::Label: argument 1 must be a tk::Window or tk::Frame, not tk::Label
 TypeError: tk::Frame::Frame: argument 2 must be a map of options, not string
@@ -559,6 +625,7 @@ ValueError: tk::Listbox::Listbox: option scroll must be a string, not nil
 ValueError: tk::Canvas::Canvas: option scroll must be a string, not nil
 ValueError: tk::Text::configure: option scroll can only be given to the constructor
 ValueError: tk::Listbox::setselected: 5 is not the index of a line (0 to 2)
+ValueError: tk::Listbox::setselected: 0 is not the index of a line: the list box has no lines
 TypeError: tk::Listbox::setitems: argument 1: the lines must be strings, not int
 TypeError: tk::Listbox::Listbox: argument 2 must be a vector of strings, not string
 TypeError: tk::Checkbutton::setchecked: argument 1 must be true or false, not int
@@ -583,6 +650,7 @@ ValueError: tk::settheme: there is no theme "fancy" (the themes are clam, alt, d
 0 7 10 3 tk::Scale(3)
 ["red", "green", "blue"] green ["a", "b"] tk::Combobox("green")
 0.25 0.5
+true 0.7 0.7
 9 1 2e+06 5
 IOError: tk::Image::Image: /dev/zero is not a regular file
 0.5 1.75 tk::Scale(1.75)
@@ -606,7 +674,7 @@ ValueError: tk::Menu::item: unknown option "accel" (the options are accelerator)
 TypeError: tk::messagebox: argument 1 must be a string, not int
 ValueError: tk::messagebox: option icon: "smile" is not one of info, warning, error, question
 ValueError: tk::messagebox: option default: "ok" is not one of the buttons yes, no
-ValueError: tk::messagebox: option default: "no" is not one of the buttons ok
+ValueError: tk::messagebox: option default: "no" is not a button (the only button is ok)
 ValueError: tk::openfile: option types must be a vector of [name, pattern...] vectors of strings, such as [["Kukel", ".kkl"], ["All files", "*"]], not [["Kukel"]]
 ValueError: tk::savefile: option parent must be an open tk::Window, not 3
 ValueError: tk::Menu::invoke: the menu has no entry ""
@@ -620,6 +688,7 @@ ValueError: tk::Menu::invoke: the window is closed
 nil
 tk::Canvas(5 items) [1, 2, 3, 4, 5] [1, 2, 3, 4, 5]
 1 2 3 4 5 nil
+5 nil 5
 [15, 15.5, 65, 45.5] [10, 100, 100, 100, 150, 140]
 [5, 2, 3, 4, 1] [0, 0, 10, 10] 1
 ValueError: tk::Canvas::rect: argument 4 must be a number from -1e6 to 1e6, not "x"
@@ -655,17 +724,18 @@ ValueError: tk::Canvas::configureitem: option image: the image is freed
 ValueError: tk::Canvas::configureitem: option text must be a string, not int
 ValueError: tk::Label::Label: option image: the image is freed
 TypeError: tk::Canvas::move: argument 1 must be an item's id or a tag, not float
+ValueError: tk::Canvas::binditem: "<Nonsense>" is not an event sequence Tk knows (bad event type or keysym "Nonsense")
 `
 	end := map[string]string{
 		"self":   "invoke: three\n",
-		"clicks": "check: true true\nselect: [1] [1]\nradio: picked picked\nmessage: yes\nopen: true\nsave: true\ndir: nil\ndragged: 1 [40, 30, 220, 160]\nitem dragged: 1 [30, 20, 180, 120]\nreleased on 1\nreleased on 2\nreleased on 2\nhover: first 1\nhover: leave 1\nhover: enter 2\nhover: leave 2\ntext: Ctrl+O\nwindow: Ctrl+T [\"acb\"]\npop-up: Hello\nslider: int true\nchose: green green\nhandler: three\nenter: [puts hi] {x} $y \\ end 3\n",
+		"clicks": "check: true true\nselect: [1] [1]\nradio: picked picked\nmessage: yes\nopen: true\nsave: true\ndir: nil\ndragged: 1 [40, 30, 220, 160]\nitem dragged: 1 [30, 20, 180, 120]\nreleased on 1\nreleased on 2\nreleased on 2\nhover: first 1\nhover: leave 1\nhover: enter 2\nhover: leave 2\nhover: first 1\nhover: release 1\nhover: leave 1\npress: released 1\npress: ctrl 2\npress: released 2\npress: released 3\ngone: first\ntext: Ctrl+O\nwindow: Ctrl+T [\"acb\"]\npop-up: Hello\nslider: int true\nchose: green green\nhandler: three\nenter: [puts hi] {x} $y \\ end 3\n",
 	}[clicks]
 	bound := map[string]string{"self": "[]", "clicks": "[true, true]"}[clicks]
 	picked := map[string]string{"self": "nil", "clicks": "picked"}[clicks]
 	want := common + end + "tk::Window(\"TkTest\", closed) 3 " + bound + "\n" +
 		"TkError: tk::Radiogroup::Radiogroup: Tk has ended: the first window was closed\n" +
 		"tk::Entry(\"[puts hi] {x} $y \\\\ end\") " + picked + "\n" +
-		"false true IOError\n"
+		"false true IOError true\n"
 	if err != nil || got != want {
 		t.Errorf("%s: %v; got:\n%s\nwant:\n%s", clicks, err, got, want)
 	}
@@ -696,10 +766,11 @@ func writeImages(t *testing.T, dir string) {
 // radio button of the windows Check, List and Radio, answers the dialogs
 // the radio button's handler opens, then clicks the button of the window
 // TkTest twice, and presses Enter (the click handler gave the entry the
-// focus back).
-func click(t *testing.T) error {
+// focus back). What the program printed before a dialog must be written
+// out (flushed in out) while it is open.
+func click(t *testing.T, out *output) error {
 	wins := map[string]string{}
-	for _, name := range []string{"TkTest", "Check", "List", "Radio", "Canvas", "Popup", "Slider", "Choose", "Items", "Release", "Hover", "Keys"} {
+	for _, name := range []string{"TkTest", "Check", "List", "Radio", "Canvas", "Popup", "Slider", "Choose", "Items", "Release", "Hover", "Keys", "Press", "Gone"} {
 		for i := 0; i < 100 && wins[name] == ""; i++ {
 			out, _ := exec.Command("xdotool", "search", "--name", "^"+name+"$").Output()
 			wins[name] = strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
@@ -710,7 +781,7 @@ func click(t *testing.T) error {
 		}
 	}
 	// Without a window manager all windows are at 0,0: move them apart.
-	for name, at := range map[string][2]int{"Check": {300, 0}, "List": {0, 300}, "Radio": {300, 300}, "Canvas": {540, 300}, "Popup": {540, 0}, "Slider": {0, 180}, "Choose": {300, 150}, "Items": {300, 460}, "Release": {0, 460}, "Hover": {560, 460}, "Keys": {560, 540}} {
+	for name, at := range map[string][2]int{"Check": {300, 0}, "List": {0, 300}, "Radio": {300, 300}, "Canvas": {540, 300}, "Popup": {540, 0}, "Slider": {0, 180}, "Choose": {300, 150}, "Items": {300, 460}, "Release": {0, 460}, "Hover": {560, 460}, "Keys": {560, 540}, "Press": {0, 680}, "Gone": {400, 680}} {
 		if err := exec.Command("xdotool", "windowmove", wins[name], fmt.Sprint(at[0]), fmt.Sprint(at[1])).Run(); err != nil {
 			return err
 		}
@@ -720,6 +791,12 @@ func click(t *testing.T) error {
 		if err := clickCenter(wins[name]); err != nil {
 			return err
 		}
+	}
+	if findWindow("Ask") == "" {
+		return fmt.Errorf("no dialog Ask")
+	}
+	if f := out.Flushed(); !strings.HasSuffix(f, "radio: picked picked\n") { // not fatal: the dialogs wait for an answer
+		t.Errorf("the output is not written out before a dialog; it ends with %q", f[max(0, len(f)-40):])
 	}
 	for _, d := range []struct{ title, typed, key string }{{"Ask", "", "Return"}, {"Open", "a.kkl", "Return"}, {"Save", "", "Return"}, {"Dir", "", "Escape"}} {
 		if err := answer(d.title, d.typed, d.key); err != nil {
@@ -743,15 +820,32 @@ func click(t *testing.T) error {
 		time.Sleep(300 * time.Millisecond)
 	}
 	// Onto the left rectangle of Hover, to the right one, a right click
-	// that moves it away, and out.
+	// that moves it away, and out; back onto the left one, and a drag out.
 	if x, y, err = center(wins["Hover"]); err != nil {
 		return err
 	}
-	for _, step := range [][]string{{"mousemove", fmt.Sprint(x - 55), fmt.Sprint(y)}, {"mousemove", fmt.Sprint(x + 55), fmt.Sprint(y)}, {"click", "3"}, {"mousemove", fmt.Sprint(x + 55), fmt.Sprint(y - 100)}} {
+	for _, step := range [][]string{{"mousemove", fmt.Sprint(x - 55), fmt.Sprint(y)}, {"mousemove", fmt.Sprint(x + 55), fmt.Sprint(y)}, {"click", "3"}, {"mousemove", fmt.Sprint(x + 55), fmt.Sprint(y - 100)},
+		{"mousemove", fmt.Sprint(x - 55), fmt.Sprint(y)}, {"mousedown", "1"}, {"mousemove", fmt.Sprint(x - 55), fmt.Sprint(y - 100)}, {"mouseup", "1"}} {
 		if err := exec.Command("xdotool", step...).Run(); err != nil {
 			return err
 		}
 		time.Sleep(300 * time.Millisecond)
+	}
+	// Press: a click on the left rectangle, a Ctrl+click on the middle
+	// one, a click on the right one and one right of the middle (where
+	// the canvas's handler stops both).
+	if x, y, err = center(wins["Press"]); err != nil {
+		return err
+	}
+	for _, step := range [][]string{{"mousemove", fmt.Sprint(x - 105), fmt.Sprint(y), "click", "1"}, {"mousemove", fmt.Sprint(x), fmt.Sprint(y), "keydown", "ctrl", "click", "1", "keyup", "ctrl"},
+		{"mousemove", fmt.Sprint(x + 105), fmt.Sprint(y), "click", "1"}, {"mousemove", fmt.Sprint(x + 55), fmt.Sprint(y), "click", "1"}} {
+		if err := exec.Command("xdotool", step...).Run(); err != nil {
+			return err
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	if err := clickCenter(wins["Gone"]); err != nil {
+		return err
 	}
 	// Click into the text of Keys, then Ctrl+O and Ctrl+T.
 	if err := clickCenter(wins["Keys"]); err != nil {
@@ -807,12 +901,7 @@ func click(t *testing.T) error {
 // answer answers the dialog with that title: it gives it the focus (no
 // window manager does), types typed and presses key.
 func answer(title, typed, key string) error {
-	var win string
-	for i := 0; i < 100 && win == ""; i++ {
-		out, _ := exec.Command("xdotool", "search", "--name", "^"+title+"$").Output()
-		win = strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
-		time.Sleep(100 * time.Millisecond)
-	}
+	win := findWindow(title)
 	if win == "" {
 		return fmt.Errorf("no dialog %s", title)
 	}
@@ -837,6 +926,18 @@ func answer(title, typed, key string) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 	return nil
+}
+
+// findWindow waits up to 10 seconds for the window with that title, and
+// gives its id ("": none came).
+func findWindow(title string) string {
+	var win string
+	for i := 0; i < 100 && win == ""; i++ {
+		out, _ := exec.Command("xdotool", "search", "--name", "^"+title+"$").Output()
+		win = strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
+		time.Sleep(100 * time.Millisecond)
+	}
+	return win
 }
 
 // drag drags the mouse from the middle of window win by dx, dy, in three

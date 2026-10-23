@@ -71,7 +71,7 @@ func newImage(env value.Env, this *value.ObjectObj, args []value.Value) (value.V
 	}
 	data, err := readImageFile(path)
 	if err != nil {
-		return value.NilValue, a.Errorf(value.IOError, "%v", err)
+		return value.NilValue, native.IOError(a, err)
 	}
 	if len(data) > maxImageFile {
 		return value.NilValue, a.Errorf(value.ValueError, "%s is larger than %d MB", path, maxImageFile>>20)

@@ -40,8 +40,9 @@ go run ./examples/embed examples/embed/rules.kkl examples/embed/orders.json
 examples of the reference: each must open its window and end without an
 error when the window is closed. They run here, in examples: the pictures
 of the reference's example of images are `testdata/sun.png` and
-`testdata/moon.png`. Another test types the shortcuts of `notes.kkl` into
-its text (with `xdotool`).
+`testdata/moon.png`. Two more tests use `xdotool`: one presses Ctrl+O
+and Ctrl+Q in the text of `notes.kkl`, one clicks the reference's
+settings example.
 
 Each other program has a file `name.tests` that `go test ./cmd/kukel` (and so
 `make test` and `make test-all`) runs, in this directory:

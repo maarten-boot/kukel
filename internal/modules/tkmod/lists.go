@@ -215,6 +215,9 @@ func registerLists() {
 		var lines []int
 		for _, v := range a.V[0].AsVector().Elems {
 			if v.Kind() != value.Int || v.AsInt() < 0 || v.AsInt() >= int64(len(wd.items)) {
+				if len(wd.items) == 0 {
+					return value.NilValue, a.Errorf(value.ValueError, "%s is not the index of a line: the list box has no lines", v.Repr())
+				}
 				return value.NilValue, a.Errorf(value.ValueError, "%s is not the index of a line (0 to %d)", v.Repr(), len(wd.items)-1)
 			}
 			lines = append(lines, int(v.AsInt()))
