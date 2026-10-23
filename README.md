@@ -204,6 +204,8 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
 design decisions (Q1–Q79). Ideas for later are in [docs/future.md](docs/future.md).
+How to check a change (the subsystems, what else a change touches, and
+when a full cross-check is due) is in [docs/checks.md](docs/checks.md).
 
 ## Development
 
