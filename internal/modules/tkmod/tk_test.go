@@ -175,7 +175,8 @@ main(args) {
         entry->focus(); // a themed button takes the focus when clicked
         if (n == 3) throw new Error("three");
     });
-    local guard = clicks ? events::after(20, fn() { println("no Enter: timed out"); w->close(); }) : nil;
+    // A minute: the clicks take about 20 seconds, more with -race.
+    local guard = clicks ? events::after(60, fn() { println("no Enter: timed out"); w->close(); }) : nil;
     entry->onenter(fn(text) {
         println("enter:", text, n);
         guard->cancel();
