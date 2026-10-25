@@ -816,6 +816,35 @@ func TestProfileShortCalls(t *testing.T) {
 	}
 }
 
+// Two programs with a file of the same name share a Profile: their lines
+// stay apart, each with its own source, named by their interpreters.
+func TestProfileSameFileName(t *testing.T) {
+	p := kukel.NewProfile(kukel.ProfileOptions{})
+	for _, src := range []string{
+		"spin(n) { local t = 0; for (local i = 0; i < n; i++) t += i % 7; return t; } // the first\nmain() {}",
+		"spin(n) { local t = 1; for (local i = 0; i < n; i++) t += i % 5; return t; } // the second\nmain() {}",
+	} {
+		prog := compile(t, src, kukel.CompileOptions{})
+		in, err := kukel.New(prog, kukel.Options{Profile: p})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := in.Call("spin", kukel.Int(3_000_000)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var report strings.Builder
+	if err := p.WriteReport(&report); err != nil {
+		t.Fatal(err)
+	}
+	r := report.String()
+	for _, want := range []string{"t.kkl:1 [main]", "// the first", "t.kkl:1 [interp 2]", "// the second"} {
+		if !strings.Contains(r, want) {
+			t.Errorf("no %q in the report:\n%s", want, r)
+		}
+	}
+}
+
 // A report while a worker runs: its time shows, its calls up to its latest
 // sample, and the report says so.
 func TestProfileWorkerRunning(t *testing.T) {

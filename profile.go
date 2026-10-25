@@ -3,11 +3,11 @@ package kukel
 import (
 	"fmt"
 	"io"
-	"maps"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/maarten-boot/kukel/internal/bytecode"
 	"github.com/maarten-boot/kukel/internal/debugger"
 	"github.com/maarten-boot/kukel/internal/profile"
 	"github.com/maarten-boot/kukel/internal/vm"
@@ -19,15 +19,24 @@ import (
 // from Go (Run, Call, ...) are profiled, and WriteReport and WritePprof
 // show what they gave (of a call or worker still running: its samples so
 // far, its calls up to its latest sample). Several interpreters may share
-// a Profile (the first is "main", the others "interp 2", ...); their
-// programs should have different file names, as the report finds the
-// source of a line by its file name. Its methods are safe for concurrent
-// use.
+// a Profile (the first is "main", the others "interp 2", ...); lines of
+// their programs stay apart also when two have a file of the same name
+// (the report then names the interpreter). Its methods are safe for
+// concurrent use.
 type Profile struct {
-	p      *vm.Profiler
-	mu     sync.Mutex
-	n      int              // the interpreters that use it
-	source debugger.Sources // the programs' source given to CompileSource
+	p        *vm.Profiler
+	mu       sync.Mutex
+	n        int                        // the interpreters that use it
+	programs []profiled                 // the programs they run
+	of       map[*bytecode.Function]int // the program of each function (an index in programs)
+	files    debugger.Sources           // the files read for programs without their source
+}
+
+// profiled is a program of a Profile: the interpreter that ran it first,
+// and the source given to CompileSource (nil for a program of files).
+type profiled struct {
+	interp string
+	source debugger.Sources
 }
 
 // ProfileOptions configure a Profile.
@@ -44,21 +53,54 @@ type ProfileOptions struct {
 
 // NewProfile makes a Profile.
 func NewProfile(opts ProfileOptions) *Profile {
-	return &Profile{p: vm.NewProfiler(opts.Interval, opts.CPU), source: debugger.Sources{}}
+	return &Profile{p: vm.NewProfiler(opts.Interval, opts.CPU), of: map[*bytecode.Function]int{}, files: debugger.Sources{}}
 }
 
 // use names the next interpreter that uses p, which runs prog.
 func (p *Profile) use(prog *Program) string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	for name, src := range prog.source { // (the same name twice: the last program's source)
-		p.source[name] = strings.Split(strings.TrimSuffix(src, "\n"), "\n")
-	}
 	p.n++
-	if p.n == 1 {
-		return "main"
+	name := "main"
+	if p.n > 1 {
+		name = fmt.Sprintf("interp %d", p.n)
 	}
-	return fmt.Sprintf("interp %d", p.n)
+	var source debugger.Sources
+	if prog.source != nil {
+		source = debugger.Sources{}
+		for file, src := range prog.source {
+			source[file] = strings.Split(strings.TrimSuffix(src, "\n"), "\n")
+		}
+	}
+	i := len(p.programs)
+	p.programs = append(p.programs, profiled{name, source})
+	for _, fn := range append([]*bytecode.Function{prog.prog.Init}, prog.prog.Funcs...) {
+		if _, ok := p.of[fn]; !ok { // a program that runs in two interpreters: the first
+			p.of[fn] = i
+		}
+	}
+	return name
+}
+
+// source is the report's Source: the line from the source of fn's program,
+// else from its file.
+func (p *Profile) source(fn *bytecode.Function, line int) (string, string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	i, ok := p.of[fn]
+	if !ok { // a program a worker compiled (worker::startfile)
+		text, _ := p.files.Line(fn.File, line)
+		return text, ""
+	}
+	pr := p.programs[i]
+	if pr.source != nil {
+		if _, ok := pr.source[fn.File]; ok {
+			text, _ := pr.source.Line(fn.File, line)
+			return text, pr.interp
+		}
+	}
+	text, _ := p.files.Line(fn.File, line)
+	return text, pr.interp
 }
 
 // WriteReport writes the text report kukel profile writes: the functions
@@ -66,10 +108,7 @@ func (p *Profile) use(prog *Program) string {
 // calls; the slowest lines with their source; the calls of built-ins and Go
 // functions.
 func (p *Profile) WriteReport(w io.Writer) error {
-	p.mu.Lock()
-	src := maps.Clone(p.source)
-	p.mu.Unlock()
-	return profile.Report(w, p.p, src)
+	return profile.Report(w, p.p, p.source)
 }
 
 // WritePprof writes the profile in Go's pprof format, for go tool pprof

@@ -346,9 +346,10 @@ f.Close()
   standard Go functions that wait (as `kukel profile -cpu` does); the time
   of your own Go functions counts in full, also when they wait.
 - Several interpreters may share a `Profile`: the first is `main` in the
-  report, the next ones `interp 2`, `interp 3`, ... Give their programs
-  different file names: the report finds the source of a line by its file
-  name. The percentages are of the time of all interpreters together; in
+  report, the next ones `interp 2`, `interp 3`, ... When two of their
+  programs have a file of the same name (two `CompileSource("job.kkl",
+  ...)`), their lines stay apart, each with its own source, and the report
+  names the interpreter after the line (`job.kkl:3 [interp 2]`). The percentages are of the time of all interpreters together; in
   the pprof format the duration is the wall time from the start of the
   first call to the end of the last.
 - The methods of a `Profile` are safe for concurrent use. A report

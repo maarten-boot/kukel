@@ -35,19 +35,35 @@ type fnRow struct {
 	calls      int64
 }
 
+// lineKey is a line of a program: programs that have a file of the same
+// name keep their lines apart.
 type lineKey struct {
-	file string
-	line int
+	program string
+	file    string
+	line    int
+}
+
+// Source gives the text of a line of fn's file, and names the program fn
+// is of ("" when there is only one, or it is not known): the interpreter
+// that runs it.
+type Source func(fn *bytecode.Function, line int) (text, program string)
+
+// Files is the Source that reads the files (once each).
+func Files() Source {
+	src := debugger.Sources{}
+	return func(fn *bytecode.Function, line int) (string, string) {
+		text, _ := src.Line(fn.File, line)
+		return text, ""
+	}
 }
 
 // Report writes the text report of what p collected: the functions by
 // their own time (and their total time, with the functions they call, and
 // their calls), the slowest lines with their source, and the calls of
-// built-ins and Go functions. src has the source lines of the program
-// (files not in it are read; nil: all are read).
-func Report(w io.Writer, p *vm.Profiler, src debugger.Sources) error {
+// built-ins and Go functions. src gives the source lines (nil: Files()).
+func Report(w io.Writer, p *vm.Profiler, src Source) error {
 	if src == nil {
-		src = debugger.Sources{}
+		src = Files()
 	}
 	tree := p.Tree()
 	sum := p.Summary()
@@ -72,6 +88,7 @@ func Report(w io.Writer, p *vm.Profiler, src debugger.Sources) error {
 		return r
 	}
 	lines := map[lineKey]time.Duration{}
+	texts := map[lineKey]string{}
 	interps := map[string]time.Duration{}
 	for i, n := range tree {
 		if n.Func == nil {
@@ -80,7 +97,10 @@ func Report(w io.Writer, p *vm.Profiler, src debugger.Sources) error {
 		}
 		if n.Count > 0 {
 			row(fnKey{n.Interp, n.Func}).own += n.Time
-			lines[lineKey{n.Func.File, n.Line}] += n.Time
+			text, program := src(n.Func, n.Line)
+			k := lineKey{program, n.Func.File, n.Line}
+			lines[k] += n.Time
+			texts[k] = text
 		}
 	}
 	// A function's total time: the time under its outermost nodes (a
@@ -159,8 +179,16 @@ func Report(w io.Writer, p *vm.Profiler, src debugger.Sources) error {
 		keys = append(keys, k)
 	}
 	slices.SortFunc(keys, func(a, b lineKey) int {
-		return cmp.Or(cmp.Compare(lines[b], lines[a]), cmp.Compare(a.file, b.file), cmp.Compare(a.line, b.line))
+		return cmp.Or(cmp.Compare(lines[b], lines[a]), cmp.Compare(a.file, b.file), cmp.Compare(a.line, b.line),
+			cmp.Compare(a.program, b.program))
 	})
+	programs := map[string]map[string]bool{} // the programs that have a file of that name
+	for k := range lines {
+		if programs[k.file] == nil {
+			programs[k.file] = map[string]bool{}
+		}
+		programs[k.file][k.program] = true
+	}
 	if len(keys) > 0 {
 		fmt.Fprintf(b, "\nLines, by their own time (the %d slowest):\n", min(MaxLines, len(keys)))
 		fmt.Fprintln(b, "        own      %  line")
@@ -168,8 +196,11 @@ func Report(w io.Writer, p *vm.Profiler, src debugger.Sources) error {
 			if i == MaxLines {
 				break
 			}
-			text, _ := src.Line(k.file, k.line)
-			row := fmt.Sprintf("  %9s %6s  %s:%d  %s", seconds(lines[k]), percent(lines[k], total), k.file, k.line, strings.TrimSpace(text))
+			where := fmt.Sprintf("%s:%d", k.file, k.line)
+			if len(programs[k.file]) > 1 && k.program != "" {
+				where += " [" + k.program + "]" // two programs have a file of this name
+			}
+			row := fmt.Sprintf("  %9s %6s  %s  %s", seconds(lines[k]), percent(lines[k], total), where, strings.TrimSpace(texts[k]))
 			fmt.Fprintln(b, strings.TrimRight(row, " "))
 		}
 	}
