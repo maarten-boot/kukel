@@ -120,7 +120,6 @@ func (d *cliFront) Log(msg string) {
 
 // commands reads commands until one resumes the program.
 func (d *cliFront) commands(m *vm.VM, frames []vm.DebugFrame) error {
-	top := frames[len(frames)-1]
 	for {
 		fmt.Fprint(d.msg, "(kdb) ")
 		line, err := d.in.ReadString('\n')
@@ -147,7 +146,7 @@ func (d *cliFront) commands(m *vm.VM, frames []vm.DebugFrame) error {
 		case "q", "quit":
 			return &value.ExitError{Code: 0}
 		case "b", "break":
-			d.addBreak(arg, top)
+			d.addBreak(arg, frames[d.frame])
 		case "d", "delete":
 			d.deleteBreak(arg)
 		case "breaks":
@@ -246,14 +245,14 @@ func (d *cliFront) list(file string, center, current int) {
 // addBreak sets a breakpoint: file:line, a line of the current file, or a
 // function's first line, with "if condition" after it for a conditional
 // one. A line without code moves to the next one with.
-func (d *cliFront) addBreak(arg string, top vm.DebugFrame) {
+func (d *cliFront) addBreak(arg string, fr vm.DebugFrame) {
 	where, cond, hasIf := strings.Cut(arg+" ", " if ")
 	where, cond = strings.TrimSpace(where), strings.TrimSpace(cond)
 	if hasIf && cond == "" {
 		fmt.Fprintln(d.msg, "break if what? (a condition after if, such as i == 3)")
 		return
 	}
-	b := debugger.Breakpoint{File: top.Func.File, Cond: cond}
+	b := debugger.Breakpoint{File: fr.Func.File, Cond: cond} // a line alone: of the selected frame's file
 	if f, l, ok := strings.Cut(where, ":"); ok && !strings.Contains(l, ":") {
 		n, err := strconv.Atoi(l)
 		if err != nil {

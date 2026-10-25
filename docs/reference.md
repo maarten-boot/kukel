@@ -216,14 +216,14 @@ the program ended (exit code 0)
 
 | Command | |
 |---|---|
-| `break file:line`, `break line`, `break function` (`b`) | Stop at that line (of the current file), or where a call of a function starts (`main`, `Shape::area`, `util::f`; once per call, also when a loop begins on its first line); a line without code moves the breakpoint to the next line with code. With `if condition` after it (`b 12 if i == 3`), only when the condition (an expression as `print` takes) holds there: one that `print` would refuse is refused here, and one that fails when checked (an unknown name, an index out of range) stops, with the error |
+| `break file:line`, `break line`, `break function` (`b`) | Stop at that line (a line alone: of the file of the frame `frame` selected, else of the current one), or where a call of a function starts (`main`, `Shape::area`, `util::f`; once per call, also when a loop begins on its first line); a line without code moves the breakpoint to the next line with code. With `if condition` after it (`b 12 if i == 3`), only when the condition (an expression as `print` takes) holds there: one that `print` would refuse is refused here, and one that fails when checked (an unknown name, an index out of range) stops, with the error |
 | `delete [n]` (`d`), `breaks` | Remove breakpoint `n`, or all; list them (with the function of a function breakpoint) |
 | `continue` (`c`) | Run to the next breakpoint |
 | `step` (`s`), `next` (`n`) | To the start of the next line: also into a call, or over calls |
 | `finish` (`f`) | Until the current function has returned (to the next line of its caller) |
 | `print expression` (`p`) | The value of an expression without side effects: literals, names (a variable (parameter, local, captured), `this`, a data member of `this`, a static data member (`count` in a member function of its class, `C::count` anywhere), or a global (`count`, `util::count`; in a function of a module its own globals come first)), the operators, `?:`, indexing and members (`p v[i] + 1`, `p m["key"]`, `p this->items`, `p n > 0 ? "yes" : "no"`). Calls, assignments, `++`/`--`, `new` and function literals are refused: they could change the program. Constants (`const`) are not found: the compiler puts their values into the code. A long value is shortened: at most 100 elements of a vector or map and about 1000 characters, `…` for the rest |
 | `locals` | The variables of the frame: `this` in a member function, captured variables, then the parameters and locals in scope (of two with one name, the later one is the one the code sees). Static data members are not listed: `print` them |
-| `backtrace` (`bt`), `frame n` | The calls, innermost first; look at frame `n` (for `print`, `locals` and `list`) |
+| `backtrace` (`bt`), `frame n` | The calls, innermost first; look at frame `n` (for `print`, `locals`, `list` and `break line`) |
 | `list [line]` (`l`) | The source around the current line, or around `line` |
 | `quit` (`q`) | End the program, with exit code 0 (also the end of the input) |
 | `help` (`h`) | The commands |

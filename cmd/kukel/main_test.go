@@ -1124,6 +1124,15 @@ func TestDebugBreaksAndLocals(t *testing.T) {
 		t.Errorf("exit %d:\n%s\nwant:\n%s", code, out.String(), want)
 	}
 
+	// A line alone is of the selected frame's file.
+	os.WriteFile("util.kkl", []byte("twice(x) {\n    return 2 * x;\n}\n"), 0o644)
+	os.WriteFile("m.kkl", []byte("use util;\n\nmain() {\n    local a = util::twice(1);\n    println(a);\n}\n"), 0o644)
+	out.Reset()
+	if code := run([]string{"debug", "m.kkl"}, strings.NewReader("b util::twice\nc\nframe 1\nb 5\nc\nc\n"), &out, &out); code != 0 ||
+		!strings.Contains(out.String(), "(kdb) breakpoint 2 at m.kkl:5\n(kdb) breakpoint 2, main at m.kkl:5\n") {
+		t.Errorf("a line of the selected frame's file: exit %d:\n%s", code, out.String())
+	}
+
 	os.WriteFile("w.kkl", []byte("use worker;\nchat(n) {\n    for (local i = 0; i < n; i++) {\n        println(\"w\", i);\n    }\n    return n;\n}\n"+
 		"main() {\n    local w = worker::start(chat, 2000);\n    for (local i = 0; i < 5; i++) {\n        println(\"m\", i);\n    }\n    println(w->wait());\n}\n"), 0o644)
 	// (The debugger and a worker write at once, as to a terminal: a buffer
