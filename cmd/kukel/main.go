@@ -725,11 +725,14 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	ended := false // the end of the input came when looking for an else or finally
 	for n := 1; ; n++ {
+		if err := out.Flush(); err != nil { // output that cannot be written ends the session
+			return writeResult(err, stderr)
+		}
 		if ended {
 			if interactive {
 				fmt.Fprintln(out)
 			}
-			return 0
+			return writeResult(out.Flush(), stderr)
 		}
 		var src []byte
 		var stmts []ast.Stmt
@@ -758,7 +761,7 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				if interactive {
 					fmt.Fprintln(out)
 				}
-				return 0
+				return writeResult(out.Flush(), stderr)
 			}
 			blank := strings.TrimSpace(line) == "" // with the end of the input: ends the piece
 			if blank && len(src) == 0 {

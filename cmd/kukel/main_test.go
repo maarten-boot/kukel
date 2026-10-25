@@ -598,6 +598,11 @@ func TestWriteErrors(t *testing.T) {
 			t.Errorf("%q: exit %d, %q", args, code, stderr.String())
 		}
 	}
+	// The REPL shows values: output it cannot write ends the session.
+	var stderr bytes.Buffer
+	if code := run([]string{"repl"}, strings.NewReader("1 + 1\n2 + 2\n"), failWriter{}, &stderr); code != 1 || stderr.String() != "kukel: write /dev/stdout: no space left on device\n" {
+		t.Errorf("repl: exit %d, %q", code, stderr.String())
+	}
 }
 
 // build -o refuses to write a source file.
