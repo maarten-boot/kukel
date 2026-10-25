@@ -12,6 +12,23 @@ Two kinds of change need care when you upgrade:
   format version; build it again from its source after such a release
   (`kukel build`). The history is in [docs/vm.md](docs/vm.md) §7.
 
+## Unreleased
+
+- Contract tests (Q80, [docs/checks.md](docs/checks.md) §4): waits through
+  `native.Wait`, the arguments the reference shows, objects not set up,
+  messages without Go's operation names, and vm.md's listings against
+  `kukel disasm`.
+- Messages of the command name the file without Go's operation:
+  `kukel: a.kkl: no such file or directory`.
+- The REPL reports output it cannot write (exit code 1).
+- `kukel debug`: `break line` uses the file of the frame selected with
+  `frame`.
+- Debuggers: a byte that is not valid UTF-8 shows as `\xNN`; in `kukel dap`
+  the elements of an expression are named in parentheses (`(a + b)[0]`),
+  and a failed hover or watch is not reported as an error.
+- [docs/tutorial.md](docs/tutorial.md), a fifteen-minute tour;
+  [docs/README.md](docs/README.md), the list of documents; this file.
+
 ## v0.31.0 (2026-10-25)
 
 - **Language:** a comma may end a list closed by a bracket: arguments,
