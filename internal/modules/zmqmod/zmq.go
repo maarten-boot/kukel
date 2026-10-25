@@ -519,7 +519,9 @@ func subscription(option string) func(a native.Args, env value.Env, s *socket) (
 func closeSocket(a native.Args, env value.Env, s *socket) (value.Value, error) {
 	if !s.closed {
 		if wait := linger - time.Since(s.lastSend); wait > 0 {
+			w := native.Wait(env)
 			time.Sleep(wait)
+			w.Done()
 		}
 		s.shut()
 	}

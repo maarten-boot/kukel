@@ -730,6 +730,13 @@ locals (`i < n`), and its left operand and one `CMP_JUMP_K` for another
 left operand and a known value (`s[i] >= '0'`); `&&`, `||` and `!` become
 jumps between their operands:
 
+<!-- disasm exact f
+f(a, b) {
+    if (a && !b) return 1;
+}
+
+main() {}
+-->
 ```
 if (a && !b) return 1;          0  LOAD_LOCAL    0  ; a
                                 3  JUMP_IF_FALSE -> 20
@@ -748,6 +755,14 @@ or `FALSE`, so they always give a boolean.
 For `x[i]++` and `p->x++` used as a value, the old value is kept in a
 temporary slot:
 
+<!-- disasm f
+f(v, i) {
+    v[i] += 1;
+    return v[i]++;
+}
+
+main() {}
+-->
 ```
 v[i] += 1;                      LOAD_LOCAL v; LOAD_LOCAL i; DUP2; INDEX_GET
                                 ARITH_K ADD 1; INDEX_SET; POP
@@ -775,6 +790,13 @@ default value; for a captured parameter, `LOAD_LOCAL i; NEW_CELL i` to put
 it in a cell (so a later default sees the cell). Every function ends with
 `RETURN_NIL`.
 
+<!-- disasm exact defs
+defs(a, b = a * 2, rest..) {
+    return [a, b, rest..];
+}
+
+main() {}
+-->
 ```
 defs(a, b = a * 2, rest..) {     0  JUMP_IF_ARG   1 -> 17
     return [a, b, rest..];        7  ARITH_LK      MUL a, 2
@@ -796,6 +818,19 @@ The test of a `while` or `for` loop comes after the body (Kukel v0.8): the
 loop starts with a jump to it, and then each iteration takes one jump, back
 from the test to the body:
 
+<!-- disasm f
+f(n) {
+    local s = 0;
+
+    for (local i = 0; i < n; i++) {
+        if (i == 2) continue;
+        s += i;
+    }
+    return s;
+}
+
+main() {}
+-->
 ```
 for (local i = 0; i < n; i++) {     6  CONST 0; STORE_LOCAL i
     if (i == 2) continue;          12  JUMP -> 42
@@ -825,6 +860,13 @@ step.
 
 ### 6.7 For-each
 
+<!-- disasm f
+f(m) {
+    for (local k, v in m) println(k, v);
+}
+
+main() {}
+-->
 ```
 for (local k, v in m) ...           LOAD_LOCAL m; ITER_INIT; STORE_LOCAL (iterator)
                               top:  ITER_NEXT (iterator), 2 -> end
@@ -845,6 +887,22 @@ since.
 The body comes first and the dispatch after it, because `case` labels may
 sit anywhere inside the body:
 
+<!-- disasm f
+f(x) {
+    switch (x) {
+    case 1:
+        return "one";
+    case 2:
+    case 3:
+        println("two or three");
+    default:
+        println("other");
+    }
+    println("after the switch");
+}
+
+main() {}
+-->
 ```
 switch (x) {                     JUMP dispatch
   case 1: return "one";      L1: CONST "one"; RETURN
@@ -869,6 +927,24 @@ the smallest to the largest holds at most twice as many values as there are
 cases, the dispatch is one jump through a table instead (Kukel v0.8). With
 a fourth case, `case 5:` (`L4`), the switch above becomes:
 
+<!-- disasm f
+f(x) {
+    switch (x) {
+    case 1:
+        return "one";
+    case 2:
+    case 3:
+        println("two or three");
+    case 5:
+        println("five");
+    default:
+        println("other");
+    }
+    println("after the switch");
+}
+
+main() {}
+-->
 ```
                        dispatch: LOAD_LOCAL x; SWITCH_TABLE t, miss -> L3
                                  (table t: 1 -> L1, 2 -> L2, 3 -> L2, 5 -> L4; none for 4)
@@ -887,6 +963,19 @@ A `finally` block is copied onto every way out of the try: the normal end,
 the end of the catch block, every `break`, `continue` or `return` that
 leaves it, and a catch-all handler that runs it and rethrows:
 
+<!-- disasm g
+g(f) {
+    try {
+        return f();
+    } catch (e) {
+        return e;
+    } finally {
+        println("done");
+    }
+}
+
+main() {}
+-->
 ```
 try { return f(); }            TRY_PUSH finally -> F
 catch (e) { return e; }        TRY_PUSH catch -> C
@@ -911,6 +1000,27 @@ runs their `finally` copies, innermost first.
 
 ### 6.10 Classes and closures
 
+<!-- disasm f B::m N::add g B::get h
+use strings;
+
+class A { m(); }
+A::m() { return 1; }
+
+class B : A { x; B(); m(); get(); }
+B::B() { x = 0; }
+B::m() { return A::m() + 1; }
+B::get() { return this->x + x; }
+
+class N : strings::Builder { N(); add(x); }
+N::N() { strings::Builder::Builder(); }
+N::add(x) { return strings::Builder::add(x); }
+
+f(b) { b->m(); }
+g() { return new B(); }
+h(p) { p->x = 2; }
+
+main() {}
+-->
 ```
 b->m();          LOAD_LOCAL b; CALL_METHOD m, 0 (cache 0)          virtual call
 A::m() + 1       LOAD_THIS; CALL_DIRECT A::m, 0; ARITH_K ADD 1     Base::m(...) on this
@@ -922,6 +1032,14 @@ this->x, x       LOAD_MEMBER 0                                     a known data 
 p->x = 2         LOAD_LOCAL p; CONST 2; SET_MEMBER x (cache 1)     by name, cached
 ```
 
+<!-- disasm counter counter/fn@3
+counter() {
+    local n = 0;
+    return fn() { return ++n; };
+}
+
+main() {}
+-->
 ```
 counter() {
     local n = 0;                 CONST 0; NEW_CELL n                (n is captured: it lives in a cell)

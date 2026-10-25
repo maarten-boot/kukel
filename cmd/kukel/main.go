@@ -4,6 +4,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -185,7 +186,7 @@ func toolError(err error) error {
 	if err == nil || diag.Errors(err) != nil || strings.HasPrefix(err.Error(), "kukel: ") {
 		return err
 	}
-	return fmt.Errorf("kukel: %w", err)
+	return errors.New("kukel: " + native.IOMessage(err)) // without Go's name of the operation, as the modules say it
 }
 
 // cmdRun compiles the source files before "--" and runs the program with
@@ -342,7 +343,7 @@ func cmdBuild(args []string, stderr io.Writer) int {
 			err = os.WriteFile(out, data, 0o644)
 		}
 		if err != nil {
-			fmt.Fprintln(stderr, "kukel:", err)
+			fmt.Fprintln(stderr, toolError(err))
 			return 1
 		}
 		return 0
@@ -357,7 +358,7 @@ func cmdBuild(args []string, stderr io.Writer) int {
 		err = os.WriteFile(out, data, 0o644)
 	}
 	if err != nil {
-		fmt.Fprintln(stderr, "kukel:", err)
+		fmt.Fprintln(stderr, toolError(err))
 		return 1
 	}
 	return 0
@@ -390,7 +391,7 @@ func compileModule(file string) (*bytecode.Module, error) {
 	}
 	src, err := os.ReadFile(file)
 	if err != nil {
-		return nil, fmt.Errorf("kukel: %v", err)
+		return nil, toolError(err)
 	}
 	f, err := parser.ParseFile(file, src)
 	if err != nil {
@@ -480,7 +481,7 @@ func cmdTokens(files []string, stdout, stderr io.Writer) int {
 	for _, file := range files {
 		src, err := os.ReadFile(file)
 		if err != nil {
-			fmt.Fprintf(stderr, "kukel: %v\n", err)
+			fmt.Fprintln(stderr, toolError(err))
 			return 1
 		}
 		w := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
@@ -520,7 +521,7 @@ func cmdAST(args []string, stdout, stderr io.Writer) int {
 	for _, file := range args {
 		src, err := os.ReadFile(file)
 		if err != nil {
-			fmt.Fprintf(stderr, "kukel: %v\n", err)
+			fmt.Fprintln(stderr, toolError(err))
 			return 1
 		}
 		f, err := parser.ParseFile(file, src)

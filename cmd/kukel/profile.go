@@ -77,7 +77,7 @@ func cmdProfile(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if reportFile != "" {
 		f, err := os.Create(reportFile)
 		if err != nil {
-			fmt.Fprintln(stderr, "kukel:", err)
+			fmt.Fprintln(stderr, toolError(err))
 			return 1
 		}
 		defer f.Close()
@@ -113,7 +113,7 @@ func cmdProfile(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 					}
 				}
 				if err != nil {
-					fmt.Fprintln(stderr, "kukel:", err)
+					fmt.Fprintln(stderr, toolError(err))
 					reportCode = 1
 				}
 			}

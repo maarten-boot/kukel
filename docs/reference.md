@@ -74,7 +74,7 @@ with `-` is given as `./-name`; `-` as a file anywhere but in `kukel fmt -`,
 a `.kkc` file where source files go (only `exec` and `disasm` take one),
 arguments after `kukel help` or `kukel version`) gives exit code 2.
 Messages that are not about a place in the source start with `kukel:`
-(`kukel: open a.kkl: no such file or directory`). Output that cannot be
+(`kukel: a.kkl: no such file or directory`). Output that cannot be
 written (standard output on a full disk, say) is such an error, with exit
 code 1: `kukel: write /dev/stdout: no space left on device`. The operating system keeps only the low 8 bits
 of an exit code: `return 263` exits with 7, `return -1` with 255.
@@ -1736,7 +1736,7 @@ it appends to `s` in place when nothing else was added after `s`.)
 | Member function | Description |
 |---|---|
 | `new strings::Builder([s])` | An empty builder, or one starting with string `s` |
-| `b->add(x, ...)` | Appends the values as `print` writes them; gives `b`, so calls can be chained |
+| `b->add(values...)` | Appends the values as `print` writes them (none: nothing); gives `b`, so calls can be chained |
 | `b->str()` | The string built so far |
 | `b->len()` | Its length in bytes |
 | `b->reset()` | Empties the builder; gives `b`, as `add` does |
@@ -2193,7 +2193,7 @@ coordinates are numbers (pixels, from -1e6 to 1e6), points are vectors
 | `c->polygon(points [, options])` | A polygon of at least 3 points; options as for `rect` |
 | `c->text(x, y, s [, options])` | A text at `x, y`. Options: `color`, `font`, `anchor` (which point of the text is at `x, y`: `"center"`, the default, `"nw"`, ...), `justify`, `width` (pixels before a line wraps) |
 | `c->image(x, y, img [, options])` | A `tk::Image` at `x, y`. Option: `anchor` (as for `text`) |
-| `c->coords(id)`, `c->setcoords(id, ...)` | An item's coordinates (a vector); set as the item was made (a vector of points, or the numbers) |
+| `c->coords(id)`, `c->setcoords(id, points)`, `c->setcoords(id, x1, y1 [, x2, y2])` | An item's coordinates (a vector); set as the item was made (a vector of points, or the numbers) |
 | `c->move(item, dx, dy)` | Moves an item (`dx`, `dy`: numbers from -1e6 to 1e6, and the item must stay within the coordinates); `item` is an id, or a tag for all the items with it (none: nothing happens) |
 | `c->configureitem(item, options)` | Changes the options of an item, or of the items with a tag; also `text`, a text item's text, and `image`, an image item's `tk::Image`. Each option must be one of every item's kind (else a `ValueError` that names the item); with a tag that no item has, nothing changes, but an option no kind of item has is still a `ValueError` |
 | `c->raise(item)`, `c->lower(item)` | Puts an item (or the items with a tag, in their order) above, or below, all the others |
