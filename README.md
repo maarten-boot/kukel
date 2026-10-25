@@ -62,7 +62,8 @@ caught RangeError: index 5 out of range for vector of length 3
   other programs and machines)
 - 55 built-in functions (strings, collections, math, files, ...)
 
-The full description is in [docs/reference.md](docs/reference.md); the
+New to Kukel? [docs/tutorial.md](docs/tutorial.md) is a fifteen-minute
+tour. The full description is in [docs/reference.md](docs/reference.md); the
 grammar is in [syntax.ebnf](syntax.ebnf) (and as a
 [Lark](https://github.com/lark-parser/lark) grammar in
 [syntax.lark](syntax.lark)). How programs are compiled and run (the virtual
@@ -204,6 +205,8 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
 design decisions (Q1–Q79). Ideas for later are in [docs/future.md](docs/future.md).
+What changed in each release is in [CHANGELOG.md](CHANGELOG.md); all the
+documents are listed in [docs/README.md](docs/README.md).
 How to check a change (the subsystems, what else a change touches, and
 when a full cross-check is due) is in [docs/checks.md](docs/checks.md).
 

@@ -135,12 +135,13 @@ func TestDocsFormatted(t *testing.T) {
 	}
 }
 
-// docPrograms gives the programs of docs/reference.md and the README:
+// docPrograms gives the programs of docs/reference.md, docs/tutorial.md and
+// the README:
 // the code blocks with a main function, and the modules ("// name.kkl"
 // first).
 func docPrograms(t *testing.T) []string {
 	var progs []string
-	for _, name := range []string{"../../docs/reference.md", "../../README.md"} {
+	for _, name := range []string{"../../docs/reference.md", "../../docs/tutorial.md", "../../README.md"} {
 		text, err := os.ReadFile(name)
 		if err != nil {
 			t.Fatal(err)

@@ -241,12 +241,12 @@ func TestBuildExecDisasm(t *testing.T) {
 	}
 }
 
-// TestReferenceExamples runs every example in docs/reference.md and the
-// README that has a main function: the documentation must not show
-// programs that fail.
+// TestReferenceExamples runs every example in docs/reference.md, the
+// tutorial and the README that has a main function: the documentation
+// must not show programs that fail.
 func TestReferenceExamples(t *testing.T) {
 	var doc []byte
-	for _, name := range []string{"../../docs/reference.md", "../../README.md"} {
+	for _, name := range []string{"../../docs/reference.md", "../../docs/tutorial.md", "../../README.md"} {
 		text, err := os.ReadFile(name)
 		if err != nil {
 			t.Fatal(err)

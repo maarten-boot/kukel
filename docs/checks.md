@@ -56,7 +56,7 @@ places, not a full review.
 | `bytecode` | the compiler and the VM; vm.md §3, §5, §7, §8; the debugger (`Debuggable`, BREAK); old `.kkc` files still load or are refused clearly |
 | `compiler` or `loader` | the VM; the debugger (`Locals`, line tables); `workermod` (`startfile`); vm.md §6 |
 | `lexer`, `parser` or `ast` | the compiler; `kukel fmt`; the debugger's expressions (`parser.ParseExpr`); the REPL; `syntax.ebnf` and `syntax.lark`; the VS Code grammar |
-| a language feature | all of the row above, and reference.md, the examples that would use it, and the `kukel fmt` layout of it |
+| a language feature | all of the row above, and reference.md, tutorial.md where it shows that part, the examples that would use it, and the `kukel fmt` layout of it |
 | `debugger` | `kukel debug` and `kukel dap`; debugging.md; reference.md "The debugger" |
 | `profile` or the VM's profiling | `kukel profile`; the Go API's `Profile`; reference.md "The profiler", embedding.md §7, vm.md §4.13 |
 | cmd/kukel | the CLI tests; reference.md §1; README's command table; `examples/*.tests` |
@@ -102,8 +102,9 @@ enough. This replaces a full cross-check after a feature.
 **Contract tests, always.** Tests that hold the documents and the code
 together catch drift without a review. There are:
 
-- the reference's programs and sessions replayed (`cmd/kukel` doc tests,
-  `tests/reference.golden`), and kept `kukel fmt` clean (TestDocsFormatted);
+- the programs and sessions of the reference, the tutorial and the README
+  replayed (`cmd/kukel` doc tests, `tests/reference.golden`), and kept
+  `kukel fmt` clean (TestDocsFormatted);
 - every opcode documented once in vm.md, as the instruction set has it
   (`internal/bytecode`);
 - `syntax.lark` checked against the test programs (TestLarkGrammar);

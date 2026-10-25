@@ -5,3 +5,5 @@
   cross-check is an integration test before a release, not after every feature.
 - Design decisions are recorded as Q entries in TODO.md; ideas for later in docs/future.md.
 - Keep the documents in sync with the code (docs/, README.md, examples/README.md).
+- A release gets an entry in CHANGELOG.md (newest first; name the Q entries, and say when the
+  syntax version or the bytecode format changes).
