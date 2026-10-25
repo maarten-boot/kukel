@@ -123,6 +123,10 @@ func TestShow(t *testing.T) {
 	if !strings.HasSuffix(s, "…\"") || !strings.HasPrefix(s, "\"éé") || len(s) > showChars+10 || !strings.Contains(s, "é…") {
 		t.Errorf("Show of a long string: %s", s[max(0, len(s)-20):])
 	}
+	bad := value.MakeVector([]value.Value{value.MakeString("a\xffé\x80\n")})
+	if got := Show(bad); got != `["a\xffé\x80\n"]` {
+		t.Errorf("Show of a string that is not valid UTF-8: %s", got)
+	}
 	cyc := value.MakeVector([]value.Value{value.MakeInt(1)})
 	cyc.AsVector().Elems = append(cyc.AsVector().Elems, cyc)
 	if got := Show(cyc); got != "[1, [...]]" {

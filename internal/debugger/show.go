@@ -37,11 +37,11 @@ func show(b *strings.Builder, v value.Value, open map[any]bool) {
 	case value.String:
 		s := v.AsString()
 		if left := showChars - b.Len(); len(s) > left {
-			q := value.Quote(s[:runeStart(s, left)])
+			q := quote(s[:runeStart(s, left)])
 			b.WriteString(q[:len(q)-1] + more + `"`)
 			return
 		}
-		b.WriteString(value.Quote(s))
+		b.WriteString(quote(s))
 		return
 	case value.Vector:
 		key = v.AsVector()
@@ -123,6 +123,32 @@ func show(b *strings.Builder, v value.Value, open map[any]bool) {
 		}
 		b.WriteByte('}')
 	}
+}
+
+// quote is value.Quote, with each byte that is not part of valid UTF-8 as
+// \xNN: an editor gets the debugger's text as JSON, which would show such
+// bytes as the replacement character.
+func quote(s string) string {
+	if utf8.ValidString(s) {
+		return value.Quote(s)
+	}
+	var b strings.Builder
+	b.WriteByte('"')
+	for len(s) > 0 {
+		r, n := utf8.DecodeRuneInString(s)
+		if r == utf8.RuneError && n == 1 {
+			const hex = "0123456789abcdef"
+			b.WriteString(`\x`)
+			b.WriteByte(hex[s[0]>>4])
+			b.WriteByte(hex[s[0]&15])
+		} else {
+			q := value.Quote(s[:n])
+			b.WriteString(q[1 : len(q)-1])
+		}
+		s = s[n:]
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 // cut shortens s to at most n bytes (whole characters), with "…" if it did.

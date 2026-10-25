@@ -580,6 +580,19 @@ main() {
 	if ev := c.ok("evaluate", map[string]any{"expression": "m[501]", "frameId": 1}).(*dap.EvaluateResponse); ev.Body.Result != "-1" {
 		t.Errorf("m[501] set: %s", ev.Body.Result)
 	}
+	// The elements of an expression that is not a name are named in
+	// parentheses; a failed hover or watch is not for the user's attention.
+	ev := c.ok("evaluate", map[string]any{"expression": "true ? big : big", "frameId": 1}).(*dap.EvaluateResponse)
+	part = c.ok("variables", map[string]any{"variablesReference": ev.Body.VariablesReference, "filter": "indexed", "start": 0, "count": 1}).(*dap.VariablesResponse)
+	if v := part.Body.Variables; len(v) != 1 || v[0].EvaluateName != "(true ? big : big)[0]" {
+		t.Errorf("an element of a conditional expression: %+v", v)
+	}
+	for ctx, show := range map[string]bool{"hover": false, "watch": false, "repl": true} {
+		c.send("evaluate", map[string]any{"expression": "nosuch", "context": ctx})
+		if e, ok := c.response().(*dap.ErrorResponse); !ok || e.Body.Error == nil || e.Body.Error.ShowUser != show {
+			t.Errorf("a failed %s: %+v", ctx, e)
+		}
+	}
 	// In f's frame: x (captured) first, then the local x.
 	sc = c.ok("scopes", map[string]any{"frameId": 2}).(*dap.ScopesResponse)
 	r := c.ok("variables", map[string]any{"variablesReference": sc.Body.Scopes[0].VariablesReference}).(*dap.VariablesResponse)

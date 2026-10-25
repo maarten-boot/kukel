@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -593,15 +594,23 @@ func typeName(v value.Value) string {
 }
 
 func (s *dapServer) evaluate(m *vm.VM, r *dap.EvaluateRequest) dap.ResponseMessage {
+	fail := failure
+	if c := r.Arguments.Context; c == "hover" || c == "watch" {
+		fail = quietFailure // the editor shows these where they were asked for
+	}
 	frame, err := frameIndex(m, r.Arguments.FrameId)
 	if err != nil {
-		return failure(err)
+		return fail(err)
 	}
-	v, err := debugger.Eval(m, frame, r.Arguments.Expression)
+	expr := r.Arguments.Expression
+	v, err := debugger.Eval(m, frame, expr)
 	if err != nil {
-		return failure(err)
+		return fail(err)
 	}
-	ref, named, indexed := s.expandable(frame, r.Arguments.Expression, v)
+	if !simplePath.MatchString(expr) {
+		expr = "(" + expr + ")" // what an element's evaluateName adds to: (a + b)[0]
+	}
+	ref, named, indexed := s.expandable(frame, expr, v)
 	return &dap.EvaluateResponse{Body: dap.EvaluateResponseBody{Result: debugger.Show(v), Type: typeName(v),
 		VariablesReference: ref, NamedVariables: named, IndexedVariables: indexed}}
 }
@@ -756,6 +765,19 @@ func failure(err error) dap.ResponseMessage {
 	return &dap.ErrorResponse{Response: dap.Response{Success: false, Message: err.Error()},
 		Body: dap.ErrorResponseBody{Error: &dap.ErrorMessage{Format: err.Error(), ShowUser: true}}}
 }
+
+// quietFailure is a failure the editor need not show the user on its own
+// (an expression under the mouse, or a watch).
+func quietFailure(err error) dap.ResponseMessage {
+	resp := failure(err).(*dap.ErrorResponse)
+	resp.Body.Error.ShowUser = false
+	return resp
+}
+
+// simplePath matches an expression that an element's or data member's
+// name can follow as it is: a name, then ->members and [indexes] without
+// brackets inside.
+var simplePath = regexp.MustCompile(`^\s*(this|[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*)(\s*(->\s*[A-Za-z_][A-Za-z0-9_]*|\[[^\[\]()]*\]))*\s*$`)
 
 func (s *dapServer) fail(req dap.Request, err error) {
 	resp := failure(err)
