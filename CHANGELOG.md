@@ -1,0 +1,190 @@
+# Changes
+
+What changed in each release of kukel, newest first. The reasons and the
+details are in [TODO.md](TODO.md), under the Q entries named here.
+
+Two kinds of change need care when you upgrade:
+
+- **Syntax versions.** A new syntax version may refuse old forms; the
+  parser then says what to write instead. The history is at the top of
+  [syntax.ebnf](syntax.ebnf).
+- **Bytecode formats.** A `.kkc` file is read only by a kukel of the same
+  format version; build it again from its source after such a release
+  (`kukel build`). The history is in [docs/vm.md](docs/vm.md) §7.
+
+## v0.31.0 (2026-10-25)
+
+- **Language:** a comma may end a list closed by a bracket: arguments,
+  parameters, vector and map literals (`f(a, b,)`, `[1, 2,]`). Syntax
+  version 7; old programs are unchanged.
+- `kukel profile`: `-cpu` now counts the work of built-ins and leaves
+  only the waiting out; deep recursion costs far less (a call tree);
+  calls from the Go API shorter than the interval are sampled; Ctrl-C
+  writes the report.
+- `zmq::Socket::send(msg [, timeout])`: a message no peer takes in time is
+  a `NetError` and closes the socket.
+- `kukel dap`: terminate and disconnect end a stopped program; no crashes on
+  bad requests; frame ids start at 1. Both debuggers: shadowed variables,
+  function breakpoints once per call, conditions checked when set, long
+  values shortened.
+- REPL, `kukel fmt`, CLI, tk and module fixes, clearer messages (cross-check
+  10, Q79). [docs/checks.md](docs/checks.md): how to check a change.
+
+## v0.30.0 (2026-10-20)
+
+- `kukel profile`: which functions and lines take the time, with call
+  counts, also of workers; `-pprof` for `go tool pprof`; profiling from the
+  Go API (`Options.Profile`). Q78.
+
+## v0.29.0 (2026-10-20)
+
+- `p9::disk`: its error message without Go's operation name.
+
+## v0.28.0 (2026-10-20)
+
+- `kukel dap`: the Debug Adapter Protocol, for Visual Studio Code, Neovim,
+  Helix and Emacs: conditional and hit-count breakpoints, logpoints,
+  changing values. A VS Code extension (`make vscode`) with syntax
+  highlighting; [docs/debugging.md](docs/debugging.md). Q77.
+
+## v0.27.0 (2026-10-19)
+
+- Cross-check 9 (Q76): output is written out before a program waits; the
+  debugger shows locals in scope and stops at exceptions nothing catches;
+  fused compound assignments (`x -= 1` 23-32% faster); `kukel fmt -`;
+  `-nofuse`; new examples `chat.kkl`, `logstat.kkl`, a new `todo.kkl`.
+- A 16-byte value was tried and not kept (Q75).
+
+## v0.26.0 (2026-10-19)
+
+- More fused instructions, chosen by measuring (typical programs 5-36%
+  faster). **Bytecode format 8.** Q74.
+
+## v0.25.0 (2026-10-18)
+
+- Examples: a parallel `wc` with workers, kukel embedded in Go (Q72); the
+  loose ends of cross-check 8 (Q73).
+
+## v0.24.0 (2026-10-17)
+
+- Cross-check 8 (Q71): a fast path for calls from the Go API, tk item
+  bindings, REPL and CLI fixes.
+
+## v0.23.0 (2026-10-17)
+
+- tk: check and radio menu entries, pop-up menus, fonts and themes, `Scale`
+  and `Combobox`, images, canvas arcs, tags and item bindings. Q70.
+
+## v0.22.0 (2026-10-17)
+
+- A faster VM: a fast call path and fused instructions (calls 22-40%
+  faster). **Bytecode format 7.** Q69.
+
+## v0.21.0 (2026-10-17)
+
+- Cross-check 7 (Q68): a Tcl injection in tk closed, lost handler
+  exceptions, the REPL's input and history.
+
+## v0.20.0 (2026-10-17)
+
+- The module `tk`: desktop windows, widgets, menus, dialogs and a canvas,
+  in a kukel built with the tag `tk` (release archives `kukel-tk-...`).
+  Q67.
+- `kukel a.kkl [args]` runs a file, so scripts can start with
+  `#!/usr/bin/env kukel`.
+
+## v0.19.0 - v0.19.2 (2026-10-16)
+
+- The REPL edits lines and keeps a history on a terminal; cross-check 6
+  (Q65).
+- A Docker image on ghcr.io with each release (Q66).
+
+## v0.18.0 (2026-10-16)
+
+- Releases are published by CI for each tag whose tests pass.
+
+## v0.17.0 (2026-10-16)
+
+- The module `p9`: a 9P client and server (9P2000 and 9P2000.L), trees
+  built by the program and directories of the disk. Q62, Q63.
+
+## v0.16.0 (2026-10-16)
+
+- The module `fs` (directories and files); `examples/grep.kkl -r`. Q61.
+
+## v0.15.0 (2026-10-15)
+
+- `kukel debug`: a debugger with breakpoints, stepping and values. Q60.
+
+## v0.14.0 (2026-10-15)
+
+- The module `re` (regular expressions) and `examples/grep.kkl`. Q59.
+
+## v0.13.0 (2026-10-15)
+
+- The module `uuid`, and UUID keys in the ORM; examples for features that
+  had none. Q58.
+
+## v0.12.0 (2026-10-15)
+
+- Cross-check 5 (Q57).
+
+## v0.11.0 (2026-10-15)
+
+- ORM relations: `db::many`, `db::one`, `load` and `include`. Q56.
+
+## v0.10.0 - v0.10.1 (2026-10-15)
+
+- `db`: PostgreSQL and MySQL/MariaDB (Q54); build tags to leave large parts
+  out (`nopostgres`, `nomysql`, `nosqlite`, `nozmq`; Q55).
+
+## v0.9.0 - v0.9.2 (2026-10-15)
+
+- Classes can derive from native classes; host modules can define classes.
+  **Bytecode format 6.** Q51.
+- The ORM in `db`: objects in tables (Q52).
+- `kukel fmt` puts a blank line before `if`, `while`, `for`, ... (Q53).
+
+## v0.8.0 (2026-10-14)
+
+- Speed: jump tables for `switch`, strings without boxing, in-place `s +=
+  x`, a peephole pass. **Bytecode format 5.** Q50.
+
+## v0.7.0 (2026-10-14)
+
+- The `with` statement (syntax version 6), several compile errors at once,
+  `kukel fmt`, `kukel repl`, modules compiled on their own (`.kkc`
+  modules). Q45-Q49.
+
+## v0.6.0 (2026-10-14)
+
+- The module `db`: SQL with SQLite. Go 1.25 is now the minimum. Q44.
+
+## v0.5.0 (2026-10-14)
+
+- The module `zmq`: ZeroMQ sockets in pure Go. Q43.
+
+## v0.4.0 (2026-10-14)
+
+- One way for each thing: `elseif` is gone (write `else if`), the comma
+  operator only in a `for` loop's first and last part, no `isnil` and
+  `substr`, only `Error` objects in `throw` (syntax version 5, Q41).
+  **Bytecode format 4.**
+
+## v0.3.0 (2026-10-14)
+
+- Temporaries after `;` in a parameter list are gone: declare them with
+  `local` (syntax version 4, Q40).
+
+## v0.2.0 - v0.2.1 (2026-10-13)
+
+- Modules: `use name;` and `name::x` (syntax version 3); modules written in
+  Go (`json`, `strings`, `time`); the event loop `events`; `worker`; the Go
+  API for embedding kukel. **Bytecode format 3.** Q35-Q39.
+
+## v0.1.0 - v0.1.2 (2026-10-13)
+
+- The first release: the language with classes, closures and exceptions,
+  the compiler, the VM, `.kkc` files (`build`, `exec`, `disasm`), the
+  built-ins, the reference and [docs/vm.md](docs/vm.md). **Bytecode format
+  2.**
