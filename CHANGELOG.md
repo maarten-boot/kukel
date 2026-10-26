@@ -26,6 +26,9 @@ Two kinds of change need care when you upgrade:
 - Debuggers: a byte that is not valid UTF-8 shows as `\xNN`; in `kukel dap`
   the elements of an expression are named in parentheses (`(a + b)[0]`),
   and a failed hover or watch is not reported as an error.
+- Profiler: returning from a deep recursion shows on the recursive call,
+  not on the caller's next line; two programs with a file of the same name
+  that share a `Profile` keep their lines apart (Q81).
 - [docs/tutorial.md](docs/tutorial.md), a fifteen-minute tour;
   [docs/README.md](docs/README.md), the list of documents; this file.
 
