@@ -120,9 +120,11 @@ together catch drift without a review. There are:
     (found by calling it with none and with many, which `native.Check`
     refuses with the range); run it also with `-tags tk`;
   - TestObjectsNotSetUp: an object whose Go part is not set up, passed to
-    any module function, static member function or constructor (alone or
-    in a vector), gives an exception of Kukel's own, never a crash (member
-    functions are not covered: calling one needs a working object);
+    any module function, static member function, constructor or member
+    function (alone or in a vector), gives an exception of Kukel's own,
+    never a crash; the member functions are called on a working object that
+    `working` says how to make (a new class with member functions must be
+    added there);
   - TestMessagesWithoutGoOperations: file and network failures of the
     built-ins, the modules and the command carry no Go operation name;
   - TestVMListings: the listings of vm.md §6 against `kukel disasm` of a

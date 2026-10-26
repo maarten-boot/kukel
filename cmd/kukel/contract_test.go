@@ -441,6 +441,10 @@ func TestObjectsNotSetUp(t *testing.T) {
 		}
 	}
 	prelude := uses.String() + classes.String() + `
+class Item { id; name; }
+
+idle() { return 0; }
+
 check(f, n) {
     local objs = [` + strings.TrimSuffix(objs.String(), ", ") + `];
 
@@ -463,7 +467,7 @@ check(f, n) {
 }
 `
 	env := probeEnv{}
-	try := func(what, call string, a arity) {
+	try := func(what, setup, call string, a arity) {
 		n := a.max
 		if n < 0 || n > 6 {
 			n = min(a.min+1, 6)
@@ -471,7 +475,7 @@ check(f, n) {
 		if n == 0 {
 			return
 		}
-		src := prelude + fmt.Sprintf("main() {\n    check(%s, %d);\n}\n", call, n)
+		src := prelude + fmt.Sprintf("main() {\n    %s\n    check(%s, %d);\n}\n", setup, call, n)
 		if err := os.WriteFile("ns.kkl", []byte(src), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -493,24 +497,55 @@ check(f, n) {
 		m, _ := native.Lookup(name)
 		for f, call := range m.Funcs {
 			if a, ok := probe(func(args []value.Value) error { _, err := call(env, args); return err }); ok {
-				try(name+"::"+f, name+"::"+f, a)
+				try(name+"::"+f, "", name+"::"+f, a)
 			}
 		}
 		for _, c := range m.Classes {
 			q := c.QualifiedName()
 			for s, call := range c.Statics {
 				if a, ok := probe(func(args []value.Value) error { _, err := call(env, args); return err }); ok {
-					try(q+"::"+s, q+"::"+s, a)
+					try(q+"::"+s, "", q+"::"+s, a)
 				}
 			}
 			if c.New != nil {
 				this := &value.ObjectObj{Class: c.ClassObj()}
 				if a, ok := probe(func(args []value.Value) error { _, err := c.New(env, this, args); return err }); ok {
-					try("new "+q, "fn(args..) { return new "+q+"(args..); }", a)
+					try("new "+q, "", "fn(args..) { return new "+q+"(args..); }", a)
+				}
+			}
+			if len(c.Methods) == 0 {
+				continue
+			}
+			setup, ok := working[q]
+			if !ok {
+				t.Errorf("%s: add to working how to make one, so that its member functions are tried", q)
+				continue
+			}
+			for meth, call := range c.Methods {
+				this := &value.ObjectObj{Class: c.ClassObj()}
+				if a, ok := probe(func(args []value.Value) error { _, err := call(env, this, args); return err }); ok {
+					try(q+"::"+meth, setup, "fn(args..) { return r->"+meth+"(args..); }", a)
 				}
 			}
 		}
 	}
+}
+
+// working makes a working object r of each native class with member
+// functions, for TestObjectsNotSetUp (Item and idle are in its prelude).
+var working = map[string]string{
+	"db::Conn":         `local r = db::open("sqlite::memory:");`,
+	"db::Cursor":       `local r = db::open("sqlite::memory:")->cursor("select 1");`,
+	"db::Query":        `local c = db::open("sqlite::memory:"); c->migrate(Item); local r = c->find(Item);`,
+	"events::Timer":    `local r = events::after(1000, idle);`,
+	"p9::Tree":         `local r = new p9::Tree();`,
+	"p9::Server":       `local r = p9::serve(new p9::Tree(), "tcp://127.0.0.1:0");`,
+	"p9::Client":       `local s = p9::serve(new p9::Tree(), "tcp://127.0.0.1:0"); local r = p9::dial(s->endpoint());`,
+	"re::Regexp":       `local r = new re::Regexp("a+");`,
+	"strings::Builder": `local r = new strings::Builder("x");`,
+	"time::Time":       `local r = time::now();`,
+	"worker::Worker":   `local r = worker::start(idle);`,
+	"zmq::Socket":      `local r = new zmq::Socket("PAIR");`,
 }
 
 // goOperation finds Go's name of an operation at the start of a message or
