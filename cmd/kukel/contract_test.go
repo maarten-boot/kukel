@@ -561,19 +561,34 @@ func TestMessagesWithoutGoOperations(t *testing.T) {
 	if err := os.Mkdir("adir", 0o755); err != nil {
 		t.Fatal(err)
 	}
-	failing := []string{
-		`readfile("nope/x")`, `writefile("nope/x", "a")`, `appendfile("nope/x", "a")`, `readfile("adir")`,
-		`fs::readdir("nope")`, `fs::stat("nope")`, `fs::mkdir("adir")`, `fs::remove("nope")`, `fs::rename("nope", "x")`,
-		`fs::walk("nope", fn(e) { return true; })`,
-		`worker::startfile("nope.kkl")`, `worker::startfile("adir")`,
-		`p9::dial("tcp://127.0.0.1:1")`, `p9::disk("nope")`, `p9::serve(new p9::Tree(), "unix:///nope/dir/sock")`,
-		`new zmq::Socket("REP")->bind("ipc:///nope/dir/sock")`,
-		`db::open("sqlite:nope/dir/x.db")`, `db::open("sqlite:adir")`,
+	failing := []struct{ module, call string }{ // the module it needs ("": none)
+		{"", `readfile("nope/x")`}, {"", `writefile("nope/x", "a")`}, {"", `appendfile("nope/x", "a")`}, {"", `readfile("adir")`},
+		{"fs", `fs::readdir("nope")`}, {"fs", `fs::stat("nope")`}, {"fs", `fs::mkdir("adir")`}, {"fs", `fs::remove("nope")`},
+		{"fs", `fs::rename("nope", "x")`}, {"fs", `fs::walk("nope", fn(e) { return true; })`},
+		{"worker", `worker::startfile("nope.kkl")`}, {"worker", `worker::startfile("adir")`},
+		{"p9", `p9::dial("tcp://127.0.0.1:1")`}, {"p9", `p9::disk("nope")`}, {"p9", `p9::serve(new p9::Tree(), "unix:///nope/dir/sock")`},
+		{"zmq", `new zmq::Socket("REP")->bind("ipc:///nope/dir/sock")`},
+		{"db", `db::open("sqlite:nope/dir/x.db")`}, {"db", `db::open("sqlite:adir")`},
 	}
 	var src strings.Builder
-	src.WriteString("use db;\nuse fs;\nuse p9;\nuse worker;\nuse zmq;\n\nmain() {\n")
-	for _, call := range failing {
-		fmt.Fprintf(&src, "    try {\n        %s;\n        println(%q);\n    } catch (e) {\n        println(e->kind + \": \" + e->message);\n    }\n", call, "no error: "+call)
+	used := map[string]bool{}
+	n := 0
+	for _, f := range failing {
+		if _, ok := native.Lookup(f.module); f.module != "" && !ok {
+			continue // a kukel built without it (make test-small)
+		}
+		if f.module != "" && !used[f.module] {
+			used[f.module] = true
+			fmt.Fprintf(&src, "use %s;\n", f.module)
+		}
+	}
+	src.WriteString("\nmain() {\n")
+	for _, f := range failing {
+		if _, ok := native.Lookup(f.module); f.module != "" && !ok {
+			continue
+		}
+		n++
+		fmt.Fprintf(&src, "    try {\n        %s;\n        println(%q);\n    } catch (e) {\n        println(e->kind + \": \" + e->message);\n    }\n", f.call, "no error: "+f.call)
 	}
 	src.WriteString("}\n")
 	if err := os.WriteFile("m.kkl", []byte(src.String()), 0o644); err != nil {
@@ -584,8 +599,8 @@ func TestMessagesWithoutGoOperations(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, stderr.String())
 	}
 	messages := strings.Split(strings.TrimSpace(stdout.String()), "\n")
-	if len(messages) != len(failing) {
-		t.Fatalf("%d messages for %d calls:\n%s", len(messages), len(failing), stdout.String())
+	if len(messages) != n {
+		t.Fatalf("%d messages for %d calls:\n%s", len(messages), n, stdout.String())
 	}
 	for _, args := range [][]string{{"run", "nope.kkl"}, {"nope.kkl"}, {"run", "adir"}, {"check", "nope.kkl"}, {"exec", "nope.kkc"},
 		{"fmt", "nope.kkl"}, {"disasm", "nope.kkl"}, {"tokens", "nope.kkl"}, {"ast", "nope.kkl"},
