@@ -29,8 +29,12 @@ Two kinds of change need care when you upgrade:
 - Profiler: returning from a deep recursion shows on the recursive call,
   not on the caller's next line; two programs with a file of the same name
   that share a `Profile` keep their lines apart (Q81).
-- [docs/tutorial.md](docs/tutorial.md), a fifteen-minute tour;
-  [docs/README.md](docs/README.md), the list of documents; this file.
+
+## v0.32.0 (2026-10-25)
+
+- Documents only: [docs/tutorial.md](docs/tutorial.md), a fifteen-minute
+  tour (its programs are run by the tests); [docs/README.md](docs/README.md),
+  the list of documents; this file.
 
 ## v0.31.0 (2026-10-25)
 
