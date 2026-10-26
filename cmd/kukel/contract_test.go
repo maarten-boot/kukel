@@ -513,7 +513,7 @@ check(f, n) {
 					try("new "+q, "", "fn(args..) { return new "+q+"(args..); }", a)
 				}
 			}
-			if len(c.Methods) == 0 {
+			if len(c.Methods) == 0 || name == "tk" { // (a tk widget needs a display and the process's main thread, not go test's)
 				continue
 			}
 			setup, ok := working[q]

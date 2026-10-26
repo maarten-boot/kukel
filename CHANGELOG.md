@@ -12,7 +12,10 @@ Two kinds of change need care when you upgrade:
   format version; build it again from its source after such a release
   (`kukel build`). The history is in [docs/vm.md](docs/vm.md) §7.
 
-## Unreleased
+## v0.33.1 (2026-10-26)
+
+v0.33.0 was tagged but not published: a new test failed in the tk build.
+v0.33.1 is the same with that test fixed.
 
 - Contract tests (Q80, [docs/checks.md](docs/checks.md) §4): waits through
   `native.Wait`, the arguments the reference shows, objects not set up,

@@ -124,7 +124,8 @@ together catch drift without a review. There are:
     function (alone or in a vector), gives an exception of Kukel's own,
     never a crash; the member functions are called on a working object that
     `working` says how to make (a new class with member functions must be
-    added there);
+    added there), except those of `tk`, whose widgets need a display and
+    the process's main thread;
   - TestMessagesWithoutGoOperations: file and network failures of the
     built-ins, the modules and the command carry no Go operation name;
   - TestVMListings: the listings of vm.md §6 against `kukel disasm` of a
