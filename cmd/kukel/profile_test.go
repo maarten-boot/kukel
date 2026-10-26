@@ -180,6 +180,38 @@ main() {
 	}
 }
 
+// The time of returning from a deep recursion shows on the recursive call,
+// not on the line of the caller that runs next (the VM also samples on
+// the way back).
+func TestProfileDeepReturn(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("d.kkl", []byte(`down(n) {
+    if (n == 0) return 0;
+    return down(n - 1) + 1;
+}
+
+main() {
+    local t = 0;
+
+    for (local i = 0; i < 300; i++) t += down(9000);
+    println(t);
+}
+`), 0o644)
+	var out, errOut bytes.Buffer
+	if code := run([]string{"profile", "d.kkl"}, nil, &out, &errOut); code != 0 {
+		t.Fatalf("exit %d, %s", code, errOut.String())
+	}
+	report := errOut.String()
+	if m := regexp.MustCompile(`(?m)^ +[0-9.]+ s +([0-9.]+)%  d\.kkl:9 `).FindStringSubmatch(report); m != nil {
+		if pct, _ := strconv.ParseFloat(m[1], 64); pct > 10 {
+			t.Errorf("%.1f%% on the caller's loop:\n%s", pct, report)
+		}
+	}
+	if s := lineTime(t, report, "return down(n - 1) + 1;"); s <= 0 {
+		t.Errorf("no time on the recursive call:\n%s", report)
+	}
+}
+
 // Ctrl-C: the program stops, the report is written, and kukel ends as
 // interrupted. A program that waits where it cannot be cancelled gets its
 // report after a second, while it waits.

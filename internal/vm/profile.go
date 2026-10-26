@@ -14,8 +14,8 @@ import (
 // Profiling (TODO.md Q78): a goroutine per Profiler asks the interpreters
 // that run for a sample every Interval by setting a flag; the VM looks at
 // the flag where it already looks for cancellation (step: backward jumps,
-// calls that take the slow path, throws) and after every call of a Go
-// function, and there records its call stack, on its own goroutine, in a
+// calls that take the slow path, throws), at each return, and after every
+// call of a Go function, and there records its call stack, on its own goroutine, in a
 // call tree. A program that is not profiled pays nothing for this. Calls
 // are counted exactly; the counts go to the Profiler at each sample and
 // when the profiling pauses or stops.

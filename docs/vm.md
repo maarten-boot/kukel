@@ -438,7 +438,10 @@ out the time between the Go API's calls), a goroutine of the `Profiler`
 sets a flag of each running interpreter every interval (a millisecond).
 The VM looks at it where it already looks for a step limit or a
 cancellation (`step`: backward jumps, calls that take the slow path,
-throws; the fast call path then takes the slow one) and after every call
+throws; the fast call path then takes the slow one), at each return
+(after the frame is gone: the sample is on the caller's call, so the time
+of returning from a deep recursion shows on the recursive call; one test of
+`watched` per return, which measured no slower), and after every call
 of a Go function (`callBuiltin`, `invokeGo`, a native constructor in
 `newObject`). There it records its frames (functions and lines), as a
 sample that weighs the time since the one before, so the time of a Go

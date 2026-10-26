@@ -1672,6 +1672,11 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			}
 			f = &vm.frames[len(vm.frames)-1]
 			code, consts, base, ip = f.fn.Code, f.fn.Consts, f.base, f.ip
+			if vm.watched && vm.prof != nil && vm.prof.want.Load() {
+				// A sample on the way back too: the time of returning from a
+				// deep recursion shows on the call, not at the next safe point.
+				vm.sample(pcCaller)
+			}
 
 		case bytecode.OpNewCell:
 			sp--
