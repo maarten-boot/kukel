@@ -12,6 +12,14 @@ Two kinds of change need care when you upgrade:
   format version; build it again from its source after such a release
   (`kukel build`). The history is in [docs/vm.md](docs/vm.md) §7.
 
+## Unreleased
+
+- `program()`: the program's file as `kukel` got it, as C's argv[0]
+  (`Options.Program` in the Go API). Q82.
+- `uuid::v5(namespace, name)` and `uuid::v3`: UUIDs derived from a name,
+  with the namespaces `uuid::DNS`, `uuid::URL`, `uuid::OID` and
+  `uuid::X500`. Q82.
+
 ## v0.33.1 (2026-10-26)
 
 v0.33.0 was tagged but not published: a new test failed in the tk build.

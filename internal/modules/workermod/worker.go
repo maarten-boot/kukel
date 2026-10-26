@@ -212,9 +212,10 @@ func self(env value.Env) *worker {
 	return w
 }
 
-// launch runs fn(args...) (fn nil: main) of prog in a new interpreter on
-// its own goroutine. The new interpreter writes to the parent's output.
-func launch(parent value.Env, name string, prog *bytecode.Program, fn value.Value, args []value.Value) (value.Value, error) {
+// launch runs fn(args...) (fn nil: main) of prog, whose file is program
+// (for program()), in a new interpreter on its own goroutine. The new
+// interpreter writes to the parent's output.
+func launch(parent value.Env, name, program string, prog *bytecode.Program, fn value.Value, args []value.Value) (value.Value, error) {
 	p, ok := parent.(*vm.VM)
 	if !ok {
 		return value.NilValue, errors.New("worker: not running in a kukel VM")
@@ -225,6 +226,7 @@ func launch(parent value.Env, name string, prog *bytecode.Program, fn value.Valu
 		return value.NilValue, value.Errorf(value.ValueError, "worker: %v", err)
 	}
 	child.SetStderr(stderr)
+	native.SetProgram(child, program)
 	child.StepLimit = p.StepLimit
 	if c := p.CurrentCanceller(); c != nil {
 		c.Keep()
@@ -460,7 +462,7 @@ func init() {
 				if err != nil {
 					return value.NilValue, err
 				}
-				return launch(env, fn.FuncName, env.(*vm.VM).Program(), args[0], copied)
+				return launch(env, fn.FuncName, native.Program(env), env.(*vm.VM).Program(), args[0], copied)
 			},
 			// startfile(path, args...): compiles the program in path (a .kkl
 			// file, with its modules; or a .kkc file) and runs its main with
@@ -486,7 +488,7 @@ func init() {
 				if err != nil {
 					return value.NilValue, err
 				}
-				return launch(env, path, prog, value.NilValue, []value.Value{value.MakeVector(copied)})
+				return launch(env, path, path, prog, value.NilValue, []value.Value{value.MakeVector(copied)})
 			},
 			// send(v): in a worker, a copy of v goes to the parent.
 			"send": func(env value.Env, args []value.Value) (value.Value, error) {

@@ -214,6 +214,12 @@ func init() {
 		}
 		return value.NilValue, &value.ExitError{Code: int(code)}
 	})
+	define("program", func(env value.Env, args []value.Value) (value.Value, error) {
+		if err := wantArgs("program", args, 0); err != nil {
+			return value.NilValue, err
+		}
+		return value.MakeString(native.Program(env)), nil
+	})
 	define("getenv", func(env value.Env, args []value.Value) (value.Value, error) {
 		if err := wantArgs("getenv", args, 1); err != nil {
 			return value.NilValue, err

@@ -182,7 +182,7 @@
     },
     "builtins": {
       "name": "support.function.builtin.kukel",
-      "match": "\\b(?:abs|appendfile|atan2|ceil|char|classof|clock|cos|delete|eprint|eprintln|exit|exp|find|float|floor|getenv|haskey|insert|instanceof|int|join|keys|len|log|lower|max|min|ord|pop|pow|print|println|push|randint|random|readfile|readline|remove|replace|round|seed|sin|slice|sort|split|sqrt|str|tan|time|trim|typeof|upper|values|writefile)\\b(?=\\s*\\()"
+      "match": "\\b(?:abs|appendfile|atan2|ceil|char|classof|clock|cos|delete|eprint|eprintln|exit|exp|find|float|floor|getenv|haskey|insert|instanceof|int|join|keys|len|log|lower|max|min|ord|pop|pow|print|println|program|push|randint|random|readfile|readline|remove|replace|round|seed|sin|slice|sort|split|sqrt|str|tan|time|trim|typeof|upper|values|writefile)\\b(?=\\s*\\()"
     },
     "qualified": {
       "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(::)",

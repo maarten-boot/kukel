@@ -10,6 +10,7 @@ import (
 	"github.com/maarten-boot/kukel/internal/builtins"
 	"github.com/maarten-boot/kukel/internal/bytecode"
 	"github.com/maarten-boot/kukel/internal/debugger"
+	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/value"
 	"github.com/maarten-boot/kukel/internal/vm"
 )
@@ -78,6 +79,7 @@ func cmdDebug(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	machine.SetStderr(stderr)
+	native.SetProgram(machine, files[0])
 	d := &cliFront{in: in, m: machine, msg: stdout, sources: debugger.Sources{}}
 	d.s = debugger.New(prog, d, true)
 	d.s.Attach(machine)

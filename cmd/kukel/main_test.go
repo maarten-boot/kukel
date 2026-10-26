@@ -1207,6 +1207,47 @@ func TestScript(t *testing.T) {
 	}
 }
 
+// program() gives the program's file as kukel got it: of run (the first
+// file), exec, a file or script run directly, debug and profile; a worker
+// of worker::start its parent's, of worker::startfile its own file; the
+// REPL "".
+func TestProgramName(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("p.kkl", []byte("use worker;\n\nchild() {\n    return program();\n}\n\nmain() {\n    println(program(), worker::start(child)->wait());\n    worker::startfile(\"w.kkl\")->wait();\n}\n"), 0o644)
+	os.WriteFile("w.kkl", []byte("main() {\n    println(program());\n}\n"), 0o644)
+	os.WriteFile("lib.kkl", []byte("lib() {}\n"), 0o644)
+	os.WriteFile("script", []byte("#!/usr/bin/env kukel\nmain() {\n    println(program());\n}\n"), 0o755)
+	var out, errOut bytes.Buffer
+	if code := run([]string{"build", "-o", "p.kkc", "p.kkl"}, nil, &out, &errOut); code != 0 {
+		t.Fatalf("build: %s", errOut.String())
+	}
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"run", "p.kkl", "lib.kkl", "--", "x"}, "p.kkl p.kkl\nw.kkl\n"},
+		{[]string{"p.kkl"}, "p.kkl p.kkl\nw.kkl\n"},
+		{[]string{"exec", "p.kkc"}, "p.kkc p.kkc\nw.kkl\n"},
+		{[]string{"./p.kkc"}, "./p.kkc ./p.kkc\nw.kkl\n"},
+		{[]string{"./script"}, "./script\n"},
+		{[]string{"profile", "-o", "r.txt", "p.kkl"}, "p.kkl p.kkl\nw.kkl\n"},
+	} {
+		out.Reset()
+		errOut.Reset()
+		if code := run(c.args, nil, &out, &errOut); code != 0 || out.String() != c.want {
+			t.Errorf("%v: exit %d, %q, %s", c.args, code, out.String(), errOut.String())
+		}
+	}
+	out.Reset()
+	if code := run([]string{"debug", "w.kkl"}, strings.NewReader("c\n"), &out, &out); code != 0 || !strings.Contains(out.String(), "(kdb) w.kkl\n") {
+		t.Errorf("debug: exit %d:\n%s", code, out.String())
+	}
+	out.Reset()
+	if code := run([]string{"repl"}, strings.NewReader("program()\n"), &out, &errOut); code != 0 || out.String() != "\"\"\n" {
+		t.Errorf("repl: exit %d, %q", code, out.String())
+	}
+}
+
 // timedWriter notes when each line arrives.
 type timedWriter struct {
 	mu    sync.Mutex

@@ -59,7 +59,7 @@ state, which last between calls.
 
 | Method | |
 |---|---|
-| `New(p, opts)` | A new interpreter. `Options`: `Stdout`, `Stderr` (nil: discarded), `Stdin` (nil: empty), `StepLimit`. A `Stdout` with a `Flush() error` method (a `bufio.Writer`) is flushed before `eprint`, `readline` and the waits of modules (`time::sleep`, `events::run`, ...); a `Stderr` with one before those waits |
+| `New(p, opts)` | A new interpreter. `Options`: `Stdout`, `Stderr` (nil: discarded), `Stdin` (nil: empty), `StepLimit`, `Program` (what `program()` gives, also in the workers of `worker::start`; `""` without it). A `Stdout` with a `Flush() error` method (a `bufio.Writer`) is flushed before `eprint`, `readline` and the waits of modules (`time::sleep`, `events::run`, ...); a `Stderr` with one before those waits |
 | `in.Run(args...)` | Runs `main` (with `args` as its vector of strings if it has a parameter) and gives the exit code (1 together with the error if the program fails) |
 | `in.Call(name, args...)` | Calls a top-level function (`"discount"`) or a module's (`"util::f"`, also private names such as `"util::_g"`, and `"json::encode"` of any Go module the program may use) and gives its result. Not reachable by name: static member functions (`"C::f"`) and built-ins (`"println"`): call a top-level function that calls them |
 | `in.CallValue(fn, args...)` | Calls a function value, such as a callback a Go function received |

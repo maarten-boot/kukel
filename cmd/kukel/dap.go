@@ -20,6 +20,7 @@ import (
 	"github.com/maarten-boot/kukel/internal/builtins"
 	"github.com/maarten-boot/kukel/internal/bytecode"
 	"github.com/maarten-boot/kukel/internal/debugger"
+	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/value"
 	"github.com/maarten-boot/kukel/internal/vm"
 )
@@ -335,6 +336,7 @@ func (s *dapServer) launch(r *dap.LaunchRequest) (err error) {
 		return err
 	}
 	machine.SetStderr(dapWriter{s, "stderr"})
+	native.SetProgram(machine, a.Program)
 	s.args, s.machine, s.stdout = a, machine, stdout
 	if file != nil {
 		s.stdin = file

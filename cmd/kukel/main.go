@@ -210,7 +210,7 @@ func cmdRun(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	return runProgram(prog, progArgs, stdin, stdout, stderr)
+	return runProgram(prog, files[0], progArgs, stdin, stdout, stderr)
 }
 
 // badFiles reports a usage error for an argument taken as a file name that
@@ -243,10 +243,11 @@ func badFiles(cmd string, files []string, usage string, stderr io.Writer) bool {
 	return false
 }
 
-// runProgram runs a compiled program and returns its exit code.
+// runProgram runs a compiled program, whose file is name (for program()),
+// and returns its exit code.
 // Output that cannot be written to the end (a full disk) is reported, with
 // exit code 1.
-func runProgram(prog *bytecode.Program, progArgs []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func runProgram(prog *bytecode.Program, name string, progArgs []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	out := bufio.NewWriter(stdout)
 	machine, err := vm.NewWith(prog, builtins.Lookup, cliConfig(), out, stdin)
 	if err != nil {
@@ -254,6 +255,7 @@ func runProgram(prog *bytecode.Program, progArgs []string, stdin io.Reader, stdo
 		return 1
 	}
 	machine.SetStderr(stderr)
+	native.SetProgram(machine, name)
 	code, err := machine.Run(progArgs)
 	ferr := out.Flush()
 	if err != nil {
@@ -437,7 +439,7 @@ func cmdExec(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	return runProgram(prog, progArgs, stdin, stdout, stderr)
+	return runProgram(prog, args[0], progArgs, stdin, stdout, stderr)
 }
 
 // cmdDisasm prints the bytecode of one .kkc file, or of the program

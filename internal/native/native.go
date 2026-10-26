@@ -330,6 +330,19 @@ func Flush(env value.Env) {
 	}
 }
 
+type programKey struct{}
+
+// SetProgram sets what program() gives in the interpreter of env: the path
+// of the program's file as it was given (kukel run a.kkl: "a.kkl").
+func SetProgram(env value.Env, path string) {
+	*env.Local(programKey{}, func() any { return new(string) }).(*string) = path
+}
+
+// Program is what SetProgram set, or "".
+func Program(env value.Env) string {
+	return *env.Local(programKey{}, func() any { return new(string) }).(*string)
+}
+
 // Waiter is a wait that Wait began; Done ends it.
 type Waiter struct {
 	env   waitEnv

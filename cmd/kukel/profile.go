@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/maarten-boot/kukel/internal/builtins"
+	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/profile"
 	"github.com/maarten-boot/kukel/internal/vm"
 )
@@ -92,6 +93,7 @@ func cmdProfile(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	machine.SetStderr(stderr)
+	native.SetProgram(machine, files[0])
 	p := vm.NewProfiler(0, cpu)
 
 	// The report, once: after the run, or on Ctrl-C.

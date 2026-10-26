@@ -1100,6 +1100,7 @@ Bo 2
 |---|---|
 | `time()` | Seconds since 1970-01-01 UTC, as a float |
 | `clock()` | Seconds since the program started (for an embedded interpreter: since it was made), as a float |
+| `program()` | The program's file as `kukel` was given it, as C's `argv[0]`: `"a.kkl"` for `kukel run a.kkl` (the first file when there are several) and `kukel a.kkl`, `"prog.kkc"` for `kukel exec prog.kkc`, the script's path for a script started by its `#!/usr/bin/env kukel` line (`"./tool"`, or the path the shell found it at). For usage messages and files next to the program (`fs::join(fs::dir(program()), "data.txt")`). A worker of `worker::start` gives its parent's, one of `worker::startfile(path)` that `path`; the REPL `""`, and an embedding Go program what it sets ([embedding.md](embedding.md)) |
 | `getenv(name)` | The environment variable, or `nil` |
 | `exit([code])` | Ends the program at once with `code` (default 0; the system keeps its low 8 bits, as for `main`'s result) |
 
@@ -2279,6 +2280,7 @@ use uuid;
 main() {
     local id = uuid::v7();
     println(len(id), uuid::valid(id), uuid::valid("not a uuid"));   // 36 true false
+    println(uuid::v5(uuid::DNS, "example.com"));   // cfbff0d1-9375-5685-968c-48ce8b15ae17, always
 }
 ```
 
@@ -2286,7 +2288,15 @@ main() {
 |---|---|
 | `uuid::v7()` | A new version 7 UUID, as a string such as `"019a1b2c-3d4e-7f60-8a9b-0c1d2e3f4a5b"` (lower case). Its first 48 bits are the time in milliseconds, so later ones sort after earlier ones (in one program always, also within a millisecond; from different programs, not necessarily within a millisecond), and as database keys new rows land at the end of the index |
 | `uuid::v4()` | A new version 4 UUID: entirely random |
+| `uuid::v5(namespace, name)` | The version 5 UUID of string `name` in `namespace` (a UUID, in either case): from the SHA-1 hash of the two, as RFC 9562 defines it. The same namespace and name always give the same UUID, so ids can be derived from names, such as DNS names in `uuid::DNS`. A namespace that is not a UUID is a `ValueError` |
+| `uuid::v3(namespace, name)` | The same with MD5 (version 3), for ids that other systems made that way; new ones should use version 5 |
 | `uuid::valid(s)` | Whether string `s` is a UUID in that form: 32 hexadecimal digits (either case) in groups of 8, 4, 4, 4 and 12, joined by `-` |
+
+The standard namespaces of RFC 9562 are constants: `uuid::DNS` (DNS names,
+`"6ba7b810-9dad-11d1-80b4-00c04fd430c8"`), `uuid::URL` (URLs), `uuid::OID`
+(ISO object identifiers) and `uuid::X500` (X.500 names). Any UUID can be
+a namespace, also one of the program's own (`uuid::v5(uuid::v5(uuid::DNS,
+"example.com"), "user 17")`).
 
 ### worker
 

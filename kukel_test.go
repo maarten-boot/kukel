@@ -69,6 +69,17 @@ main(args) { println(greeting, args); return len(args); }`, kukel.CompileOptions
 	}
 }
 
+// Options.Program is what program() gives, also in a worker; "" without it.
+func TestProgramOption(t *testing.T) {
+	p := compile(t, "use worker;\nname() { return program(); }\nboth() { return [program(), worker::start(name)->wait()]; }\nmain() {}", kukel.CompileOptions{})
+	for _, name := range []string{"", "tool"} {
+		in := interp(t, p, kukel.Options{Program: name})
+		if r, err := in.Call("both"); err != nil || r.String() != fmt.Sprintf("[%q, %q]", name, name) {
+			t.Errorf("Program %q: %v, %v", name, r, err)
+		}
+	}
+}
+
 func TestHostModule(t *testing.T) {
 	var logged []string
 	app := kukel.NewModule("app").

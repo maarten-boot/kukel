@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/maarten-boot/kukel/internal/builtins"
+	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/value"
 	"github.com/maarten-boot/kukel/internal/vm"
 )
@@ -17,6 +18,11 @@ type Options struct {
 	Stdout io.Writer // what print writes to; nil: discarded
 	Stderr io.Writer // what eprint writes to; nil: discarded
 	Stdin  io.Reader // what readline reads; nil: empty
+
+	// Program is what program() gives: the program's name or path, as
+	// C's argv[0]; "" by default. Workers started with worker::start get
+	// it too.
+	Program string
 
 	// StepLimit bounds each call from Go (Run, Call, CallValue): after that
 	// many steps (backward jumps, calls and throws, so every loop counts)
@@ -66,6 +72,7 @@ func New(p *Program, opts Options) (*Interp, error) {
 		return nil, fmt.Errorf("kukel: %w", err)
 	}
 	m.SetStderr(stderr)
+	native.SetProgram(m, opts.Program)
 	m.StepLimit = opts.StepLimit
 	in := &Interp{vm: m, life: m.Cancellable(), profile: opts.Profile}
 	if in.profile != nil {
