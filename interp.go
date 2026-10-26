@@ -83,10 +83,14 @@ func New(p *Program, opts Options) (*Interp, error) {
 }
 
 // Close stops the interpreter for good: workers it started that are still
-// running are cancelled, and what they write later is dropped. Calls after
+// running are cancelled, and what they write later is dropped; files the
+// program opened with fs::open and did not close are closed. Calls after
 // Close give an error. Close may be called more than once.
 func (in *Interp) Close() {
 	in.life.Cancel(errClosed)
+	if !in.closed {
+		in.vm.End() // the files the program left open (fs::open); a failure is lost
+	}
 	in.vm.CloseOutput()
 	in.closed = true
 }

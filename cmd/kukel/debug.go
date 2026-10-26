@@ -88,6 +88,7 @@ func cmdDebug(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 	}
+	code = endProgram(machine, code, stderr)
 	fmt.Fprintf(d.msg, "the program ended (exit code %d)\n", code)
 	return code
 }

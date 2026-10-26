@@ -53,7 +53,8 @@ caught RangeError: index 5 out of range for vector of length 3
 - modules: `use geometry;` loads `geometry.kkl`, reached as `geometry::name`;
   modules written in Go: `db` (SQL with SQLite, PostgreSQL and MySQL, and
   objects in tables), `events` (an event loop with timers), `fs`
-  (directories and files), `json`, `p9` (the 9P file protocol: a client,
+  (open files read and written a line or a piece at a time, the standard
+  streams, directories), `json`, `p9` (the 9P file protocol: a client,
   and a server of trees the program builds and of disk directories), `re`
   (regular expressions), `strings` (a string builder), `time`, `tk`
   (desktop windows with widgets, menus, dialogs and a canvas; in a kukel
@@ -204,7 +205,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `editors/vscode` | the Visual Studio Code extension: highlighting and debugging ([docs/debugging.md](docs/debugging.md)) |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q82). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q83). Ideas for later are in [docs/future.md](docs/future.md).
 What changed in each release is in [CHANGELOG.md](CHANGELOG.md); all the
 documents are listed in [docs/README.md](docs/README.md).
 How to check a change (the subsystems, what else a change touches, and

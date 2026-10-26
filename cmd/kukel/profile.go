@@ -164,6 +164,7 @@ func cmdProfile(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		code = 1
 	}
+	code = endProgram(machine, code, stderr)
 	// The report also of a program that failed or called exit.
 	if writeReport() != 0 {
 		return 1

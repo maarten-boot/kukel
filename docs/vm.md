@@ -299,8 +299,13 @@ up, it refuses the program ("class X: its base class Y is not available
 Go code reaches the interpreter through `value.Env` (the VM): output and
 input, `Call` to call a Kukel function (a nested execution, section 4.3),
 `Local` for state a module keeps per interpreter (the `events` module keeps
-its event loop there), and `Thrown` to get the value of a Kukel exception
-that `Call` returned as an error.
+its event loop there, `fs` its open files), and `Thrown` to get the value
+of a Kukel exception that `Call` returned as an error. When the program
+ends, `VM.End` ends each such value that has a method `End() error`: `fs`
+writes out and closes the files the program did not close. `kukel` calls
+it after `main` (also after `exit` or an uncaught exception; a failure is
+reported with exit code 1), a worker when its function returns, and the
+Go API in `Interp.Close`; the VM itself knows nothing of files.
 
 **Several VMs** can run one program image at once: the image is not
 changed while it runs (inline caches belong to the VM), and each VM has its

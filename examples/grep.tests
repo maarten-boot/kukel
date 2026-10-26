@@ -49,7 +49,7 @@ exit 2
 
 $ alpha testdata/words.txt testdata/nofile.txt
 testdata/words.txt:alpha
-! grep: readfile: testdata/nofile.txt: no such file or directory
+! grep: fs::open: testdata/nofile.txt: no such file or directory
 exit 2
 
 $ -r -n TODO testdata/tree
@@ -75,7 +75,7 @@ $ -r -h helpers testdata/tree/lib
 # current directory.
 $ alpha testdata/tree testdata/words.txt
 testdata/words.txt:alpha
-! grep: readfile: testdata/tree: is a directory
+! grep: fs::open: testdata/tree: is a directory
 exit 2
 
 $ -r -l '^\s+// TODO'

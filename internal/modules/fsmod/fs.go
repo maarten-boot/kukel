@@ -7,6 +7,7 @@
 //
 // An entry is a map: name, size, dir, link, mode and time (a time::Time).
 // What fails is an IOError. Symbolic links are not followed by walk.
+// fs::open gives an fs::File (file.go).
 package fsmod
 
 import (
@@ -24,7 +25,7 @@ import (
 func init() {
 	native.Register(&native.Module{
 		Name: "fs",
-		Doc:  "directories and files: readdir, stat, walk, mkdir, remove, rename, paths",
+		Doc:  "directories and files: open files, readdir, stat, walk, mkdir, remove, rename, paths",
 		Funcs: map[string]native.Func{
 			"readdir":   readdir,
 			"stat":      stat,
@@ -39,7 +40,12 @@ func init() {
 			"base":      pathFunc("fs::base", filepath.Base),
 			"dir":       pathFunc("fs::dir", filepath.Dir),
 			"ext":       pathFunc("fs::ext", filepath.Ext),
+			"open":      open,
+			"stdin":     standard(stdin, "stdin"),
+			"stdout":    standard(stdout, "stdout"),
+			"stderr":    standard(stderr, "stderr"),
 		},
+		Classes: []*native.Class{File},
 	})
 }
 

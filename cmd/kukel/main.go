@@ -260,10 +260,24 @@ func runProgram(prog *bytecode.Program, name string, progArgs []string, stdin io
 	ferr := out.Flush()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
-		return 1
+		code = 1
 	}
-	if ferr != nil {
+	code = endProgram(machine, code, stderr)
+	if ferr != nil && err == nil {
 		return writeResult(ferr, stderr)
+	}
+	return code
+}
+
+// endProgram closes what the program left open (VM.End: its files). A
+// failure (a file that cannot be written out) is reported, and makes an
+// exit code of 0 a 1.
+func endProgram(machine *vm.VM, code int, stderr io.Writer) int {
+	if err := machine.End(); err != nil {
+		fmt.Fprintln(stderr, "kukel:", err)
+		if code == 0 {
+			code = 1
+		}
 	}
 	return code
 }
@@ -703,6 +717,11 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	machine.SetStderr(stderr)
+	defer func() { // the files the program left open
+		if err := machine.End(); err != nil {
+			fmt.Fprintln(stderr, "kukel:", err)
+		}
+	}()
 	r := &repl{session: session, machine: machine, out: out, stderr: stderr}
 	if len(files) > 0 {
 		parsed, err := loader.LoadWith(files, config)

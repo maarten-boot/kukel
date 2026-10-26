@@ -12,6 +12,16 @@ Two kinds of change need care when you upgrade:
   format version; build it again from its source after such a release
   (`kukel build`). The history is in [docs/vm.md](docs/vm.md) §7.
 
+## Unreleased
+
+- Open files: `fs::open(path [, mode])` gives an `fs::File` to read a line
+  or a number of bytes at a time and write as the program goes
+  (`readline`, `read`, `write`, `print`, `println`, `seek`, `tell`,
+  `flush`, `close`; `with` closes it); `fs::stdin()`, `fs::stdout()` and
+  `fs::stderr()` are the standard streams as such files. Files a program
+  leaves open are written out and closed when it ends. Q83.
+- `examples/grep.kkl` reads its files a line at a time.
+
 ## v0.33.1 (2026-10-26)
 
 v0.33.0 was tagged but not published: a new test failed in the tk build.

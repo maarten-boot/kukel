@@ -116,6 +116,12 @@ func (s *dapServer) runProgram() int {
 	if err != nil && !s.ending.Load() {
 		s.output("stderr", err.Error()+"\n")
 	}
+	if err := s.machine.End(); err != nil {
+		s.output("stderr", "kukel: "+err.Error()+"\n")
+		if code == 0 {
+			code = 1
+		}
+	}
 	s.send(&dap.ExitedEvent{Event: s.event("exited"), Body: dap.ExitedEventBody{ExitCode: code}})
 	s.send(&dap.TerminatedEvent{Event: s.event("terminated")})
 	return code

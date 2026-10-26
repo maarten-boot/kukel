@@ -317,6 +317,37 @@ databases (`db`), files (`fs`), JSON, regular expressions (`re`), dates
 (`time`), UUIDs, networking (`zmq`, `p9`), windows (`tk`), and the two
 below. Each is described in [reference.md §11](reference.md#11-modules-written-in-go).
 
+`fs` also opens files, to read or write them a line or a piece at a time
+instead of whole; `with` closes them however its statement is left:
+
+```
+use fs;
+
+main() {
+    with (local out = fs::open("shopping.txt", "w")) {
+        out->println("bread");
+        out->println("cheese", 2);
+    }
+    local n = 0, line;
+
+    with (local f = fs::open("shopping.txt")) {
+        while ((line = f->readline()) != nil) {
+            n++;
+            println(str(n) + ".", line);
+        }
+    }
+}
+```
+
+```
+$ kukel run shopping.kkl
+1. bread
+2. cheese 2
+```
+
+`fs::open(path, "a")` appends, and `fs::stdin()`, `fs::stdout()` and
+`fs::stderr()` are the standard streams as such files.
+
 ## 8. Events
 
 A program that waits for several things at once, such as timers, network

@@ -80,6 +80,26 @@ func TestProgramOption(t *testing.T) {
 	}
 }
 
+// Close closes the files the program left open: written out, so that a
+// file kept in a global between calls is complete afterwards.
+func TestCloseClosesFiles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "log.txt")
+	p := compile(t, "use fs;\nglobal out;\nmain() {}\nadd(s) {\n    if (out == nil) out = fs::open(program(), \"a\");\n    out->println(s);\n}\n", kukel.CompileOptions{})
+	in := interp(t, p, kukel.Options{Program: path})
+	for _, s := range []string{"one", "two"} {
+		if _, err := in.Call("add", kukel.String(s)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if data, _ := os.ReadFile(path); len(data) != 0 {
+		t.Errorf("written before Close: %q", data)
+	}
+	in.Close()
+	if data, _ := os.ReadFile(path); string(data) != "one\ntwo\n" {
+		t.Errorf("after Close: %q", data)
+	}
+}
+
 func TestHostModule(t *testing.T) {
 	var logged []string
 	app := kukel.NewModule("app").

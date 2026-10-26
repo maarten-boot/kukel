@@ -13,7 +13,8 @@
 //     -r  search the files in the directories given (none: the current one),
 //         and below them (module fs)
 //
-// A file named - is standard input, as no file is. The exit code is 0 when a line matched, 1 when none did, 2 after an error.
+// A file named - is standard input, as no file is. Files are read a line
+// at a time (fs::open), so large ones are not read into memory. The exit code is 0 when a line matched, 1 when none did, 2 after an error.
 use re;
 use fs;
 
@@ -64,16 +65,18 @@ main(args) {
     if (haskey(opts, "r")) files = below(len(files) == 0 ? ["."] : files);
 
     if (len(files) == 0) {
-        found = search(rx, "(standard input)", stdinLines(), false);
+        found = search(rx, "(standard input)", fs::stdin(), false);
     } else {
         local named = (len(files) > 1 || walked) && !haskey(opts, "h");
 
         for (local f in files) {
             try {
                 if (f == "-") {
-                    if (search(rx, "(standard input)", stdinLines(), named)) found = true;
-                } else if (search(rx, f, lines(readfile(f)), named)) {
-                    found = true;
+                    if (search(rx, "(standard input)", fs::stdin(), named)) found = true;
+                } else {
+                    with (local file = fs::open(f)) {
+                        if (search(rx, f, file, named)) found = true;
+                    }
                 }
             } catch (e) {
                 eprintln("grep:", e->message);
@@ -84,14 +87,13 @@ main(args) {
     return failed ? 2 : found ? 0 : 1;
 }
 
-// search prints what the options ask for about the lines of one file, and
-// tells whether a line matched.
-search(rx, name, lines, showName) {
-    local count = 0, prefix = showName ? name + ":" : "";
+// search prints what the options ask for about the lines of one file (an
+// fs::File, read a line at a time: -l stops at the first match), and tells
+// whether a line matched.
+search(rx, name, file, showName) {
+    local count = 0, prefix = showName ? name + ":" : "", line;
 
-    for (local i = 0; i < len(lines); i++) {
-        local line = lines[i];
-
+    for (local i = 0; (line = file->readline()) != nil; i++) {
         if (rx->match(line) == haskey(opts, "v")) continue;
         count++;
 
@@ -114,22 +116,6 @@ search(rx, name, lines, showName) {
         println(prefix + str(count));
     }
     return count > 0;
-}
-
-// lines splits the text of a file into its lines (a last newline ends the
-// last line, it does not start an empty one).
-lines(text) {
-    local v = split(text, "\n");
-
-    if (len(v) > 0 && v[len(v) - 1] == "") pop(v);
-    return v;
-}
-
-stdinLines() {
-    local v = [];
-
-    for (local line = readline(); line != nil; line = readline()) push(v, line);
-    return v;
 }
 
 // below gives the files in the directories of paths, and below them, in

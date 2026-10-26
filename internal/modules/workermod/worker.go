@@ -247,6 +247,9 @@ func launch(parent value.Env, name, program string, prog *bytecode.Program, fn v
 		if errors.As(err, &re) && re.Exit != nil {
 			r, err = value.MakeInt(int64(*re.Exit)), nil // exit(code) ends this worker only
 		}
+		if eerr := child.End(); eerr != nil && err == nil { // the files it left open
+			err = value.Errorf(value.IOError, "%v", eerr)
+		}
 		if err != nil {
 			w.err = err
 			return

@@ -267,6 +267,7 @@ func TestReferenceExamples(t *testing.T) {
 	// A block without main that starts with "// name.kkl" is a module: it is
 	// written to the directory the examples run in.
 	dir := t.TempDir()
+	t.Chdir(dir) // (the fs examples write files)
 	blocks := strings.Split(string(doc), "```")
 	n := 0
 	for i := 1; i < len(blocks); i += 2 {
@@ -1245,6 +1246,33 @@ func TestProgramName(t *testing.T) {
 	out.Reset()
 	if code := run([]string{"repl"}, strings.NewReader("program()\n"), &out, &errOut); code != 0 || out.String() != "\"\"\n" {
 		t.Errorf("repl: exit %d, %q", code, out.String())
+	}
+}
+
+// Files a program or a worker did not close are written out and closed
+// when it ends; one that cannot be is reported, with exit code 1.
+func TestFilesLeftOpen(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("p.kkl", []byte("use fs;\nuse worker;\n\nwork() {\n    fs::open(\"w.txt\", \"w\")->write(\"worker\");\n}\n\nmain() {\n    worker::start(work)->wait();\n    println(readfile(\"w.txt\"));\n    fs::open(\"m.txt\", \"w\")->write(\"main\");\n}\n"), 0o644)
+	var out, errOut bytes.Buffer
+	if code := run([]string{"run", "p.kkl"}, nil, &out, &errOut); code != 0 || out.String() != "worker\n" || errOut.Len() > 0 {
+		t.Errorf("exit %d, %q, %q", code, out.String(), errOut.String())
+	}
+	if data, _ := os.ReadFile("m.txt"); string(data) != "main" {
+		t.Errorf("m.txt: %q", data)
+	}
+	if _, err := os.Stat("/dev/full"); err != nil {
+		t.Skip("no /dev/full")
+	}
+	os.WriteFile("full.kkl", []byte("use fs;\n\nmain() {\n    fs::open(\"/dev/full\", \"w\")->write(\"x\");\n}\n"), 0o644)
+	errOut.Reset()
+	if code := run([]string{"run", "full.kkl"}, nil, &out, &errOut); code != 1 || errOut.String() != "kukel: /dev/full: no space left on device\n" {
+		t.Errorf("/dev/full: exit %d, %q", code, errOut.String())
+	}
+	os.WriteFile("wfull.kkl", []byte("use fs;\nuse worker;\n\nwork() {\n    fs::open(\"/dev/full\", \"w\")->write(\"x\");\n}\n\nmain() {\n    try {\n        worker::start(work)->wait();\n    } catch (e) {\n        println(e->kind, e->message);\n    }\n}\n"), 0o644)
+	out.Reset()
+	if code := run([]string{"run", "wfull.kkl"}, nil, &out, &errOut); code != 0 || !strings.Contains(out.String(), "IOError: /dev/full: no space left on device") {
+		t.Errorf("/dev/full in a worker: exit %d, %q", code, out.String())
 	}
 }
 

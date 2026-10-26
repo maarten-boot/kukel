@@ -299,7 +299,7 @@ Built-ins and Go functions, by calls:
 |---|---|
 | `-o report.txt` | The report to that file instead of standard error |
 | `-pprof prof.pb.gz` | Also the profile in Go's pprof format: `go tool pprof -http=: prof.pb.gz` shows it as a flame graph or a call graph, `-list isPrime` the source with the time of each line, `-top` the functions |
-| `-cpu` | Running time only: the time spent waiting in `time::sleep`, `events::run()`, a worker's `receive` and `wait`, `readline`, and the waits of modules `zmq` and `p9` is left out. All other time counts, also the work of built-ins and Go functions (`sort`); so does the time of reading and writing files |
+| `-cpu` | Running time only: the time spent waiting in `time::sleep`, `events::run()`, a worker's `receive` and `wait`, `readline` (also of `fs::stdin()`, pipes and terminals), and the waits of modules `zmq` and `p9` is left out. All other time counts, also the work of built-ins and Go functions (`sort`); so does the time of reading and writing files |
 
 - It samples: every millisecond the VM notes where the program is, at
   the next point where it looks anyway (where a loop jumps back, at a
@@ -645,7 +645,7 @@ close a
   value) for the statement. When the statement is left (at its end, by
   `return`, `break`, `continue` or an exception), `x->close()` is called for
   each of them that is not `nil`, the last one first.
-- Any value with a `close()` member function works: `db::Conn`,
+- Any value with a `close()` member function works: `fs::File`, `db::Conn`,
   `db::Cursor`, `zmq::Socket`, `p9::Client`, `p9::Server`, and objects of
   your own classes. A
   value without one gives a `TypeError` or `MemberError` when it is closed.
@@ -1483,8 +1483,10 @@ A timer prints as `events::Timer(once)`, `events::Timer(every 0.5s)` (the interv
 
 ### fs
 
-Directories and files of the local file system. Paths are strings, as for
-`readfile`; relative ones start at the current directory.
+Directories and files of the local file system: open files to read and
+write a piece at a time, the program's standard streams, directories,
+entries and paths. Paths are strings, as for `readfile`; relative ones
+start at the current directory.
 
 ```
 use fs;
@@ -1516,6 +1518,88 @@ An **entry** is a map: `name` (the last part of the path), `size` (bytes),
 | `fs::removeall(path)` | Removes a file, or a directory with everything in it |
 | `fs::rename(from, to)` | Renames (moves) a file or directory |
 | `fs::join(part, ...)`, `fs::base(path)`, `fs::dir(path)`, `fs::ext(path)` | Paths as text: the parts joined with the system's separator and cleaned (`fs::join("a", "..", "b")` is `"b"`); the last part; all but the last; the extension of the last (`".kkl"`, or `""`) |
+
+**Open files.** `fs::open` gives an `fs::File`, to read a file a line or
+a number of bytes at a time and to write it as the program goes, so that
+large files and logs need not be read or written whole (as `readfile` and
+`writefile` do):
+
+```
+use fs;
+
+main() {
+    with (local out = fs::open("notes.txt", "w")) {
+        out->println("first line");
+        out->write("second ", "line\n");
+    }
+    local n = 0, line;
+
+    with (local f = fs::open("notes.txt")) {
+        while ((line = f->readline()) != nil) {
+            n++;
+            println(n, line);
+        }
+    }
+
+    with (local more = fs::open("notes.txt", "a")) more->println("third line");
+    println(len(readfile("notes.txt")), "bytes");
+}
+```
+
+```
+$ kukel run notes.kkl
+1 first line
+2 second line
+34 bytes
+```
+
+| Function | Description |
+|---|---|
+| `fs::open(path [, mode])` | Opens a file and gives an `fs::File`. The mode is as in C: `"r"` (the default) reads; `"w"` writes, emptying the file first (or making it); `"a"` appends, making the file if needed; `"x"` makes a new file, and is an `IOError` if there is one (`file exists`). With `+` (`"r+"`, `"w+"`, `"a+"`, `"x+"`) the file is also open the other way. Any other mode is a `ValueError`. New files get the mode `-rw-r--r--` less what the umask takes away, as for `writefile`. A directory is an `IOError` (`fs::open: src: is a directory`) |
+| `fs::stdin()`, `fs::stdout()`, `fs::stderr()` | The program's standard input, output and error as `fs::File`s (the same object at each call). They share the program's own: the built-in `readline()` and the member function `readline()` of standard input read from the same input, what `println` and standard output's `write` write keeps its order, and standard error writes out standard output first, as `eprint` does. So a function can take any `fs::File` and be given a file or a standard stream |
+
+An `fs::File`'s member functions; strings are bytes, so there is no text
+or binary mode:
+
+| Function | Description |
+|---|---|
+| `f->readline()` | The next line without its `\n` (or `\r\n`), or `nil` at the end, as `readline()` reads standard input; a last line without `\n` is a line too |
+| `f->read([n])` | Up to `n` bytes (fewer only at the end of the file), or without `n` the rest of the file; `nil` when nothing is left. `n` of 0 gives `""`, a negative one is a `ValueError` |
+| `f->write(s, ...)` | Writes the strings, with nothing between them, and gives `f` (so calls can be chained). Any other value is a `TypeError`: `print` and `println` turn values into text |
+| `f->print([x, ...])`, `f->println([x, ...])` | Write as the built-ins `print` and `println` do |
+| `f->seek(offset [, whence])` | Moves the position to `offset` bytes from `whence`: `"start"` (the default), `"current"` or `"end"`; gives the new position. A position before the start is an `IOError` |
+| `f->tell()` | The position, in bytes from the start |
+| `f->flush()` | Writes out what is buffered |
+| `f->close()` | Writes out what is buffered and closes the file; closing it again does nothing. A standard stream is only flushed, and stays open |
+| `f->closed()`, `f->name()`, `f->mode()` | Whether it is closed; the path as given to `fs::open` (`"<stdin>"`, `"<stdout>"`, `"<stderr>"` for the standard streams); the mode (`"r"` for standard input, `"w"` for the others) |
+
+- Reads and writes are buffered (64 KiB), so writing many small pieces is
+  fast; `flush` writes them out when another program must see them at once
+  (a log that someone follows). A file open both ways may switch between
+  reading and writing at any time, without a `seek` in between (unlike C):
+  what is written goes where the reading stopped. In mode `"a"` and `"a+"`
+  every write goes to the end.
+- Close files when done with them: `with` does it (as in the example). A
+  file the program did not close is written out and closed when the
+  program ends (also by `exit()` or an exception it does not catch, not
+  when the process is killed); a worker's when the worker ends; in a Go
+  program that embeds Kukel, at `Close`. If it cannot be written out then,
+  `kukel` reports it (`kukel: log.txt: no space left on device`) and ends
+  with exit code 1, and a worker's `wait()` throws it as an `IOError`.
+- After `close`, the other member functions are a `ValueError`
+  (`fs::File::read: notes.txt is closed`), as are reading a file not open
+  for reading and writing one not open for writing (`... is not open for
+  writing`). What the system refuses is an `IOError` that names the
+  function and the file: `fs::File::write: log.txt: no space left on
+  device`. A standard stream has no position: `seek` and `tell` are an
+  `IOError`, as is `seek` on a pipe.
+- Reading standard input, a pipe, a terminal or a device waits, as
+  `readline()` does (`kukel profile -cpu` leaves it out); reading and
+  writing a file on disk is work, not waiting. Such a wait cannot be cut
+  short.
+- An `fs::File` prints as `fs::File("notes.txt", "r")`,
+  `fs::File("notes.txt", closed)` or `fs::File(<stdin>)`. There is no `new
+  fs::File`: files come from `fs::open`, so no class derives from it.
 
 What the file system refuses (a missing path, a directory that is not
 empty for `remove`, no permission) is an `IOError` whose message names the

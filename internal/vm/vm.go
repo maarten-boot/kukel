@@ -410,6 +410,23 @@ func (vm *VM) Init() error {
 	return vm.initErr
 }
 
+// End ends what native modules keep for the interpreter until its program
+// ends: each value stored with Local that has a method End() error (the
+// files fs::open opened and the program did not close). It gives the
+// first failure. The command calls it when the program ends, a worker when
+// it ends, and the Go API's Close.
+func (vm *VM) End() error {
+	var first error
+	for _, v := range vm.locals {
+		if e, ok := v.(interface{ End() error }); ok {
+			if err := e.End(); err != nil && first == nil {
+				first = err
+			}
+		}
+	}
+	return first
+}
+
 // CloseOutput flushes the output shared with workers (ShareOutput) and
 // drops what they write later. Run does it when main returns.
 func (vm *VM) CloseOutput() { vm.closeOutput() }
