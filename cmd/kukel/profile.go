@@ -157,6 +157,7 @@ func cmdProfile(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	select {
 	case <-interrupted:
 		writeReport()
+		endProgram(machine, 0, stderr) // (the program was cancelled, not killed: its files are written out)
 		return dieInterrupted()
 	default:
 	}

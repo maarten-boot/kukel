@@ -26,7 +26,7 @@ exceptions in the table).
 | 2 | Compiler | `compiler`, `loader` | a `bytecode.Program` | reference.md §4 (modules), vm.md §6 | compiler (rules, modules, precompiled), loader |
 | 3 | Bytecode | `bytecode` | the instruction set, `.kkc` files, the verifier | vm.md §3, §5, §7, §8 | bytecode (files, fuzz, the opcodes in vm.md) |
 | 4 | VM core | `vm`, `value`, `builtins` | values, calls, the hooks: debug, profile, cancellation, `WaitStart`/`WaitEnd`, `FlushOutput`, `End` | vm.md §2, §4; reference.md §3, §10 | vm, `tests/run` (through cmd/kukel) |
-| 5 | Native API | `native` | `Args`, `Errorf`, `Flush`, `Wait`, `Duration`, `IOMessage`, `NetMessage`, `NotSetUp`, the module registry | reference.md §11 (start), embedding.md §3 | native |
+| 5 | Native API | `native` | `Args`, `Errorf`, `Flush`, `Wait`, `Duration`, `IOMessage`, `NetMessage`, `NotSetUp`, `SetProgram`/`Program`, the module registry | reference.md §11 (start), embedding.md §3 | native |
 | 6 | Modules | each `modules/*mod` | its reference.md section | reference.md §11 (`db` ... `zmq`) | each module's own tests; `tests/run/native_*` |
 | 7 | Tools | `debugger`, `profile`; in cmd/kukel `debug.go`, `dap.go`, `profile.go`; `editors/vscode` | the VM hooks; DAP; pprof | debugging.md; reference.md §1 (debugger, profiler); vm.md §4.12, §4.13 | debugger, profile; cmd/kukel `Debug`, `Dap`, `Profile` tests |
 | 8 | CLI and REPL | the rest of `cmd/kukel` | the commands, their options and exit codes | reference.md §1; README | cmd/kukel (main, lineedit, doc); `examples/*.tests` |

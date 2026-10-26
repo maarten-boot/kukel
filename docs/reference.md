@@ -1577,15 +1577,19 @@ or binary mode:
   fast; `flush` writes them out when another program must see them at once
   (a log that someone follows). A file open both ways may switch between
   reading and writing at any time, without a `seek` in between (unlike C):
-  what is written goes where the reading stopped. In mode `"a"` and `"a+"`
-  every write goes to the end.
+  what is written goes where the reading stopped (on a pipe or a
+  terminal, `"/dev/tty"`, reading and writing are apart: what was read
+  ahead stays to be read). In mode `"a"` and `"a+"` every write goes to the
+  end.
 - Close files when done with them: `with` does it (as in the example). A
   file the program did not close is written out and closed when the
-  program ends (also by `exit()` or an exception it does not catch, not
-  when the process is killed); a worker's when the worker ends; in a Go
-  program that embeds Kukel, at `Close`. If it cannot be written out then,
-  `kukel` reports it (`kukel: log.txt: no space left on device`) and ends
-  with exit code 1, and a worker's `wait()` throws it as an `IOError`.
+  program ends (also by `exit()`, an exception it does not catch, or
+  Ctrl-C in `kukel profile`; not when the process is killed); a worker's
+  when the worker ends; in a Go program that embeds Kukel, at `Close`. If
+  it cannot be written out then, `kukel` reports it (`kukel: log.txt: no
+  space left on device`) and ends with exit code 1, and a worker's
+  `wait()` throws a `WorkerError` that names it (`worker job failed:
+  IOError: log.txt: ...`).
 - After `close`, the other member functions are a `ValueError`
   (`fs::File::read: notes.txt is closed`), as are reading a file not open
   for reading and writing one not open for writing (`... is not open for

@@ -243,6 +243,22 @@ func TestProfileInterrupt(t *testing.T) {
 		t.Error(err)
 	}
 
+	// A file the program left open is written out: it was cancelled, not
+	// killed.
+	os.WriteFile("file.kkl", []byte("use fs;\n\nmain() {\n    fs::open(\"kept.txt\", \"w\")->write(\"kept\");\n    while (true) {}\n}\n"), 0o644)
+	errOut.Reset()
+	go func() {
+		c := <-signals
+		time.Sleep(50 * time.Millisecond)
+		c <- os.Interrupt
+	}()
+	if code := run([]string{"profile", "file.kkl"}, nil, &out, &errOut); code != 130 {
+		t.Fatalf("file.kkl: exit %d:\n%s", code, errOut.String())
+	}
+	if data, _ := os.ReadFile("kept.txt"); string(data) != "kept" {
+		t.Errorf("kept.txt: %q", data)
+	}
+
 	// readline waits for input that does not come: no cancelling it.
 	os.WriteFile("read.kkl", []byte("main() {\n    readline();\n}\n"), 0o644)
 	in, w := io.Pipe()

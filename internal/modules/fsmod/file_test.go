@@ -3,8 +3,10 @@ package fsmod_test
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"os"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/maarten-boot/kukel/internal/ast"
@@ -216,5 +218,75 @@ main() {
 `, "")
 	if err == nil || err.Error() != "/dev/full: no space left on device" {
 		t.Errorf("End: %v", err)
+	}
+}
+
+// A last line that ends in a lone \r loses it, as with the built-in
+// readline; on a FIFO open both ways a write after a read needs no seek
+// (what was read ahead stays to be read).
+func TestFileLineEndsAndPipes(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("cr.txt", []byte("a\r\nb\r"), 0o644)
+	if err := syscall.Mkfifo("fifo", 0o644); err != nil {
+		t.Skip("no FIFO:", err)
+	}
+	got, err := runIO(t, `use fs;
+
+main() {
+    local f = fs::open("cr.txt");
+    println(f->readline(), len(f->readline()), f->readline(), len(readline()));
+    local p = fs::open("fifo", "r+");
+    p->write("one\n", "two\n")->flush();
+    println(p->readline());
+    p->write("three\n")->flush();
+    println(p->readline(), p->readline());
+}
+`, "x\r")
+	if err != nil || got != "a 1 nil 1\none\ntwo three\n" {
+		t.Errorf("End: %v; got %q", err, got)
+	}
+}
+
+type failWriter struct{}
+
+func (failWriter) Write(p []byte) (int, error) {
+	return 0, &os.PathError{Op: "write", Path: "/dev/stdout", Err: errors.New("no space left on device")}
+}
+
+// flush and close of standard output report what cannot be written, as
+// they do for a file; the built-in print words it without Go's "write".
+func TestFileStandardFlushError(t *testing.T) {
+	f, err := parser.ParseFile("t.kkl", []byte(`use fs;
+
+main() {
+    local out = fs::stdout();
+    for (local call in [fn() { out->write("x")->flush(); }, fn() { out->close(); }, fn() { print("x"); }]) {
+        try {
+            call();
+        } catch (e) {
+            eprintln(e->kind + ": " + e->message);
+        }
+    }
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prog, err := compiler.Compile([]*ast.File{f}, builtins.Names())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var errOut bytes.Buffer
+	m, err := vm.New(prog, builtins.Lookup, bufio.NewWriter(failWriter{}), strings.NewReader(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.SetStderr(&errOut)
+	m.Run(nil)
+	want := "IOError: fs::File::flush: /dev/stdout: no space left on device\n" +
+		"IOError: fs::File::close: /dev/stdout: no space left on device\n" +
+		"IOError: /dev/stdout: no space left on device\n"
+	if errOut.String() != want {
+		t.Errorf("got:\n%s\nwant:\n%s", errOut.String(), want)
 	}
 }

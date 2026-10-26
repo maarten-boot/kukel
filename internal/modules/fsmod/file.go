@@ -17,6 +17,7 @@ import (
 	"io/fs"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/value"
@@ -237,7 +238,7 @@ func (f *file) put(a native.Args, s string) error {
 		}
 		_, err = io.WriteString(f.env.Stderr(), s)
 	default:
-		if f.r != nil && f.r.Buffered() > 0 {
+		if f.r != nil && f.r.Buffered() > 0 && !f.waits { // (a pipe or terminal reads and writes apart: nothing to give back)
 			if _, err := f.f.Seek(-int64(f.r.Buffered()), io.SeekCurrent); err != nil {
 				return ioError(a, err)
 			}
@@ -267,14 +268,9 @@ func readline(a native.Args, env value.Env, f *file) (value.Value, error) {
 	if err == io.EOF && line == "" {
 		return value.NilValue, nil
 	}
-	n := len(line)
-	if n > 0 && line[n-1] == '\n' {
-		n--
-		if n > 0 && line[n-1] == '\r' {
-			n--
-		}
-	}
-	return value.MakeString(line[:n]), nil
+	line = strings.TrimSuffix(line, "\n") // as the built-in readline
+	line = strings.TrimSuffix(line, "\r")
+	return value.MakeString(line), nil
 }
 
 // f->read([n]): up to n bytes, or the rest; nil at the end.
@@ -417,7 +413,11 @@ func flush(a native.Args, env value.Env, f *file) (value.Value, error) {
 	var err error
 	switch {
 	case f.std == stdout || f.std == stderr:
-		native.Flush(f.env)
+		for _, w := range []io.Writer{f.env.Stdout(), f.env.Stderr()} { // (native.Flush drops the error)
+			if fl, ok := w.(interface{ Flush() error }); ok && err == nil {
+				err = fl.Flush()
+			}
+		}
 	case f.w != nil:
 		err = f.w.Flush()
 	}

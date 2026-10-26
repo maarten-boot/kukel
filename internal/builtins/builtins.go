@@ -5,6 +5,7 @@ import (
 	"io"
 	"sort"
 
+	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/value"
 )
 
@@ -88,7 +89,7 @@ func write(w io.Writer, args []value.Value, end string) error {
 	}
 	buf = append(buf, end...)
 	if _, err := w.Write(buf); err != nil {
-		return value.Errorf(value.IOError, "write: %v", err)
+		return value.Errorf(value.IOError, "%s", native.IOMessage(err)) // (without Go's "write")
 	}
 	return nil
 }

@@ -676,7 +676,7 @@ func cmdFmt(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 // and runs each piece when it is complete: the declarations' global
 // initializers, or the statements. A piece shares the program and its
 // state with the pieces before it (compiler.Session, vm.Extend).
-func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) (code int) {
 	if badFiles("repl", files, "kukel repl [a.kkl ...]", stderr) {
 		return 2
 	}
@@ -717,11 +717,7 @@ func cmdRepl(files []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	machine.SetStderr(stderr)
-	defer func() { // the files the program left open
-		if err := machine.End(); err != nil {
-			fmt.Fprintln(stderr, "kukel:", err)
-		}
-	}()
+	defer func() { code = endProgram(machine, code, stderr) }() // the files the program left open
 	r := &repl{session: session, machine: machine, out: out, stderr: stderr}
 	if len(files) > 0 {
 		parsed, err := loader.LoadWith(files, config)

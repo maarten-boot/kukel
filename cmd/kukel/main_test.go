@@ -1274,6 +1274,11 @@ func TestFilesLeftOpen(t *testing.T) {
 	if code := run([]string{"run", "wfull.kkl"}, nil, &out, &errOut); code != 0 || !strings.Contains(out.String(), "IOError: /dev/full: no space left on device") {
 		t.Errorf("/dev/full in a worker: exit %d, %q", code, out.String())
 	}
+	errOut.Reset()
+	if code := run([]string{"repl"}, strings.NewReader("use fs;\nfs::open(\"/dev/full\", \"w\")->write(\"x\");\n"), &out, &errOut); code != 1 ||
+		errOut.String() != "kukel: /dev/full: no space left on device\n" {
+		t.Errorf("/dev/full in the REPL: exit %d, %q", code, errOut.String())
+	}
 }
 
 // timedWriter notes when each line arrives.
