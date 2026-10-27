@@ -15,6 +15,9 @@ const PreludeName = "<prelude>"
 // throw it too, and derive their own error classes from it. When an Error
 // is thrown the first time, the VM fills in trace (a vector of strings,
 // innermost call first) and, if kind is nil, the name of its class.
+//
+// Generator is the class of the generators that calling a generator
+// function gives (Q86); the VM defines its member functions.
 const prelude = `
 class Error {
     message, kind, trace;
@@ -24,6 +27,13 @@ class Error {
 Error::Error(message = nil, kind = nil) {
     this->message = message;
     this->kind = kind;
+}
+
+class Generator {
+    next(otherwise);
+    done();
+    close();
+    iter();
 }
 `
 

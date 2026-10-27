@@ -416,6 +416,14 @@ func (p *parser) parseStmt() ast.Stmt {
 		}
 		p.expect(token.SEMICOLON, "after return")
 		return &ast.ReturnStmt{Return: pos, Value: v}
+	case token.YIELD:
+		p.next()
+		var v ast.Expr
+		if !p.at(token.SEMICOLON) {
+			v = p.parseExpr()
+		}
+		p.expect(token.SEMICOLON, "after yield")
+		return &ast.YieldStmt{Yield: pos, Value: v}
 	case token.LOCAL:
 		p.next()
 		vars := p.parseVarList("local variable name", false)

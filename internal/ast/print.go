@@ -230,6 +230,11 @@ func (p *printer) node(n Node) {
 		if n.Value != nil {
 			p.children(n.Value)
 		}
+	case *YieldStmt:
+		p.line(n, "Yield")
+		if n.Value != nil {
+			p.children(n.Value)
+		}
 	case *LocalDecl:
 		p.line(n, "Local")
 		p.vars(n.Vars)

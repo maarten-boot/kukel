@@ -481,7 +481,7 @@ func (f *formatter) mapBrace() bool {
 		return false
 	}
 	switch p.Kind {
-	case token.ASSIGN, token.LPAREN, token.LBRACK, token.COMMA, token.RETURN, token.QUESTION,
+	case token.ASSIGN, token.LPAREN, token.LBRACK, token.COMMA, token.RETURN, token.YIELD, token.QUESTION,
 		token.ADD_ASSIGN, token.SUB_ASSIGN, token.MUL_ASSIGN, token.DIV_ASSIGN, token.MOD_ASSIGN,
 		token.AND_ASSIGN, token.OR_ASSIGN, token.XOR_ASSIGN, token.SHL_ASSIGN, token.SHR_ASSIGN,
 		token.EQ, token.NE, token.LT, token.LE, token.GT, token.GE, token.ANDAND, token.OROR,

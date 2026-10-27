@@ -25,5 +25,6 @@ line"); } catch (e) { p->x %= 1.5E-3 >> 2 ^ ~t; } finally { ; }
     a -= b *= c /= d &= e |= f ^= g >>= h; a == b ? c : d; [args.., 2];
     do { if (a + b > c) ; else if (a <= b << 1) ; else a = true || false || nil; } while (0);
     with (local r = p) ;
+    yield; yield [count];
     return --count ++ - -1 / 2 * 3 % 4 & 5 | 6;
 }

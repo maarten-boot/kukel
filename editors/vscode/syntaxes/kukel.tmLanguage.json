@@ -164,7 +164,7 @@
       "patterns": [
         {
           "name": "keyword.control.kukel",
-          "match": "\\b(?:break|case|catch|continue|default|do|else|finally|for|if|in|return|switch|throw|try|while|with)\\b"
+          "match": "\\b(?:break|case|catch|continue|default|do|else|finally|for|if|in|return|switch|throw|try|while|with|yield)\\b"
         },
         {
           "name": "storage.type.kukel",

@@ -32,6 +32,17 @@ var ruleCases = map[string]struct {
 		},
 	},
 	"start": {elsewhere: "internal/parser TestErrors: \"nesting too deep\""},
+	"return_statement": {
+		ok:  []string{`f() { return 1; } g() { yield 1; return; } main() {}`},
+		bad: [][2]string{{`g() { yield 1; return 2; } main() {}`, "a generator cannot return a value"}},
+	},
+	"yield_statement": {
+		ok: []string{`g(n) { yield; yield n; local f = fn () { yield 1; }; } main() { for (local x in g(1)) ; }`},
+		bad: [][2]string{
+			{`class C { C(); } C::C() { yield 1; } main() {}`, "a constructor cannot yield"},
+			{`class G : Generator {} main() {}`, "class G cannot derive from Generator: generators come from calling generator functions"},
+		},
+	},
 	"with_statement": {
 		ok:  []string{`class R { close(); } R::close() {} main() { with (local a = new R(), b = nil) { return; } }`},
 		bad: [][2]string{{`class R { close(); } R::close() {} main() { switch (1) { case 1: with (local a = new R()) { default: } } }`, "a default label may not be inside a try, catch, finally or with block"}},

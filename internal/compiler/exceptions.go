@@ -14,6 +14,11 @@ type tryCtx struct {
 	finally   *ast.Block // its finally block, to run when leaving, or nil
 	inFinally bool       // this is a finally block itself: no jumping out
 	targets   int        // len(funcState.targets) when it began
+
+	// A for-each loop: leaving it closes the generator it may be walking
+	// (ITER_CLOSE of the iterator in slot).
+	iter bool
+	slot int
 }
 
 func (c *compiler) pushTry(t *tryCtx) {
@@ -123,6 +128,9 @@ func (c *compiler) leaveTries(ti int, pos token.Pos, what string) {
 		for n := 0; n < t.handlers; n++ {
 			c.emit(bytecode.OpTryPop)
 		}
+		if t.iter {
+			c.emit(bytecode.OpIterClose, t.slot)
+		}
 		if t.finally != nil {
 			// The finally block runs in the context outside this try.
 			saved := c.fs.tries
@@ -134,6 +142,9 @@ func (c *compiler) leaveTries(ti int, pos token.Pos, what string) {
 }
 
 func (c *compiler) returnStmt(s *ast.ReturnStmt) {
+	if c.fs.gen && s.Value != nil {
+		c.errorf(s.Value.Pos(), "a generator cannot return a value (return; ends it, yield gives a value)")
+	}
 	if len(c.fs.tries) == 0 {
 		if s.Value != nil {
 			c.expr(s.Value)
@@ -163,7 +174,7 @@ func (c *compiler) returnStmt(s *ast.ReturnStmt) {
 // finally block within its switch body (Q9): the jump would enter it.
 func (c *compiler) checkLabelTry(sw *switchState, pos token.Pos, what string) {
 	for _, t := range c.fs.tries {
-		if t.targets > sw.target {
+		if t.targets > sw.target && !t.iter {
 			c.errorf(pos, "a %s label may not be inside a try, catch, finally or with block of its switch", what)
 		}
 	}

@@ -120,6 +120,10 @@ func Inspect(n Node, f func(Node) bool) {
 		if n.Value != nil {
 			walk(n.Value)
 		}
+	case *YieldStmt:
+		if n.Value != nil {
+			walk(n.Value)
+		}
 	case *LocalDecl:
 		vars(n.Vars)
 	case *TryStmt:

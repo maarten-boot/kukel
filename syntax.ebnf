@@ -1,5 +1,5 @@
 (*
-   Kukel syntax, as implemented by kukel v0.31 and later (syntax version 7).
+   Kukel syntax, as implemented by kukel v0.34 and later (syntax version 8).
 
    Notation: ISO/IEC 14977 EBNF.
        =  definition        ;  end of rule        |  alternative
@@ -12,7 +12,11 @@
    What programs mean is described in docs/reference.md; how they are
    compiled and run in docs/vm.md.
 
-   History: syntax version 7 allows a comma after the last item of a
+   History: syntax version 8 added generators: the yield statement
+   ("yield" is a new keyword). A function whose body yields is a
+   generator function.
+
+   Syntax version 7 allows a comma after the last item of a
    list closed by a bracket: arguments (of calls, method calls and new),
    parameters (of definitions, declarations and function literals), vector
    literals and map literals, as in f(a, b,) and [1, 2,]. Lists that end
@@ -197,6 +201,7 @@ statement           = if_statement
                     | break_statement
                     | continue_statement
                     | return_statement
+                    | yield_statement
                     | local_declaration
                     | try_statement
                     | with_statement
@@ -255,13 +260,18 @@ foreach_statement   = "for" , "(" , "local" , Identifier , [ "," , Identifier ] 
                       "in" , expression , ")" , statement ;
                       (* With one name: the elements of a vector, the keys
                          of a map (insertion order), the bytes (ints) of a
-                         string. With two names: index and element, key and
-                         value, index and byte. The names are fresh locals
-                         of each iteration. A vector is walked by index while
-                         the index is below its current length; a map is
-                         walked over a snapshot of its keys taken at the
-                         start, skipping keys deleted in the meantime. Rule:
-                         any other value is a runtime error. *)
+                         string, the values of a generator, the values of the
+                         generator an object's member function iter() gives.
+                         With two names: index and element, key and value,
+                         index and byte, a count from 0 and the value. The
+                         names are fresh locals of each iteration. A vector
+                         is walked by index while the index is below its
+                         current length; a map is walked over a snapshot of
+                         its keys taken at the start, skipping keys deleted
+                         in the meantime. A generator is closed when the
+                         loop is left before its end (break, return, an
+                         exception). Rule: any other value is a runtime
+                         error. *)
 
 break_statement     = "break" , [ Identifier ] , ";" ;
 continue_statement  = "continue" , [ Identifier ] , ";" ;
@@ -279,6 +289,17 @@ labelled_statement  = Identifier , ":" , statement ;
                          repeat the label of an enclosing statement. *)
 
 return_statement    = "return" , [ expression ] , ";" ;
+                      (* Rule: in a generator function, return takes no
+                         value. *)
+
+yield_statement     = "yield" , [ expression ] , ";" ;
+                      (* Makes the function it is in (a declaration or a
+                         function literal; not one around a function literal
+                         that yields) a generator function: calling it gives
+                         a generator, and each step runs the body to the next
+                         yield, which gives its value (nil without one).
+                         Rules: not in a constructor, nor outside a function
+                         (the REPL's input). *)
 
 local_declaration   = "local" , local_variable , { "," , local_variable } , ";" ;
 
@@ -467,7 +488,7 @@ Keyword             = "break" | "case" | "catch" | "class" | "const" | "continue
                     | "default" | "do" | "else" | "false" | "finally"
                     | "fn" | "for" | "global" | "if" | "in" | "local" | "new"
                     | "nil" | "return" | "static" | "switch" | "this" | "throw"
-                    | "true" | "try" | "use" | "while" | "with" ;
+                    | "true" | "try" | "use" | "while" | "with" | "yield" ;
 
 Integer             = Decimal_Digits
                     | "0" , ( "x" | "X" ) , Hex_Digit , { [ "_" ] , Hex_Digit }

@@ -507,6 +507,7 @@ type funcState struct {
 	class    *classInfo // the class of a member function, else nil
 	static   bool       // a static member function (no this)
 	tries    []*tryCtx  // enclosing try, catch and finally blocks
+	gen      bool       // a generator function: its body yields
 }
 
 // localVar is a local or parameter: its slot, and whether the
@@ -567,6 +568,16 @@ func (c *compiler) function(name string, pos token.Pos, params *ast.ParamList, c
 		}
 	}
 
+	// A function whose body yields is a generator function: once its
+	// arguments are in place, GENERATOR returns a generator that runs the
+	// rest of the body a step at a time.
+	if y := yieldIn(tree); y != nil {
+		if class != nil && !static && bytecode.LocalName(name) == class.local {
+			c.errorf(y.Pos(), "a constructor cannot yield")
+		}
+		fs.gen = true
+		c.emit(bytecode.OpGenerator)
+	}
 	body()
 	c.emit(bytecode.OpReturnNil)
 	for i := range fs.fn.Locals {
@@ -872,6 +883,17 @@ func (c *compiler) simpleStmt(s ast.Stmt) {
 		c.breakContinue(s.Pos(), s.Label, false)
 	case *ast.ReturnStmt:
 		c.returnStmt(s)
+	case *ast.YieldStmt:
+		if !c.fs.gen {
+			c.errorf(s.Pos(), "yield is only allowed in a function")
+		}
+		if s.Value != nil {
+			c.expr(s.Value)
+		} else {
+			c.emit(bytecode.OpNil)
+		}
+		c.mark(s.Yield)
+		c.emit(bytecode.OpYield)
 	case *ast.CaseLabel:
 		c.caseLabel(s)
 	case *ast.DefaultLabel:
@@ -979,7 +1001,12 @@ func (c *compiler) forStmt(s *ast.ForStmt, labels []*ast.Ident) {
 //	x; ITER_INIT; STORE hidden
 //	top: ITER_NEXT hidden, n -> end; STORE v; STORE k
 //	body; JUMP top
-//	end:
+//	end: ITER_CLOSE hidden
+//
+// A loop over a generator closes it however the loop is left: ITER_CLOSE
+// at the end (where break goes), before a return, break or continue that
+// leaves the loop, and on the exception path the handler ITER_INIT
+// registered for it.
 func (c *compiler) forEachStmt(s *ast.ForEachStmt, labels []*ast.Ident) {
 	c.pushScope()
 	it := c.declare(&ast.Ident{NamePos: s.For, Name: "(iterator)"}, "hidden").slot
@@ -987,6 +1014,7 @@ func (c *compiler) forEachStmt(s *ast.ForEachStmt, labels []*ast.Ident) {
 	c.expr(s.X)
 	c.emit(bytecode.OpIterInit)
 	c.emit(bytecode.OpStoreLocal, it)
+	c.pushTry(&tryCtx{iter: true, slot: it}) // before the loop's target: its own break does not leave it
 
 	// The loop variables are visible in the body only (not in x).
 	n := 1
@@ -1010,6 +1038,8 @@ func (c *compiler) forEachStmt(s *ast.ForEachStmt, labels []*ast.Ident) {
 	c.patch(t.continues, top)
 	c.emit(bytecode.OpJump, top)
 	c.patch(append(t.breaks, next+4), c.here())
+	c.popTry()
+	c.emit(bytecode.OpIterClose, it)
 	c.popScope()
 }
 

@@ -98,7 +98,8 @@ func (v *verifier) function(f *Function) error {
 		operands []int
 	}
 	instrs := map[int]instr{}
-	cacheUser := map[int]int{} // inline cache slot -> the pc of the one instruction using it
+	cacheUser := map[int]int{}  // inline cache slot -> the pc of the one instruction using it
+	generator, yields := -1, -1 // the pc of GENERATOR, of a YIELD
 	for pc := 0; pc < len(f.Code); {
 		op := Op(f.Code[pc])
 		info, ok := Info(op)
@@ -130,10 +131,21 @@ func (v *verifier) function(f *Function) error {
 				return fail(pc, "%s uses cache %d, as the instruction at %d does", info.Name, c, other)
 			}
 			cacheUser[c] = pc
+		case OpGenerator:
+			if generator >= 0 {
+				return fail(pc, "a second GENERATOR (the first is at %d)", generator)
+			}
+			generator = pc
+		case OpYield:
+			yields = pc
 		}
 		start[pc] = true
 		instrs[pc] = instr{op, operands}
 		pc += op.Size()
+	}
+
+	if yields >= 0 && generator < 0 {
+		return fail(yields, "YIELD in a function that is not a generator (it has no GENERATOR)")
 	}
 
 	// Follow every path from the entry and from handlers, checking the
@@ -186,6 +198,11 @@ func (v *verifier) function(f *Function) error {
 			continue
 		case OpThrow, OpRethrow:
 			continue
+		case OpGenerator: // the steps go on from the next instruction, with the frame as it was
+			if h != 0 || it.depth != 0 {
+				return fail(it.pc, "GENERATOR with %d try handlers and %d values on the stack (none are allowed)", h, it.depth)
+			}
+			err = visit(next, after, it.pc)
 		case OpTryPop:
 			if h == 0 {
 				return fail(it.pc, "TRY_POP without a handler")
@@ -323,6 +340,8 @@ func (v *verifier) operands(f *Function, pc int, op Op, x []int) error {
 			return err
 		}
 		return name(x[1])
+	case OpIterClose:
+		return slot(x[0])
 	case OpIterNext:
 		if x[1] < 1 || x[1] > 2 {
 			return fail("pushes %d values", x[1])

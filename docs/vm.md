@@ -5,7 +5,7 @@ values, the program image, the execution model of the stack machine, every
 instruction, how the compiler translates the language's constructs, the
 `.kkc` file format and what the loader guarantees.
 
-It describes bytecode format version **8** (introduced in kukel v0.26). The language
+It describes bytecode format version **9** (introduced in kukel v0.34). The language
 itself is described in [reference.md](reference.md), its grammar in
 [syntax.ebnf](../syntax.ebnf).
 
@@ -147,7 +147,8 @@ A VM holds:
 - the **globals**, one value per global slot;
 - the **classes**, built from the image at start (section 4.7), with their
   static data members;
-- the **handlers** of the active `try` blocks (section 4.9);
+- the **handlers** of the active `try` blocks and of the `for`-each loops
+  over generators (sections 4.9 and 4.14);
 - the **inline caches** of every function (section 4.10);
 - standard input, output and error, a random source and the start time
   (for the built-ins).
@@ -371,6 +372,15 @@ comparator can be caught by the caller of `sort`.
 `exit(code)` (and the step limit and cancellation) raise **fatal** exceptions,
 which skip all handlers: `finally` blocks do not run.
 
+Closing a generator (section 4.14) raises a third kind, the **closing**
+exception: catch handlers do not see it (they are taken out and skipped),
+finally handlers run as for any exception, and it stops at the
+generator's own frame. A handler of a `for`-each loop over a generator
+(registered by `ITER_INIT`) is taken out on the way like the others: it
+closes that generator, and the exception goes on. A close that throws is
+ignored there, as `with`'s is (section 6.9), unless what it throws is
+fatal.
+
 ### 4.10 Inline caches
 
 `CALL_METHOD`, `CALL_METHOD_V`, `GET_MEMBER`, `GET_MEMBER_L` and
@@ -479,12 +489,71 @@ up to its latest sample, and says so. Workers started by a profiled
 interpreter are profiled with the same `Profiler`, as `worker N: f`.
 Package `internal/profile` writes the text report and the pprof format.
 
+A generator's steps count as calls of its function, and the time of a
+step goes under the code that asked for the value (section 4.14).
+
 Not profiling costs one test: `step` returns at once when `watched` is
 false (no step limit, canceller or profiler: one flag instead of the two
 tests it had), and the call paths test `prof`. Both fields come last in
 `VM`: moving the others shifted the speed of the dispatch loop by several
 percent. Within a loop, samples are taken where it jumps back, so the
 time of its body shows on the loop's line.
+
+### 4.14 Generators
+
+A function whose body has a `yield` (TODO.md Q86) is compiled with
+`GENERATOR` after its prologue (the default values of missing arguments,
+and the cells of captured parameters): a call runs that far as any call
+does, then `GENERATOR` keeps the frame in a **generator** and returns it
+instead of running the body. The generator is an object of the prelude's
+class `Generator` (made a native class when the VM starts: it has no
+constructor, and its member functions `next`, `done`, `close` and `iter`
+are written in Go); its Go value holds the frame while it is suspended:
+the function, `ip`, `argc`, `this`, the closure, the slots and operands,
+and the frame's try handlers (their stack depths relative to its base).
+
+A **step** (`next()`, or `ITER_NEXT` of a loop over the generator) puts
+the frame back on top of the stack, with the generator in the callee's
+place below its slots, and its handlers back on the handler list, and
+runs it in an execution of its own (as a built-in's call of Kukel code
+is, section 4.9) until:
+
+- `YIELD`: the frame's slots, operands and handlers go back into the
+  generator, the frame is dropped, and the value is the step's result;
+- the body returns (`RETURN_NIL`; a generator returns no value): the
+  generator is done;
+- an exception leaves the body: it is done, and the exception goes on
+  from the instruction that asked for the step.
+
+A step of a generator that is running (its own body asks it for a value)
+is a `ValueError`; of a done one gives nothing (`next(x)` gives `x`).
+Each step counts as a call for the step limit and the frame limit, so a
+recursion of generators (a tree walked with nested loops) is bounded by
+both; nothing else is kept between steps.
+
+**Closing** a suspended generator runs its frame again with the closing
+exception (section 4.9) at its `yield`: its finally handlers, and so its
+`finally` blocks and `with` statements, run, its catch blocks do not, and
+the generator is done. A `YIELD` while it is being closed is a
+`ValueError` (thrown at that `yield`). Closing one that has not started,
+or has ended, does nothing. `close()` closes it; so does a `for`-each loop
+that is left before the generator's end (`ITER_CLOSE` on every way out,
+and the loop's handler on the exception path, section 6.7). A generator
+that is dropped while suspended is not closed: Go has no finalizers that
+would run its `finally` blocks at a known time.
+
+A generator written in Go (`native.Generator`, as `fs::File::iter`) has
+no frame: a step calls its Go function, and closing it only marks it done.
+
+**In the dispatch loop** the generators cost nothing: `GENERATOR`, `YIELD`
+and `ITER_CLOSE` go to the loop's `default` case, and `ITER_INIT` of an
+object and `ITER_NEXT` of something that is not a vector, map or string
+iterator to their error paths, which hand the instruction to the code for
+generators outside the loop instead of raising the error (the loop is
+measurably faster with less code in it: the first version, with cases of
+its own, made a loop of `try` blocks 20% slower, and pointers in the
+handler records another 10%; handlers of loops keep the index of their
+generator in a list of the VM instead).
 
 ## 5. Instruction set
 
@@ -547,8 +616,8 @@ code: the numbers, names, operands and stack effects.
 | 44 | `MAKE_MAP` | n:u16 | 2*n | 1 | a new map of `n` key/value pairs (`k1 v1 k2 v2 ...`); a later equal key replaces an earlier one |
 | 45 | `INDEX_GET` | | 2 | 1 | `x i` → `x[i]` (vector element, string byte, map value or nil) |
 | 46 | `INDEX_SET` | | 3 | 1 | `x i v` → `v`, after `x[i] = v` |
-| 47 | `ITER_INIT` | | 1 | 1 | `x` → an iterator over vector, map or string `x` (`TypeError` otherwise) |
-| 48 | `ITER_NEXT` | slot:u16, n:u16, end:u32 | 0 | n | advance the iterator in `slot`; push 1 or 2 values (section 6.7), or jump to `end` |
+| 47 | `ITER_INIT` | | 1 | 1 | `x` → an iterator over vector, map or string `x`; a generator, or the generator an object's `iter()` gives, gets a loop handler too (section 6.7; `TypeError` otherwise) |
+| 48 | `ITER_NEXT` | slot:u16, n:u16, end:u32 | 0 | n | advance the iterator in `slot` (a generator: run its next step); push 1 or 2 values (section 6.7), or jump to `end` |
 | 49 | `LOAD_THIS` | | 0 | 1 | push `this` (nil without one) |
 | 50 | `LOAD_MEMBER` | field:u16 | 0 | 1 | push data member slot `field` of `this` |
 | 51 | `STORE_MEMBER` | field:u16 | 1 | 0 | pop into data member slot `field` of `this` |
@@ -587,6 +656,9 @@ code: the numbers, names, operands and stack effects.
 | 84 | `CMP_JUMP_LL` | cmp:u16, a:u16, b:u16, target:u32 | 0 | 0 | compare the locals in slots `a` and `b`; jump as `CMP_JUMP` does |
 | 85 | `ARITH_K` | op:u16, k:u16 | 1 | 1 | `x`: push `x op Consts[k]`, as `ARITH_LK` |
 | 86 | `CMP_JUMP_K` | cmp:u16, k:u16, target:u32 | 1 | 0 | `x`: compare `x` with `Consts[k]`; jump as `CMP_JUMP` does |
+| 87 | `GENERATOR` | | 0 | 0 | return a generator that runs the rest of the function from the next instruction, a step at a time (section 4.14) |
+| 88 | `YIELD` | | 1 | 0 | `x`: the generator's step ends and gives `x`; the next step goes on after it |
+| 89 | `ITER_CLOSE` | slot:u16 | 0 | 0 | the loop with the iterator in `slot` is left: if it walks a generator, remove its handler and close it (nothing for a vector, map or string) |
 
 `CMP_JUMP`'s `cmp` operand is the comparison in its low byte (0 `<`,
 1 `<=`, 2 `>`, 3 `>=`, 4 `==`, 5 `!=`), plus 0x100 to jump when the
@@ -881,14 +953,28 @@ for (local k, v in m) ...           LOAD_LOCAL m; ITER_INIT; STORE_LOCAL (iterat
                                     STORE_LOCAL v; STORE_LOCAL k
                                     ...body...
                                     JUMP top
-                              end:
+                              end:  ITER_CLOSE (iterator)
 ```
 
 `ITER_NEXT` pushes two values (index and element; key and value; index and
-byte) for two names, one for one name (the element of a vector, the key of
-a map, the byte of a string). A vector is walked while the index is below
-its current length; a map over a snapshot of its keys, skipping keys deleted
-since.
+byte; a count from 0 and the value of a generator) for two names, one for
+one name (the element of a vector, the key of a map, the byte of a
+string, the value of a generator). A vector is walked while the index is
+below its current length; a map over a snapshot of its keys, skipping keys
+deleted since.
+
+A generator, or an object whose member function `iter()` gives one
+(`ITER_INIT` calls it; anything else it gives is a `TypeError`), is
+walked a step at a time (section 4.14), and closed however the loop is
+left. `ITER_INIT` registers a **loop handler** for it, which closes it when
+an exception leaves the loop (section 4.9). The other ways out run
+`ITER_CLOSE`, which removes the handler and closes the generator: at
+`end`, where `break` and the generator's end jump, and before a `return`,
+or a `break` or `continue` to an outer statement, as the `finally` copies
+of section 6.9 are placed (innermost first). For a vector, map or string
+`ITER_CLOSE` does nothing and there is no handler. A generator that has
+ended is closed already, so `ITER_CLOSE` at the end of its loop only
+removes the handler.
 
 ### 6.8 Switch
 
@@ -1001,8 +1087,9 @@ finally { println("done"); }   LOAD_LOCAL f; CALL 0; STORE_LOCAL (temp)
                                LOAD_LOCAL (exception); RETHROW
 ```
 
-A `return` inside a try computes its value first, keeps it in a temporary
-slot while the `finally` copies run, then returns it. A `break` or
+A `return` inside a try (or a loop over a generator, section 6.7)
+computes its value first, keeps it in a temporary slot while the
+`finally` copies (and `ITER_CLOSE`s) run, then returns it. A `break` or
 `continue` removes the handlers of the try blocks it leaves (`TRY_POP`) and
 runs their `finally` copies, innermost first.
 
@@ -1063,6 +1150,31 @@ Each function literal becomes a function of its own (named
 literal nested in its function. This is a safe over-approximation: at worst
 a variable gets a cell it does not need.
 
+### 6.11 Generators
+
+<!-- disasm countdown
+countdown(n, step = 1) {
+    for (local i = n; i > 0; i -= step) yield i;
+}
+
+main() {}
+-->
+```
+countdown(n, step = 1) {         JUMP_IF_ARG 1 -> G; CONST 1; STORE_LOCAL step
+                              G: GENERATOR                          (the call returns here)
+    for (local i = n; i > 0;     LOAD_LOCAL n; STORE_LOCAL i; JUMP test
+         i -= step) yield i;  top: LOAD_LOCAL i; YIELD                (a step ends here)
+                                 ARITH_LL SUB i, step; STORE_LOCAL i
+                           test: CMP_JUMP_LK if i > 0 -> top
+}                                RETURN_NIL                         (the generator is done)
+```
+
+A function is a generator function when its body has a `yield` outside
+the function literals in it; `GENERATOR` comes after the prologue, so the
+arguments are checked and the defaults computed when it is called, as for
+any function. `return` in it takes no value, `yield;` yields nil, and a
+constructor cannot yield (compile errors).
+
 ---
 
 ## 7. The .kkc file format
@@ -1072,7 +1184,7 @@ noted; `str` is a `uv` length followed by that many bytes.
 
 ```
 "KUKL"                       4 bytes: magic
-uv   format version          8
+uv   format version          9
 uv   flags                   0 (1: a module, below)
 uv   main                    global index of main
 uv   n, then n globals       str name, byte kind (0 variable, 1 function, 2 built-in, 3 class, 4 native),
@@ -1106,7 +1218,8 @@ cache slots; version 3: native globals; version 4: `THROW` takes only
 `Error` objects; version 5: jump tables, `SWITCH_TABLE`, `ADD_LOCAL`;
 version 6: native base classes, `CALL_NATIVE`; version 7: `ARITH_LK`,
 `CMP_JUMP_LK`; version 8: `INDEX_LL`, `GET_MEMBER_L`, `ARITH_LL`,
-`CMP_JUMP_LL`, `ARITH_K`, `CMP_JUMP_K`). `BREAK` came later
+`CMP_JUMP_LL`, `ARITH_K`, `CMP_JUMP_K`; version 9: generators,
+`GENERATOR`, `YIELD`, `ITER_CLOSE`). `BREAK` came later
 without a new version: it is only in the debugger's copy of the code, and a
 file that holds one is refused. A reader refuses any version other
 than its own, telling the user to compile the program again. Built-ins and
@@ -1165,6 +1278,8 @@ make the VM crash or read outside its data.
   functions have their own index;
 - per function: parameter, slot, stack and cache counts are in range;
 - no `BREAK` (it belongs to the debugger's copies only);
+- at most one `GENERATOR`, reached with an empty operand stack and no
+  handlers; a `YIELD` only in a function that has a `GENERATOR`;
 - every instruction is known and complete, and its operands are in range:
   constants, slots, globals, functions, classes and their statics, upvalues,
   cache slots, jump tables; member names are string constants; the
@@ -1192,6 +1307,9 @@ an iterator, a vector being built or a pending exception; `LOAD_MEMBER` or
 `LOAD_UPVALUE`/`STORE_UPVALUE` outside a closure or beyond its cells;
 `CLOSURE` capturing a slot that holds no cell, or an upvalue that is not
 there; `TRY_POP` whose innermost handler belongs to another frame;
+`YIELD` outside a step of its generator, `GENERATOR` in a running
+generator's frame or a constructor's, `ITER_CLOSE` of a generator whose
+loop handler is not the innermost one;
 `CALL_NATIVE` of a global that is not a native class, or on an object that
 is not of that class (the Go code would find a Go value of another type);
 an unknown opcode. Inline caches cannot make the VM crash: an entry is only

@@ -17,7 +17,7 @@ func StackUse(op Op, operands []int) (pops, pushes int) {
 		return 0, 1
 	case OpPop, OpStoreLocal, OpStoreGlobal, OpStoreMember, OpStoreStatic, OpStoreCell,
 		OpStoreUpvalue, OpNewCell, OpJumpIfFalse, OpJumpIfTrue, OpReturn, OpThrow, OpRethrow, OpSwitchTable, OpAddLocal,
-		OpCmpJumpK:
+		OpCmpJumpK, OpYield:
 		return 1, 0
 	case OpCmpJump:
 		return 2, 0
@@ -46,5 +46,5 @@ func StackUse(op Op, operands []int) (pops, pushes int) {
 	case OpIterNext:
 		return 0, arg(1)
 	}
-	return 0, 0 // NOP, JUMP, JUMP_IF_ARG, CMP_JUMP_LK, CMP_JUMP_LL, INC_LOCAL, DEC_LOCAL, RETURN_NIL, TRY_PUSH, TRY_POP, BREAK
+	return 0, 0 // NOP, JUMP, JUMP_IF_ARG, CMP_JUMP_LK, CMP_JUMP_LL, INC_LOCAL, DEC_LOCAL, RETURN_NIL, TRY_PUSH, TRY_POP, BREAK, GENERATOR, ITER_CLOSE
 }

@@ -1067,6 +1067,15 @@ func TestDebug(t *testing.T) {
 			"(kdb) only expressions without side effects are evaluated (names, operators, ?:, [i], ->member)\n(kdb) [2, {\"k\": -2}]\n(kdb) 30\n") {
 		t.Errorf("expressions and a condition:\n%s", out.String())
 	}
+	// A generator's body is a frame on top of the loop that asks for its
+	// values; stepping over a yield goes back to the loop (Q86).
+	os.WriteFile("g.kkl", []byte("gen(n) {\n    for (local i = 0; i < n; i++) {\n        yield i * 10;\n    }\n}\nmain() {\n    for (local x in gen(2)) {\n        println(x);\n    }\n}\n"), 0o644)
+	out.Reset()
+	if run([]string{"debug", "g.kkl"}, strings.NewReader("b 3\nc\nbt\np i\nn\nc\nn\nc\n"), &out, &out); !strings.Contains(out.String(),
+		"(kdb) breakpoint 1, gen at g.kkl:3\n    3          yield i * 10;\n(kdb) *0 gen (g.kkl:3)\n 1 main (g.kkl:7)\n(kdb) 0\n(kdb) main at g.kkl:8\n    8          println(x);\n"+
+			"(kdb) 0\nbreakpoint 1, gen at g.kkl:3\n    3          yield i * 10;\n(kdb) main at g.kkl:8\n    8          println(x);\n(kdb) 10\nthe program ended (exit code 0)\n") {
+		t.Errorf("a generator:\n%s", out.String())
+	}
 	// The end of the input quits.
 	out.Reset()
 	if code := run([]string{"debug", "w.kkl"}, strings.NewReader(""), &out, &out); code != 0 || !strings.HasSuffix(out.String(), "(kdb) \nthe program ended (exit code 0)\n") {

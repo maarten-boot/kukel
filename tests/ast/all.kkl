@@ -98,3 +98,9 @@ line");
     t = util::max(util::LIMIT, new shapes::Circle(1), shapes::Circle::count);
     return 0;
 }
+
+gen(n) {
+    yield;
+    for (local i = 0; i < n; i++) yield i * 2;
+    return;
+}

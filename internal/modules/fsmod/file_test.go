@@ -245,6 +245,34 @@ main() {
 	}
 }
 
+// for-each walks a file's lines (Q86); leaving the loop early leaves the
+// file where reading stopped; a file closed in the loop ends it with an
+// error; standard input is a file too.
+func TestFileIter(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("l.txt", []byte("a\nb\r\nc"), 0o644)
+	got, err := runIO(t, `use fs;
+
+main() {
+    with (local f = fs::open("l.txt")) {
+        for (local i, line in f) print(i, line, "");
+        println(f, f->iter());
+    }
+    with (local f = fs::open("l.txt")) {
+        for (local line in f) break;
+        println(f->readline());
+        try { for (local line in f) f->close(); } catch (e) { println(e->kind, e->message); }
+    }
+    for (local line in fs::stdin()) print(line, "");
+    println();
+}
+`, "x\ny\n")
+	want := "0 a 1 b 2 c fs::File(\"l.txt\", \"r\") Generator(fs::File::iter)\nb\nValueError fs::File::iter: l.txt is closed\nx y \n"
+	if err != nil || got != want {
+		t.Errorf("got %q, %v\nwant %q", got, err, want)
+	}
+}
+
 type failWriter struct{}
 
 func (failWriter) Write(p []byte) (int, error) {

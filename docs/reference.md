@@ -1,7 +1,7 @@
 # The Kukel language
 
 Kukel is a small, dynamically typed language with C-like syntax, classes,
-closures and exceptions. `kukel` compiles Kukel source (`.kkl` files) to
+closures, generators and exceptions. `kukel` compiles Kukel source (`.kkl` files) to
 bytecode for a stack machine and runs it, or stores the bytecode in a `.kkc`
 file to run later.
 
@@ -356,7 +356,7 @@ vertical tabs separate tokens.
 
 **Keywords**: `break case catch class const continue default do else
 false finally fn for global if in local new nil return static switch this
-throw true try use while with`.
+throw true try use while with yield`.
 
 **Integers**: `42`, `1_000_000` (`_` only between digits), `0xFF_FF`,
 `0b1010` (also `0X`, `0B`). A leading zero does not mean octal. Decimal literals go up to
@@ -563,11 +563,12 @@ do { i--; } while (i > 0);
 for (local i = 0; i < n; i++) ...  // the locals belong to the loop
 for (i = 0, j = n; i < j; i++, j--) ...  // the comma operator: only in a for loop's first and last part
 for (;;) { if (done) break; }      // no condition: until break
-for (local x in v) ...             // elements of a vector, keys of a map, bytes of a string
-for (local i, x in v) ...          // index and element; key and value; index and byte
+for (local x in v) ...             // elements of a vector, keys of a map, bytes of a string, values of a generator
+for (local i, x in v) ...          // index and element; key and value; index and byte; count and value
 switch (x) { case 1: case 2: ...; break; default: ... }
 outer: for (...) { for (...) { if (...) continue outer; break outer; } }
 return value;
+yield value;                       // in a generator function (section 7)
 throw value;
 try { ... } catch (e) { ... } finally { ... }
 ```
@@ -580,7 +581,11 @@ block.
 **For-each**: a vector is walked by index while the index is below its
 current length (elements added during the loop are visited); a map is
 walked over the keys it had when the loop started, in insertion order,
-skipping keys deleted in the meantime. Anything else is a `TypeError`.
+skipping keys deleted in the meantime. A generator gives its values (with
+two names, a count from 0 and the value), and so does an object whose
+member function `iter()` gives a generator, such as an `fs::File` (its
+lines). A loop over a generator closes it when it is left before the
+generator's end (section 7). Anything else is a `TypeError`.
 
 **Switch**: the value is compared with `==` to each `case` (`1` and `1.0`
 match); control falls through to the next label until `break`. Case values
@@ -809,12 +814,113 @@ main() {
   own. In `for (local i ...)` the next iteration's `i` starts with the value
   at the end of the previous one, before the update.
 - In a member function, a literal also sees `this` and the members.
+- A function literal whose body has a `yield` is a generator function too
+  (below).
 - In stack traces a literal is called `<function>/fn@<line>`. The global
   initializers of a file run in a function called `<init>`: an exception
   there shows `at <init> (file.kkl:line)`. The class `Error` is written in
   Kukel, in a part of every program called the prelude, so a trace can
   show its frames as `<prelude>`: `new Error(5)` gives
   `at Error::Error (<prelude>:9)`, above the caller's frame.
+
+### Generators
+
+A function whose body has a `yield` is a **generator function**: calling
+it does not run the body but gives a **generator**, which runs it a step
+at a time. Each step runs to the next `yield x;`, which gives `x` and
+stops there, locals and all, until the next step asks for a value.
+`for`-each walks a generator, and a class becomes iterable with a member
+function `iter()` that gives one:
+
+```
+countdown(n) {
+    for (local i = n; i > 0; i--) yield i;
+}
+
+class Tree { left, value, right; Tree(l, v, r); iter(); }
+Tree::Tree(l, v, r) { left = l; value = v; right = r; }
+Tree::iter() {                             // in order: left, value, right
+    if (left != nil) for (local x in left) yield x;
+    yield value;
+
+    if (right != nil) for (local x in right) yield x;
+}
+
+leaf(v) { return new Tree(nil, v, nil); }
+
+main() {
+    for (local x in countdown(3)) print(x, "");
+    println();                             // 3 2 1
+
+    for (local i, x in new Tree(leaf(1), 2, leaf(3))) print(i, x, "");
+    println();                             // 0 1 1 2 2 3
+    local g = countdown(2);
+    println(g->next(), g->next(), g->next(), g->done());   // 2 1 nil true
+}
+```
+
+- `yield x;` gives `x`, `yield;` gives `nil`. `return;` (or the end of the
+  body) ends the generator; `return x;` in a generator function is a
+  compile error, as is a `yield` in a constructor. A `yield` belongs to
+  the function it is written in: a function literal with a `yield` in it
+  is a generator function itself, and does not make the function around
+  it one.
+- The arguments are checked, and the defaults computed, when the
+  generator function is called; the body starts at the first step.
+- A generator is an object of the built-in class `Generator`
+  (`typeof` gives `"object"`; `classof(g) == Generator`;
+  `instanceof(g, Generator)`; it prints as `Generator(countdown)`). There
+  is no `new Generator()`, and a class cannot derive from it.
+  Its member functions:
+
+  | Member function | Description |
+  |---|---|
+  | `g->next([otherwise])` | Runs the next step and gives the value it yields; when the generator has ended (now or before), gives `otherwise` (`nil` without it) |
+  | `g->done()` | Whether the generator has ended: true once a step found the end (or it threw, or was closed). Since `nil` can be a value, this tells a `nil` from the end |
+  | `g->close()` | Ends the generator now (see below); gives `nil` |
+  | `g->iter()` | Gives `g` itself: a generator is iterable |
+
+- An exception in the body goes to whoever asked for the value (`next`,
+  or the `for` loop), and the generator has ended. A `try` in the body
+  works across its yields.
+- A generator that asks itself for a value (its body calls its own
+  `next()`) is a `ValueError`.
+- **Closing**: a `for` loop over a generator that is left before the
+  generator's end (`break`, `return`, an exception, a `break` or
+  `continue` to an outer loop) closes it, and so does `g->close()`, or a
+  `with` that holds it. Closing ends the body at its `yield` as a `return`
+  there would: its `finally` blocks run and its `with` statements close
+  what they hold; its `catch` blocks do not see it. So a generator that
+  opens a file closes it, also when the loop stops early (the example
+  below). A `yield` while the generator is being closed (in a `finally` block) is
+  a `ValueError`. If closing throws when a loop is left by an exception,
+  the loop's exception goes on, as with `with`. A generator that is never
+  finished and never closed (a `next()` or two, then forgotten) does not
+  run its `finally` blocks: close it, or let `for` or `with` do it.
+- A generator cannot be sent to a worker (`TypeError`, as for other
+  objects).
+- `kukel profile` counts each step of a generator as a call of its
+  function; the debugger shows a running generator as a call above the
+  loop that asked for its value.
+
+```
+use fs;
+
+matching(path, word) {
+    with (local f = fs::open(path)) {
+        for (local line in f) if (find(line, word) >= 0) yield line;
+    }
+}
+
+main() {
+    writefile("errors.log", "start\nERROR disk full\nERROR again\n");
+
+    for (local line in matching("errors.log", "ERROR")) {
+        println(line);          // ERROR disk full
+        break;                  // the first one only: the file is closed here
+    }
+}
+```
 
 ---
 
@@ -1533,10 +1639,10 @@ main() {
         out->println("first line");
         out->write("second ", "line\n");
     }
-    local n = 0, line;
+    local n = 0;
 
     with (local f = fs::open("notes.txt")) {
-        while ((line = f->readline()) != nil) {
+        for (local line in f) {
             n++;
             println(n, line);
         }
@@ -1567,6 +1673,7 @@ or binary mode:
 | Function | Description |
 |---|---|
 | `f->readline()` | The next line without its `\n` (or `\r\n`), or `nil` at the end, as `readline()` reads standard input; a last line without `\n` is a line too |
+| `f->iter()` | A generator of the lines from where the file is, each as `readline()` gives it, so that `for (local line in f)` walks the file's lines (`for (local i, line in f)` counts them from 0). A loop left early leaves the file open, where reading stopped; closing the file in the loop ends it with a `ValueError` |
 | `f->read([n])` | Up to `n` bytes (fewer only at the end of the file), or without `n` the rest of the file; `nil` when nothing is left. `n` of 0 gives `""`, a negative one is a `ValueError` |
 | `f->write(s, ...)` | Writes the strings, with nothing between them, and gives `f` (so calls can be chained). Any other value is a `TypeError`: `print` and `println` turn values into text |
 | `f->print([x, ...])`, `f->println([x, ...])` | Write as the built-ins `print` and `println` do |

@@ -412,3 +412,24 @@ File all.kkl
             Static shapes::Circle::count
       Return
         Int 0
+  Func gen
+    Param n
+    Block
+      Yield
+      For
+        Init Local
+          Var i
+            Int 0
+        Cond
+          Binary <
+            Name i
+            Name n
+        Post
+          Postfix ++
+            Name i
+        Body
+          Yield
+            Binary *
+              Name i
+              Int 2
+      Return

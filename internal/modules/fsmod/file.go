@@ -41,6 +41,7 @@ var File = &native.Class{
 		"unlock":   method("unlock", 0, 0, unlock),
 		"flush":    method("flush", 0, 0, flush),
 		"close":    method("close", 0, 0, closeFile),
+		"iter":     method("iter", 0, 0, lines),
 		"closed": method("closed", 0, 0, func(a native.Args, env value.Env, f *file) (value.Value, error) {
 			return value.MakeBool(f.closed), nil
 		}),
@@ -331,6 +332,18 @@ func readline(a native.Args, env value.Env, f *file) (value.Value, error) {
 	line = strings.TrimSuffix(line, "\n") // as the built-in readline
 	line = strings.TrimSuffix(line, "\r")
 	return value.MakeString(line), nil
+}
+
+// f->iter(): a generator of the lines from where the file is, as readline
+// reads them: for (local line in f).
+func lines(a native.Args, env value.Env, f *file) (value.Value, error) {
+	return native.Generator(env, "fs::File::iter", func() (value.Value, bool, error) {
+		if f.closed {
+			return value.NilValue, false, a.Errorf(value.ValueError, "%s is closed", f.name)
+		}
+		line, err := readline(a, env, f)
+		return line, err == nil && !line.IsNil(), err
+	})
 }
 
 // f->read([n]): up to n bytes, or the rest; nil at the end.

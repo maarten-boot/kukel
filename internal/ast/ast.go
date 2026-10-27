@@ -223,6 +223,12 @@ type ReturnStmt struct {
 	Value  Expr // nil: return nil
 }
 
+// YieldStmt is "yield [value];" in a generator function.
+type YieldStmt struct {
+	Yield token.Pos
+	Value Expr // nil: yield nil
+}
+
 // LocalDecl is "local a, b = 1;".
 type LocalDecl struct {
 	Local token.Pos
@@ -464,6 +470,7 @@ func (s *ForEachStmt) Pos() token.Pos  { return s.For }
 func (s *BreakStmt) Pos() token.Pos    { return s.Break }
 func (s *ContinueStmt) Pos() token.Pos { return s.Continue }
 func (s *ReturnStmt) Pos() token.Pos   { return s.Return }
+func (s *YieldStmt) Pos() token.Pos    { return s.Yield }
 func (s *LocalDecl) Pos() token.Pos    { return s.Local }
 func (s *TryStmt) Pos() token.Pos      { return s.Try }
 func (s *WithStmt) Pos() token.Pos     { return s.With }
@@ -529,6 +536,7 @@ func (*ForEachStmt) stmtNode()  {}
 func (*BreakStmt) stmtNode()    {}
 func (*ContinueStmt) stmtNode() {}
 func (*ReturnStmt) stmtNode()   {}
+func (*YieldStmt) stmtNode()    {}
 func (*LocalDecl) stmtNode()    {}
 func (*TryStmt) stmtNode()      {}
 func (*WithStmt) stmtNode()     {}

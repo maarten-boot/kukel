@@ -265,6 +265,8 @@ main() {
 func TestErrors(t *testing.T) {
 	tests := []struct{ src, pos, msg string }{
 		{"main() { x = 1 }", "1:16", "expected ';' after expression, found '}'"},
+		{"main() { yield 1 }", "1:18", "expected ';' after yield, found '}'"},
+		{"main() { local yield = 1; }", "1:16", "expected local variable name, found 'yield'"},
 		{"main() { with (x) ; }", "1:16", "expected 'local' after 'with ('"},
 		{"main() { with (local a) ; }", "1:22", "a needs a value: with closes what its variables hold"},
 		// temporaries (syntax version 3 and before), in all three places

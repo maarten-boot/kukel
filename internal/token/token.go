@@ -99,6 +99,7 @@ const (
 	USE
 	WHILE
 	WITH
+	YIELD
 	keywordEnd
 )
 
@@ -191,6 +192,7 @@ var names = [...]string{
 	USE:      "use",
 	WHILE:    "while",
 	WITH:     "with",
+	YIELD:    "yield",
 }
 
 // String returns the name of a literal kind (IDENT, INT, ...) or the source

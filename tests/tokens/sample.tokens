@@ -293,23 +293,30 @@ sample.kkl:27:19  =         =
 sample.kkl:27:21  IDENT     p
 sample.kkl:27:22  )         )
 sample.kkl:27:24  ;         ;
-sample.kkl:28:5   return    return
-sample.kkl:28:12  --        --
-sample.kkl:28:14  IDENT     count
-sample.kkl:28:20  ++        ++
-sample.kkl:28:23  -         -
-sample.kkl:28:25  -         -
-sample.kkl:28:26  INT       1  = 1
-sample.kkl:28:28  /         /
-sample.kkl:28:30  INT       2  = 2
-sample.kkl:28:32  *         *
-sample.kkl:28:34  INT       3  = 3
-sample.kkl:28:36  %         %
-sample.kkl:28:38  INT       4  = 4
-sample.kkl:28:40  &         &
-sample.kkl:28:42  INT       5  = 5
-sample.kkl:28:44  |         |
-sample.kkl:28:46  INT       6  = 6
-sample.kkl:28:47  ;         ;
-sample.kkl:29:1   }         }
-sample.kkl:30:1   EOF
+sample.kkl:28:5   yield     yield
+sample.kkl:28:10  ;         ;
+sample.kkl:28:12  yield     yield
+sample.kkl:28:18  [         [
+sample.kkl:28:19  IDENT     count
+sample.kkl:28:24  ]         ]
+sample.kkl:28:25  ;         ;
+sample.kkl:29:5   return    return
+sample.kkl:29:12  --        --
+sample.kkl:29:14  IDENT     count
+sample.kkl:29:20  ++        ++
+sample.kkl:29:23  -         -
+sample.kkl:29:25  -         -
+sample.kkl:29:26  INT       1  = 1
+sample.kkl:29:28  /         /
+sample.kkl:29:30  INT       2  = 2
+sample.kkl:29:32  *         *
+sample.kkl:29:34  INT       3  = 3
+sample.kkl:29:36  %         %
+sample.kkl:29:38  INT       4  = 4
+sample.kkl:29:40  &         &
+sample.kkl:29:42  INT       5  = 5
+sample.kkl:29:44  |         |
+sample.kkl:29:46  INT       6  = 6
+sample.kkl:29:47  ;         ;
+sample.kkl:30:1   }         }
+sample.kkl:31:1   EOF

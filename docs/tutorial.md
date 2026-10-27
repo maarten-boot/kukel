@@ -163,6 +163,37 @@ Functions are values: they can be stored, passed and returned. A function
 literal keeps the variables around it alive, so each counter that
 `counter()` makes has its own `n`.
 
+A function with `yield` in it is a *generator* function: calling it gives a
+generator, which runs the body a step at a time, up to each `yield`. A
+`for` loop takes its values one by one:
+
+```
+evens(limit) {
+    for (local n = 0; n <= limit; n += 2) yield n;
+}
+
+main() {
+    local v = [];
+
+    for (local n in evens(6)) push(v, n);
+    println(v);
+
+    local g = evens(2);
+    println(g->next(), g->next(), g->next(), g->done());
+}
+```
+
+```
+$ kukel run evens.kkl
+[0, 2, 4, 6]
+0 2 nil true
+```
+
+The generator keeps its place and its locals between steps, so a long or
+endless series costs nothing until it is asked for. A class becomes
+something `for` can walk by giving it a member function `iter()` that
+yields its values ([reference.md §7](reference.md#generators)).
+
 ## 5. Classes
 
 ```
@@ -328,13 +359,9 @@ main() {
         out->println("bread");
         out->println("cheese", 2);
     }
-    local n = 0, line;
 
     with (local f = fs::open("shopping.txt")) {
-        while ((line = f->readline()) != nil) {
-            n++;
-            println(str(n) + ".", line);
-        }
+        for (local i, line in f) println(str(i + 1) + ".", line);
     }
 }
 ```
@@ -345,7 +372,8 @@ $ kukel run shopping.kkl
 2. cheese 2
 ```
 
-`fs::open(path, "a")` appends, and `fs::stdin()`, `fs::stdout()` and
+`for` walks the lines of a file, as it walks the values of a generator
+(with two names, a count from 0 too). `fs::open(path, "a")` appends, and `fs::stdin()`, `fs::stdout()` and
 `fs::stderr()` are the standard streams as such files.
 
 ## 8. Events

@@ -138,6 +138,11 @@ const (
 	OpArithK     // op u16, const u16: x -> x op Consts[const]: "x * y + 1"
 	OpCmpJumpK   // cmp u16, const u16, target u32: x -> ; as CMP_JUMP, with Consts[const] on the right: "s[i] >= '0'"
 
+	// Generators (Kukel v0.34).
+	OpGenerator // return a generator that runs the rest of the function from the next instruction, a step at a time
+	OpYield     // pop x: the generator's step ends, giving x; the next step goes on after it
+	OpIterClose // slot u16: close the generator a for-each loop walks with the iterator in slot (nothing for others)
+
 	numOps
 )
 
@@ -238,6 +243,9 @@ var opInfo = [numOps]OpInfo{
 	OpCmpJumpLL:    {"CMP_JUMP_LL", []int{2, 2, 2, 4}},
 	OpArithK:       {"ARITH_K", []int{2, 2}},
 	OpCmpJumpK:     {"CMP_JUMP_K", []int{2, 2, 4}},
+	OpGenerator:    {"GENERATOR", nil},
+	OpYield:        {"YIELD", nil},
+	OpIterClose:    {"ITER_CLOSE", u16},
 }
 
 // The comparison operand of CMP_JUMP: one of these, plus CmpJumpIfTrue to

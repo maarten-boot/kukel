@@ -42,6 +42,8 @@ type RuntimeError struct {
 	Trace []TraceEntry // innermost call first
 	Fatal bool         // try cannot catch it (exit, the step limit, cancellation)
 	Exit  *int         // set by exit(code): not an error, the program ends
+
+	closing bool // closes a generator: only finally blocks see it (resume)
 }
 
 // Error returns the message and the stack trace. Long traces (deep
@@ -83,6 +85,12 @@ type handler struct {
 	pc      int  // where to continue
 	sp      int  // stack depth to restore
 	finally bool // a finally handler gets the pending exception, not the value
+
+	// A for-each loop over a generator (ITER_INIT): an exception that
+	// leaves the loop closes the generator and goes on. loop is 1 + the
+	// generator's index in VM.loops (no pointer here: TRY_PUSH appends
+	// handlers without the GC's write barriers).
+	loop int32
 }
 
 // VM runs one program.
@@ -136,7 +144,11 @@ type VM struct {
 	// profiling), so that it returns at once with one test when not (it
 	// runs at every backward jump). Set by execute, Cancellable,
 	// ShareCanceller and StartProfile.
-	watched bool
+	watched   bool
+	genClass  *value.ClassObj // the prelude's Generator class (nil without one)
+	genResult value.Value     // what run returns with errGenReturn, and the stack depth then
+	genSP     int
+	loops     []*generator // the generators of the handlers of for-each loops (handler.loop)
 }
 
 // Builtins resolves built-in functions by name.
@@ -176,6 +188,7 @@ func NewWith(prog *bytecode.Program, builtins Builtins, config *native.Config, s
 	if vm.errorClass == nil {
 		return nil, fmt.Errorf("the program has no Error class")
 	}
+	vm.setupGenerators()
 	for _, field := range []string{"message", "kind", "trace"} {
 		if _, ok := vm.errorClass.FieldIndex[field]; !ok {
 			return nil, fmt.Errorf("class Error has no data member %s", field)
@@ -338,7 +351,7 @@ func (vm *VM) Local(key any, init func() any) any {
 
 // Thrown implements value.Env.
 func (vm *VM) Thrown(err error) (value.Value, bool) {
-	if re, ok := err.(*RuntimeError); ok && !re.Fatal && re.Exit == nil {
+	if re, ok := err.(*RuntimeError); ok && !re.Fatal && re.Exit == nil && !re.closing {
 		return re.Value, true
 	}
 	return value.NilValue, false
@@ -786,6 +799,9 @@ func nativePart(m *value.MethodObj, this *value.ObjectObj) error {
 	if this == nil || this.State != nil || this.Class.Native || m == m.Class.Ctor {
 		return nil
 	}
+	if m.Class.Ctor == nil { // (a class derived from Generator in a .kkc file not made by the compiler)
+		return value.Errorf(value.TypeError, "%s: this %s object has no %s part", m.FullName(), this.Class.Name, m.Class.Name)
+	}
 	return value.Errorf(value.ValueError, "%s: the %s part of this %s object is not set up: its constructor must call %s(...)",
 		m.FullName(), m.Class.Name, this.Class.Name, m.Class.Ctor.FullName())
 }
@@ -1134,6 +1150,9 @@ func (vm *VM) trace() []TraceEntry {
 // exception: a runtime error becomes an Error object with message, kind and
 // trace. An exception thrown inside a call made by a built-in passes through.
 func (vm *VM) wrap(err error) error {
+	if err == errGenReturn || err == errGenStep {
+		return err
+	}
 	if re, ok := err.(*RuntimeError); ok {
 		return re
 	}
@@ -1213,7 +1232,17 @@ func (vm *VM) execute(stopDepth int) (value.Value, error) {
 	vm.watched = vm.StepLimit > 0 || vm.cancel != nil || vm.prof != nil
 	for {
 		r, err := vm.run(stopDepth)
+		if err == errGenStep {
+			if err = vm.genStep(stopDepth); err == nil {
+				continue // run goes on after it
+			}
+		}
 		if err == nil {
+			return r, nil
+		}
+		if err == errGenReturn { // YIELD, or GENERATOR in the first frame (genOp)
+			r, vm.genResult = vm.genResult, value.NilValue
+			vm.sp = vm.genSP
 			return r, nil
 		}
 		re := err.(*RuntimeError)
@@ -1222,36 +1251,58 @@ func (vm *VM) execute(stopDepth int) (value.Value, error) {
 				re = e.(*RuntimeError)
 			}
 		}
-		if vm.DebugUncaught != nil && !re.Fatal && !slices.ContainsFunc(vm.handlers, func(h handler) bool { return !h.finally }) {
+		if vm.DebugUncaught != nil && !re.Fatal && !re.closing && !slices.ContainsFunc(vm.handlers, func(h handler) bool { return !h.finally && h.loop == 0 }) {
 			if e := vm.DebugUncaught(vm, re); e != nil {
 				re = vm.wrap(e).(*RuntimeError)
 			}
 		}
-		if !vm.catch(re, stopDepth) {
+		var caught bool
+		if re, caught = vm.catch(re, stopDepth); !caught {
 			return value.NilValue, re
 		}
 	}
 }
 
 // catch hands an exception to the innermost handler that belongs to a frame
-// at or above stopDepth. It reports whether there was one.
-func (vm *VM) catch(re *RuntimeError, stopDepth int) bool {
-	if n := len(vm.handlers); n > 0 && !re.Fatal {
+// at or above stopDepth. It reports whether there was one. On the way it
+// closes the generators of the for-each loops the exception leaves; if
+// closing one is stopped by a fatal error, that error goes on instead (a
+// close that throws is ignored, as with's is).
+func (vm *VM) catch(re *RuntimeError, stopDepth int) (*RuntimeError, bool) {
+	for n := len(vm.handlers); n > 0 && !re.Fatal; n = len(vm.handlers) {
 		h := vm.handlers[n-1]
-		if h.frame >= stopDepth {
-			vm.handlers = vm.handlers[:n-1]
-			vm.frames = vm.frames[:h.frame+1]
-			vm.frames[h.frame].ip = h.pc
-			vm.sp = h.sp
-			v := re.Value
-			if h.finally {
-				v = value.MakeInternal(re)
-			}
-			vm.ensure(1)
-			vm.stack[vm.sp] = v
-			vm.sp++
-			return true
+		if h.frame < stopDepth {
+			break
 		}
+		vm.handlers = vm.handlers[:n-1]
+		if h.loop != 0 {
+			g := vm.popLoop(h)
+			vm.frames = vm.frames[:h.frame+1]
+			vm.sp = h.sp
+			if g == nil {
+				continue
+			}
+			if _, _, err := vm.resume(g, true); err != nil {
+				if e, ok := err.(*RuntimeError); ok && e.Fatal {
+					re = e
+				}
+			}
+			continue
+		}
+		if re.closing && !h.finally {
+			continue // closing a generator skips its catch blocks
+		}
+		vm.frames = vm.frames[:h.frame+1]
+		vm.frames[h.frame].ip = h.pc
+		vm.sp = h.sp
+		v := re.Value
+		if h.finally {
+			v = value.MakeInternal(re)
+		}
+		vm.ensure(1)
+		vm.stack[vm.sp] = v
+		vm.sp++
+		return re, true
 	}
 	// Not caught here (or fatal): the frames above stopDepth are gone, and
 	// so are their handlers, so that a VM used again (an embedded
@@ -1260,7 +1311,7 @@ func (vm *VM) catch(re *RuntimeError, stopDepth int) bool {
 		vm.handlers = vm.handlers[:n-1]
 	}
 	vm.frames = vm.frames[:stopDepth]
-	return false
+	return re, false
 }
 
 // fail records the position of the failing instruction and the stack
@@ -1527,14 +1578,14 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			sp -= 2
 		case bytecode.OpIterInit:
 			it, e := value.NewIterator(stack[sp-1])
-			if e != nil {
-				return vm.fail(f, start, sp, e)
+			if e != nil { // an object: a generator, or one with iter() (genStep)
+				return vm.fail(f, start, sp, errGenStep)
 			}
 			stack[sp-1] = it
 		case bytecode.OpIterNext:
 			it := stack[base+bytecode.ReadU16(code, ip)]
-			if it.Kind() != value.Iterator {
-				return vm.fail(f, start, sp, bad(f, "ITER_NEXT without an iterator"))
+			if it.Kind() != value.Iterator { // a generator (genStep)
+				return vm.fail(f, start, sp, errGenStep)
 			}
 			n := bytecode.ReadU16(code, ip+2)
 			first, second, ok := it.Next()
@@ -2046,8 +2097,8 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			vm.sp = sp
 			return value.NilValue, re
 
-		default:
-			return vm.fail(f, start, sp, value.Errorf(value.InternalError, "bad opcode %d at %d in %s", op, start, f.fn.FuncName))
+		default: // the generators' instructions (genStep), or a bad opcode
+			return vm.fail(f, start, sp, errGenStep)
 		}
 	}
 }

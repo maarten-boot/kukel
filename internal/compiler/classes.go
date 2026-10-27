@@ -115,6 +115,9 @@ func (c *compiler) declareClass(d *ast.ClassDecl) {
 		case g.kind != symClass:
 			c.errorf(d.Base.NamePos, "%s is not a class", d.Base.Name)
 		}
+		if g.class.pos.File == PreludeName && g.class.name == "Generator" {
+			c.errorf(d.Base.NamePos, "class %s cannot derive from Generator: generators come from calling generator functions", d.Name.Name)
+		}
 		if g.class.native && g.class.constructor() == nil {
 			c.errorf(d.Base.NamePos, "class %s cannot derive from native class %s: it has no constructor (its objects come from the functions of its module)", d.Name.Name, g.class.name)
 		}

@@ -79,6 +79,28 @@ func capturedNames(tree ast.Node) map[string]bool {
 	return names
 }
 
+// yieldIn returns the first yield of a function (a declaration or a
+// function literal), not counting those of the function literals inside
+// it, or nil if it has none.
+func yieldIn(tree ast.Node) ast.Node {
+	switch tree.(type) {
+	case *ast.FuncDecl, *ast.FuncLit:
+	default:
+		return nil // the initializers, the REPL's input
+	}
+	var y ast.Node
+	ast.Inspect(tree, func(n ast.Node) bool {
+		if _, ok := n.(*ast.FuncLit); ok && n != tree || y != nil {
+			return false
+		}
+		if _, ok := n.(*ast.YieldStmt); ok {
+			y = n
+		}
+		return true
+	})
+	return y
+}
+
 // storeFresh stores the value on the stack into a declared variable,
 // making a new cell for a captured one (a fresh variable each time).
 func (c *compiler) storeFresh(lv localVar) {

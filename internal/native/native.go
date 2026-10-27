@@ -426,3 +426,18 @@ func keysOf[V any](m map[string]V) map[string]bool {
 	}
 	return keys
 }
+
+// Generator makes a generator (Q86) whose values come from next: it gives
+// the next value, or false at the end; an error ends the generator too.
+// for-each walks it as one written in Kukel, so that a member function
+// iter() returning it makes the objects of a native class iterable. name
+// is how it shows ("fs::File::iter").
+func Generator(env value.Env, name string, next func() (value.Value, bool, error)) (value.Value, error) {
+	maker, ok := env.(interface {
+		NewGenerator(name string, next func() (value.Value, bool, error)) (value.Value, error)
+	})
+	if !ok {
+		return value.NilValue, value.Errorf(value.InternalError, "%s: generators are not available here", name)
+	}
+	return maker.NewGenerator(name, next)
+}

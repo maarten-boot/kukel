@@ -14,6 +14,16 @@ Two kinds of change need care when you upgrade:
 
 ## Unreleased
 
+**Syntax version 8 and bytecode format 9**: `yield` is a keyword now (a
+variable or function called `yield` must be renamed), and `.kkc` files
+must be built again.
+
+- Generators: a function with `yield` in it gives a generator, which runs
+  its body a step at a time; `for` walks it, and an object whose `iter()`
+  gives one (`for (local x in tree)`); `g->next([otherwise])`,
+  `g->done()`, `g->close()`. A loop left early closes the generator, so its
+  `finally` blocks and `with` statements run. `fs::File` has `iter()`:
+  `for (local line in f)`. Q86.
 - Files: `fs::temp` and `fs::tempdir` (temporary files and directories,
   kept until removed), `fs::chmod(path, "rw-r--r--")`, `f->truncate`,
   and locks: `f->lock(["exclusive" | "shared" [, timeout]])`,
