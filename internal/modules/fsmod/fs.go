@@ -25,7 +25,7 @@ import (
 func init() {
 	native.Register(&native.Module{
 		Name: "fs",
-		Doc:  "directories and files: open files, readdir, stat, walk, mkdir, remove, rename, paths",
+		Doc:  "directories and files: open files, temporary files, readdir, stat, walk, mkdir, remove, rename, chmod, paths",
 		Funcs: map[string]native.Func{
 			"readdir":   readdir,
 			"stat":      stat,
@@ -36,6 +36,9 @@ func init() {
 			"remove":    pathOp("fs::remove", os.Remove),
 			"removeall": pathOp("fs::removeall", removeAll),
 			"rename":    rename,
+			"chmod":     chmod,
+			"temp":      temp,
+			"tempdir":   tempdir,
 			"join":      join,
 			"base":      pathFunc("fs::base", filepath.Base),
 			"dir":       pathFunc("fs::dir", filepath.Dir),
@@ -209,6 +212,57 @@ func walk(env value.Env, args []value.Value) (value.Value, error) {
 		return value.NilValue, ioError(a, err)
 	}
 	return value.NilValue, nil
+}
+
+// fs::chmod(path, mode): sets the permissions, written as ls shows them
+// ("rw-r--r--", or an entry's "-rw-r--r--").
+func chmod(env value.Env, args []value.Value) (value.Value, error) {
+	a, path, err := pathArg("fs::chmod", args, 2)
+	if err != nil {
+		return value.NilValue, err
+	}
+	text, err := a.String(1)
+	if err != nil {
+		return value.NilValue, err
+	}
+	mode, ok := ParseMode(text)
+	if !ok {
+		return value.NilValue, a.Errorf(value.ValueError, `the mode %q is not written as ls shows it ("rw-r--r--")`, text)
+	}
+	if err := os.Chmod(path, mode); err != nil {
+		return value.NilValue, ioError(a, err)
+	}
+	return value.NilValue, nil
+}
+
+// ParseMode reads permissions as ModeString writes them: nine letters
+// ("rwxr-x---"), or ten with the kind of file first, which is ignored;
+// s, S, t and T for setuid, setgid and sticky.
+func ParseMode(s string) (fs.FileMode, bool) {
+	if len(s) == 10 {
+		s = s[1:]
+	}
+	if len(s) != 9 {
+		return 0, false
+	}
+	var m fs.FileMode
+	special := [3]fs.FileMode{fs.ModeSetuid, fs.ModeSetgid, fs.ModeSticky}
+	for i := 0; i < 9; i++ {
+		bit := fs.FileMode(1) << (8 - i)
+		c := s[i]
+		switch {
+		case c == '-':
+		case c == "rwx"[i%3]:
+			m |= bit
+		case i%3 == 2 && c == "sst"[i/3]:
+			m |= bit | special[i/3]
+		case i%3 == 2 && c == "SST"[i/3]:
+			m |= special[i/3]
+		default:
+			return 0, false
+		}
+	}
+	return m, true
 }
 
 // removeAll is os.RemoveAll, but a path that does not exist is an error,

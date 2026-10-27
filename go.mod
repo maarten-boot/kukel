@@ -11,6 +11,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/hugelgupf/p9 v0.4.1
 	github.com/jackc/pgx/v5 v5.11.0
+	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.45.0
 	modernc.org/sqlite v1.59.0
 	modernc.org/tk9.0 v1.80.0
@@ -34,7 +35,6 @@ require (
 	golang.org/x/image v0.41.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	modernc.org/fileutil v1.4.0 // indirect
 	modernc.org/fsm v1.3.2 // indirect

@@ -4,14 +4,18 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"io/fs"
 	"os"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/maarten-boot/kukel/internal/ast"
 	"github.com/maarten-boot/kukel/internal/builtins"
 	"github.com/maarten-boot/kukel/internal/compiler"
+	"github.com/maarten-boot/kukel/internal/modules/fsmod"
+	_ "github.com/maarten-boot/kukel/internal/modules/workermod"
 	"github.com/maarten-boot/kukel/internal/parser"
 	"github.com/maarten-boot/kukel/internal/vm"
 )
@@ -289,4 +293,165 @@ main() {
 	if errOut.String() != want {
 		t.Errorf("got:\n%s\nwant:\n%s", errOut.String(), want)
 	}
+}
+
+// Temporary files and directories, chmod and truncate.
+func TestTempChmodTruncate(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("TMPDIR", t.TempDir())
+	got, err := runIO(t, `use fs;
+
+main() {
+    local f = fs::temp(), g = fs::temp("a-*.txt", ".");
+    println(fs::dir(f->name()) == getenv("TMPDIR"), find(fs::base(f->name()), "kukel-") == 0, f->mode(), fs::stat(f->name())["mode"]);
+    println(fs::dir(g->name()), find(g->name(), "a-") >= 0, fs::ext(g->name()), g->name() != fs::temp("a-*.txt", ".")->name());
+    g->write("temporary")->close();
+    println(readfile(g->name()), fs::exists(g->name()));
+    local d = fs::tempdir("work-*", ".");
+    println(fs::stat(d)["dir"], fs::stat(d)["mode"], find(d, "work-") >= 0);
+
+    for (local m in ["rw-r--r--", "-rwx------", "rwsr-Sr-T", "r--r--r--"]) {
+        fs::chmod(g->name(), m);
+        print(fs::stat(g->name())["mode"], "");
+    }
+    println();
+    fs::chmod(g->name(), "rw-------");
+
+    with (local h = fs::open("t.txt", "w+")) {
+        h->write("hello world");
+        h->seek(5);
+        h->truncate();
+        println(h->tell(), readfile("t.txt"));
+        h->write("!")->truncate(3);
+        println(h->tell(), readfile("t.txt"));
+        h->truncate(5);
+        println(len(readfile("t.txt")), h->seek(0), len(h->read()));
+    }
+    for (local call in [fn() { fs::temp("a/b*"); }, fn() { fs::tempdir("x*", "nope/dir"); }, fn() { fs::chmod("t.txt", "rwxrwxrw"); },
+            fn() { fs::chmod("t.txt", "rwxrwxrwz"); }, fn() { fs::chmod("nope", "rw-r--r--"); }, fn() { fs::open("t.txt")->truncate(); },
+            fn() { fs::open("t.txt", "a")->truncate(-1); }, fn() { fs::stdout()->truncate(); }]) {
+        try {
+            call();
+        } catch (e) {
+            println(e->kind + ": " + e->message);
+        }
+    }
+}
+`, "")
+	want := `true true w+ -rw-------
+. true .txt true
+temporary true
+true drwx------ true
+-rw-r--r-- -rwx------ -rwsr-Sr-T -r--r--r-- 
+5 hello
+6 hel
+5 0 5
+ValueError: fs::temp: the pattern "a/b*" has a path separator (the directory is the second argument)
+`
+	if err != nil || !strings.HasPrefix(got, want) {
+		t.Errorf("End: %v; got:\n%s\nwant (first):\n%s", err, got, want)
+	}
+	for _, line := range []string{
+		"IOError: fs::tempdir: nope/dir: no such file or directory",
+		`ValueError: fs::chmod: the mode "rwxrwxrw" is not written as ls shows it ("rw-r--r--")`,
+		`ValueError: fs::chmod: the mode "rwxrwxrwz" is not written as ls shows it ("rw-r--r--")`,
+		"IOError: fs::chmod: nope: no such file or directory",
+		"ValueError: fs::File::truncate: t.txt is not open for writing",
+		"ValueError: fs::File::truncate: a negative size (-1)",
+		"IOError: fs::File::truncate: <stdout>: a standard stream cannot be truncated",
+	} {
+		if !strings.Contains(got, line) {
+			t.Errorf("no %q in:\n%s", line, got)
+		}
+	}
+}
+
+// ParseMode reads every mode ModeString writes, and only those.
+func TestParseMode(t *testing.T) {
+	for m := fs.FileMode(0); m < 0o1000; m++ {
+		for _, special := range []fs.FileMode{0, fs.ModeSetuid, fs.ModeSetgid, fs.ModeSticky, fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky} {
+			s := fsmod.ModeString(m | special)
+			if got, ok := fsmod.ParseMode(s); !ok || got != m|special {
+				t.Fatalf("%s: %v, %v", s, got, ok)
+			}
+			if got, ok := fsmod.ParseMode(s[1:]); !ok || got != m|special {
+				t.Fatalf("%s: %v, %v", s[1:], got, ok)
+			}
+		}
+	}
+	for _, s := range []string{"", "rw-r--r-", "rw-r--r--x", "xw-r--r--", "rw-r--r-s", "rwtr--r--", "rw-r--r--\n"} {
+		if _, ok := fsmod.ParseMode(s); ok {
+			t.Errorf("%q is taken", s)
+		}
+	}
+}
+
+// Locks: between two files of one program and between a program and its
+// worker, with and without a timeout, shared and exclusive, given up by
+// unlock, close and the end of the program; waiting stops when the program
+// is cancelled.
+func TestLocks(t *testing.T) {
+	t.Chdir(t.TempDir())
+	got, err := runIO(t, `use fs;
+use worker;
+
+holder() {
+    local f = fs::open("lock.txt", "a");
+    f->lock("shared");
+    worker::send("shared");
+    worker::receive();
+    f->lock();
+    worker::send("exclusive");
+    worker::receive();
+    f->unlock();
+    f->unlock();
+    worker::send("unlocked");
+    worker::receive();
+    f->lock();
+}
+
+main() {
+    writefile("lock.txt", "");
+    local w = worker::start(holder), mine = fs::open("lock.txt");
+    println(w->receive(), mine->lock("shared", 0), mine->lock("exclusive", 0), mine->lock("shared", 0));
+    mine->unlock();
+    w->send("go");
+    println(w->receive(), mine->lock("shared", 0), mine->lock("shared", 0.1));
+    local t0 = clock();
+    w->send("go");
+    println(w->receive(), mine->lock("exclusive", 5), clock() - t0 < 4);
+    mine->close();
+    w->send("go");
+    w->wait();
+    local a = fs::open("lock.txt"), b = fs::open("lock.txt");
+    println(a->lock(), b->lock("shared", 0));
+    a->close();
+    println(b->lock("shared", 0), b->lock(), fs::open("lock.txt")->lock("shared", 0.05));
+}
+`, "")
+	want := "shared true false true\nexclusive false false\nunlocked true true\ntrue false\ntrue true false\n"
+	if err != nil || got != want {
+		t.Errorf("End: %v; got:\n%s\nwant:\n%s", err, got, want)
+	}
+
+	// Waiting for a lock stops when the program is cancelled.
+	f, err := parser.ParseFile("t.kkl", []byte("use fs;\n\nmain() {\n    local a = fs::open(\"lock.txt\"), b = fs::open(\"lock.txt\");\n    a->lock();\n    b->lock();\n}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prog, err := compiler.Compile([]*ast.File{f}, builtins.Names())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := vm.New(prog, builtins.Lookup, &bytes.Buffer{}, strings.NewReader(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := m.Cancellable()
+	time.AfterFunc(100*time.Millisecond, func() { c.Cancel(errors.New("stop")) })
+	start := time.Now()
+	if _, err := m.Run(nil); err == nil || time.Since(start) > 2*time.Second {
+		t.Errorf("cancelled after %v: %v", time.Since(start), err)
+	}
+	m.End()
 }

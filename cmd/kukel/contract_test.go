@@ -567,6 +567,7 @@ func TestMessagesWithoutGoOperations(t *testing.T) {
 		{"fs", `fs::readdir("nope")`}, {"fs", `fs::stat("nope")`}, {"fs", `fs::mkdir("adir")`}, {"fs", `fs::remove("nope")`},
 		{"fs", `fs::rename("nope", "x")`}, {"fs", `fs::walk("nope", fn(e) { return true; })`},
 		{"fs", `fs::open("nope/x")`}, {"fs", `fs::open("adir")`}, {"fs", `fs::open("nope/x", "w")`},
+		{"fs", `fs::chmod("nope", "rw-r--r--")`}, {"fs", `fs::temp("x*", "nope/dir")`}, {"fs", `fs::tempdir("x*", "nope/dir")`},
 		{"worker", `worker::startfile("nope.kkl")`}, {"worker", `worker::startfile("adir")`},
 		{"p9", `p9::dial("tcp://127.0.0.1:1")`}, {"p9", `p9::disk("nope")`}, {"p9", `p9::serve(new p9::Tree(), "unix:///nope/dir/sock")`},
 		{"zmq", `new zmq::Socket("REP")->bind("ipc:///nope/dir/sock")`},

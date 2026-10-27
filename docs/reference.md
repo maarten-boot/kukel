@@ -1517,6 +1517,7 @@ An **entry** is a map: `name` (the last part of the path), `size` (bytes),
 | `fs::remove(path)` | Removes a file or an empty directory |
 | `fs::removeall(path)` | Removes a file, or a directory with everything in it |
 | `fs::rename(from, to)` | Renames (moves) a file or directory |
+| `fs::chmod(path, mode)` | Sets the permissions of a file or directory, written as `ls` shows them and as an entry's `mode` has them: nine letters (`"rw-r--r--"`) or the ten of an entry (`"-rw-r--r--"`, whose first letter is ignored), so `fs::chmod(b, fs::stat(a)["mode"])` gives `b` the permissions of `a`. `s`, `S`, `t` and `T` set setuid, setgid and sticky, as `ls` shows them. Another form is a `ValueError`. On Windows only the read-only flag changes: a file is read-only when no one has `w` |
 | `fs::join(part, ...)`, `fs::base(path)`, `fs::dir(path)`, `fs::ext(path)` | Paths as text: the parts joined with the system's separator and cleaned (`fs::join("a", "..", "b")` is `"b"`); the last part; all but the last; the extension of the last (`".kkl"`, or `""`) |
 
 **Open files.** `fs::open` gives an `fs::File`, to read a file a line or
@@ -1556,6 +1557,8 @@ $ kukel run notes.kkl
 | Function | Description |
 |---|---|
 | `fs::open(path [, mode])` | Opens a file and gives an `fs::File`. The mode is as in C: `"r"` (the default) reads; `"w"` writes, emptying the file first (or making it); `"a"` appends, making the file if needed; `"x"` makes a new file, and is an `IOError` if there is one (`file exists`). With `+` (`"r+"`, `"w+"`, `"a+"`, `"x+"`) the file is also open the other way. Any other mode is a `ValueError`. New files get the mode `-rw-r--r--` less what the umask takes away, as for `writefile`. A directory is an `IOError` (`fs::open: src: is a directory`) |
+| `fs::temp([pattern [, dir]])` | Makes a new, empty file and gives it as an `fs::File` open `"w+"`. Its name is `pattern` (by default `"kukel-*"`) with the last `*` replaced by random digits, or with them at the end when there is no `*` (`"report-*.txt"`); it is made in `dir`, or else in the system's directory for temporary files (`$TMPDIR`, `/tmp`). `f->name()` gives its path. It stays until the program removes it (`fs::remove(f->name())`), so another program can be given its path. A pattern with a path separator is a `ValueError` (the directory is the second argument). A temporary file in the directory of the file it will replace can then replace it at once with `fs::rename` (example below) |
+| `fs::tempdir([pattern [, dir]])` | Makes a new, empty directory in the same way and gives its path; `fs::removeall` removes it |
 | `fs::stdin()`, `fs::stdout()`, `fs::stderr()` | The program's standard input, output and error as `fs::File`s (the same object at each call). They share the program's own: the built-in `readline()` and the member function `readline()` of standard input read from the same input, what `println` and standard output's `write` write keeps its order, and standard error writes out standard output first, as `eprint` does. So a function can take any `fs::File` and be given a file or a standard stream |
 
 An `fs::File`'s member functions; strings are bytes, so there is no text
@@ -1570,6 +1573,9 @@ or binary mode:
 | `f->seek(offset [, whence])` | Moves the position to `offset` bytes from `whence`: `"start"` (the default), `"current"` or `"end"`; gives the new position. A position before the start is an `IOError` |
 | `f->tell()` | The position, in bytes from the start |
 | `f->flush()` | Writes out what is buffered |
+| `f->truncate([size])` | Cuts the file to `size` bytes, by default to the position; a larger `size` makes it longer, with zero bytes. Writes out what is buffered first; the position stays. A file not open for writing is a `ValueError`, a standard stream or a pipe an `IOError` |
+| `f->lock([kind [, timeout]])` | Locks the whole file, `"exclusive"` (the default) or `"shared"`, waiting until no other lock is in the way, or at most `timeout` seconds (0: only try). Gives `true`, or `false` when the time ran out. A file that has a lock gets the other kind in its place. Below |
+| `f->unlock()` | Gives up the lock (a file without one: nothing). `close` does it too |
 | `f->close()` | Writes out what is buffered and closes the file; closing it again does nothing. A standard stream is only flushed, and stays open |
 | `f->closed()`, `f->name()`, `f->mode()` | Whether it is closed; the path as given to `fs::open` (`"<stdin>"`, `"<stdout>"`, `"<stderr>"` for the standard streams); the mode (`"r"` for standard input, `"w"` for the others) |
 
@@ -1604,6 +1610,47 @@ or binary mode:
   `readline()` does (`kukel profile -cpu` leaves it out); reading and
   writing a file on disk is work, not waiting. Such a wait cannot be cut
   short.
+- Locks are the system's: `flock` on Linux, macOS and the BSDs, where they
+  are *advisory* (only programs that lock see them; reading and writing
+  are not stopped), and `LockFileEx` on Windows, where they are
+  *mandatory* (others cannot read or write a file locked exclusively).
+  They hold between processes, and between two `fs::open`s of one file in
+  a program and its workers; any number of shared locks, or one exclusive
+  lock. Waiting for one is waiting (`kukel profile -cpu` leaves it out),
+  and stops when the program is cancelled. A lock on a standard stream is
+  an `IOError`. Over a network file system they hold only as far as its
+  server supports them.
+
+```
+use fs;
+
+main() {
+    // A new version next to the old one, then swapped: a reader sees the
+    // old file or the new one, never half of it.
+    with (local tmp = fs::temp("config-*.json", ".")) {
+        tmp->write("{\"version\": 2}\n");
+        fs::chmod(tmp->name(), "rw-r--r--");
+        fs::rename(tmp->name(), "config.json");
+    }
+
+    // One copy of the program at a time appends.
+    with (local out = fs::open("app.log", "a")) {
+        out->lock();
+        out->println("started");
+    }                                       // close unlocks
+    print(readfile("config.json"));
+    print(readfile("app.log"));
+    println(fs::stat("config.json")["mode"]);
+}
+```
+
+```
+$ kukel run swap.kkl
+{"version": 2}
+started
+-rw-r--r--
+```
+
 - An `fs::File` prints as `fs::File("notes.txt", "r")`,
   `fs::File("notes.txt", closed)` or `fs::File(<stdin>)`. There is no `new
   fs::File`: files come from `fs::open`, so no class derives from it.

@@ -18,6 +18,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/value"
@@ -35,6 +36,9 @@ var File = &native.Class{
 		"println":  method("println", 0, -1, printer("\n")),
 		"seek":     method("seek", 1, 2, seek),
 		"tell":     method("tell", 0, 0, tell),
+		"truncate": method("truncate", 0, 1, truncate),
+		"lock":     method("lock", 0, 2, lock),
+		"unlock":   method("unlock", 0, 0, unlock),
 		"flush":    method("flush", 0, 0, flush),
 		"close":    method("close", 0, 0, closeFile),
 		"closed": method("closed", 0, 0, func(a native.Args, env value.Env, f *file) (value.Value, error) {
@@ -77,6 +81,7 @@ type file struct {
 	reads, writes bool          // open for reading, for writing
 	waits         bool          // reading is a wait: standard input, a pipe, a terminal, a device
 	closed        bool
+	locked        string      // "", "shared" or "exclusive"
 	open          *openFiles  // the interpreter's open files
 	self          value.Value // the fs::File object
 }
@@ -130,7 +135,13 @@ func open(env value.Env, args []value.Value) (value.Value, error) {
 		osf.Close()
 		return value.NilValue, ioError(a, err)
 	}
-	f := &file{name: path, mode: mode, f: osf, waits: !info.Mode().IsRegular(),
+	return newFile(env, path, mode, osf, !info.Mode().IsRegular()), nil
+}
+
+// newFile makes the fs::File of osf, opened as mode, and counts it among
+// the interpreter's open files.
+func newFile(env value.Env, name, mode string, osf *os.File, waits bool) value.Value {
+	f := &file{name: name, mode: mode, f: osf, waits: waits,
 		reads: mode[0] == 'r' || len(mode) == 2, writes: mode[0] != 'r' || len(mode) == 2}
 	if f.reads {
 		f.r = bufio.NewReaderSize(osf, bufSize)
@@ -141,7 +152,56 @@ func open(env value.Env, args []value.Value) (value.Value, error) {
 	f.open = opened(env)
 	f.open.files[f] = struct{}{}
 	f.self = File.Object(f)
-	return f.self, nil
+	return f.self
+}
+
+// fs::temp([pattern [, dir]]): a new file, open "w+", named by pattern
+// with its last * made random, in dir or the system's temporary directory.
+// It stays until the program removes it.
+func temp(env value.Env, args []value.Value) (value.Value, error) {
+	a, pattern, dir, err := tempArgs("fs::temp", args)
+	if err != nil {
+		return value.NilValue, err
+	}
+	osf, err := os.CreateTemp(dir, pattern)
+	if err != nil {
+		return value.NilValue, ioError(a, err)
+	}
+	return newFile(env, osf.Name(), "w+", osf, false), nil
+}
+
+// fs::tempdir([pattern [, dir]]): the path of a new directory, named as
+// for fs::temp.
+func tempdir(env value.Env, args []value.Value) (value.Value, error) {
+	a, pattern, dir, err := tempArgs("fs::tempdir", args)
+	if err != nil {
+		return value.NilValue, err
+	}
+	path, err := os.MkdirTemp(dir, pattern)
+	if err != nil {
+		return value.NilValue, ioError(a, err)
+	}
+	return value.MakeString(path), nil
+}
+
+func tempArgs(name string, args []value.Value) (a native.Args, pattern, dir string, err error) {
+	if a, err = native.Check(name, args, 0, 2); err != nil {
+		return
+	}
+	pattern = "kukel-*"
+	if a.Has(0) {
+		if pattern, err = a.String(0); err != nil {
+			return
+		}
+		if strings.ContainsAny(pattern, `/`+string(os.PathSeparator)) {
+			err = a.Errorf(value.ValueError, "the pattern %q has a path separator (the directory is the second argument)", pattern)
+			return
+		}
+	}
+	if a.Has(1) {
+		dir, err = a.String(1)
+	}
+	return
 }
 
 type stdKey int
@@ -393,17 +453,9 @@ func tell(a native.Args, env value.Env, f *file) (value.Value, error) {
 	if f.std != 0 {
 		return value.NilValue, f.noPosition(a)
 	}
-	if f.w != nil {
-		if err := f.w.Flush(); err != nil { // (in append mode the position is known only after)
-			return value.NilValue, ioError(a, err)
-		}
-	}
-	pos, err := f.f.Seek(0, io.SeekCurrent)
+	pos, err := f.position(a)
 	if err != nil {
-		return value.NilValue, ioError(a, err)
-	}
-	if f.r != nil {
-		pos -= int64(f.r.Buffered())
+		return value.NilValue, err
 	}
 	return value.MakeInt(pos), nil
 }
@@ -439,7 +491,8 @@ func closeFile(a native.Args, env value.Env, f *file) (value.Value, error) {
 	return value.NilValue, nil
 }
 
-// close closes the file once, writing out what is buffered first.
+// close closes the file once, writing out what is buffered first (and
+// giving up its lock).
 func (f *file) close() error {
 	if f.closed {
 		return nil
@@ -450,8 +503,134 @@ func (f *file) close() error {
 	if f.w != nil {
 		err = f.w.Flush()
 	}
+	if f.locked != "" {
+		f.locked = ""
+		if uerr := unlockFile(f.f); err == nil {
+			err = uerr
+		}
+	}
 	if cerr := f.f.Close(); err == nil {
 		err = cerr
 	}
 	return err
+}
+
+// position is where the program is in the file: the system's position,
+// less what was read ahead, after what is buffered is written out.
+func (f *file) position(a native.Args) (int64, error) {
+	if f.w != nil {
+		if err := f.w.Flush(); err != nil { // (in append mode the position is known only after)
+			return 0, ioError(a, err)
+		}
+	}
+	pos, err := f.f.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return 0, ioError(a, err)
+	}
+	if f.r != nil {
+		pos -= int64(f.r.Buffered())
+	}
+	return pos, nil
+}
+
+// f->truncate([size]): cuts (or extends) the file to size bytes, by
+// default to the position; the position stays.
+func truncate(a native.Args, env value.Env, f *file) (value.Value, error) {
+	if !f.writes {
+		return value.NilValue, a.Errorf(value.ValueError, "%s is not open for writing", f.name)
+	}
+	if f.std != 0 {
+		return value.NilValue, a.Errorf(value.IOError, "%s: a standard stream cannot be truncated", f.name)
+	}
+	size, err := f.position(a)
+	if err != nil {
+		return value.NilValue, err
+	}
+	if a.Has(0) {
+		if size, err = a.Int(0); err != nil {
+			return value.NilValue, err
+		}
+		if size < 0 {
+			return value.NilValue, a.Errorf(value.ValueError, "a negative size (%d)", size)
+		}
+	}
+	if err := f.f.Truncate(size); err != nil {
+		return value.NilValue, ioError(a, err)
+	}
+	return value.NilValue, nil
+}
+
+// f->lock([kind [, timeout]]): takes (or changes) the lock on the whole
+// file, waiting until it is free, at most timeout seconds; whether it got
+// it. A waiting flock cannot be interrupted, so it tries again and again,
+// a little longer apart each time, and stops when the program is
+// cancelled.
+func lock(a native.Args, env value.Env, f *file) (value.Value, error) {
+	kind := "exclusive"
+	if a.Has(0) {
+		var err error
+		if kind, err = a.String(0); err != nil {
+			return value.NilValue, err
+		}
+		if kind != "exclusive" && kind != "shared" {
+			return value.NilValue, a.Errorf(value.ValueError, `the kind of lock must be "exclusive" or "shared", not %q`, kind)
+		}
+	}
+	limit, timed := time.Duration(0), a.Has(1)
+	if timed {
+		var err error
+		if limit, err = a.Seconds(1, "a usable timeout"); err != nil {
+			return value.NilValue, err
+		}
+	}
+	if f.std != 0 {
+		return value.NilValue, a.Errorf(value.IOError, "%s: a standard stream cannot be locked", f.name)
+	}
+	if f.locked == kind {
+		return value.True, nil
+	}
+	try := func() (bool, error) {
+		ok, err := tryLock(f.f, kind == "exclusive", f.locked != "")
+		if err != nil {
+			return false, ioError(a, err)
+		}
+		if ok {
+			f.locked = kind
+		}
+		return ok, nil
+	}
+	if ok, err := try(); ok || err != nil || (timed && limit == 0) {
+		return value.MakeBool(ok), err
+	}
+	defer native.Wait(env).Done()
+	deadline := time.Now().Add(limit)
+	for pause := time.Millisecond; ; pause = min(2*pause, 50*time.Millisecond) {
+		if timed {
+			if left := time.Until(deadline); left <= 0 {
+				return value.False, nil
+			} else if pause > left {
+				pause = left
+			}
+		}
+		select {
+		case <-time.After(pause):
+		case <-env.Done(): // the program was cancelled
+			return value.NilValue, env.Err()
+		}
+		if ok, err := try(); ok || err != nil {
+			return value.MakeBool(ok), err
+		}
+	}
+}
+
+// f->unlock(): gives up the lock (none: nothing).
+func unlock(a native.Args, env value.Env, f *file) (value.Value, error) {
+	if f.locked == "" {
+		return value.NilValue, nil
+	}
+	f.locked = ""
+	if err := unlockFile(f.f); err != nil {
+		return value.NilValue, ioError(a, err)
+	}
+	return value.NilValue, nil
 }

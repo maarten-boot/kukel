@@ -12,6 +12,13 @@ Two kinds of change need care when you upgrade:
   format version; build it again from its source after such a release
   (`kukel build`). The history is in [docs/vm.md](docs/vm.md) §7.
 
+## Unreleased
+
+- Files: `fs::temp` and `fs::tempdir` (temporary files and directories,
+  kept until removed), `fs::chmod(path, "rw-r--r--")`, `f->truncate`,
+  and locks: `f->lock(["exclusive" | "shared" [, timeout]])`,
+  `f->unlock()` (`flock`; `LockFileEx` on Windows). Q84.
+
 ## v0.33.3 (2026-10-27)
 
 v0.33.2 was tagged on the open files but not published: the fuzz test ran
