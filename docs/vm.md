@@ -5,7 +5,7 @@ values, the program image, the execution model of the stack machine, every
 instruction, how the compiler translates the language's constructs, the
 `.kkc` file format and what the loader guarantees.
 
-It describes bytecode format version **9** (introduced in kukel v0.34). The language
+It describes bytecode format version **10** (introduced in kukel v0.35). The language
 itself is described in [reference.md](reference.md), its grammar in
 [syntax.ebnf](../syntax.ebnf).
 
@@ -512,18 +512,30 @@ are written in Go); its Go value holds the frame while it is suspended:
 the function, `ip`, `argc`, `this`, the closure, the slots and operands,
 and the frame's try handlers (their stack depths relative to its base).
 
-A **step** (`next()`, or `ITER_NEXT` of a loop over the generator) puts
-the frame back on top of the stack, with the generator in the callee's
-place below its slots, and its handlers back on the handler list, and
-runs it in an execution of its own (as a built-in's call of Kukel code
-is, section 4.9) until:
+A **step** puts the frame back on top of the stack, with the generator in
+the callee's place below its slots, and its handlers back on the handler
+list, and runs it until:
 
 - `YIELD`: the frame's slots, operands and handlers go back into the
   generator, the frame is dropped, and the value is the step's result;
-- the body returns (`RETURN_NIL`; a generator returns no value): the
-  generator is done;
+- `GEN_RETURN` (its `return;`, and the end of its body): the frame is
+  dropped, and the generator is done;
 - an exception leaves the body: it is done, and the exception goes on
   from the instruction that asked for the step.
+
+Where the step runs depends on who asks:
+
+- `ITER_NEXT` of a `for`-each loop (Kukel v0.35) runs it **in the loop's
+  own dispatch loop**, as a call runs: the generator's frame goes on top
+  (with the loop's `ip` already past the `ITER_NEXT`), and `YIELD` drops it
+  and pushes the value (and the count, for two names) for the loop, which
+  goes on; `GEN_RETURN` makes the loop go on at its `end`. An exception
+  that leaves the frame (`catch` dropping frames) ends the generator. This
+  is about a third faster than a nested execution (a step costs about 70 ns
+  where a call costs 50);
+- `next()`, closing, and a generator written in Go run it in an execution
+  of its own (as a built-in's call of Kukel code is, section 4.9), which
+  `YIELD` and `GEN_RETURN` end.
 
 A step of a generator that is running (its own body asks it for a value)
 is a `ValueError`; of a done one gives nothing (`next(x)` gives `x`).
@@ -545,15 +557,20 @@ would run its `finally` blocks at a known time.
 A generator written in Go (`native.Generator`, as `fs::File::iter`) has
 no frame: a step calls its Go function, and closing it only marks it done.
 
-**In the dispatch loop** the generators cost nothing: `GENERATOR`, `YIELD`
-and `ITER_CLOSE` go to the loop's `default` case, and `ITER_INIT` of an
-object and `ITER_NEXT` of something that is not a vector, map or string
-iterator to their error paths, which hand the instruction to the code for
-generators outside the loop instead of raising the error (the loop is
-measurably faster with less code in it: the first version, with cases of
-its own, made a loop of `try` blocks 20% slower, and pointers in the
-handler records another 10%; handlers of loops keep the index of their
-generator in a list of the VM instead).
+**In the dispatch loop** the generators cost almost nothing: `ITER_NEXT`
+of something that is not a vector, map or string iterator and `YIELD`
+each call a function outside the loop and reload the loop's state from
+the top frame (as calls do); `GENERATOR`, `GEN_RETURN` and `ITER_CLOSE`
+go to the loop's `default` case, and `ITER_INIT` of an object to its error
+path, which hand the instruction to the code for generators outside the
+loop instead of raising an error. The loop is measurably faster with less
+code in it: when the Go compiler takes it for a "big" function, it stops
+inlining small functions into it, and unrelated programs ran 20 to 40%
+slower (the first version of generators); so `CLOSURE` and `MAKE_MAP`,
+whose cost is their allocation, run in functions of their own. Pointers in
+the handler records cost another 10% (the garbage collector's write
+barriers at every `TRY_PUSH`): handlers of loops keep the index of their
+generator in a list of the VM instead.
 
 ## 5. Instruction set
 
@@ -659,6 +676,7 @@ code: the numbers, names, operands and stack effects.
 | 87 | `GENERATOR` | | 0 | 0 | return a generator that runs the rest of the function from the next instruction, a step at a time (section 4.14) |
 | 88 | `YIELD` | | 1 | 0 | `x`: the generator's step ends and gives `x`; the next step goes on after it |
 | 89 | `ITER_CLOSE` | slot:u16 | 0 | 0 | the loop with the iterator in `slot` is left: if it walks a generator, remove its handler and close it (nothing for a vector, map or string) |
+| 90 | `GEN_RETURN` | | 0 | 0 | the generator ends (its `return;` and the end of its body): drop the frame; a `for`-each loop goes on at its end |
 
 `CMP_JUMP`'s `cmp` operand is the comparison in its low byte (0 `<`,
 1 `<=`, 2 `>`, 3 `>=`, 4 `==`, 5 `!=`), plus 0x100 to jump when the
@@ -1166,13 +1184,13 @@ countdown(n, step = 1) {         JUMP_IF_ARG 1 -> G; CONST 1; STORE_LOCAL step
          i -= step) yield i;  top: LOAD_LOCAL i; YIELD                (a step ends here)
                                  ARITH_LL SUB i, step; STORE_LOCAL i
                            test: CMP_JUMP_LK if i > 0 -> top
-}                                RETURN_NIL                         (the generator is done)
+}                                GEN_RETURN                         (the generator is done)
 ```
 
 A function is a generator function when its body has a `yield` outside
 the function literals in it; `GENERATOR` comes after the prologue, so the
 arguments are checked and the defaults computed when it is called, as for
-any function. `return` in it takes no value, `yield;` yields nil, and a
+any function. `return` in it takes no value (it is `GEN_RETURN`), `yield;` yields nil, and a
 constructor cannot yield (compile errors).
 
 ---
@@ -1184,7 +1202,7 @@ noted; `str` is a `uv` length followed by that many bytes.
 
 ```
 "KUKL"                       4 bytes: magic
-uv   format version          9
+uv   format version          10
 uv   flags                   0 (1: a module, below)
 uv   main                    global index of main
 uv   n, then n globals       str name, byte kind (0 variable, 1 function, 2 built-in, 3 class, 4 native),
@@ -1219,7 +1237,8 @@ cache slots; version 3: native globals; version 4: `THROW` takes only
 version 6: native base classes, `CALL_NATIVE`; version 7: `ARITH_LK`,
 `CMP_JUMP_LK`; version 8: `INDEX_LL`, `GET_MEMBER_L`, `ARITH_LL`,
 `CMP_JUMP_LL`, `ARITH_K`, `CMP_JUMP_K`; version 9: generators,
-`GENERATOR`, `YIELD`, `ITER_CLOSE`). `BREAK` came later
+`GENERATOR`, `YIELD`, `ITER_CLOSE`; version 10: `GEN_RETURN`, for steps
+in the loop that walks the generator). `BREAK` came later
 without a new version: it is only in the debugger's copy of the code, and a
 file that holds one is refused. A reader refuses any version other
 than its own, telling the user to compile the program again. Built-ins and
@@ -1279,7 +1298,8 @@ make the VM crash or read outside its data.
 - per function: parameter, slot, stack and cache counts are in range;
 - no `BREAK` (it belongs to the debugger's copies only);
 - at most one `GENERATOR`, reached with an empty operand stack and no
-  handlers; a `YIELD` only in a function that has a `GENERATOR`;
+  handlers; `YIELD` and `GEN_RETURN` only in a function that has a
+  `GENERATOR`, and `GEN_RETURN` with no handlers left, as a return;
 - every instruction is known and complete, and its operands are in range:
   constants, slots, globals, functions, classes and their statics, upvalues,
   cache slots, jump tables; member names are string constants; the

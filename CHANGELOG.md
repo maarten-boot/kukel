@@ -14,6 +14,13 @@ Two kinds of change need care when you upgrade:
 
 ## Unreleased
 
+**Bytecode format 10**: `.kkc` files must be built again.
+
+- Faster generators: a `for` loop runs a generator's steps in its own
+  dispatch loop, as calls run, instead of in a nested one: a loop over a
+  generator takes about a third less time, a chain of `iter` functions a
+  quarter less. A generator's `return;` is a new instruction, `GEN_RETURN`.
+  Other programs run as fast as before. Q89.
 - The module `iter`, written in Kukel and built into kukel: `range`,
   `count`, `map`, `filter`, `take`, `drop`, `takewhile`, `dropwhile`,
   `enumerate`, `zip`, `chain`, `collect`, `reduce`, `first`, `any`, `all`;

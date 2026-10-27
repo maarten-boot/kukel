@@ -141,6 +141,15 @@ func (c *compiler) leaveTries(ti int, pos token.Pos, what string) {
 	}
 }
 
+// returnNil is the instruction of "return;": GEN_RETURN in a generator
+// function, which ends the generator, else RETURN_NIL.
+func (c *compiler) returnNil() bytecode.Op {
+	if c.fs.gen {
+		return bytecode.OpGenReturn
+	}
+	return bytecode.OpReturnNil
+}
+
 func (c *compiler) returnStmt(s *ast.ReturnStmt) {
 	if c.fs.gen && s.Value != nil {
 		c.errorf(s.Value.Pos(), "a generator cannot return a value (return; ends it, yield gives a value)")
@@ -150,7 +159,7 @@ func (c *compiler) returnStmt(s *ast.ReturnStmt) {
 			c.expr(s.Value)
 			c.emit(bytecode.OpReturn)
 		} else {
-			c.emit(bytecode.OpReturnNil)
+			c.emit(c.returnNil())
 		}
 		return
 	}
@@ -158,7 +167,7 @@ func (c *compiler) returnStmt(s *ast.ReturnStmt) {
 	// while the finally blocks run.
 	if s.Value == nil {
 		c.leaveTries(-1, s.Return, "return")
-		c.emit(bytecode.OpReturnNil)
+		c.emit(c.returnNil())
 		return
 	}
 	c.expr(s.Value)

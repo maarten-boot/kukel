@@ -585,7 +585,7 @@ func (c *compiler) function(name string, pos token.Pos, params *ast.ParamList, c
 		}
 	}
 	body()
-	c.emit(bytecode.OpReturnNil)
+	c.emit(c.returnNil())
 	for i := range fs.fn.Locals {
 		if fs.fn.Locals[i].End < 0 { // the parameters
 			fs.fn.Locals[i].End = c.here()
@@ -635,7 +635,7 @@ func peephole(fn *bytecode.Function) {
 		}
 		t := final(bytecode.ReadU32(code, at))
 		binary.LittleEndian.PutUint32(code[at:], uint32(t))
-		if r := bytecode.Op(code[t]); op == bytecode.OpJump && (r == bytecode.OpReturn || r == bytecode.OpReturnNil) {
+		if r := bytecode.Op(code[t]); op == bytecode.OpJump && (r == bytecode.OpReturn || r == bytecode.OpReturnNil || r == bytecode.OpGenReturn) {
 			code[pc] = byte(r)
 			for i := pc + 1; i < at+4; i++ {
 				code[i] = byte(bytecode.OpNop)

@@ -142,6 +142,7 @@ const (
 	OpGenerator // return a generator that runs the rest of the function from the next instruction, a step at a time
 	OpYield     // pop x: the generator's step ends, giving x; the next step goes on after it
 	OpIterClose // slot u16: close the generator a for-each loop walks with the iterator in slot (nothing for others)
+	OpGenReturn // the generator ends (its return; and the end of its body)
 
 	numOps
 )
@@ -246,6 +247,7 @@ var opInfo = [numOps]OpInfo{
 	OpGenerator:    {"GENERATOR", nil},
 	OpYield:        {"YIELD", nil},
 	OpIterClose:    {"ITER_CLOSE", u16},
+	OpGenReturn:    {"GEN_RETURN", nil},
 }
 
 // The comparison operand of CMP_JUMP: one of these, plus CmpJumpIfTrue to

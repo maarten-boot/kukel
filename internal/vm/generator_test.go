@@ -137,6 +137,23 @@ guarded(name) {
 				try { x->next(); } catch (e) { println(e->message, e->trace[0], e->trace[1]); }
 				println(x->done(), x->next());
 			}`, "1\nin g g (t.kkl:3) main (t.kkl:7)\ntrue nil\n"},
+		{"an exception in a step a for loop runs ends the generator", `
+			global saved;
+			g() { try { yield 1; throw new Error("in g"); } finally { println("g's finally"); } }
+			main() {
+				saved = g();
+				try { for (local x in saved) println(x); } catch (e) { println(e->message, e->trace[0], e->trace[1]); }
+				println(saved->done(), saved->next());
+			}`, "1\ng's finally\nin g g (t.kkl:4) main (t.kkl:7)\ntrue nil\n"},
+		{"next() and for take turns on one generator", `main() {
+			local g = countdown(5);
+			println(g->next());
+			for (local x in g) { println(x); if (x == 3) break; }
+			println(g->done(), g->next());
+		}`, "5\n4\n3\ntrue nil\n"},
+		{"a for loop inside a generator another for loop walks", `
+			pairs(n) { for (local i in countdown(n)) for (local j in countdown(i)) yield [i, j]; }
+			main() { for (local p in pairs(2)) print(p, ""); println(); }`, "[2, 2] [2, 1] [1, 1] \n"},
 		{"a try in the body catches the body's exceptions across yields", `
 			g() { try { yield 1; throw new Error("x"); } catch (e) { yield "caught " + e->message; } }
 			main() { for (local x in g()) println(x); }`, "1\ncaught x\n"},

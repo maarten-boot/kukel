@@ -42,6 +42,13 @@ type generator struct {
 	started  bool          // it has run a step (a close before one runs nothing)
 	closing  bool          // it is being closed: it may not yield
 
+	// A step that a for-each loop runs in its own dispatch loop (genNext):
+	// what YIELD and GEN_RETURN do for the loop.
+	inline bool
+	two    bool     // the loop has two names: push the count too
+	end    int      // where the loop goes on at the generator's end
+	gi     *genIter // the loop's iterator (the count)
+
 	// A generator written in Go (NewGenerator): its next value.
 	name string
 	next func() (value.Value, bool, error)
@@ -196,22 +203,7 @@ func (vm *VM) genOp(start, sp, stopDepth int) error {
 		}
 		vm.stack[sp-1] = it
 	case bytecode.OpIterNext:
-		count, v, more, err := vm.iterNext(f, vm.stack[f.base+bytecode.ReadU16(code, ip)])
-		f = &vm.frames[len(vm.frames)-1] // a step may have moved them
-		if err != nil {
-			return err
-		}
-		if !more {
-			f.ip = bytecode.ReadU32(code, ip+4)
-			break
-		}
-		f.ip = ip + 8
-		if bytecode.ReadU16(code, ip+2) == 2 {
-			vm.stack[sp] = count
-			sp++
-		}
-		vm.stack[sp] = v
-		vm.sp = sp + 1
+		return vm.genNext(f, ip, sp, vm.stack[f.base+bytecode.ReadU16(code, ip)])
 	case bytecode.OpIterClose:
 		f.ip = ip + 2
 		if err := vm.iterClose(f, vm.stack[f.base+bytecode.ReadU16(code, ip)]); err != nil {
@@ -231,12 +223,17 @@ func (vm *VM) genOp(start, sp, stopDepth int) error {
 		}
 		vm.sp++
 	case bytecode.OpYield:
-		v := vm.stack[sp-1]
-		if err := vm.yield(f, ip, sp-1, stopDepth); err != nil {
-			return err
+		g := vm.running(f)
+		if g == nil {
+			return bad(f, "YIELD outside a step of its generator")
 		}
-		vm.genResult, vm.genSP = v, vm.sp
-		return errGenReturn
+		return vm.yield(f, g, vm.stack[sp-1], ip, sp-1, stopDepth)
+	case bytecode.OpGenReturn:
+		g := vm.running(f)
+		if g == nil {
+			return bad(f, "GEN_RETURN outside a step of its generator")
+		}
+		return vm.genReturn(f, g, stopDepth)
 	default:
 		return value.Errorf(value.InternalError, "bad opcode %d at %d in %s", op, start, f.fn.FuncName)
 	}
@@ -261,17 +258,63 @@ func (vm *VM) makeGenerator(f *frame, ip, sp int) (value.Value, error) {
 	return value.ObjectValue(g.obj), nil
 }
 
-// yield is YIELD in frame f (the top one, at depth stopDepth of its run):
-// it keeps the frame in its generator, to go on at ip, and drops it.
-func (vm *VM) yield(f *frame, ip, sp, stopDepth int) error {
-	top := len(vm.frames) - 1
-	g := vm.generatorOf(vm.stack[f.base-1])
-	if g == nil || g.state != genRunning || top != stopDepth {
+// running gives the generator whose step frame f (the top one) runs.
+func (vm *VM) running(f *frame) *generator {
+	if g := vm.generatorOf(vm.stack[f.base-1]); g != nil && g.state == genRunning {
+		return g
+	}
+	return nil
+}
+
+// yield is YIELD in frame f (the top one) of generator g: it keeps the
+// frame in g, to go on at ip, and drops it. A step of a nested run ends
+// it (errGenReturn, its frame at depth stopDepth); a step of a for-each
+// loop (inline) gives the loop its value(s), and the loop goes on.
+func (vm *VM) yield(f *frame, g *generator, v value.Value, ip, sp, stopDepth int) error {
+	if !g.inline && len(vm.frames)-1 != stopDepth {
 		return bad(f, "YIELD outside a step of its generator")
 	}
 	if g.closing {
 		return value.Errorf(value.ValueError, "the generator %s yields while it is being closed (a yield in a finally block?)", g.funcName())
 	}
+	vm.suspend(f, g, ip, sp)
+	if !g.inline {
+		vm.genResult, vm.genSP = v, vm.sp
+		return errGenReturn
+	}
+	g.inline = false
+	vm.ensure(2)
+	if g.two {
+		vm.stack[vm.sp] = value.MakeInt(g.gi.i)
+		vm.sp++
+	}
+	g.gi.i++
+	vm.stack[vm.sp] = v
+	vm.sp++
+	return nil
+}
+
+// genYield is YIELD in frame f (ip just past it, sp the stack depth with
+// the value on top). done: run returns vm.genResult (a step of a nested
+// run ended); else run reloads its state from the top frame (the loop's).
+//
+//go:noinline
+func (vm *VM) genYield(f *frame, ip, sp, stopDepth int) (done bool, err error) {
+	g := vm.running(f)
+	if g == nil {
+		return false, bad(f, "YIELD outside a step of its generator")
+	}
+	err = vm.yield(f, g, vm.stack[sp-1], ip, sp-1, stopDepth)
+	if err == errGenReturn {
+		return true, nil
+	}
+	return false, err
+}
+
+// suspend keeps frame f (the top one, with the stack up to sp) in g, to go
+// on at ip, with its try handlers, and drops it.
+func (vm *VM) suspend(f *frame, g *generator, ip, sp int) {
+	top := len(vm.frames) - 1
 	g.ip = ip
 	g.slots = append(g.slots[:0], vm.stack[f.base:sp]...)
 	n := len(vm.handlers)
@@ -299,7 +342,35 @@ func (vm *VM) yield(f *frame, ip, sp, stopDepth int) error {
 	g.state = genReady
 	vm.frames = vm.frames[:top]
 	vm.sp = f.base - 1
+}
+
+// genReturn is GEN_RETURN in frame f (the top one) of generator g: g is
+// done, and its frame dropped. A nested run ends (errGenReturn); a
+// for-each loop goes on at its end.
+func (vm *VM) genReturn(f *frame, g *generator, stopDepth int) error {
+	top := len(vm.frames) - 1
+	if !g.inline && top != stopDepth {
+		return bad(f, "GEN_RETURN outside a step of its generator")
+	}
+	for n := len(vm.handlers); n > 0 && vm.handlers[n-1].frame == top; n-- { // (the verifier lets none through)
+		vm.popLoop(vm.handlers[n-1])
+		vm.handlers = vm.handlers[:n-1]
+	}
+	vm.frames = vm.frames[:top]
+	vm.sp = f.base - 1
+	inline := g.inline
+	g.finish()
+	if !inline {
+		vm.genResult, vm.genSP = value.NilValue, vm.sp
+		return errGenReturn
+	}
+	vm.frames[top-1].ip = g.end
 	return nil
+}
+
+// finish marks g done and lets go of what it kept.
+func (g *generator) finish() {
+	g.state, g.slots, g.handlers, g.loops, g.inline, g.gi = genDone, nil, nil, nil, false, nil
 }
 
 // resume runs the next step of g: it gives the value of its next yield, or
@@ -329,36 +400,11 @@ func (vm *VM) resume(g *generator, closing bool) (value.Value, bool, error) {
 		g.state, g.slots = genDone, nil
 		return value.NilValue, false, nil
 	}
-	if err := vm.step(pcCaller); err != nil {
+	sp0, depth := vm.sp, len(vm.frames)
+	if err := vm.enterGenerator(g); err != nil {
 		return value.NilValue, false, err
 	}
-	depth := len(vm.frames)
-	if depth >= MaxFrames {
-		return value.NilValue, false, value.Errorf(value.StackOverflow, "stack overflow (more than %d nested calls)", MaxFrames)
-	}
-	if s := vm.prof; s != nil {
-		s.count(g.fn)
-	}
-
-	// The frame as it was: the generator in the callee's place, then its
-	// slots and operands, and its try handlers.
-	sp0 := vm.sp
-	vm.ensure(1 + len(g.slots) + g.fn.MaxStack)
-	vm.stack[sp0] = value.ObjectValue(g.obj)
-	base := sp0 + 1
-	vm.sp = base + copy(vm.stack[base:], g.slots)
-	vm.frames = append(vm.frames, frame{fn: g.fn, ip: g.ip, base: base, argc: g.argc, this: g.this, cl: g.cl})
-	loops := g.loops
-	for _, h := range g.handlers {
-		h.frame, h.sp = depth, h.sp+base
-		if h.loop != 0 && len(loops) > 0 {
-			vm.loops = append(vm.loops, loops[0])
-			loops, h.loop = loops[1:], int32(len(vm.loops))
-		}
-		vm.handlers = append(vm.handlers, h)
-	}
-	g.handlers, g.loops = g.handlers[:0], g.loops[:0]
-	g.state, g.started, g.closing = genRunning, true, closing
+	g.closing = closing
 
 	var r value.Value
 	var err error
@@ -375,11 +421,84 @@ func (vm *VM) resume(g *generator, closing bool) (value.Value, bool, error) {
 	if err == nil && g.state == genReady {
 		return r, true, nil // it yielded r
 	}
-	g.state, g.slots, g.handlers, g.loops = genDone, nil, nil, nil
+	g.finish()
 	if re, ok := err.(*RuntimeError); ok && re.closing {
 		err = nil // closed
 	}
 	return value.NilValue, false, err
+}
+
+// enterGenerator puts g's frame back on top of the stack, as it was: the
+// generator in the callee's place, then its slots and operands, and its
+// try handlers; g is running.
+func (vm *VM) enterGenerator(g *generator) error {
+	if err := vm.step(pcCaller); err != nil {
+		return err
+	}
+	depth := len(vm.frames)
+	if depth >= MaxFrames {
+		return value.Errorf(value.StackOverflow, "stack overflow (more than %d nested calls)", MaxFrames)
+	}
+	if s := vm.prof; s != nil {
+		s.count(g.fn)
+	}
+	sp0 := vm.sp
+	vm.ensure(1 + len(g.slots) + g.fn.MaxStack)
+	vm.stack[sp0] = value.ObjectValue(g.obj)
+	base := sp0 + 1
+	vm.sp = base + copy(vm.stack[base:], g.slots)
+	vm.frames = append(vm.frames, frame{fn: g.fn, ip: g.ip, base: base, argc: g.argc, this: g.this, cl: g.cl})
+	loops := g.loops
+	for _, h := range g.handlers {
+		h.frame, h.sp = depth, h.sp+base
+		if h.loop != 0 && len(loops) > 0 {
+			vm.loops = append(vm.loops, loops[0])
+			loops, h.loop = loops[1:], int32(len(vm.loops))
+		}
+		vm.handlers = append(vm.handlers, h)
+	}
+	g.handlers, g.loops = g.handlers[:0], g.loops[:0]
+	g.state, g.started, g.closing = genRunning, true, false
+	return nil
+}
+
+// genNext is ITER_NEXT of a for-each loop over a generator, in frame f
+// (ip just past the opcode, sp the stack depth). A suspended generator
+// written in Kukel runs its step in the loop's own dispatch loop: its
+// frame goes on top, and YIELD (or GEN_RETURN) hands back to the loop.
+// Others (written in Go, or done) are asked here. The dispatch loop then
+// reloads its state from the top frame. (Not inlined: run is faster with
+// less code in it.)
+//
+//go:noinline
+func (vm *VM) genNext(f *frame, ip, sp int, it value.Value) error {
+	gi, ok := it.Obj().(*genIter)
+	if it.Kind() != value.Internal || !ok {
+		return bad(f, "ITER_NEXT without an iterator")
+	}
+	code := f.fn.Code
+	g, two, end := gi.g, bytecode.ReadU16(code, ip+2) == 2, bytecode.ReadU32(code, ip+4)
+	f.ip, vm.sp = ip+8, sp
+	if g.next == nil && g.state == genReady {
+		if err := vm.enterGenerator(g); err != nil {
+			return err
+		}
+		g.inline, g.two, g.end, g.gi = true, two, end, gi
+		return nil
+	}
+	count, v, more, err := vm.iterNext(f, it)
+	f = &vm.frames[len(vm.frames)-1] // a step may have moved them
+	if err != nil || !more {
+		f.ip = end
+		return err
+	}
+	if two {
+		vm.stack[sp] = count
+		sp++
+	}
+	vm.stack[sp] = v
+	vm.sp = sp + 1
+	return nil
 }
 
 // iterate is ITER_INIT of a value that is not a vector, map or string (e,
@@ -465,4 +584,16 @@ func (vm *VM) popLoop(h handler) *generator {
 	clear(vm.loops[i:])
 	vm.loops = vm.loops[:i]
 	return g
+}
+
+// dropFrames drops the frames from index n up, as an exception leaves
+// them. A generator whose step one of them ran for a for-each loop
+// (inline) has ended (a step of a nested run ends in resume).
+func (vm *VM) dropFrames(n int) {
+	for i := len(vm.frames) - 1; i >= n; i-- {
+		if g := vm.generatorOf(vm.stack[vm.frames[i].base-1]); g != nil && g.state == genRunning && g.inline {
+			g.finish()
+		}
+	}
+	vm.frames = vm.frames[:n]
 }

@@ -1088,6 +1088,42 @@ func (vm *VM) step(pc int) error {
 	return nil
 }
 
+// The instructions below run out of the loop of run, which is faster with
+// less code in it: each allocates, which costs more than the call.
+// (EXTEND, measured out of it, made spread calls 6% slower.)
+
+// makeMap is MAKE_MAP of the key/value pairs kv.
+//
+//go:noinline
+func makeMap(kv []value.Value) (value.Value, error) {
+	m := value.NewMap()
+	for i := 0; i < len(kv); i += 2 {
+		if e := m.Set(kv[i], kv[i+1]); e != nil {
+			return value.NilValue, e
+		}
+	}
+	return value.MakeMap(m), nil
+}
+
+// closure is CLOSURE of function fn in frame f.
+//
+//go:noinline
+func (vm *VM) closure(f *frame, fn int) (value.Value, error) {
+	callee := vm.prog.Funcs[fn]
+	cells := make([]*value.CellObj, len(callee.Upvalues))
+	for i, u := range callee.Upvalues {
+		switch {
+		case u.FromLocal && u.Index < f.fn.NumSlots && vm.stack[f.base+u.Index].Kind() == value.Cell:
+			cells[i] = vm.stack[f.base+u.Index].AsCell()
+		case !u.FromLocal && f.cl != nil && u.Index < len(f.cl.Cells):
+			cells[i] = f.cl.Cells[u.Index]
+		default:
+			return value.NilValue, bad(f, "closure captures a variable that is not there")
+		}
+	}
+	return value.MakeClosure(&value.ClosureObj{Fn: callee, Cells: cells, This: f.this}), nil
+}
+
 // addTo is ADD_LOCAL's general case: *v = *v + x. (Out of the loop of
 // run, which is faster with less code in it.)
 //
@@ -1281,7 +1317,7 @@ func (vm *VM) catch(re *RuntimeError, stopDepth int) (*RuntimeError, bool) {
 		vm.handlers = vm.handlers[:n-1]
 		if h.loop != 0 {
 			g := vm.popLoop(h)
-			vm.frames = vm.frames[:h.frame+1]
+			vm.dropFrames(h.frame + 1)
 			vm.sp = h.sp
 			if g == nil {
 				continue
@@ -1299,7 +1335,7 @@ func (vm *VM) catch(re *RuntimeError, stopDepth int) (*RuntimeError, bool) {
 		if re.closing && !h.finally {
 			continue // closing a generator skips its catch blocks
 		}
-		vm.frames = vm.frames[:h.frame+1]
+		vm.dropFrames(h.frame + 1)
 		vm.frames[h.frame].ip = h.pc
 		vm.sp = h.sp
 		v := re.Value
@@ -1318,7 +1354,7 @@ func (vm *VM) catch(re *RuntimeError, stopDepth int) (*RuntimeError, bool) {
 		vm.popLoop(vm.handlers[n-1]) // (its generator is not closed: a fatal exception runs no finally)
 		vm.handlers = vm.handlers[:n-1]
 	}
-	vm.frames = vm.frames[:stopDepth]
+	vm.dropFrames(stopDepth)
 	return re, false
 }
 
@@ -1553,15 +1589,13 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 
 		case bytecode.OpMakeMap:
 			n := bytecode.ReadU16(code, ip)
-			ip += 2
-			m := value.NewMap()
-			for i := sp - 2*n; i < sp; i += 2 {
-				if e := m.Set(stack[i], stack[i+1]); e != nil {
-					return vm.fail(f, start, sp, e)
-				}
+			m, e := makeMap(stack[sp-2*n : sp])
+			if e != nil {
+				return vm.fail(f, start, sp, e)
 			}
+			ip += 2
 			sp -= 2 * n
-			stack[sp] = value.MakeMap(m)
+			stack[sp] = m
 			sp++
 		case bytecode.OpIndexGet:
 			r, e := value.Index(stack[sp-2], stack[sp-1])
@@ -1592,8 +1626,13 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			stack[sp-1] = it
 		case bytecode.OpIterNext:
 			it := stack[base+bytecode.ReadU16(code, ip)]
-			if it.Kind() != value.Iterator { // a generator (genStep)
-				return vm.fail(f, start, sp, errGenStep)
+			if it.Kind() != value.Iterator { // a generator: its step runs in this loop (genNext)
+				if e := vm.genNext(f, ip, sp, it); e != nil {
+					return vm.fail(&vm.frames[len(vm.frames)-1], start, sp, e)
+				}
+				stack, sp, f = vm.stack, vm.sp, &vm.frames[len(vm.frames)-1]
+				code, consts, base, ip = f.fn.Code, f.fn.Consts, f.base, f.ip
+				break
 			}
 			n := bytecode.ReadU16(code, ip+2)
 			first, second, ok := it.Next()
@@ -1787,20 +1826,12 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 			f.cl.Cells[bytecode.ReadU16(code, ip)].V = stack[sp]
 			ip += 2
 		case bytecode.OpClosure:
-			fn := vm.prog.Funcs[bytecode.ReadU16(code, ip)]
-			ip += 2
-			cells := make([]*value.CellObj, len(fn.Upvalues))
-			for i, u := range fn.Upvalues {
-				switch {
-				case u.FromLocal && u.Index < f.fn.NumSlots && stack[base+u.Index].Kind() == value.Cell:
-					cells[i] = stack[base+u.Index].AsCell()
-				case !u.FromLocal && f.cl != nil && u.Index < len(f.cl.Cells):
-					cells[i] = f.cl.Cells[u.Index]
-				default:
-					return vm.fail(f, start, sp, bad(f, "closure captures a variable that is not there"))
-				}
+			cl, e := vm.closure(f, bytecode.ReadU16(code, ip))
+			if e != nil {
+				return vm.fail(f, start, sp, e)
 			}
-			stack[sp] = value.MakeClosure(&value.ClosureObj{Fn: fn, Cells: cells, This: f.this})
+			ip += 2
+			stack[sp] = cl
 			sp++
 
 		case bytecode.OpCmpJump:
@@ -2074,6 +2105,16 @@ func (vm *VM) run(stopDepth int) (result value.Value, err error) {
 				}
 			}
 			ip = target
+
+		case bytecode.OpYield: // the step ends here (genYield)
+			if done, e := vm.genYield(f, ip, sp, stopDepth); done || e != nil {
+				if e != nil {
+					return vm.fail(f, start, sp, e)
+				}
+				return vm.genResult, nil
+			}
+			stack, sp, f = vm.stack, vm.sp, &vm.frames[len(vm.frames)-1]
+			code, consts, base, ip = f.fn.Code, f.fn.Consts, f.base, f.ip
 
 		case bytecode.OpTryPush:
 			vm.handlers = append(vm.handlers, handler{

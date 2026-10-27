@@ -136,7 +136,7 @@ func (v *verifier) function(f *Function) error {
 				return fail(pc, "a second GENERATOR (the first is at %d)", generator)
 			}
 			generator = pc
-		case OpYield:
+		case OpYield, OpGenReturn:
 			yields = pc
 		}
 		start[pc] = true
@@ -145,7 +145,7 @@ func (v *verifier) function(f *Function) error {
 	}
 
 	if yields >= 0 && generator < 0 {
-		return fail(yields, "YIELD in a function that is not a generator (it has no GENERATOR)")
+		return fail(yields, "%s in a function that is not a generator (it has no GENERATOR)", Op(f.Code[yields]))
 	}
 
 	// Follow every path from the entry and from handlers, checking the
@@ -191,7 +191,7 @@ func (v *verifier) function(f *Function) error {
 		next := it.pc + in.op.Size()
 		var err error
 		switch in.op {
-		case OpReturn, OpReturnNil:
+		case OpReturn, OpReturnNil, OpGenReturn:
 			if h != 0 {
 				return fail(it.pc, "returns with %d try handlers registered", h)
 			}

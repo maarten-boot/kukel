@@ -2762,6 +2762,6 @@ $ kukel run iter.kkl
   string`); what `f` throws, and an object without `iter()`, come when the
   values are asked for.
 - Each value through each layer is a step of a generator, so `iter` costs
-  more than a loop written out: about 160 ns per value for
+  more than a loop written out: about 85 ns per value for
   `for (local x in iter::range(n))`, against 25 ns for `for (local i = 0;
   i < n; i++)`.
