@@ -12,7 +12,15 @@ Two kinds of change need care when you upgrade:
   format version; build it again from its source after such a release
   (`kukel build`). The history is in [docs/vm.md](docs/vm.md) §7.
 
-## v0.34.0 (2026-10-27)
+## v0.34.1 (2026-10-27)
+
+v0.34.0 was tagged but not published: two new tests of locks failed on
+Windows, where a shared lock stops even its holder from writing and an
+exclusive one stops others from reading (the tests, not kukel, were
+wrong). v0.34.1 is v0.34.0 with those tests fixed; what v0.34.0 brings
+follows.
+
+## v0.34.0 (2026-10-27; not published, these changes came with v0.34.1)
 
 **Syntax version 8 and bytecode format 9**: `yield` is a keyword now (a
 variable or function called `yield` must be renamed), `Generator` is the

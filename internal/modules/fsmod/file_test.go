@@ -461,7 +461,8 @@ main() {
 
 	// A change of kind that fails keeps the lock there was (flock gives it
 	// up first: it is taken again), and unlock writes out what was written
-	// under the lock.
+	// under the lock (an exclusive one: on Windows a shared lock stops even
+	// its holder from writing).
 	got, err = runIO(t, `use fs;
 
 main() {
@@ -470,17 +471,23 @@ main() {
     println(f1->lock("shared"), f2->lock("shared"), f1->lock("exclusive", 0));
     f2->unlock();
     println(f3->lock("exclusive", 0), f3->lock("shared", 0));
+    f3->unlock();
+    println(f1->lock("exclusive", 0));
     f1->println("under the lock");
     f1->unlock();
     println(len(readfile("k.txt")));
+    f1->close();
+    f2->close();
+    f3->close();
 }
 `, "")
-	if want := "true true false\nfalse true\n15\n"; err != nil || got != want {
+	if want := "true true false\nfalse true\ntrue\n15\n"; err != nil || got != want {
 		t.Errorf("a failed change of kind, unlock: %v; got:\n%s\nwant:\n%s", err, got, want)
 	}
 
 	// lock writes out what was written before and drops what was read
-	// ahead; truncate drops what was read ahead of the new end.
+	// ahead; truncate drops what was read ahead of the new end. (A shared
+	// lock, so that readfile may read on Windows.)
 	got, err = runIO(t, `use fs;
 
 main() {
@@ -488,15 +495,17 @@ main() {
     local f = fs::open("r.txt", "r+"), g = fs::open("r.txt", "a");
     println(f->readline());
     g->println("four");
-    g->lock();
+    g->lock("shared");
     println(len(readfile("r.txt")));
-    g->unlock();
+    g->close();
     f->truncate(4);
     println(f->readline(), f->tell());
     writefile("s.txt", "a\nb\nc\n");
     local h = fs::open("s.txt", "r+");
     for (local i, l in h) { print(l, ""); if (i == 0) h->truncate(2); }
     println();
+    f->close();
+    h->close();
 }
 `, "")
 	if want := "one\n19\nnil 4\na \n"; err != nil || got != want {
