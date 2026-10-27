@@ -19,7 +19,8 @@ Two kinds of change need care when you upgrade:
   and locks: `f->lock(["exclusive" | "shared" [, timeout]])`,
   `f->unlock()` (`flock`; `LockFileEx` on Windows). Q84.
 - Windows: CI tests the fs module there (Q85); `lock()` of a file opened
-  `"a"` works, and a failed change of a lock's kind keeps the old lock.
+  `"a"` works, and a failed change of a lock's kind keeps the old lock;
+  `fs::exists` of a loop of symbolic links is `false` there too.
 
 ## v0.33.3 (2026-10-27)
 

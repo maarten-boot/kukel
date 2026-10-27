@@ -63,7 +63,9 @@ jobs:
           status=$?
           cat test.log
           if [ $status -ne 0 ]; then
-            grep -E -- '--- FAIL|_test\.go:[0-9]+:|^        |panic' test.log | head -60 | sed -e 's/%/%25/g' -e 's/^/::error::/'
+            # the output of each failing test only (not of the skipped ones)
+            awk '/^=== RUN/ { n = 0; next } /^--- FAIL/ { for (i = 0; i < n; i++) print buf[i]; print; next } { buf[n++] = $0 } /^panic/ { p = 1 } p' test.log |
+              head -60 | sed -e 's/%/%25/g' -e 's/^/::error::/'
           fi
           exit $status
       - name: Build kukel.exe and run a program

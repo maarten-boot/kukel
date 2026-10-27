@@ -165,7 +165,7 @@ func exists(env value.Env, args []value.Value) (value.Value, error) {
 	switch _, err = os.Stat(path); {
 	case err == nil:
 		return value.True, nil
-	case errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) || errors.Is(err, syscall.ELOOP):
+	case errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) || errors.Is(err, syscall.ELOOP) || linkLoop(err):
 		return value.False, nil
 	}
 	return value.NilValue, ioError(a, err)
