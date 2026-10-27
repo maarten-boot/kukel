@@ -905,3 +905,44 @@ main() {}`, kukel.CompileOptions{})
 		}
 	}
 }
+
+// A generator reaches Go as an object of class Generator, which Go steps
+// with Call; it runs in the interpreter that made it, so another one's for
+// refuses it (Q86, cross-check 11).
+func TestGenerators(t *testing.T) {
+	p := compile(t, `
+gen(n) { for (local i = 0; i < n; i++) yield i * 10; }
+sum(g) { local s = 0; for (local x in g) s += x; return s; }
+main() {}`, kukel.CompileOptions{})
+	a, b := interp(t, p, kukel.Options{}), interp(t, p, kukel.Options{})
+	g, err := a.Call("gen", kukel.Int(3))
+	if err != nil || g.String() != "Generator(gen)" || g.Kind() != "object" {
+		t.Fatalf("gen: %v, %v", g, err)
+	}
+	o, ok := g.Object()
+	if !ok || o.ClassName() != "Generator" {
+		t.Fatalf("Object: %v, %v", o, ok)
+	}
+	var got []string
+	for {
+		if done, _ := o.Call(a, "done"); done.Truthy() {
+			break
+		}
+		v, err := o.Call(a, "next")
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, v.String())
+	}
+	if strings.Join(got, " ") != "0 10 20 nil" {
+		t.Errorf("steps: %v", got)
+	}
+	g2, _ := a.Call("gen", kukel.Int(3))
+	if s, err := a.Call("sum", g2); err != nil || s.String() != "30" {
+		t.Errorf("sum in its own interpreter: %v, %v", s, err)
+	}
+	g3, _ := a.Call("gen", kukel.Int(3))
+	if _, err := b.Call("sum", g3); err == nil || !strings.Contains(err.Error(), "this generator belongs to another interpreter") {
+		t.Errorf("sum in another interpreter: %v", err)
+	}
+}

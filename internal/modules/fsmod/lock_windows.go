@@ -23,21 +23,19 @@ func openFlags(mode string, flags int) int {
 // tryLock takes or changes the lock on f without waiting (LockFileEx:
 // mandatory, the whole file); false when another holds it. Windows cannot
 // change a lock's kind, so a held one (of the other kind) is given up
-// first, and taken again when the new one is not to be had: as with flock,
-// a change that fails keeps the lock there was.
-func tryLock(f *os.File, exclusive, held bool) (bool, error) {
+// first, and taken again (without waiting) when the new one is not to be
+// had: kept says whether it was, as on Unix.
+func tryLock(f *os.File, exclusive, held bool) (ok, kept bool, err error) {
 	if held {
 		if err := unlockFile(f); err != nil {
-			return false, err
+			return false, false, err
 		}
 	}
-	ok, err := lockFile(f, exclusive)
-	if held && !ok {
-		if _, rerr := lockFile(f, !exclusive); rerr != nil && err == nil {
-			err = rerr
-		}
+	if ok, err = lockFile(f, exclusive); ok || err != nil || !held {
+		return ok, false, err
 	}
-	return ok, err
+	kept, _ = lockFile(f, !exclusive)
+	return false, kept, nil
 }
 
 func lockFile(f *os.File, exclusive bool) (bool, error) {

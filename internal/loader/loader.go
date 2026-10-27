@@ -110,8 +110,8 @@ func (l *loader) uses(f *ast.File, chain []string) error {
 		switch {
 		case name == f.Module:
 			return diag.Errorf(u.Name.NamePos, "module %s cannot use itself", name)
-		case name == "Error":
-			return diag.Errorf(u.Name.NamePos, "a module cannot be called Error (the name of the class of runtime errors)")
+		case name == "Error" || name == "Generator":
+			return diag.Errorf(u.Name.NamePos, "a module cannot be called %s (the name of the prelude's class %s)", name, name)
 		}
 		if _, ok := l.config.Lookup(name); ok {
 			continue // written in Go: nothing to load

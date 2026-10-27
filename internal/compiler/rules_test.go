@@ -25,6 +25,7 @@ var ruleCases = map[string]struct {
 			{"f() {}", "the program has no main function"},
 			{"main(a, b) {}", "main takes at most one parameter"},
 			{"main(a..) {}", "cannot have a default or be a rest parameter"},
+			{"main() { yield 1; }", "main cannot yield"},
 			{"class Error {} main() {}", "Error is already defined"},
 			{"f() {} f() {} main() {}", "f is already defined"},
 			{"class f {} f() {} main() {}", "f is already defined"},
@@ -40,7 +41,6 @@ var ruleCases = map[string]struct {
 		ok: []string{`g(n) { yield; yield n; local f = fn () { yield 1; }; } main() { for (local x in g(1)) ; }`},
 		bad: [][2]string{
 			{`class C { C(); } C::C() { yield 1; } main() {}`, "a constructor cannot yield"},
-			{`class G : Generator {} main() {}`, "class G cannot derive from Generator: generators come from calling generator functions"},
 		},
 	},
 	"with_statement": {
@@ -71,6 +71,7 @@ var ruleCases = map[string]struct {
 		bad: [][2]string{
 			{"class B : A {} class A {} main() {}", "base class A is not defined"},
 			{"use nat; class B : nat::Handle {} main() {}", "cannot derive from native class nat::Handle: it has no constructor"}, // nat: native_test.go
+			{`class G : Generator {} main() {}`, "class G cannot derive from Generator: generators come from calling generator functions"},
 		},
 	},
 	"declared_parameters": {elsewhere: "internal/parser TestErrors: \"a default value belongs in the definition\""},

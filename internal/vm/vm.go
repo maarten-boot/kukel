@@ -144,11 +144,12 @@ type VM struct {
 	// profiling), so that it returns at once with one test when not (it
 	// runs at every backward jump). Set by execute, Cancellable,
 	// ShareCanceller and StartProfile.
-	watched   bool
-	genClass  *value.ClassObj // the prelude's Generator class (nil without one)
-	genResult value.Value     // what run returns with errGenReturn, and the stack depth then
-	genSP     int
-	loops     []*generator // the generators of the handlers of for-each loops (handler.loop)
+	watched     bool
+	genClass    *value.ClassObj // the prelude's Generator class (nil without one)
+	genResult   value.Value     // what run returns with errGenReturn, and the stack depth then
+	genSP       int
+	loops       []*generator // the generators of the handlers of for-each loops (handler.loop)
+	loopClosing int          // catch is closing the generators of loops an exception leaves
 }
 
 // Builtins resolves built-in functions by name.
@@ -814,6 +815,9 @@ func (vm *VM) newObject(argc int) error {
 		return value.Errorf(value.TypeError, "cannot create an object of %s with new", cv.Kind())
 	}
 	c := cv.AsClass()
+	if c == vm.genClass {
+		return value.Errorf(value.TypeError, "there is no new Generator(): generators come from calling generator functions")
+	}
 	if c.Native && c.Ctor == nil {
 		return value.Errorf(value.TypeError, "native class %s has no constructor: its objects come from the functions of its module", c.Name)
 	}
@@ -1251,7 +1255,7 @@ func (vm *VM) execute(stopDepth int) (value.Value, error) {
 				re = e.(*RuntimeError)
 			}
 		}
-		if vm.DebugUncaught != nil && !re.Fatal && !re.closing && !slices.ContainsFunc(vm.handlers, func(h handler) bool { return !h.finally && h.loop == 0 }) {
+		if vm.DebugUncaught != nil && !re.Fatal && !re.closing && vm.loopClosing == 0 && !slices.ContainsFunc(vm.handlers, func(h handler) bool { return !h.finally && h.loop == 0 }) {
 			if e := vm.DebugUncaught(vm, re); e != nil {
 				re = vm.wrap(e).(*RuntimeError)
 			}
@@ -1282,7 +1286,10 @@ func (vm *VM) catch(re *RuntimeError, stopDepth int) (*RuntimeError, bool) {
 			if g == nil {
 				continue
 			}
-			if _, _, err := vm.resume(g, true); err != nil {
+			vm.loopClosing++ // (what the close throws is dropped: the debugger is not told it is uncaught)
+			_, _, err := vm.resume(g, true)
+			vm.loopClosing--
+			if err != nil {
 				if e, ok := err.(*RuntimeError); ok && e.Fatal {
 					re = e
 				}
@@ -1308,6 +1315,7 @@ func (vm *VM) catch(re *RuntimeError, stopDepth int) (*RuntimeError, bool) {
 	// so are their handlers, so that a VM used again (an embedded
 	// interpreter after a step limit) has no stale ones.
 	for n := len(vm.handlers); n > 0 && vm.handlers[n-1].frame >= stopDepth; n-- {
+		vm.popLoop(vm.handlers[n-1]) // (its generator is not closed: a fatal exception runs no finally)
 		vm.handlers = vm.handlers[:n-1]
 	}
 	vm.frames = vm.frames[:stopDepth]

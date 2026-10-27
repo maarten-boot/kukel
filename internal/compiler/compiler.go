@@ -190,6 +190,8 @@ func CompileWith(files []*ast.File, builtins []string, config *native.Config) (p
 			c.errorf(fd.Name.NamePos, "main takes at most one parameter (the command-line arguments)")
 		} else if len(fd.Params.Params) == 1 && (fd.Params.Params[0].Rest || fd.Params.Params[0].Default != nil) {
 			c.errorf(fd.Name.NamePos, "main's parameter (the command-line arguments) cannot have a default or be a rest parameter")
+		} else if y := yieldIn(fd); y != nil {
+			c.errorf(y.Pos(), "main cannot yield: it would make main a generator function, whose body a call does not run")
 		}
 		c.prog.Main = m.index
 	})
@@ -576,7 +578,11 @@ func (c *compiler) function(name string, pos token.Pos, params *ast.ParamList, c
 			c.errorf(y.Pos(), "a constructor cannot yield")
 		}
 		fs.gen = true
+		n := len(fs.fn.Lines)
 		c.emit(bytecode.OpGenerator)
+		if len(fs.fn.Lines) > n {
+			fs.fn.Lines[n].Cont = true // the debugger stops where the body starts, at a step, not at the call
+		}
 	}
 	body()
 	c.emit(bytecode.OpReturnNil)

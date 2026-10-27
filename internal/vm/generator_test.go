@@ -165,7 +165,13 @@ guarded(name) {
 				try { for (local x in new A()) ; } catch (e) { println(e->message); }
 				try { for (local x in new B()) ; } catch (e) { println(e->message); }
 			}`, "A::iter() must give a generator, not vector\ncannot iterate over an object of class B: it has no member function iter() (which gives a generator)\n"},
-		{"no new Generator()", `main() { try { new Generator(); } catch (e) { println(e->kind); } }`, "TypeError\n"},
+		{"no new Generator(); argument counts", `main() {
+			try { new Generator(); } catch (e) { println(e->kind, e->message); }
+			local g = countdown(1);
+			try { g->done(1); } catch (e) { println(e->kind, e->message); }
+			try { g->next(1, 2); } catch (e) { println(e->message); }
+		}`, "TypeError there is no new Generator(): generators come from calling generator functions\n" +
+			"ArgumentError Generator::done expects 0 arguments, got 1\nGenerator::next expects at most 1 argument, got 2\n"},
 		{"vectors, maps and strings as before", `main() {
 			for (local i, x in [7, 8]) print(i, x, "");
 			for (local k, v in {"a": 1}) print(k, v, "");

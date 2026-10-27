@@ -115,7 +115,7 @@ func (c *compiler) declareClass(d *ast.ClassDecl) {
 		case g.kind != symClass:
 			c.errorf(d.Base.NamePos, "%s is not a class", d.Base.Name)
 		}
-		if g.class.pos.File == PreludeName && g.class.name == "Generator" {
+		if g.class.isGenerator() {
 			c.errorf(d.Base.NamePos, "class %s cannot derive from Generator: generators come from calling generator functions", d.Name.Name)
 		}
 		if g.class.native && g.class.constructor() == nil {
@@ -191,6 +191,9 @@ func (c *compiler) addMember(k *classInfo, m *memberInfo) {
 // methodDefinition checks "C::m(params) { ... }" against the declaration.
 func (c *compiler) methodDefinition(d *ast.FuncDecl) (*classInfo, *memberInfo) {
 	k := c.classNamed(nil, d.Class)
+	if k.isGenerator() {
+		c.errorf(d.Name.NamePos, "Generator::%s cannot be defined: the member functions of Generator are built in", d.Name.Name)
+	}
 	m, ok := k.members[d.Name.Name]
 	if !ok {
 		hint := ""
@@ -386,10 +389,22 @@ func (c *compiler) loadStaticRef(e *ast.StaticRef) {
 	case m.static:
 		c.emit(bytecode.OpLoadFunc, c.funcIndex(m, pos))
 	default:
-		c.errorf(pos, "%s::%s is not static: call it on an object (p->%s(...)), or call %s::%s(...) from a member function of %s or a class derived from it",
-			k.name, m.name, m.name, k.name, m.name, k.name)
+		c.notStatic(pos, k, m)
 	}
 }
+
+// notStatic reports the use of instance member function m of class k as a
+// plain function.
+func (c *compiler) notStatic(pos token.Pos, k *classInfo, m *memberInfo) {
+	if k.isGenerator() {
+		c.errorf(pos, "Generator::%s is not static: call it on a generator (g->%s(...))", m.name, m.name)
+	}
+	c.errorf(pos, "%s::%s is not static: call it on an object (p->%s(...)), or call %s::%s(...) from a member function of %s or a class derived from it",
+		k.name, m.name, m.name, k.name, m.name, k.name)
+}
+
+// isGenerator reports whether k is the prelude's class Generator.
+func (k *classInfo) isGenerator() bool { return k.pos.File == PreludeName && k.name == "Generator" }
 
 // newClassValue pushes the class named in "new X(...)": a local or global
 // (members are not searched, so that the constructor's name in a member
@@ -484,8 +499,7 @@ func (c *compiler) memberCall(e *ast.CallExpr) bool {
 		// Base::m(...): a non-virtual call of an instance member function
 		// with the current this (Q3).
 		if c.fs.class == nil || c.fs.static || !c.fs.class.isSubclassOf(k) {
-			c.errorf(fun.Name.NamePos, "%s::%s is not static: call it on an object (p->%s(...)), or call %s::%s(...) from a member function of %s or a class derived from it",
-				k.name, m.name, m.name, k.name, m.name, k.name)
+			c.notStatic(fun.Name.NamePos, k, m)
 		}
 		if hasSpread(e.Args) {
 			c.errorf(e.Lparen, "spread arguments are not supported in a call of %s::%s(...)", k.name, m.name)

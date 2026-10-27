@@ -459,6 +459,50 @@ main() {
 		t.Errorf("End: %v; got:\n%s\nwant:\n%s", err, got, want)
 	}
 
+	// A change of kind that fails keeps the lock there was (flock gives it
+	// up first: it is taken again), and unlock writes out what was written
+	// under the lock.
+	got, err = runIO(t, `use fs;
+
+main() {
+    writefile("k.txt", "");
+    local f1 = fs::open("k.txt", "a"), f2 = fs::open("k.txt"), f3 = fs::open("k.txt");
+    println(f1->lock("shared"), f2->lock("shared"), f1->lock("exclusive", 0));
+    f2->unlock();
+    println(f3->lock("exclusive", 0), f3->lock("shared", 0));
+    f1->println("under the lock");
+    f1->unlock();
+    println(len(readfile("k.txt")));
+}
+`, "")
+	if want := "true true false\nfalse true\n15\n"; err != nil || got != want {
+		t.Errorf("a failed change of kind, unlock: %v; got:\n%s\nwant:\n%s", err, got, want)
+	}
+
+	// lock writes out what was written before and drops what was read
+	// ahead; truncate drops what was read ahead of the new end.
+	got, err = runIO(t, `use fs;
+
+main() {
+    writefile("r.txt", "one\ntwo\nthree\n");
+    local f = fs::open("r.txt", "r+"), g = fs::open("r.txt", "a");
+    println(f->readline());
+    g->println("four");
+    g->lock();
+    println(len(readfile("r.txt")));
+    g->unlock();
+    f->truncate(4);
+    println(f->readline(), f->tell());
+    writefile("s.txt", "a\nb\nc\n");
+    local h = fs::open("s.txt", "r+");
+    for (local i, l in h) { print(l, ""); if (i == 0) h->truncate(2); }
+    println();
+}
+`, "")
+	if want := "one\n19\nnil 4\na \n"; err != nil || got != want {
+		t.Errorf("lock and truncate with buffers: %v; got:\n%s\nwant:\n%s", err, got, want)
+	}
+
 	// Waiting for a lock stops when the program is cancelled.
 	f, err := parser.ParseFile("t.kkl", []byte("use fs;\n\nmain() {\n    local a = fs::open(\"lock.txt\"), b = fs::open(\"lock.txt\");\n    a->lock();\n    b->lock();\n}\n"))
 	if err != nil {

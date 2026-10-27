@@ -26,10 +26,10 @@ func (c *compiler) fileScope(f *ast.File, prelude bool) *fileScope {
 func (c *compiler) use(d *ast.UseDecl) {
 	name := d.Name.Name
 	// A module may share a built-in's name (time::now() and time() do not
-	// mix up), but not the prelude's class Error, so that Error::x stays
-	// unambiguous.
+	// mix up), but not the prelude's classes Error and Generator, so that
+	// Error::x stays unambiguous.
 	if g, ok := c.universal[name]; ok && g.kind != symBuiltin {
-		c.errorf(d.Name.NamePos, "a module cannot be called %s (the name of the class of runtime errors)", name)
+		c.errorf(d.Name.NamePos, "a module cannot be called %s (the name of the prelude's class %s)", name, name)
 	}
 	m, ok := c.modules[name]
 	if !ok {

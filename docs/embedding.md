@@ -96,6 +96,15 @@ built with `-tags tk`).
 | `v.Push(e)`, `v.SetKey(k, val)` | `v.Kind()` (as `typeof`), `v.IsNil()`, `v.Truthy()`, `v.String()` (as `print`) |
 | `FromGo(x)`: nil, bools, integers, floats and strings (also named types such as `type S string`), `[]byte` (a string), slices and arrays, maps with string keys, nested | `v.ToGo()`: nil, `bool`, `int64`, `float64`, `string`, `[]any`, `map[string]any`; functions, classes and objects stay a `Value`. A map with keys that give the same Go key (`1` and `"1"`), or a value that contains itself, is an error. `FromGo` refuses an unsigned integer above the int range, a map whose keys are not strings, and other Go types (functions, channels, structs, ...) |
 
+A generator (an object of the class `Generator`, from calling a Kukel
+generator function) stays a `Value` too: step it with
+`v.Object()` and `o.Call(in, "next")` (it gives `nil` at the end;
+`"done"` tells a `nil` from the end), and call `"close"` when a Go program
+stops before the end, or its `finally` blocks do not run. A generator runs
+in the interpreter that made it (its step limit and cancellation): another
+interpreter's `for` refuses it with a `TypeError`. A host module
+cannot make a generator yet: a host class is not iterable with `for`.
+
 Vectors, maps and objects are shared, not copied: a `Value` from an
 interpreter refers to its data, and changing it (`Push`, `SetKey`) changes
 what the program sees. Use such values only while that interpreter is not

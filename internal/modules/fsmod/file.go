@@ -555,10 +555,11 @@ func truncate(a native.Args, env value.Env, f *file) (value.Value, error) {
 	if f.std != 0 {
 		return value.NilValue, a.Errorf(value.IOError, "%s: a standard stream cannot be truncated", f.name)
 	}
-	size, err := f.position(a)
+	pos, err := f.position(a)
 	if err != nil {
 		return value.NilValue, err
 	}
+	size := pos
 	if a.Has(0) {
 		if size, err = a.Int(0); err != nil {
 			return value.NilValue, err
@@ -569,6 +570,12 @@ func truncate(a native.Args, env value.Env, f *file) (value.Value, error) {
 	}
 	if err := f.f.Truncate(size); err != nil {
 		return value.NilValue, ioError(a, err)
+	}
+	if f.r != nil && f.r.Buffered() > 0 { // what was read ahead may be gone: read again from the position
+		if _, err := f.f.Seek(pos, io.SeekStart); err != nil {
+			return value.NilValue, ioError(a, err)
+		}
+		f.r.Reset(f.f)
 	}
 	return value.NilValue, nil
 }
@@ -602,13 +609,30 @@ func lock(a native.Args, env value.Env, f *file) (value.Value, error) {
 	if f.locked == kind {
 		return value.True, nil
 	}
+	// What was written before goes out first (a shared lock on Windows
+	// stops even the holder from writing), and what was read ahead goes
+	// back: under the lock, reading starts from the file as it is.
+	if f.w != nil {
+		if err := f.w.Flush(); err != nil {
+			return value.NilValue, ioError(a, err)
+		}
+	}
+	if f.r != nil && f.r.Buffered() > 0 {
+		if _, err := f.f.Seek(-int64(f.r.Buffered()), io.SeekCurrent); err != nil {
+			return value.NilValue, ioError(a, err)
+		}
+		f.r.Reset(f.f)
+	}
 	try := func() (bool, error) {
-		ok, err := tryLock(f.f, kind == "exclusive", f.locked != "")
+		ok, kept, err := tryLock(f.f, kind == "exclusive", f.locked != "")
+		switch {
+		case ok:
+			f.locked = kind
+		case !kept:
+			f.locked = "" // a failed change of kind that lost the old lock
+		}
 		if err != nil {
 			return false, ioError(a, err)
-		}
-		if ok {
-			f.locked = kind
 		}
 		return ok, nil
 	}
@@ -636,13 +660,21 @@ func lock(a native.Args, env value.Env, f *file) (value.Value, error) {
 	}
 }
 
-// f->unlock(): gives up the lock (none: nothing).
+// f->unlock(): writes out what is buffered (written under the lock), then
+// gives up the lock (none: nothing).
 func unlock(a native.Args, env value.Env, f *file) (value.Value, error) {
 	if f.locked == "" {
 		return value.NilValue, nil
 	}
+	var err error
+	if f.w != nil {
+		err = f.w.Flush()
+	}
 	f.locked = ""
-	if err := unlockFile(f.f); err != nil {
+	if uerr := unlockFile(f.f); err == nil {
+		err = uerr
+	}
+	if err != nil {
 		return value.NilValue, ioError(a, err)
 	}
 	return value.NilValue, nil

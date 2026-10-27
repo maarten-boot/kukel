@@ -1,0 +1,21 @@
+[3, 2, 1]
+0 1 1 2 2 3 
+false 2 1 end true
+finally a
+close a
+finally b
+close b
+1
+finally c
+close c
+caught boom
+finally 0
+close 0
+finally 1
+close 1
+finally d
+close d
+true nil
+1
+GenError in the body true
+[0, 1, 1, 2, 3, 5, 8, 13, 21, 34] Generator(main/fn@83)

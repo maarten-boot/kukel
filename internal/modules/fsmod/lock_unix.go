@@ -8,12 +8,22 @@ import (
 	"syscall"
 )
 
-// tryLock takes or changes the lock on f without waiting (flock: advisory,
-// between open files); false when another holds it.
 // openFlags are the flags for os.OpenFile of a file opened as mode.
 func openFlags(mode string, flags int) int { return flags }
 
-func tryLock(f *os.File, exclusive, held bool) (bool, error) {
+// tryLock takes or changes the lock on f without waiting (flock: advisory,
+// between open files); false when another holds it. A change of kind that
+// fails has given up the lock there was (flock removes it first): held
+// says f had one, and kept whether it is taken again (without waiting).
+func tryLock(f *os.File, exclusive, held bool) (ok, kept bool, err error) {
+	if ok, err = flock(f, exclusive); ok || err != nil || !held {
+		return ok, false, err
+	}
+	kept, _ = flock(f, !exclusive)
+	return false, kept, nil
+}
+
+func flock(f *os.File, exclusive bool) (bool, error) {
 	how := syscall.LOCK_SH
 	if exclusive {
 		how = syscall.LOCK_EX

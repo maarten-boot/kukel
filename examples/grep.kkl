@@ -91,9 +91,9 @@ main(args) {
 // fs::File, read a line at a time: -l stops at the first match), and tells
 // whether a line matched.
 search(rx, name, file, showName) {
-    local count = 0, prefix = showName ? name + ":" : "", line;
+    local count = 0, prefix = showName ? name + ":" : "";
 
-    for (local i = 0; (line = file->readline()) != nil; i++) {
+    for (local i, line in file) {
         if (rx->match(line) == haskey(opts, "v")) continue;
         count++;
 

@@ -77,7 +77,7 @@ program             = { use_declaration } , { definition } ;
                          Rules: the top-level names (globals, constants,
                          functions, classes) of the program, or of one
                          module, share one name space with the built-ins and
-                         the prelude's class Error; each name is defined
+                         the prelude's classes Error and Generator; each name is defined
                          once. (Locals, parameters and members may reuse a
                          built-in's name: they hide it where they are
                          visible.) A program and each module have their own
@@ -100,7 +100,8 @@ use_declaration     = "use" , Identifier , ";" ;
                          initialized before those of the files that use it.
                          Modules may not use each other in a cycle; a file of
                          the program may not also be a module. A file uses a
-                         module once; the module name may not be Error, or a
+                         module once; the module name may not be Error or
+                         Generator, or a
                          top-level name of the using file's program or
                          module (it may be a built-in's name: time::now()
                          and time() do not mix up). Names starting with "_" are
@@ -137,7 +138,8 @@ class_definition    = "class" , Identifier , [ ":" , [ Identifier , "::" ] , Ide
                       "{" , { member_declaration } , "}" ;
                       (* Rules: the base class must already be defined. A
                          native base class (a class of a module written in
-                         Go) must have a constructor. No ";" after the
+                         Go) must have a constructor; the prelude's class
+                         Generator cannot be a base class. No ";" after the
                          closing brace. *)
 
 member_declaration  = [ "static" ] , Identifier ,
@@ -298,8 +300,8 @@ yield_statement     = "yield" , [ expression ] , ";" ;
                          that yields) a generator function: calling it gives
                          a generator, and each step runs the body to the next
                          yield, which gives its value (nil without one).
-                         Rules: not in a constructor, nor outside a function
-                         (the REPL's input). *)
+                         Rules: not in a constructor or main, nor outside a
+                         function (the REPL's input). *)
 
 local_declaration   = "local" , local_variable , { "," , local_variable } , ";" ;
 

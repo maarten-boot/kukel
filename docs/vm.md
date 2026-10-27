@@ -1308,7 +1308,8 @@ an iterator, a vector being built or a pending exception; `LOAD_MEMBER` or
 `CLOSURE` capturing a slot that holds no cell, or an upvalue that is not
 there; `TRY_POP` whose innermost handler belongs to another frame;
 `YIELD` outside a step of its generator, `GENERATOR` in a running
-generator's frame or a constructor's, `ITER_CLOSE` of a generator whose
+generator's frame or a constructor's, or with a handler of its frame
+registered (a loop's, which the verifier does not see), `ITER_CLOSE` of a generator whose
 loop handler is not the innermost one;
 `CALL_NATIVE` of a global that is not a native class, or on an object that
 is not of that class (the Go code would find a Go value of another type);

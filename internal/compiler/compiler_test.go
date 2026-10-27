@@ -112,6 +112,8 @@ func TestCompileErrors(t *testing.T) {
 		{"class A { x; x; }", "1:14", "member x is already declared in class A at t.kkl:1:11"},
 		{"g() { yield 1; return 2; } main() {}", "1:23", "a generator cannot return a value (return; ends it, yield gives a value)"},
 		{"class C { C(); } C::C() { yield 1; } main() {}", "1:27", "a constructor cannot yield"},
+		{"main() { local f = Generator::iter; }", "1:31", "Generator::iter is not static: call it on a generator (g->iter(...))"},
+		{"Generator::next(o = nil) { return 42; } main() {}", "1:12", "Generator::next cannot be defined: the member functions of Generator are built in"},
 		{"class A { x; } class B : A { x; }", "1:30", "member x conflicts with x declared in base class A at t.kkl:1:11"},
 		{"class A { f(); } class B : A { static f(); }", "1:39", "member f conflicts with f declared in base class A"},
 		{"class A { f(); } class B : A { f; }", "1:32", "member f conflicts with f declared in base class A"},

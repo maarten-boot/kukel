@@ -15,8 +15,9 @@ Two kinds of change need care when you upgrade:
 ## Unreleased
 
 **Syntax version 8 and bytecode format 9**: `yield` is a keyword now (a
-variable or function called `yield` must be renamed), and `.kkc` files
-must be built again.
+variable or function called `yield` must be renamed), `Generator` is the
+name of a class of the prelude (a top-level name or a module called
+`Generator` must be renamed), and `.kkc` files must be built again.
 
 - Generators: a function with `yield` in it gives a generator, which runs
   its body a step at a time; `for` walks it, and an object whose `iter()`
@@ -29,8 +30,15 @@ must be built again.
   and locks: `f->lock(["exclusive" | "shared" [, timeout]])`,
   `f->unlock()` (`flock`; `LockFileEx` on Windows). Q84.
 - Windows: CI tests the fs module there (Q85); `lock()` of a file opened
-  `"a"` works, and a failed change of a lock's kind keeps the old lock;
-  `fs::exists` of a loop of symbolic links is `false` there too.
+  `"a"` works, and `fs::exists` of a loop of symbolic links is `false`
+  there too.
+- Cross-check 11 (Q87): a change of a lock's kind that cannot be had keeps
+  the lock the file had (on Linux `flock` gave it up, while `lock` still
+  took it as held); `f->unlock()` writes out what was written under the
+  lock before giving it up, and `lock` writes out first and reads afresh;
+  `f->truncate` drops what was read ahead of the new end; `main` cannot
+  yield, and `Generator`'s member functions cannot be defined; the
+  debugger stops where a generator's body runs, not where it is made.
 
 ## v0.33.3 (2026-10-27)
 

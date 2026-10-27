@@ -1076,6 +1076,13 @@ func TestDebug(t *testing.T) {
 			"(kdb) 0\nbreakpoint 1, gen at g.kkl:3\n    3          yield i * 10;\n(kdb) main at g.kkl:8\n    8          println(x);\n(kdb) 10\nthe program ended (exit code 0)\n") {
 		t.Errorf("a generator:\n%s", out.String())
 	}
+	// A breakpoint on a generator function stops where its body starts (at
+	// the first step), not when the call makes the generator.
+	out.Reset()
+	if run([]string{"debug", "g.kkl"}, strings.NewReader("b gen\nc\nbt\nq\n"), &out, &out); !strings.Contains(out.String(),
+		"(kdb) breakpoint 1 at g.kkl:2\n(kdb) breakpoint 1, gen at g.kkl:2\n    2      for (local i = 0; i < n; i++) {\n(kdb) *0 gen (g.kkl:2)\n 1 main (g.kkl:7)\n") {
+		t.Errorf("a breakpoint on a generator function:\n%s", out.String())
+	}
 	// The end of the input quits.
 	out.Reset()
 	if code := run([]string{"debug", "w.kkl"}, strings.NewReader(""), &out, &out); code != 0 || !strings.HasSuffix(out.String(), "(kdb) \nthe program ended (exit code 0)\n") {

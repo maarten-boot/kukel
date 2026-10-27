@@ -88,13 +88,18 @@ func (vm *VM) setupGenerators() {
 		if m == nil {
 			return
 		}
+		m.Fn = nil // (the compiler refuses a definition; a file could still hold one)
 		m.Native = func(env value.Env, this *value.ObjectObj, args []value.Value) (value.Value, error) {
 			g, ok := this.State.(*generator)
 			if !ok {
 				return value.NilValue, value.Errorf(value.ValueError, "Generator::%s: this object is not a generator (generators come from calling a generator function)", name)
 			}
 			if len(args) > maxArgs {
-				return value.NilValue, value.Errorf(value.ArgumentError, "Generator::%s expects %s, got %d", name, value.ArgumentRange(0, maxArgs), len(args))
+				want := value.Arguments(0)
+				if maxArgs > 0 {
+					want = value.ArgumentRange(0, maxArgs)
+				}
+				return value.NilValue, value.Errorf(value.ArgumentError, "Generator::%s expects %s, got %d", name, want, len(args))
 			}
 			return fn(g, args)
 		}
@@ -247,6 +252,9 @@ func (vm *VM) makeGenerator(f *frame, ip, sp int) (value.Value, error) {
 	if g := vm.generatorOf(vm.stack[f.base-1]); g != nil && g.state == genRunning || f.ctor {
 		return value.NilValue, bad(f, "GENERATOR in a running generator or a constructor")
 	}
+	if n := len(vm.handlers); n > 0 && vm.handlers[n-1].frame == len(vm.frames)-1 {
+		return value.NilValue, bad(f, "GENERATOR with a handler registered")
+	}
 	g := &generator{fn: f.fn, this: f.this, cl: f.cl, argc: f.argc, ip: ip}
 	g.slots = append([]value.Value(nil), vm.stack[f.base:sp]...)
 	g.obj = &value.ObjectObj{Class: vm.genClass, State: g}
@@ -384,6 +392,9 @@ func (vm *VM) iterate(x value.Value, e error, sp int) (value.Value, error) {
 		return value.NilValue, e
 	}
 	g := vm.generatorOf(x)
+	if _, other := x.AsObject().State.(*generator); g == nil && other {
+		return value.NilValue, value.Errorf(value.TypeError, "this generator belongs to another interpreter: a generator runs where it was made")
+	}
 	if g == nil {
 		k := x.AsObject().Class
 		m, ok := k.Methods["iter"]

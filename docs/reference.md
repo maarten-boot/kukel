@@ -434,7 +434,7 @@ main(args) { println(square(MAX), HALF, count, names, new Point(1, 2)); }
 ```
 
 - All top-level names (globals, constants, functions, classes) of the
-  program, the built-in functions and the class `Error` share one name
+  program, the built-in functions and the classes `Error` and `Generator` share one name
   space (modules have their own, see [Modules](#modules)): each name
   is defined once, and the built-in names cannot be redefined or assigned.
   A local, parameter or member may reuse a built-in's name; it hides the
@@ -517,7 +517,7 @@ geometry::Circle{r: 1}
   in a cycle, and a file given on the command line cannot also be a module.
 - A standard module that a `kukel` was built without (build tags, see the
   README) is not found; the message names the tags.
-- A module's name cannot be `Error`, nor a top-level name of the program or
+- A module's name cannot be `Error` or `Generator`, nor a top-level name of the program or
   module whose file uses it. It may be a built-in's name: `time::now()` and
   `time()` do not mix up.
 - A class of a module is printed and named in messages with its module:
@@ -861,7 +861,10 @@ main() {
 
 - `yield x;` gives `x`, `yield;` gives `nil`. `return;` (or the end of the
   body) ends the generator; `return x;` in a generator function is a
-  compile error, as is a `yield` in a constructor. A `yield` belongs to
+  compile error, as is a `yield` in a constructor or in `main`. A
+  generator function given where a function is called for its effect
+  (`events::after(1, g)`, a `tk` callback) makes a generator and drops it:
+  its body does not run. A `yield` belongs to
   the function it is written in: a function literal with a `yield` in it
   is a generator function itself, and does not make the function around
   it one.
@@ -870,7 +873,8 @@ main() {
 - A generator is an object of the built-in class `Generator`
   (`typeof` gives `"object"`; `classof(g) == Generator`;
   `instanceof(g, Generator)`; it prints as `Generator(countdown)`). There
-  is no `new Generator()`, and a class cannot derive from it.
+  is no `new Generator()` (a `TypeError`); a class cannot derive from it,
+  and its member functions cannot be defined (compile errors).
   Its member functions:
 
   | Member function | Description |
@@ -892,15 +896,16 @@ main() {
   there would: its `finally` blocks run and its `with` statements close
   what they hold; its `catch` blocks do not see it. So a generator that
   opens a file closes it, also when the loop stops early (the example
-  below). A `yield` while the generator is being closed (in a `finally` block) is
-  a `ValueError`. If closing throws when a loop is left by an exception,
+  below). A `yield` that closing reaches (in a `finally` block that closing
+  runs) is a `ValueError`; a `yield` in a `finally` block is fine otherwise. If closing throws when a loop is left by an exception,
   the loop's exception goes on, as with `with`. A generator that is never
   finished and never closed (a `next()` or two, then forgotten) does not
   run its `finally` blocks: close it, or let `for` or `with` do it.
 - A generator cannot be sent to a worker (`TypeError`, as for other
   objects).
 - `kukel profile` counts each step of a generator as a call of its
-  function; the debugger shows a running generator as a call above the
+  function, besides the call that makes the generator (a generator
+  written in Go, such as `fs::File::iter`, counts only that call); the debugger shows a running generator as a call above the
   loop that asked for its value.
 
 ```
@@ -1590,8 +1595,9 @@ A timer prints as `events::Timer(once)`, `events::Timer(every 0.5s)` (the interv
 ### fs
 
 Directories and files of the local file system: open files to read and
-write a piece at a time, the program's standard streams, directories,
-entries and paths. Paths are strings, as for `readfile`; relative ones
+write a piece at a time (and to lock), the program's standard streams,
+temporary files and directories, directories, entries, permissions and
+paths. Paths are strings, as for `readfile`; relative ones
 start at the current directory.
 
 ```
@@ -1663,8 +1669,8 @@ $ kukel run notes.kkl
 | Function | Description |
 |---|---|
 | `fs::open(path [, mode])` | Opens a file and gives an `fs::File`. The mode is as in C: `"r"` (the default) reads; `"w"` writes, emptying the file first (or making it); `"a"` appends, making the file if needed; `"x"` makes a new file, and is an `IOError` if there is one (`file exists`). With `+` (`"r+"`, `"w+"`, `"a+"`, `"x+"`) the file is also open the other way. Any other mode is a `ValueError`. New files get the mode `-rw-r--r--` less what the umask takes away, as for `writefile`. A directory is an `IOError` (`fs::open: src: is a directory`) |
-| `fs::temp([pattern [, dir]])` | Makes a new, empty file and gives it as an `fs::File` open `"w+"`. Its name is `pattern` (by default `"kukel-*"`) with the last `*` replaced by random digits, or with them at the end when there is no `*` (`"report-*.txt"`); it is made in `dir`, or else in the system's directory for temporary files (`$TMPDIR`, `/tmp`). `f->name()` gives its path. It stays until the program removes it (`fs::remove(f->name())`), so another program can be given its path. A pattern with a path separator is a `ValueError` (the directory is the second argument). A temporary file in the directory of the file it will replace can then replace it at once with `fs::rename` (example below) |
-| `fs::tempdir([pattern [, dir]])` | Makes a new, empty directory in the same way and gives its path; `fs::removeall` removes it |
+| `fs::temp([pattern [, dir]])` | Makes a new, empty file and gives it as an `fs::File` open `"w+"`. Its name is `pattern` (by default `"kukel-*"`) with the last `*` replaced by random digits, or with them at the end when there is no `*` (`"report-*.txt"`); it is made in `dir`, or else in the system's directory for temporary files (`$TMPDIR` or `/tmp`; on Windows `%TMP%`). Only its owner can read and write it (`-rw-------`). `f->name()` gives its path. It stays until the program removes it (`fs::remove(f->name())`), so another program can be given its path. A pattern with a path separator is a `ValueError` (the directory is the second argument). A temporary file in the directory of the file it will replace can replace it at once with `fs::rename`, once it is closed (example below) |
+| `fs::tempdir([pattern [, dir]])` | Makes a new, empty directory in the same way (`drwx------`) and gives its path; `fs::removeall` removes it |
 | `fs::stdin()`, `fs::stdout()`, `fs::stderr()` | The program's standard input, output and error as `fs::File`s (the same object at each call). They share the program's own: the built-in `readline()` and the member function `readline()` of standard input read from the same input, what `println` and standard output's `write` write keeps its order, and standard error writes out standard output first, as `eprint` does. So a function can take any `fs::File` and be given a file or a standard stream |
 
 An `fs::File`'s member functions; strings are bytes, so there is no text
@@ -1681,8 +1687,8 @@ or binary mode:
 | `f->tell()` | The position, in bytes from the start |
 | `f->flush()` | Writes out what is buffered |
 | `f->truncate([size])` | Cuts the file to `size` bytes, by default to the position; a larger `size` makes it longer, with zero bytes. Writes out what is buffered first; the position stays. A file not open for writing is a `ValueError`, a standard stream or a pipe an `IOError` |
-| `f->lock([kind [, timeout]])` | Locks the whole file, `"exclusive"` (the default) or `"shared"`, waiting until no other lock is in the way, or at most `timeout` seconds (0: only try). Gives `true`, or `false` when the time ran out. A file that has a lock gets the other kind in its place. Below |
-| `f->unlock()` | Gives up the lock (a file without one: nothing). `close` does it too |
+| `f->lock([kind [, timeout]])` | Locks the whole file, `"exclusive"` (the default) or `"shared"`, waiting until no other lock is in the way, or at most `timeout` seconds (0: only try). Gives `true`, or `false` when the time ran out. A file that has a lock gets the other kind in its place; when that kind cannot be had, it keeps the lock it had (unless another program took the file in that moment: then it has none, and `lock` gives `false` too). Below |
+| `f->unlock()` | Writes out what is buffered (what was written under the lock), then gives up the lock (a file without one: nothing). `close` does it too |
 | `f->close()` | Writes out what is buffered and closes the file; closing it again does nothing. A standard stream is only flushed, and stays open |
 | `f->closed()`, `f->name()`, `f->mode()` | Whether it is closed; the path as given to `fs::open` (`"<stdin>"`, `"<stdout>"`, `"<stderr>"` for the standard streams); the mode (`"r"` for standard input, `"w"` for the others) |
 
@@ -1727,7 +1733,7 @@ or binary mode:
   lock. Waiting for one is waiting (`kukel profile -cpu` leaves it out),
   and stops when the program is cancelled. A lock on a standard stream is
   an `IOError`. Over a network file system they hold only as far as its
-  server supports them.
+  server supports them. On other systems `lock` is an `IOError`.
 
 ```
 use fs;
@@ -1735,11 +1741,11 @@ use fs;
 main() {
     // A new version next to the old one, then swapped: a reader sees the
     // old file or the new one, never half of it.
-    with (local tmp = fs::temp("config-*.json", ".")) {
-        tmp->write("{\"version\": 2}\n");
-        fs::chmod(tmp->name(), "rw-r--r--");
-        fs::rename(tmp->name(), "config.json");
-    }
+    local tmp = fs::temp("config-*.json", ".");
+    tmp->write("{\"version\": 2}\n");
+    tmp->close();                           // written out before the swap
+    fs::chmod(tmp->name(), "rw-r--r--");
+    fs::rename(tmp->name(), "config.json");
 
     // One copy of the program at a time appends.
     with (local out = fs::open("app.log", "a")) {

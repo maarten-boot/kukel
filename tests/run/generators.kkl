@@ -1,0 +1,97 @@
+// Generators (Q86): steps, for-each over objects with iter(), closing.
+
+countdown(n) {
+    for (local i = n; i > 0; i--) yield i;
+}
+
+class Tree { left, value, right; Tree(l, v, r); iter(); }
+Tree::Tree(l, v, r) { left = l; value = v; right = r; }
+
+Tree::iter() {
+    if (left != nil) for (local x in left) yield x;
+    yield value;
+
+    if (right != nil) for (local x in right) yield x;
+}
+
+class Res { name; Res(n); close(); }
+Res::Res(n) { name = n; }
+Res::close() { println("close", name); }
+
+guarded(name) {
+    with (local r = new Res(name)) {
+        try {
+            yield 1;
+            yield 2;
+            yield 3;
+        } catch (e) {
+            println("never");
+        } finally {
+            println("finally", name);
+        }
+    }
+}
+
+failing() {
+    yield 1;
+    throw new Error("in the body", "GenError");
+}
+
+first(gen) {
+    for (local x in gen) return x;
+}
+
+main() {
+    local v = [];
+
+    for (local x in countdown(3)) push(v, x);
+    println(v);
+
+    for (local i, x in new Tree(new Tree(nil, 1, nil), 2, new Tree(nil, 3, nil))) print(i, x, "");
+    println();
+
+    local g = countdown(2);
+    println(g->done(), g->next(), g->next(), g->next("end"), g->done());
+
+    for (local x in guarded("a")) if (x == 2) break;
+    println(first(guarded("b")));
+
+    try {
+        for (local x in guarded("c")) throw new Error("boom");
+    } catch (e) {
+        println("caught", e->message);
+    }
+
+    outer: for (local i = 0; i < 2; i++) {
+        for (local x in guarded(str(i))) continue outer;
+    }
+
+    local h = guarded("d");
+    h->next();
+    h->close();
+    println(h->done(), h->next());
+
+    local f = failing();
+    println(f->next());
+
+    try {
+        f->next();
+    } catch (e) {
+        println(e->kind, e->message, f->done());
+    }
+
+    local fib = fn(n) {
+        local a = 0, b = 1;
+
+        for (local i = 0; i < n; i++) {
+            yield a;
+            local t = a + b;
+            a = b;
+            b = t;
+        }
+    };
+    local w = [];
+
+    for (local x in fib(10)) push(w, x);
+    println(w, fib(1));
+}
