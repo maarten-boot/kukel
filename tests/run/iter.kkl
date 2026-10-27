@@ -41,7 +41,8 @@ main() {
 
     for (local bad in [fn() { iter::range(1.5); }, fn() { iter::range(1, 2, 0); }, fn() { iter::take([1], -1); },
         fn() { iter::map(1, []); }, fn() { iter::filter(odd, 5); }, fn() { iter::collect(new Error()); },
-        fn() { iter::reduce(add, []); }, fn() { iter::reduce(add, [], 1, 2); }, fn() { iter::zip([], nil); }]) {
+        fn() { iter::reduce(add, []); }, fn() { iter::reduce(add, [], 1, 2); }, fn() { iter::zip([], nil); },
+        fn() { iter::count(new Error()); }]) {
         try {
             bad();
         } catch (e) {

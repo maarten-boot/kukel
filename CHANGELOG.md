@@ -21,6 +21,9 @@ Two kinds of change need care when you upgrade:
   generator takes about a third less time, a chain of `iter` functions a
   quarter less. A generator's `return;` is a new instruction, `GEN_RETURN`.
   Other programs run as fast as before. Q89.
+- A check of the two (Q90): `kukel dap` shows the code of `iter` (the
+  `source` request); `iter`'s messages are those of the modules written in
+  Go; the verifier refuses a plain return in a generator function.
 - The module `iter`, written in Kukel and built into kukel: `range`,
   `count`, `map`, `filter`, `take`, `drop`, `takewhile`, `dropwhile`,
   `enumerate`, `zip`, `chain`, `collect`, `reduce`, `first`, `any`, `all`;

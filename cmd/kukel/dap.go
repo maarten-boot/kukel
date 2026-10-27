@@ -21,6 +21,7 @@ import (
 	"github.com/maarten-boot/kukel/internal/bytecode"
 	"github.com/maarten-boot/kukel/internal/debugger"
 	"github.com/maarten-boot/kukel/internal/native"
+	"github.com/maarten-boot/kukel/internal/stdlib"
 	"github.com/maarten-boot/kukel/internal/value"
 	"github.com/maarten-boot/kukel/internal/vm"
 )
@@ -215,6 +216,8 @@ func (s *dapServer) handle(req dap.RequestMessage) bool {
 		if s.isLaunched() && !s.isStarted() && !s.ending.Load() {
 			close(s.started)
 		}
+	case *dap.SourceRequest:
+		s.sourceText(r)
 	case *dap.ThreadsRequest:
 		s.send(&dap.ThreadsResponse{Response: s.response(r.Request),
 			Body: dap.ThreadsResponseBody{Threads: []dap.Thread{{Id: dapThread, Name: "main"}}}})
@@ -455,13 +458,40 @@ func (s *dapServer) stackTrace(m *vm.VM, r *dap.StackTraceRequest) dap.ResponseM
 	return &dap.StackTraceResponse{Body: dap.StackTraceResponseBody{StackFrames: out, TotalFrames: len(frames)}}
 }
 
-// source names a file for the editor (by its absolute path).
+// source names a file for the editor (by its absolute path). A standard
+// module written in Kukel (<std>/iter.kkl) is not on disk: the editor gets
+// a reference to ask for its text (the source request).
 func source(file string) *dap.Source {
+	if i := slices.Index(stdlib.Names(), strings.TrimSuffix(strings.TrimPrefix(file, stdlib.Dir+"/"), ".kkl")); i >= 0 && strings.HasPrefix(file, stdlib.Dir+"/") {
+		return &dap.Source{Name: filepath.Base(file), Path: file, SourceReference: i + 1, Origin: "a standard module of kukel", PresentationHint: "deemphasize"}
+	}
 	path, err := filepath.Abs(file)
 	if err != nil {
 		path = file
 	}
 	return &dap.Source{Name: filepath.Base(file), Path: path}
+}
+
+// sourceText answers a source request: the text of a standard module
+// written in Kukel, by its reference (or its path).
+func (s *dapServer) sourceText(r *dap.SourceRequest) {
+	file := ""
+	ref := r.Arguments.SourceReference
+	if src := r.Arguments.Source; src != nil {
+		file = src.Path
+		if src.SourceReference > 0 {
+			ref = src.SourceReference
+		}
+	}
+	if names := stdlib.Names(); ref > 0 && ref <= len(names) {
+		file = stdlib.File(names[ref-1])
+	}
+	text, ok := stdlib.SourceOf(file)
+	if !ok {
+		s.fail(r.Request, fmt.Errorf("no source %q (only the standard modules written in Kukel are served)", file))
+		return
+	}
+	s.send(&dap.SourceResponse{Response: s.response(r.Request), Body: dap.SourceResponseBody{Content: string(text), MimeType: "text/x-kukel"}})
 }
 
 // frameIndex gives the index into m.Frames() of a frameId (stackTrace's: one

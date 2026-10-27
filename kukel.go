@@ -72,8 +72,10 @@ type CompileOptions struct {
 	// Modules are the program's own modules, written in Go ("use app;").
 	// A module here hides a standard module of the same name.
 	Modules []*Module
-	// StandardModules lists the standard modules the program may use
-	// (nil: all of them; an empty, non-nil slice: none).
+	// StandardModules lists the standard modules written in Go the program
+	// may use (nil: all of them; an empty, non-nil slice: none). Those
+	// written in Kukel (iter) are always there: they can do nothing the
+	// program's own code could not.
 	StandardModules []string
 	// DenyBuiltins lists built-in functions the program may not use
 	// (using one is a compile error); see SystemBuiltins.
@@ -83,7 +85,8 @@ type CompileOptions struct {
 	// file that uses it (CompileFiles only).
 	Path []string
 	// NoFileModules forbids reading program files: "use" finds only
-	// modules written in Go, and worker::startfile is refused.
+	// modules written in Go and the standard modules written in Kukel
+	// (built into kukel), and worker::startfile is refused.
 	NoFileModules bool
 }
 

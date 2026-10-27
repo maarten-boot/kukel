@@ -24,5 +24,6 @@ TypeError iter::map: argument 1 must be a function, not int
 TypeError iter::filter: argument 2 must be values to walk (a vector, map, string, generator, or object with iter()), not int
 TypeError cannot iterate over an object of class Error: it has no member function iter() (which gives a generator)
 ValueError iter::reduce: no values, and no initial value
-ArgumentError iter::reduce expects 2 or 3 arguments, got 4
+ArgumentError iter::reduce expects 2 to 3 arguments, got 4
 TypeError iter::zip: argument 2 must be values to walk (a vector, map, string, generator, or object with iter()), not nil
+TypeError iter::count: argument 1 must be an int, not Error

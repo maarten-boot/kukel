@@ -98,8 +98,8 @@ func (v *verifier) function(f *Function) error {
 		operands []int
 	}
 	instrs := map[int]instr{}
-	cacheUser := map[int]int{}  // inline cache slot -> the pc of the one instruction using it
-	generator, yields := -1, -1 // the pc of GENERATOR, of a YIELD
+	cacheUser := map[int]int{}               // inline cache slot -> the pc of the one instruction using it
+	generator, yields, returns := -1, -1, -1 // the pc of GENERATOR, of a YIELD, of a RETURN
 	for pc := 0; pc < len(f.Code); {
 		op := Op(f.Code[pc])
 		info, ok := Info(op)
@@ -138,12 +138,17 @@ func (v *verifier) function(f *Function) error {
 			generator = pc
 		case OpYield, OpGenReturn:
 			yields = pc
+		case OpReturn, OpReturnNil:
+			returns = pc
 		}
 		start[pc] = true
 		instrs[pc] = instr{op, operands}
 		pc += op.Size()
 	}
 
+	if returns >= 0 && generator >= 0 { // (a for loop runs a generator's steps in its own dispatch loop: a RETURN there would go on in the loop's body)
+		return fail(returns, "%s in a generator function (it ends with GEN_RETURN)", Op(f.Code[returns]))
+	}
 	if yields >= 0 && generator < 0 {
 		return fail(yields, "%s in a function that is not a generator (it has no GENERATOR)", Op(f.Code[yields]))
 	}

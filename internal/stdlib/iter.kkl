@@ -214,7 +214,7 @@ reduce(f, xs, init..) {
     _fn("iter::reduce", 1, f);
     _values("iter::reduce", 2, xs);
 
-    if (len(init) > 1) throw new Error("iter::reduce expects 2 or 3 arguments, got " + str(2 + len(init)), "ArgumentError");
+    if (len(init) > 1) throw new Error("iter::reduce expects 2 to 3 arguments, got " + str(2 + len(init)), "ArgumentError");
     local have = len(init) == 1, acc = have ? init[0] : nil;
 
     for (local x in xs) {
@@ -288,7 +288,7 @@ _wrong(where, i, want, x) {
     if (t == "object") {
         local c = str(classof(x)); // "<class Name>"
 
-        t = "an object of class " + slice(c, 7, len(c) - 1);
+        t = slice(c, 7, len(c) - 1); // as native.TypeName gives it
     }
     throw new Error(where + ": argument " + str(i) + " must be " + want + ", not " + t, "TypeError");
 }

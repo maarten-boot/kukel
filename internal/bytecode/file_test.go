@@ -212,6 +212,12 @@ func TestVerifyRejects(t *testing.T) {
 		{"CMP_JUMP_LL comparison", program(code(op(bytecode.OpCmpJumpLL, 7, 0, 0, 11), ret)), "has unknown comparison 7"},
 		{"ARITH_K constant", program(code(op(bytecode.OpNil), op(bytecode.OpArithK, int(bytecode.OpAdd), 3), ret)), "refers to constant 3 of 0"},
 		{"CMP_JUMP_K target", program(code(op(bytecode.OpNil), op(bytecode.OpCmpJumpK, bytecode.CmpEq, 0, 99), ret), value.MakeInt(1)), "not an instruction"},
+		// Generators (Q86, Q89).
+		{"a second GENERATOR", program(code(op(bytecode.OpGenerator), op(bytecode.OpGenerator), op(bytecode.OpGenReturn))), "a second GENERATOR"},
+		{"YIELD without GENERATOR", program(code(op(bytecode.OpNil), op(bytecode.OpYield), ret)), "YIELD in a function that is not a generator"},
+		{"GEN_RETURN without GENERATOR", program(code(op(bytecode.OpGenReturn))), "GEN_RETURN in a function that is not a generator"},
+		{"RETURN_NIL in a generator", program(code(op(bytecode.OpGenerator), op(bytecode.OpNil), op(bytecode.OpYield), ret)), "RETURN_NIL in a generator function"},
+		{"GENERATOR with a value on the stack", program(code(op(bytecode.OpNil), op(bytecode.OpGenerator), op(bytecode.OpPop), op(bytecode.OpGenReturn))), "GENERATOR with 0 try handlers and 1 values"},
 	}
 	for _, tt := range tests {
 		err := bytecode.Verify(tt.p)

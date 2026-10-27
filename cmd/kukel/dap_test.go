@@ -631,3 +631,36 @@ func TestDapWorkerOutput(t *testing.T) {
 		t.Errorf("output %.300q", out)
 	}
 }
+
+// A frame in a standard module written in Kukel (iter) has no file on disk:
+// its source has a reference, and the source request gives its text.
+func TestDapStandardModuleSource(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("it.kkl", []byte("use iter;\n\nmain() {\n    println(iter::collect(iter::take([1, 2], 1)));\n}\n"), 0o644)
+	c := startDap(t)
+	c.ok("initialize", nil)
+	c.ok("launch", map[string]any{"program": "it.kkl"})
+	c.event("initialized")
+	fbs := c.ok("setFunctionBreakpoints", map[string]any{"breakpoints": []map[string]any{{"name": "iter::_take"}}}).(*dap.SetFunctionBreakpointsResponse)
+	if b := fbs.Body.Breakpoints; len(b) != 1 || !b[0].Verified || b[0].Source == nil || b[0].Source.SourceReference == 0 {
+		t.Fatalf("function breakpoint: %+v", b)
+	}
+	c.ok("configurationDone", nil)
+	c.event("stopped")
+	st := c.ok("stackTrace", map[string]any{"threadId": 1}).(*dap.StackTraceResponse)
+	f := st.Body.StackFrames
+	if len(f) < 2 || f[0].Name != "iter::_take" || f[0].Source.Path != "<std>/iter.kkl" || f[0].Source.SourceReference == 0 {
+		t.Fatalf("stack: %+v", f)
+	}
+	src := c.ok("source", map[string]any{"source": f[0].Source, "sourceReference": f[0].Source.SourceReference}).(*dap.SourceResponse)
+	if !strings.Contains(src.Body.Content, "_take(xs, n) {") {
+		t.Errorf("source: %.80q", src.Body.Content)
+	}
+	c.send("source", map[string]any{"sourceReference": 99})
+	if r := c.response(); r.GetResponse().Success {
+		t.Errorf("a source that is not there: %+v", r)
+	}
+	c.ok("continue", map[string]any{"threadId": 1})
+	c.event("exited")
+	c.event("terminated")
+}

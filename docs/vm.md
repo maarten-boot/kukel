@@ -531,8 +531,8 @@ Where the step runs depends on who asks:
   and pushes the value (and the count, for two names) for the loop, which
   goes on; `GEN_RETURN` makes the loop go on at its `end`. An exception
   that leaves the frame (`catch` dropping frames) ends the generator. This
-  is about a third faster than a nested execution (a step costs about 70 ns
-  where a call costs 50);
+  is about a third faster than a nested execution (a step costs about 70 ns,
+  a few times a call);
 - `next()`, closing, and a generator written in Go run it in an execution
   of its own (as a built-in's call of Kukel code is, section 4.9), which
   `YIELD` and `GEN_RETURN` end.

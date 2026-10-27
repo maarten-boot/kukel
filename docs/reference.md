@@ -2744,7 +2744,7 @@ $ kukel run iter.kkl
 | Function | Description |
 |---|---|
 | `iter::range(stop)`, `iter::range(start, stop [, step])` | The ints `start` (0), `start + step`, ... while below `stop` (above it, for a negative `step`); the step is 1 by default, and 0 is a `ValueError`. Ints only (`TypeError`) |
-| `iter::count([start [, step]])` | The ints `start` (0), `start + step` (1), ... without end |
+| `iter::count([start [, step]])` | The ints `start` (0), `start + step` (1), ... without end (past the largest int they wrap around, as `+` does) |
 | `iter::map(f, xs)` | `f(x)` for each `x` |
 | `iter::filter(f, xs)` | The `x` for which `f(x)` is true |
 | `iter::take(xs, n)`, `iter::drop(xs, n)` | The first `n` values (fewer if there are not as many; the one after them is not asked for), and the values after the first `n`. A negative `n` is a `ValueError` |
