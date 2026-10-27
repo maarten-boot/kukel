@@ -10,6 +10,7 @@ import (
 	"github.com/maarten-boot/kukel/internal/bytecode"
 	"github.com/maarten-boot/kukel/internal/modules/dbmod"
 	"github.com/maarten-boot/kukel/internal/native"
+	"github.com/maarten-boot/kukel/internal/stdlib"
 )
 
 // version is set by the Makefile (-ldflags "-X main.version=..."); without
@@ -50,7 +51,8 @@ func versionText() string {
 }
 
 func cmdVersion(stdout io.Writer) error {
-	_, err := fmt.Fprintf(stdout, "%s\nmodules written in Go: %s\n", versionText(), strings.Join(moduleNames(), ", "))
+	_, err := fmt.Fprintf(stdout, "%s\nmodules written in Go: %s\nmodules written in Kukel: %s\n", versionText(),
+		strings.Join(moduleNames(), ", "), strings.Join(stdlib.Names(), ", "))
 	return err
 }
 

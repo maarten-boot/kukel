@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 
 	"github.com/maarten-boot/kukel/internal/bytecode"
+	"github.com/maarten-boot/kukel/internal/stdlib"
 	"github.com/maarten-boot/kukel/internal/value"
 	"github.com/maarten-boot/kukel/internal/vm"
 )
@@ -451,6 +452,9 @@ func (src Sources) lines(file string) []string {
 	lines, ok := src[file]
 	if !ok {
 		data, err := os.ReadFile(file)
+		if std, ok := stdlib.SourceOf(file); ok { // a standard module written in Kukel
+			data, err = std, nil
+		}
 		if err == nil {
 			lines = strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
 		}

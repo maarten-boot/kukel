@@ -1,0 +1,51 @@
+// The standard module iter, written in Kukel (Q88).
+use iter;
+
+src(name) {
+    try {
+        for (local i = 0;; i++) yield i;
+    } finally {
+        println("closed", name);
+    }
+}
+
+double(x) { return 2 * x; }
+
+odd(x) { return x % 2 == 1; }
+
+small(x) { return x < 3; }
+
+add(a, b) { return a + b; }
+
+main() {
+    println(iter::collect(iter::range(5)), iter::collect(iter::range(2, 11, 3)), iter::collect(iter::range(5, 0, -2)), iter::collect(iter::range(3, 3)));
+    println(iter::collect(iter::range(9223372036854775800, 9223372036854775807, 5)), iter::collect(iter::range(-9223372036854775803, -9223372036854775808, -4)));
+    println(iter::collect(iter::take(iter::count(10, -3), 4)));
+    println(iter::collect(iter::map(double, [1, 2, 3])), iter::collect(iter::filter(odd, iter::range(10))));
+    println(iter::collect(iter::take("abc", 2)), iter::collect(iter::drop({"a": 1, "b": 2, "c": 3}, 1)));
+    println(iter::collect(iter::takewhile(small, iter::count())), iter::collect(iter::dropwhile(small, iter::range(6))));
+    println(iter::collect(iter::enumerate("ab")), iter::collect(iter::enumerate(["x"], 1)));
+    println(iter::collect(iter::zip([1, 2, 3], "xy", iter::count())), iter::collect(iter::zip()), iter::collect(iter::chain([1], "a", [])));
+    println(iter::reduce(add, iter::range(1, 11), 0), iter::reduce(add, ["a", "b", "c"]), iter::reduce(add, [], 7));
+    println(iter::first([5, 6]), iter::first([]), iter::first("", "none"));
+    println(iter::any(odd, [2, 4, 5]), iter::any(odd, []), iter::all(odd, [1, 3]), iter::all(odd, [1, 2]));
+
+    // A loop that stops early closes what it walks, through every layer.
+    for (local x in iter::take(iter::map(double, src("a")), 3)) print(x, "");
+    println();
+    println(iter::first(iter::filter(odd, src("b"))));
+    println(iter::collect(iter::zip(src("c"), [7, 8])));
+    local g = iter::chain(src("d"), src("e"));
+    println(g->next(), g->next());
+    g->close();
+
+    for (local bad in [fn() { iter::range(1.5); }, fn() { iter::range(1, 2, 0); }, fn() { iter::take([1], -1); },
+        fn() { iter::map(1, []); }, fn() { iter::filter(odd, 5); }, fn() { iter::collect(new Error()); },
+        fn() { iter::reduce(add, []); }, fn() { iter::reduce(add, [], 1, 2); }, fn() { iter::zip([], nil); }]) {
+        try {
+            bad();
+        } catch (e) {
+            println(e->kind, e->message);
+        }
+    }
+}

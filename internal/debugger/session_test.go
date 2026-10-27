@@ -133,3 +133,12 @@ func TestShow(t *testing.T) {
 		t.Errorf("Show of a vector in itself: %s", got)
 	}
 }
+
+// The lines of a standard module written in Kukel come from kukel itself.
+func TestSourcesOfStandardModules(t *testing.T) {
+	src := Sources{}
+	line, ok := src.Line("<std>/iter.kkl", 1)
+	if src.Count("<std>/iter.kkl") < 10 || !ok || !strings.Contains(line, "iter") {
+		t.Errorf("<std>/iter.kkl: %d lines, line 1 %q", src.Count("<std>/iter.kkl"), line)
+	}
+}

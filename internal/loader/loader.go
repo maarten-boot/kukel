@@ -14,6 +14,7 @@ import (
 	"github.com/maarten-boot/kukel/internal/diag"
 	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/parser"
+	"github.com/maarten-boot/kukel/internal/stdlib"
 )
 
 // Ext is the extension of Kukel source files, CompiledExt of bytecode
@@ -28,7 +29,8 @@ const (
 // the program's files in the order given.
 //
 // Module name is a module written in Go (package native) if one is
-// registered under that name; else the file name.kkl, looked up first in
+// registered under that name; else a standard module written in Kukel
+// (package stdlib) if there is one; else the file name.kkl, looked up first in
 // the directory of the file that uses it, then in the directories of path
 // (KUKEL_PATH); in each directory, name.kkc (compiled on its own) if there
 // is no name.kkl. A name
@@ -121,6 +123,10 @@ func (l *loader) uses(f *ast.File, chain []string) error {
 		}
 
 		file, err := l.find(name, filepath.Dir(f.Name))
+		std, isStd := stdlib.Source(name)
+		if isStd { // a standard module written in Kukel, in kukel itself
+			file, err = stdlib.File(name), nil
+		}
 		if tags, ok := native.Omitted(name); ok && err != nil {
 			return diag.Errorf(u.Name.NamePos, "module %s is not in this kukel: %s", name, tags)
 		}
@@ -141,7 +147,15 @@ func (l *loader) uses(f *ast.File, chain []string) error {
 		}
 		m := &module{file: file, abs: abs(file), loading: true}
 		l.modules[name] = m
-		mf, err := parse(file, name)
+		var mf *ast.File
+		if isStd {
+			mf, err = parser.ParseFile(file, std)
+			if mf != nil {
+				mf.Module = name
+			}
+		} else {
+			mf, err = parse(file, name)
+		}
 		if err != nil {
 			return err
 		}

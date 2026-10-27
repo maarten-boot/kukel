@@ -34,6 +34,7 @@ hello, Kukel
 9. [Exceptions](#9-exceptions)
 10. [Built-in functions](#10-built-in-functions)
 11. [Modules written in Go](#11-modules-written-in-go): db, events, fs, json, p9, re, strings, time, tk (with the build tag tk), uuid, worker, zmq
+12. [Modules written in Kukel](#12-modules-written-in-kukel): iter
 
 ---
 
@@ -55,7 +56,7 @@ hello, Kukel
 | `kukel dap` | The debugger for editors: the Debug Adapter Protocol on standard input and output, which an editor starts (see [docs/debugging.md](debugging.md): Visual Studio Code, Neovim, Helix, Emacs) |
 | `kukel fmt [-w \| -l] a.kkl ...`, `kukel fmt -` | Format source files: indentation (4 spaces; `case` labels one level into the switch, their statements two) and the spaces between tokens (`{ }` becomes `{}`; a comment at the end of a line keeps its distance); line breaks and comments stay, at most one blank line in a row; CRLF line ends become LF (not inside a string or a `/* */` comment: those stay as written). A line that continues a statement outside brackets (`return c &&` and then `d;`) is indented one level more than the statement's first line. A line that starts with a closing bracket lines up with the line that opened it, also when more follows (`}, 1);` after `f(fn() {`); a comma at the end of a list stays, so a list with one item per line and its closing bracket on a line of its own formats as in Go. A statement that starts a line with `if`, `while`, `do`, `for`, `switch`, `try` or `with` (also after a label: `outer: for`, and with the label on a line of its own, where the blank line goes above the label) gets a blank line before it (above the comments right above it), except as the first statement of a block, after a label on its own line or a `case`, as the statement of `else` or a header without braces, or as the `while` of a `do`. The output is checked to give the same tokens and comments as the input; a file it cannot format safely is refused with an "internal error".  Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`; `-w` and `-l` together are a usage error). A file with a syntax error or a NUL byte is left alone, and the exit code is 1. `kukel fmt -` formats standard input to standard output (for editors; with `-w`, `-l` or files it is a usage error) |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | Show the tokens or the syntax tree of each file (for debugging; `-pos`, before the files, adds positions) |
-| `kukel version` (also `-version`, `--version`) | Show the version (with the commit and the Go version), the bytecode format and the modules written in Go, with the databases `db` can open (`db (SQLite, PostgreSQL, MySQL)`): a `kukel` built with tags may lack some (see the README) |
+| `kukel version` (also `-version`, `--version`) | Show the version (with the commit and the Go version), the bytecode format, the modules written in Go, with the databases `db` can open (`db (SQLite, PostgreSQL, MySQL)`): a `kukel` built with tags may lack some (see the README), and the modules written in Kukel |
 | `kukel help` (also `-h`, `-help`, `--help`) | Show the commands (`kukel` without a command shows them too, with exit code 2) |
 
 A compile reports several errors at once, in the order of the source: the
@@ -494,7 +495,9 @@ geometry::Circle{r: 1}
 ```
 
 - `use name;` at the top of a file, before its definitions, loads module
-  `name`: the file `name.kkl` in the directory of the file with the `use`,
+  `name`: a standard module (written in Go, section 11, or in Kukel,
+  section 12) if there is one by that name, else the file `name.kkl` in
+  the directory of the file with the `use`,
   else in one of the directories listed in the environment variable
   `KUKEL_PATH` (separated by `:`, or `;` on Windows; empty entries are
   skipped, not taken as the current directory). In each directory a
@@ -2694,3 +2697,71 @@ There is no security (ZeroMQ's PLAIN or CURVE): the messages are not
 encrypted or authenticated. Use `zmq` on a trusted network, or carry it
 over an encrypted channel such as an SSH tunnel or a VPN.
 
+---
+
+## 12. Modules written in Kukel
+
+These come with `kukel` as Kukel source built into it: `use iter;` finds
+them before files on disk. Their code shows in traces and the debugger as
+`<std>/iter.kkl`. They do nothing a program could not do itself, so a Go
+program that embeds Kukel cannot leave them out (`StandardModules` lists
+the modules written in Go), and they are there also without file modules.
+
+### iter
+
+Generators that make, change and combine sequences of values, and
+functions that use them up. An argument `xs` takes what `for` takes: a
+vector, a map (its keys), a string (its bytes), a generator, or an object
+whose `iter()` gives one. The functions that give values give generators
+(section 7): nothing runs until a value is asked for, and a loop that
+stops early closes them, and so what they walk.
+
+```
+use iter;
+
+square(x) { return x * x; }
+
+main() {
+    println(iter::collect(iter::range(5)), iter::collect(iter::range(10, 0, -3)));
+    println(iter::collect(iter::take(iter::map(square, iter::count(1)), 4)));
+
+    for (local p in iter::zip(["a", "b", "c"], iter::count(1))) print(p, "");
+    println();
+    println(iter::reduce(fn(a, b) { return a + b; }, iter::range(1, 101)));
+    println(iter::first(iter::filter(fn(x) { return x % 7 == 0; }, iter::count(50))));
+}
+```
+
+```
+$ kukel run iter.kkl
+[0, 1, 2, 3, 4] [10, 7, 4, 1]
+[1, 4, 9, 16]
+["a", 1] ["b", 2] ["c", 3] 
+5050
+56
+```
+
+| Function | Description |
+|---|---|
+| `iter::range(stop)`, `iter::range(start, stop [, step])` | The ints `start` (0), `start + step`, ... while below `stop` (above it, for a negative `step`); the step is 1 by default, and 0 is a `ValueError`. Ints only (`TypeError`) |
+| `iter::count([start [, step]])` | The ints `start` (0), `start + step` (1), ... without end |
+| `iter::map(f, xs)` | `f(x)` for each `x` |
+| `iter::filter(f, xs)` | The `x` for which `f(x)` is true |
+| `iter::take(xs, n)`, `iter::drop(xs, n)` | The first `n` values (fewer if there are not as many; the one after them is not asked for), and the values after the first `n`. A negative `n` is a `ValueError` |
+| `iter::takewhile(f, xs)`, `iter::dropwhile(f, xs)` | The values up to the first `x` for which `f(x)` is false, and the values from it on |
+| `iter::enumerate(xs [, start])` | `[i, x]` for each `x`, `i` counting from `start` (0) |
+| `iter::zip(xs, ys, ...)` | Vectors of one value of each, until one of them ends; the others are closed then |
+| `iter::chain(xs, ys, ...)` | The values of each in turn |
+| `iter::collect(xs)` | A vector of all the values |
+| `iter::reduce(f, xs [, init])` | `f(...f(f(init, x1), x2)..., xn)`; without `init` the first value is the start, and no values at all is a `ValueError` (with `init`, it gives `init`) |
+| `iter::first(xs [, otherwise])` | The first value, or `otherwise` (`nil`) when there is none; the rest is not asked for |
+| `iter::any(f, xs)`, `iter::all(f, xs)` | Whether `f(x)` is true for some `x`, and for every `x`; they stop at the first `x` that decides |
+
+- Arguments are checked when the function is called, with the messages of
+  the modules written in Go (`iter::take: argument 2 must be an int, not
+  string`); what `f` throws, and an object without `iter()`, come when the
+  values are asked for.
+- Each value through each layer is a step of a generator, so `iter` costs
+  more than a loop written out: about 160 ns per value for
+  `for (local x in iter::range(n))`, against 25 ns for `for (local i = 0;
+  i < n; i++)`.

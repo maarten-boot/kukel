@@ -37,7 +37,10 @@ A **`Program`** is compiled code. It never changes while it runs, so one
 The package brings the standard modules written in Go (`StandardModules()`
 lists them). The build tags of the README leave large ones out of a Go
 program that imports it too: `go build -tags nopostgres,nomysql,nozmq,no9p`.
-The Tk module (`tk`) is there only with `-tags tk`.
+The Tk module (`tk`) is there only with `-tags tk`. The standard modules
+written in Kukel (`iter`, reference.md §12) are always there: they can do
+nothing the program's own code could not, so `StandardModules` and
+`NoFileModules` do not limit them.
 
 | Function | |
 |---|---|

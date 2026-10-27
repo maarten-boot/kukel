@@ -12,6 +12,14 @@ Two kinds of change need care when you upgrade:
   format version; build it again from its source after such a release
   (`kukel build`). The history is in [docs/vm.md](docs/vm.md) §7.
 
+## Unreleased
+
+- The module `iter`, written in Kukel and built into kukel: `range`,
+  `count`, `map`, `filter`, `take`, `drop`, `takewhile`, `dropwhile`,
+  `enumerate`, `zip`, `chain`, `collect`, `reduce`, `first`, `any`, `all`;
+  all generators, so a loop that stops early closes every layer. The
+  first of the standard modules written in Kukel (reference.md §12). Q88.
+
 ## v0.34.1 (2026-10-27)
 
 v0.34.0 was tagged but not published: two new tests of locks failed on

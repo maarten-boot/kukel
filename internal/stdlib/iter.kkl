@@ -1,0 +1,294 @@
+// iter: generators that make, change and combine sequences of values, and
+// functions that use them up (Q88). An argument xs takes what for takes: a
+// vector, a map (its keys), a string (its bytes), a generator, or an object
+// whose iter() gives one. The functions that give values give generators:
+// nothing runs until a value is asked for, and a loop that stops early
+// closes them, and so what they walk.
+//
+// Each function checks its arguments when it is called; the work is done
+// by a generator function of its own (_range for range, ...).
+
+// range(stop), range(start, stop [, step]): start, start + step, ... while
+// below stop (above it, for a negative step).
+range(a, b = nil, step = 1) {
+    local start = 0, stop = a;
+
+    if (b != nil) {
+        start = a;
+        stop = b;
+    }
+    _int("iter::range", 1, a);
+
+    if (b != nil) _int("iter::range", 2, b);
+    _int("iter::range", 3, step);
+
+    if (step == 0) throw new Error("iter::range: the step is 0", "ValueError");
+    return _range(start, stop, step);
+}
+
+_range(start, stop, step) {
+    // The breaks stop before i + step could wrap around.
+    if (step > 0) {
+        for (local i = start; i < stop; i += step) {
+            yield i;
+
+            if (i > stop - step) break;
+        }
+    } else {
+        for (local i = start; i > stop; i += step) {
+            yield i;
+
+            if (i < stop - step) break;
+        }
+    }
+}
+
+// count([start [, step]]): start, start + step, ... without end.
+count(start = 0, step = 1) {
+    _int("iter::count", 1, start);
+    _int("iter::count", 2, step);
+    return _count(start, step);
+}
+
+_count(start, step) {
+    for (local i = start;; i += step) yield i;
+}
+
+// map(f, xs): f(x) for each x.
+map(f, xs) {
+    _fn("iter::map", 1, f);
+    _values("iter::map", 2, xs);
+    return _map(f, xs);
+}
+
+_map(f, xs) {
+    for (local x in xs) yield f(x);
+}
+
+// filter(f, xs): the x for which f(x) is true.
+filter(f, xs) {
+    _fn("iter::filter", 1, f);
+    _values("iter::filter", 2, xs);
+    return _filter(f, xs);
+}
+
+_filter(f, xs) {
+    for (local x in xs) if (f(x)) yield x;
+}
+
+// take(xs, n): the first n values (fewer if there are not as many).
+take(xs, n) {
+    _values("iter::take", 1, xs);
+    _count_arg("iter::take", 2, n);
+    return _take(xs, n);
+}
+
+_take(xs, n) {
+    if (n == 0) return;
+    local i = 0;
+
+    for (local x in xs) {
+        yield x;
+
+        if (++i == n) return; // without asking xs for one more
+    }
+}
+
+// drop(xs, n): the values after the first n.
+drop(xs, n) {
+    _values("iter::drop", 1, xs);
+    _count_arg("iter::drop", 2, n);
+    return _drop(xs, n);
+}
+
+_drop(xs, n) {
+    local i = 0;
+
+    for (local x in xs) {
+        if (i < n) {
+            i++;
+            continue;
+        }
+        yield x;
+    }
+}
+
+// takewhile(f, xs): the values up to the first x for which f(x) is false.
+takewhile(f, xs) {
+    _fn("iter::takewhile", 1, f);
+    _values("iter::takewhile", 2, xs);
+    return _takewhile(f, xs);
+}
+
+_takewhile(f, xs) {
+    for (local x in xs) {
+        if (!f(x)) return;
+        yield x;
+    }
+}
+
+// dropwhile(f, xs): the values from the first x for which f(x) is false.
+dropwhile(f, xs) {
+    _fn("iter::dropwhile", 1, f);
+    _values("iter::dropwhile", 2, xs);
+    return _dropwhile(f, xs);
+}
+
+_dropwhile(f, xs) {
+    local dropping = true;
+
+    for (local x in xs) {
+        if (dropping && f(x)) continue;
+        dropping = false;
+        yield x;
+    }
+}
+
+// enumerate(xs [, start]): [i, x] for each x, i counting from start (0).
+enumerate(xs, start = 0) {
+    _values("iter::enumerate", 1, xs);
+    _int("iter::enumerate", 2, start);
+    return _enumerate(xs, start);
+}
+
+_enumerate(xs, i) {
+    for (local x in xs) yield [i++, x];
+}
+
+// zip(xs, ys, ...): vectors of one value of each, up to the end of the
+// shortest.
+zip(all..) {
+    for (local i = 0; i < len(all); i++) _values("iter::zip", i + 1, all[i]);
+    return _zip(all);
+}
+
+_zip(all) {
+    if (len(all) == 0) return;
+    local gens = [];
+
+    try {
+        for (local xs in all) push(gens, _each(xs));
+
+        for (;;) {
+            local row = [];
+
+            for (local g in gens) {
+                local x = g->next();
+
+                if (g->done()) return;
+                push(row, x);
+            }
+            yield row;
+        }
+    } finally {
+        for (local g in gens) g->close();
+    }
+}
+
+_each(xs) {
+    for (local x in xs) yield x;
+}
+
+// chain(xs, ys, ...): the values of each in turn.
+chain(all..) {
+    for (local i = 0; i < len(all); i++) _values("iter::chain", i + 1, all[i]);
+    return _chain(all);
+}
+
+_chain(all) {
+    for (local xs in all) for (local x in xs) yield x;
+}
+
+// collect(xs): a vector of all the values.
+collect(xs) {
+    _values("iter::collect", 1, xs);
+    local v = [];
+
+    for (local x in xs) push(v, x);
+    return v;
+}
+
+// reduce(f, xs [, init]): f(...f(f(init, x1), x2)..., xn); without init,
+// the first value is the start (no values then is a ValueError).
+reduce(f, xs, init..) {
+    _fn("iter::reduce", 1, f);
+    _values("iter::reduce", 2, xs);
+
+    if (len(init) > 1) throw new Error("iter::reduce expects 2 or 3 arguments, got " + str(2 + len(init)), "ArgumentError");
+    local have = len(init) == 1, acc = have ? init[0] : nil;
+
+    for (local x in xs) {
+        if (have) {
+            acc = f(acc, x);
+        } else {
+            acc = x;
+            have = true;
+        }
+    }
+
+    if (!have) throw new Error("iter::reduce: no values, and no initial value", "ValueError");
+    return acc;
+}
+
+// first(xs [, otherwise]): the first value, or otherwise (nil) when there
+// is none. The rest is not asked for (a generator is closed).
+first(xs, otherwise = nil) {
+    _values("iter::first", 1, xs);
+
+    for (local x in xs) return x;
+    return otherwise;
+}
+
+// any(f, xs), all(f, xs): whether f(x) is true for some x, for every x;
+// they stop at the first x that decides.
+any(f, xs) {
+    _fn("iter::any", 1, f);
+    _values("iter::any", 2, xs);
+
+    for (local x in xs) if (f(x)) return true;
+    return false;
+}
+
+all(f, xs) {
+    _fn("iter::all", 1, f);
+    _values("iter::all", 2, xs);
+
+    for (local x in xs) if (!f(x)) return false;
+    return true;
+}
+
+// The checks of the arguments, with the messages of the modules written
+// in Go.
+
+_fn(where, i, f) {
+    if (typeof(f) != "function") _wrong(where, i, "a function", f);
+}
+
+_int(where, i, n) {
+    if (typeof(n) != "int") _wrong(where, i, "an int", n);
+}
+
+_count_arg(where, i, n) {
+    _int(where, i, n);
+
+    if (n < 0) throw new Error(where + ": a negative count (" + str(n) + ")", "ValueError");
+}
+
+_values(where, i, xs) {
+    local t = typeof(xs);
+
+    if (t != "vector" && t != "map" && t != "string" && t != "object") {
+        _wrong(where, i, "values to walk (a vector, map, string, generator, or object with iter())", xs);
+    }
+}
+
+_wrong(where, i, want, x) {
+    local t = typeof(x);
+
+    if (t == "object") {
+        local c = str(classof(x)); // "<class Name>"
+
+        t = "an object of class " + slice(c, 7, len(c) - 1);
+    }
+    throw new Error(where + ": argument " + str(i) + " must be " + want + ", not " + t, "TypeError");
+}

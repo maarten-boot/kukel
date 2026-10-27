@@ -347,6 +347,9 @@ a module written in Go that comes with kukel: there are modules for
 databases (`db`), files (`fs`), JSON, regular expressions (`re`), dates
 (`time`), UUIDs, networking (`zmq`, `p9`), windows (`tk`), and the two
 below. Each is described in [reference.md §11](reference.md#11-modules-written-in-go).
+One standard module is written in Kukel itself: `iter`, with `range`,
+`map`, `filter`, `take`, `zip`, `reduce` and more, all generators
+([reference.md §12](reference.md#12-modules-written-in-kukel)).
 
 `fs` also opens files, to read or write them a line or a piece at a time
 instead of whole; `with` closes them however its statement is left:

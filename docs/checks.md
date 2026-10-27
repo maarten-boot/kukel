@@ -23,7 +23,7 @@ exceptions in the table).
 | # | Subsystem | Packages | Interface | Documents | Tests |
 |---|---|---|---|---|---|
 | 1 | Front end | `token`, `diag`, `lexer`, `parser`, `ast`, `format` | the syntax tree; `syntax.ebnf`, `syntax.lark` | reference.md §2, §4-§9 | lexer, parser, format; `tests/tokens`, `tests/ast`; TestLarkGrammar |
-| 2 | Compiler | `compiler`, `loader` | a `bytecode.Program` | reference.md §4 (modules), vm.md §6 | compiler (rules, modules, precompiled), loader |
+| 2 | Compiler | `compiler`, `loader`, `stdlib` (the standard modules written in Kukel) | a `bytecode.Program` | reference.md §4 (modules), §12, vm.md §6 | compiler (rules, modules, precompiled), loader, stdlib; `tests/run/iter.kkl` |
 | 3 | Bytecode | `bytecode` | the instruction set, `.kkc` files, the verifier | vm.md §3, §5, §7, §8 | bytecode (files, fuzz, the opcodes in vm.md) |
 | 4 | VM core | `vm`, `value`, `builtins` | values, calls, the hooks: debug, profile, cancellation, `WaitStart`/`WaitEnd`, `FlushOutput`, `End` | vm.md §2, §4; reference.md §3, §10 | vm, `tests/run` (through cmd/kukel) |
 | 5 | Native API | `native` | `Args`, `Errorf`, `Flush`, `Wait`, `Duration`, `IOMessage`, `NetMessage`, `NotSetUp`, `SetProgram`/`Program`, `Generator`, the module registry | reference.md §11 (start), embedding.md §3 | native |

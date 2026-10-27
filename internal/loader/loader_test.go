@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/maarten-boot/kukel/internal/diag"
+	"github.com/maarten-boot/kukel/internal/native"
 )
 
 // tree writes files (path relative to a new temporary directory: source)
@@ -147,5 +148,19 @@ func TestSyntaxErrorsOfSeveralFiles(t *testing.T) {
 	_, err := Load(files, nil)
 	if errs := diag.Errors(err); len(errs) != 2 || !strings.Contains(errs[0].Error(), "a.kkl:1:4") || !strings.Contains(errs[1].Error(), "b.kkl:1:14") {
 		t.Errorf("got %v", err)
+	}
+}
+
+// A standard module written in Kukel (iter) is found before a file of the
+// same name, and also where no files may be read.
+func TestStandardModuleWrittenInKukel(t *testing.T) {
+	dir := tree(t, map[string]string{"p.kkl": "use iter;\nmain() {}\n", "iter.kkl": "f() {}\n"})
+	files, err := Load([]string{filepath.Join(dir, "p.kkl")}, nil)
+	if err != nil || len(files) != 2 || files[0].Name != "<std>/iter.kkl" || files[0].Module != "iter" {
+		t.Errorf("next to a file iter.kkl: %v", err)
+	}
+	files, err = LoadWith([]string{filepath.Join(dir, "p.kkl")}, &native.Config{NoFileModules: true})
+	if err != nil || len(files) != 2 || files[0].Name != "<std>/iter.kkl" {
+		t.Errorf("without file modules: %v", err)
 	}
 }

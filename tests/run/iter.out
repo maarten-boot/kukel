@@ -1,0 +1,28 @@
+[0, 1, 2, 3, 4] [2, 5, 8] [5, 3, 1] []
+[9223372036854775800, 9223372036854775805] [-9223372036854775803, -9223372036854775807]
+[10, 7, 4, 1]
+[2, 4, 6] [1, 3, 5, 7, 9]
+[97, 98] ["b", "c"]
+[0, 1, 2] [3, 4, 5]
+[[0, 97], [1, 98]] [[1, "x"]]
+[[1, 120, 0], [2, 121, 1]] [] [1, 97]
+55 abc 7
+5 nil none
+true false true false
+0 2 4 closed a
+
+closed b
+1
+closed c
+[[0, 7], [1, 8]]
+0 1
+closed d
+TypeError iter::range: argument 1 must be an int, not float
+ValueError iter::range: the step is 0
+ValueError iter::take: a negative count (-1)
+TypeError iter::map: argument 1 must be a function, not int
+TypeError iter::filter: argument 2 must be values to walk (a vector, map, string, generator, or object with iter()), not int
+TypeError cannot iterate over an object of class Error: it has no member function iter() (which gives a generator)
+ValueError iter::reduce: no values, and no initial value
+ArgumentError iter::reduce expects 2 or 3 arguments, got 4
+TypeError iter::zip: argument 2 must be values to walk (a vector, map, string, generator, or object with iter()), not nil
