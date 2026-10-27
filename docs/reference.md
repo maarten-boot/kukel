@@ -1585,7 +1585,10 @@ or binary mode:
   file the program did not close is written out and closed when the
   program ends (also by `exit()`, an exception it does not catch, or
   Ctrl-C in `kukel profile`; not when the process is killed); a worker's
-  when the worker ends; in a Go program that embeds Kukel, at `Close`. If
+  when the worker ends (a worker still running when the program ends is
+  cut off, and what its open files hold is lost: a worker closes its files,
+  or the program `wait()`s for it); in a Go program that embeds Kukel, at
+  `Close`. If
   it cannot be written out then, `kukel` reports it (`kukel: log.txt: no
   space left on device`) and ends with exit code 1, and a worker's
   `wait()` throws a `WorkerError` that names it (`worker job failed:

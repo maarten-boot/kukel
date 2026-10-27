@@ -3,21 +3,52 @@ package bytecode_test
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/maarten-boot/kukel/internal/ast"
 	"github.com/maarten-boot/kukel/internal/builtins"
 	"github.com/maarten-boot/kukel/internal/bytecode"
 	"github.com/maarten-boot/kukel/internal/compiler"
+	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/parser"
 	"github.com/maarten-boot/kukel/internal/value"
 	"github.com/maarten-boot/kukel/internal/vm"
 )
+
+// A program the fuzzer changed may write anywhere with any name (its
+// strings are changed too; one wrote a file KUKEL_TEST_TMP into this
+// directory): it gets no modules that make files or sockets, and writefile
+// and appendfile do nothing. (Not os.Chdir: the fuzzer's workers find the
+// corpus by a relative path.)
+var fuzzConfig = &native.Config{AllowedModules: map[string]bool{
+	"events": true, "json": true, "re": true, "strings": true, "time": true, "uuid": true, "worker": true,
+}}
+
+func fuzzBuiltins(name string) (*value.BuiltinObj, bool) {
+	if name == "writefile" || name == "appendfile" {
+		return &value.BuiltinObj{Name: name, Fn: func(value.Env, []value.Value) (value.Value, error) { return value.NilValue, nil }}, true
+	}
+	return builtins.Lookup(name)
+}
+
+// runFuzzed runs a program the fuzzer changed, bounded in steps and in
+// time: a changed program of tests/run may sleep or wait for timers and
+// workers, which the step limit does not count, so it is cancelled after
+// a second (the waits stop then).
+func runFuzzed(m *vm.VM) {
+	m.StepLimit = 10000
+	c := m.Cancellable()
+	stop := time.AfterFunc(time.Second, func() { c.Cancel(errors.New("fuzzed program took too long")) })
+	defer stop.Stop()
+	m.Run(nil)
+}
 
 // compilePrograms compiles every program in tests/run that compiles.
 func compilePrograms(t testing.TB) map[string]*bytecode.Program {
@@ -234,12 +265,11 @@ func FuzzDecode(f *testing.F) {
 		if err != nil {
 			return
 		}
-		m, err := vm.New(p, builtins.Lookup, &bytes.Buffer{}, strings.NewReader(""))
+		m, err := vm.NewWith(p, fuzzBuiltins, fuzzConfig, &bytes.Buffer{}, strings.NewReader(""))
 		if err != nil {
 			return
 		}
-		m.StepLimit = 10000
-		m.Run(nil)
+		runFuzzed(m)
 	})
 }
 
@@ -270,12 +300,11 @@ func FuzzVerifyCode(f *testing.F) {
 		if bytecode.Verify(p) != nil {
 			return
 		}
-		m, err := vm.New(p, builtins.Lookup, &bytes.Buffer{}, strings.NewReader(""))
+		m, err := vm.NewWith(p, fuzzBuiltins, fuzzConfig, &bytes.Buffer{}, strings.NewReader(""))
 		if err != nil {
 			return
 		}
-		m.StepLimit = 10000
-		m.Run(nil)
+		runFuzzed(m)
 	})
 }
 

@@ -65,7 +65,7 @@ state, which last between calls.
 | `in.CallValue(fn, args...)` | Calls a function value, such as a callback a Go function received |
 | `in.Global(name)` | The value of a global variable, function or class (also a module's). Constants (`const`) and static data members are not globals: an error names them as missing |
 | `in.RunContext(ctx, ...)`, `in.CallContext(ctx, ...)` | The same, stopped when `ctx` ends (section 5) |
-| `in.Close()` | Ends the interpreter: cancels the workers it started that still run and drops their later output, and writes out and closes the files the program opened (`fs::open`) and did not close (a failure to write one out is lost: a program that must know closes its files); calls afterwards give an error |
+| `in.Close()` | Ends the interpreter: cancels the workers it started that still run and drops their later output, and writes out and closes the files the program opened (`fs::open`) and did not close (a failure to write one out is lost: a program that must know closes its files; the files of workers still running are not written out); calls afterwards give an error |
 
 The global initializers run once, before the first `Run`, `Call` or
 `Global` (and count against that call's step budget). If they throw an

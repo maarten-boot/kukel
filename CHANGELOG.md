@@ -14,6 +14,9 @@ Two kinds of change need care when you upgrade:
 
 ## Unreleased
 
+v0.33.2 was tagged on the open files but not published: the fuzz test ran
+past its time (fixed here).
+
 - Open files: `fs::open(path [, mode])` gives an `fs::File` to read a line
   or a number of bytes at a time and write as the program goes
   (`readline`, `read`, `write`, `print`, `println`, `seek`, `tell`,
@@ -21,6 +24,12 @@ Two kinds of change need care when you upgrade:
   `fs::stderr()` are the standard streams as such files. Files a program
   leaves open are written out and closed when it ends. Q83.
 - `examples/grep.kkl` reads its files a line at a time.
+- Fixes from a check of the open files and `program()`: Ctrl-C in `kukel
+  profile` and the REPL's exit code with files left open, writes after
+  reads on pipes and terminals, write errors of `fs::stdout()->flush()`,
+  `readline` and a last `\r`; `print`'s write error without Go's words. A
+  worker still running when the program ends loses what its open files
+  hold (documented). Q83.
 
 ## v0.33.1 (2026-10-26)
 
