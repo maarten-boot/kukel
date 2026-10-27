@@ -12,10 +12,10 @@ Two kinds of change need care when you upgrade:
   format version; build it again from its source after such a release
   (`kukel build`). The history is in [docs/vm.md](docs/vm.md) §7.
 
-## Unreleased
+## v0.33.3 (2026-10-27)
 
 v0.33.2 was tagged on the open files but not published: the fuzz test ran
-past its time (fixed here).
+past its time (fixed here). v0.33.3 has:
 
 - Open files: `fs::open(path [, mode])` gives an `fs::File` to read a line
   or a number of bytes at a time and write as the program goes
