@@ -41,3 +41,35 @@ jobs:
         run: make build && ./bin/kukel version
       - name: Fuzz briefly
         run: make fuzz FUZZTIME=10s
+
+  # What is Windows' own: the fs module (locks with LockFileEx, chmod's
+  # read-only flag, temporary files, its messages) and a kukel.exe that
+  # runs. Failing lines also become annotations (::error::), which the
+  # public API shows without the log.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e   # v7.0.0
+        with:
+          go-version: stable
+      - name: Test the fs module
+        shell: bash
+        run: |
+          set +e
+          go test -count=1 -v ./internal/modules/fsmod > test.log 2>&1
+          status=$?
+          cat test.log
+          if [ $status -ne 0 ]; then
+            grep -E -- '--- FAIL|_test\.go:[0-9]+:|^        |panic' test.log | head -60 | sed -e 's/%/%25/g' -e 's/^/::error::/'
+          fi
+          exit $status
+      - name: Build kukel.exe and run a program
+        shell: bash
+        run: |
+          go build -o kukel.exe ./cmd/kukel
+          ./kukel.exe version
+          printf 'use fs;\n\nmain() {\n    with (local f = fs::temp()) {\n        f->lock();\n        f->println(program());\n        f->seek(0);\n        print(f->read());\n    }\n}\n' > smoke.kkl
+          ./kukel.exe run smoke.kkl

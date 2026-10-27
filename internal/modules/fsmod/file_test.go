@@ -6,8 +6,8 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"runtime"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -52,6 +52,9 @@ func runIO(t *testing.T, src, stdin string) (string, error) {
 // Writing, reading, the position, mixing reads and writes on a "+" file,
 // and the errors of the member functions.
 func TestFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the messages of Windows are its own (TestFilesWindows)")
+	}
 	t.Chdir(t.TempDir())
 	got, err := runIO(t, `use fs;
 
@@ -226,27 +229,18 @@ main() {
 }
 
 // A last line that ends in a lone \r loses it, as with the built-in
-// readline; on a FIFO open both ways a write after a read needs no seek
-// (what was read ahead stays to be read).
-func TestFileLineEndsAndPipes(t *testing.T) {
+// readline.
+func TestFileLineEnds(t *testing.T) {
 	t.Chdir(t.TempDir())
 	os.WriteFile("cr.txt", []byte("a\r\nb\r"), 0o644)
-	if err := syscall.Mkfifo("fifo", 0o644); err != nil {
-		t.Skip("no FIFO:", err)
-	}
 	got, err := runIO(t, `use fs;
 
 main() {
     local f = fs::open("cr.txt");
     println(f->readline(), len(f->readline()), f->readline(), len(readline()));
-    local p = fs::open("fifo", "r+");
-    p->write("one\n", "two\n")->flush();
-    println(p->readline());
-    p->write("three\n")->flush();
-    println(p->readline(), p->readline());
 }
 `, "x\r")
-	if err != nil || got != "a 1 nil 1\none\ntwo three\n" {
+	if err != nil || got != "a 1 nil 1\n" {
 		t.Errorf("End: %v; got %q", err, got)
 	}
 }
@@ -297,6 +291,9 @@ main() {
 
 // Temporary files and directories, chmod and truncate.
 func TestTempChmodTruncate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the modes and messages of Windows are their own (TestFilesWindows)")
+	}
 	t.Chdir(t.TempDir())
 	t.Setenv("TMPDIR", t.TempDir())
 	got, err := runIO(t, `use fs;

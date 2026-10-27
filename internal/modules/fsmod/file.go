@@ -123,7 +123,7 @@ func open(env value.Env, args []value.Value) (value.Value, error) {
 	if info, err := os.Stat(path); err == nil && info.Mode()&fs.ModeNamedPipe != 0 {
 		defer native.Wait(env).Done() // opening a FIFO waits for its other end
 	}
-	osf, err := os.OpenFile(path, flags, 0o644)
+	osf, err := os.OpenFile(path, openFlags(mode, flags), 0o644)
 	if err != nil {
 		return value.NilValue, ioError(a, err)
 	}

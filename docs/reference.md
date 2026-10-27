@@ -1613,7 +1613,8 @@ or binary mode:
 - Locks are the system's: `flock` on Linux, macOS and the BSDs, where they
   are *advisory* (only programs that lock see them; reading and writing
   are not stopped), and `LockFileEx` on Windows, where they are
-  *mandatory* (others cannot read or write a file locked exclusively).
+  *mandatory*: others cannot read or write a file locked exclusively, and
+  no one, the holder included, can write a file with a shared lock.
   They hold between processes, and between two `fs::open`s of one file in
   a program and its workers; any number of shared locks, or one exclusive
   lock. Waiting for one is waiting (`kukel profile -cpu` leaves it out),

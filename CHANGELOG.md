@@ -18,6 +18,8 @@ Two kinds of change need care when you upgrade:
   kept until removed), `fs::chmod(path, "rw-r--r--")`, `f->truncate`,
   and locks: `f->lock(["exclusive" | "shared" [, timeout]])`,
   `f->unlock()` (`flock`; `LockFileEx` on Windows). Q84.
+- Windows: CI tests the fs module there (Q85); `lock()` of a file opened
+  `"a"` works, and a failed change of a lock's kind keeps the old lock.
 
 ## v0.33.3 (2026-10-27)
 

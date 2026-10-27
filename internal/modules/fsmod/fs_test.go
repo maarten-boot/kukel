@@ -40,6 +40,9 @@ func run(t *testing.T, src string, args ...string) string {
 
 // Every function of fs, with its errors, in a directory of the test.
 func TestFS(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the messages and modes of Windows are its own (TestFilesWindows)")
+	}
 	if got := run(t, fsSrc, t.TempDir()); got != fsOut {
 		t.Errorf("got:\n%s\nwant:\n%s", got, fsOut)
 	}

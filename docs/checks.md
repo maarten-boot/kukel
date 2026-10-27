@@ -156,6 +156,7 @@ with workers, the Go API, and the conventions of section 3.
 | the grammar test | `go test ./cmd/kukel -run Lark` with `lark` installed (it skips without) |
 | PostgreSQL and MySQL | set `KUKEL_TEST_POSTGRES` and `KUKEL_TEST_MYSQL`, then `go test ./internal/modules/dbmod` |
 | style | `gofmt -l .` (empty) and `go vet ./...` |
+| Windows | CI's `windows` job (`go test ./internal/modules/fsmod` and a `kukel.exe` run); here only `GOOS=windows go vet` and `GOOS=windows go test -c` of a package |
 
 Build files go to `GOTMPDIR` when `/tmp` is short of space (for example
 `GOTMPDIR=$HOME/.cache/kukel-tmp`).
