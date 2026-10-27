@@ -12,23 +12,23 @@ Two kinds of change need care when you upgrade:
   format version; build it again from its source after such a release
   (`kukel build`). The history is in [docs/vm.md](docs/vm.md) §7.
 
-## Unreleased
+## v0.35.0 (2026-10-27)
 
 **Bytecode format 10**: `.kkc` files must be built again.
 
-- Faster generators: a `for` loop runs a generator's steps in its own
-  dispatch loop, as calls run, instead of in a nested one: a loop over a
-  generator takes about a third less time, a chain of `iter` functions a
-  quarter less. A generator's `return;` is a new instruction, `GEN_RETURN`.
-  Other programs run as fast as before. Q89.
-- A check of the two (Q90): `kukel dap` shows the code of `iter` (the
-  `source` request); `iter`'s messages are those of the modules written in
-  Go; the verifier refuses a plain return in a generator function.
 - The module `iter`, written in Kukel and built into kukel: `range`,
   `count`, `map`, `filter`, `take`, `drop`, `takewhile`, `dropwhile`,
   `enumerate`, `zip`, `chain`, `collect`, `reduce`, `first`, `any`, `all`;
   all generators, so a loop that stops early closes every layer. The
   first of the standard modules written in Kukel (reference.md §12). Q88.
+- Faster generators: a `for` loop runs a generator's steps in its own
+  dispatch loop, as calls run, instead of in a nested one: a loop over a
+  generator takes about a third less time, a chain of `iter` functions a
+  quarter less. A generator's `return;` is a new instruction, `GEN_RETURN`.
+  Other programs run as fast as before. Q89.
+- A check of `iter` and the faster steps (Q90): `kukel dap` shows the code of `iter` (the
+  `source` request); `iter`'s messages are those of the modules written in
+  Go; the verifier refuses a plain return in a generator function.
 
 ## v0.34.1 (2026-10-27)
 
