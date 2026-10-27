@@ -12,7 +12,7 @@ Two kinds of change need care when you upgrade:
   format version; build it again from its source after such a release
   (`kukel build`). The history is in [docs/vm.md](docs/vm.md) §7.
 
-## Unreleased
+## v0.34.0 (2026-10-27)
 
 **Syntax version 8 and bytecode format 9**: `yield` is a keyword now (a
 variable or function called `yield` must be renamed), `Generator` is the
