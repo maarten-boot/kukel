@@ -33,7 +33,10 @@ func TestReplTerminal(t *testing.T) {
 		t.Skip("script does not start:", err)
 	}
 	// Type when the prompt is there (the editor has the terminal then),
-	// and Ctrl-D after the result.
+	// and Ctrl-D at the prompt after the result: typed while the REPL gives
+	// the terminal back to the editor, the terminal (not yet raw) could
+	// take Ctrl-D as its own end of file, and the REPL would not see it
+	// (a CI run failed so).
 	waitFor := func(text string) {
 		for start := time.Now(); !strings.Contains(out.String(), text); time.Sleep(10 * time.Millisecond) {
 			if time.Since(start) > 10*time.Second {
@@ -44,7 +47,7 @@ func TestReplTerminal(t *testing.T) {
 	}
 	waitFor("> ")
 	io.WriteString(stdin, "println(\"re\" + \"sult\")\r")
-	waitFor("result")
+	waitFor("result\r\n> ")
 	io.WriteString(stdin, "\x04")
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
