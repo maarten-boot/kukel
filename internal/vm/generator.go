@@ -352,6 +352,11 @@ func (vm *VM) genReturn(f *frame, g *generator, stopDepth int) error {
 	if !g.inline && top != stopDepth {
 		return bad(f, "GEN_RETURN outside a step of its generator")
 	}
+	if g.inline && g.end < vm.frames[top-1].ip { // the loop jumps back to go on: a step (see genNext)
+		if err := vm.step(pcTop); err != nil {
+			return err
+		}
+	}
 	for n := len(vm.handlers); n > 0 && vm.handlers[n-1].frame == top; n-- { // (the verifier lets none through)
 		vm.popLoop(vm.handlers[n-1])
 		vm.handlers = vm.handlers[:n-1]
@@ -488,9 +493,17 @@ func (vm *VM) genNext(f *frame, ip, sp int, it value.Value) error {
 	}
 	count, v, more, err := vm.iterNext(f, it)
 	f = &vm.frames[len(vm.frames)-1] // a step may have moved them
-	if err != nil || !more {
-		f.ip = end
+	if err != nil {
 		return err
+	}
+	if !more {
+		if end < ip { // a backward jump is a step, as for the other loops (only in bytecode the compiler does not make)
+			if err := vm.step(pcTop); err != nil {
+				return err
+			}
+		}
+		f.ip = end
+		return nil
 	}
 	if two {
 		vm.stack[sp] = count
