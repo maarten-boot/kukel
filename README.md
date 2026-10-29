@@ -205,9 +205,10 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/value`, `internal/builtins` | values with their operators, built-in functions |
 | `examples/` | demo programs, such as a `grep`, and a Go program that embeds kukel ([examples/README.md](examples/README.md)) |
 | `editors/vscode` | the Visual Studio Code extension: highlighting and debugging ([docs/debugging.md](docs/debugging.md)) |
+| `editors/geany` | a filetype for Geany: highlighting, the symbol list, the Build menu ([editors/geany/README.md](editors/geany/README.md)) |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q91). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q92). Ideas for later are in [docs/future.md](docs/future.md).
 What changed in each release is in [CHANGELOG.md](CHANGELOG.md); all the
 documents are listed in [docs/README.md](docs/README.md).
 How to check a change (the subsystems, what else a change touches, and

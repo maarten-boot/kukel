@@ -19,4 +19,5 @@ Elsewhere in the repository:
   grammar;
 - [examples/README.md](../examples/README.md): the example programs;
 - [editors/vscode/README.md](../editors/vscode/README.md): the Visual Studio
-  Code extension.
+  Code extension;
+- [editors/geany/README.md](../editors/geany/README.md): Kukel in Geany.

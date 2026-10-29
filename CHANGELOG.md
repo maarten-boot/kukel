@@ -17,6 +17,8 @@ Two kinds of change need care when you upgrade:
 - A changed `.kkc` file whose `for` loop over a generator jumps back at
   its end is stopped by the step limit and cancellation again (a fuzz test
   hung on it). Q91.
+- Kukel in Geany: `editors/geany/filetypes.Kukel.conf` gives highlighting,
+  the symbol list and Build menu commands (check, format, run). Q92.
 
 ## v0.35.0 (2026-10-27)
 
