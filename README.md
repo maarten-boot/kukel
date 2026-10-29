@@ -1,5 +1,7 @@
 # kukel
 
+<p align="center"><img src="docs/Kukel-text-small.png" alt="The Kukel logo: a shield of green and blue lines around a question mark, above the word Kukel" width="160"></p>
+
 A simple programming language, just for fun: **Kukel**, with C-like syntax,
 classes, closures, generators and exceptions, compiled to bytecode for a small stack
 machine written in Go.
