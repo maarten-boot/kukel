@@ -12,7 +12,7 @@ Two kinds of change need care when you upgrade:
   format version; build it again from its source after such a release
   (`kukel build`). The history is in [docs/vm.md](docs/vm.md) §7.
 
-## Unreleased
+## v0.38.0 (2026-10-30)
 
 - The module `term`: the terminal a key at a time (`term::raw(f)`,
   `term::key([timeout])` with keys such as `"a"`, `"Enter"`, `"Up"`,
