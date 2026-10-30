@@ -12,7 +12,7 @@ Two kinds of change need care when you upgrade:
   format version; build it again from its source after such a release
   (`kukel build`). The history is in [docs/vm.md](docs/vm.md) §7.
 
-## Unreleased
+## v0.36.0 (2026-10-30)
 
 - A changed `.kkc` file whose `for` loop over a generator jumps back at
   its end is stopped by the step limit and cancellation again (a fuzz test
