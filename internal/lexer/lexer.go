@@ -8,6 +8,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/maarten-boot/kukel/internal/diag"
 	"github.com/maarten-boot/kukel/internal/token"
@@ -340,6 +341,8 @@ func (l *Lexer) char(start token.Pos) (token.Token, error) {
 		return token.Token{}, l.errorf(start, "unterminated character literal")
 	case c == '\'':
 		return token.Token{}, l.errorf(start, "empty character literal (write '\\'' for the quote character)")
+	case c == '\\' && l.peek(1) == 'u':
+		return token.Token{}, l.errorf(l.pos(), `a character literal is one byte: \u{...} is for strings (utf8::code("\u{E9}") gives its code)`)
 	case c == '\\':
 		b, err := l.escape()
 		if err != nil {
@@ -372,6 +375,14 @@ func (l *Lexer) string(start token.Pos) (token.Token, error) {
 			l.advance()
 			return token.Token{Kind: token.STRING, Pos: start, Text: l.text(start), Str: b.String()}, nil
 		case '\\':
+			if l.peek(1) == 'u' {
+				r, err := l.unicodeEscape()
+				if err != nil {
+					return token.Token{}, err
+				}
+				b.WriteRune(r)
+				continue
+			}
 			e, err := l.escape()
 			if err != nil {
 				return token.Token{}, err
@@ -420,6 +431,41 @@ func (l *Lexer) escape() (byte, error) {
 		return 0, l.errorf(p, "unknown escape sequence: \\ followed by %s", printable(c))
 	}
 	return 0, l.errorf(p, "unknown escape sequence \\%c", c)
+}
+
+// unicodeEscape scans \u{H...} (1 to 6 hexadecimal digits) starting at "\"
+// and returns its character, which a string holds as UTF-8.
+func (l *Lexer) unicodeEscape() (rune, error) {
+	p := l.pos()
+	l.advance() // backslash
+	l.advance() // u
+	if l.peek(0) != '{' {
+		return 0, l.errorf(p, `\u must be followed by hexadecimal digits in braces, as in \u{E9}`)
+	}
+	l.advance()
+	var v rune
+	n := 0
+	for ; isHexDigit(l.peek(0)); n++ {
+		if n < 6 {
+			v = v<<4 | rune(hexVal(l.peek(0)))
+		}
+		l.advance()
+	}
+	switch {
+	case l.peek(0) != '}':
+		if l.off >= len(l.src) {
+			return 0, l.errorf(p, "unterminated escape sequence")
+		}
+		return 0, l.errorf(p, `\u{ must be closed by } after its hexadecimal digits, not followed by %s`, printable(l.peek(0)))
+	case n == 0 || n > 6:
+		return 0, l.errorf(p, `\u{...} takes 1 to 6 hexadecimal digits`)
+	case v > unicode.MaxRune:
+		return 0, l.errorf(p, `\u{%X} is beyond the last Unicode character, 10FFFF`, v)
+	case v >= 0xD800 && v <= 0xDFFF:
+		return 0, l.errorf(p, `\u{%X} is a surrogate, not a character`, v)
+	}
+	l.advance() // }
+	return v, nil
 }
 
 // Operators, longest first within each starting character.

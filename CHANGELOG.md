@@ -12,6 +12,15 @@ Two kinds of change need care when you upgrade:
   format version; build it again from its source after such a release
   (`kukel build`). The history is in [docs/vm.md](docs/vm.md) §7.
 
+## Unreleased
+
+**Syntax version 9**: programs of version 8 are unchanged.
+
+- The escape `\u{...}` in strings: a character by its code (one to six
+  hexadecimal digits), written as UTF-8: `"caf\u{E9}"` is `"café"`,
+  `"\u{1F600}"` an emoji. A code above 10FFFF or a surrogate is an error;
+  a character literal stays one byte and refuses it. Q94.
+
 ## v0.36.0 (2026-10-30)
 
 - A changed `.kkc` file whose `for` loop over a generator jumps back at

@@ -18,6 +18,9 @@ main() {
 
     println(m, utf8::len(m));
 
+    // The escape \u{...} writes a character by its code, as UTF-8.
+    println("caf\u{E9}" == "café", utf8::len("\u{1F600}\u{20AC}"), utf8::codes("\u{48}\u{e9}"), "\u{2603}");
+
     // Bytes that are not UTF-8 stay, each one character.
     local bad = "a" + char(255) + "b";
 

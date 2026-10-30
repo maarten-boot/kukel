@@ -142,15 +142,20 @@ func TestCharsAndStrings(t *testing.T) {
 		}
 	}
 	strs := map[string]string{
-		`""`:                    "",
-		`"abc"`:                 "abc",
-		`"a\"b\\c\'d"`:          `a"b\c'd`,
-		`"\n\t\r\0"`:            "\n\t\r\x00",
-		`"\x41\x4a\x4AB"`:       "AJJB",
-		`"\x7z"`:                "\x07z",
-		"\"two\nlines\"":        "two\nlines",
-		`"it's 'quoted'"`:       "it's 'quoted'",
-		"\"\xc3\xa9t\xc3\xa9\"": "\xc3\xa9t\xc3\xa9", // UTF-8 bytes pass through
+		`""`:                     "",
+		`"abc"`:                  "abc",
+		`"a\"b\\c\'d"`:           `a"b\c'd`,
+		`"\n\t\r\0"`:             "\n\t\r\x00",
+		`"\x41\x4a\x4AB"`:        "AJJB",
+		`"\x7z"`:                 "\x07z",
+		"\"two\nlines\"":         "two\nlines",
+		`"it's 'quoted'"`:        "it's 'quoted'",
+		"\"\xc3\xa9t\xc3\xa9\"":  "\xc3\xa9t\xc3\xa9", // UTF-8 bytes pass through
+		`"\u{E9}t\u{e9}"`:        "\xc3\xa9t\xc3\xa9", // a character, written as UTF-8
+		`"\u{41}\u{0}\u{7F}"`:    "A\x00\x7f",
+		`"\u{20AC}\u{1F600}"`:    "€😀",
+		`"\u{00000A}\u{10FFFF}"`: "\n\U0010FFFF", // six digits, leading zeros included
+		`"\u{FFFD}\xff"`:         "\ufffd\xff",
 	}
 	for src, want := range strs {
 		if tk := one(t, src); tk.Kind != token.STRING || tk.Str != want || tk.Text != src {
@@ -231,6 +236,18 @@ func TestErrors(t *testing.T) {
 		{`x = "a\qb"`, "t.kkl:1:7", `unknown escape sequence \q`},
 		{"x = \"a\\\x01\"", "t.kkl:1:7", `unknown escape sequence: \ followed by 0x01`},
 		{`"\x"`, "t.kkl:1:2", `\x must be followed`},
+		{`"a\u00E9"`, "t.kkl:1:3", `\u must be followed by hexadecimal digits in braces, as in \u{E9}`},
+		{`"\u{}"`, "t.kkl:1:2", `\u{...} takes 1 to 6 hexadecimal digits`},
+		{`"\u{0000041}"`, "t.kkl:1:2", `\u{...} takes 1 to 6 hexadecimal digits`},
+		{`"\u{E9"`, "t.kkl:1:2", `\u{ must be closed by } after its hexadecimal digits, not followed by '"'`},
+		{`"\u{E 9}"`, "t.kkl:1:2", `not followed by ' '`},
+		{`"\u{E9`, "t.kkl:1:2", "unterminated escape sequence"},
+		{`"\u{110000}"`, "t.kkl:1:2", `\u{110000} is beyond the last Unicode character, 10FFFF`},
+		{`"\u{FFFFFF}"`, "t.kkl:1:2", `\u{FFFFFF} is beyond the last Unicode character`},
+		{`"\u{D800}"`, "t.kkl:1:2", `\u{D800} is a surrogate, not a character`},
+		{`"\u{dfff}"`, "t.kkl:1:2", `\u{DFFF} is a surrogate`},
+		{`'\u{E9}'`, "t.kkl:1:2", `a character literal is one byte: \u{...} is for strings (utf8::code("\u{E9}") gives its code)`},
+		{`'\u{41}'`, "t.kkl:1:2", `a character literal is one byte`},
 		{"'''", "t.kkl:1:1", "empty character literal"},
 		{"''", "t.kkl:1:1", "empty character literal"},
 		{"'ab'", "t.kkl:1:1", "exactly one character"},
@@ -279,7 +296,7 @@ func TestErrors(t *testing.T) {
 func FuzzLexer(f *testing.F) {
 	for _, s := range []string{
 		"", "main(args) { return 0; }", "a <<= 0xFF_FF + 0b1 - 1.5e-3 .. ->",
-		`"a\x41\n" '\'' /* c */ // d`, "# x\n1__0", "'''", "\x00\n\x00", "1..2", ".5.5",
+		`"a\x41\n" '\'' /* c */ // d`, `"\u{E9}\u{1F600}" "\u{D800}" "\u{"`, "# x\n1__0", "'''", "\x00\n\x00", "1..2", ".5.5",
 	} {
 		f.Add([]byte(s))
 	}

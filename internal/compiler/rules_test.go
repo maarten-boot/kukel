@@ -184,10 +184,11 @@ var ruleCases = map[string]struct {
 			{"class A { m(x..); } A::m(x..) {} class B : A { g(); } B::g() { A::m([1]..); } main() {}", "spread arguments are not supported"},
 		},
 	},
-	"map_entry": {elsewhere: "internal/vm TestRuntimeErrors: \"bad map key in a literal\"; internal/value TestMapKeys"},
-	"Float":     {elsewhere: "internal/lexer TestErrors: \"Number too large\", \"number longer than 255\""},
-	"Escape":    {elsewhere: "internal/lexer TestErrors: \"unknown escape sequence\""},
-	"Comment":   {elsewhere: "internal/lexer TestErrors: \"unterminated comment\""},
+	"map_entry":      {elsewhere: "internal/vm TestRuntimeErrors: \"bad map key in a literal\"; internal/value TestMapKeys"},
+	"Float":          {elsewhere: "internal/lexer TestErrors: \"Number too large\", \"number longer than 255\""},
+	"Escape":         {elsewhere: "internal/lexer TestErrors: \"unknown escape sequence\""},
+	"Unicode_Escape": {elsewhere: "internal/lexer TestErrors: \"beyond the last Unicode character\", \"a surrogate\", \"a character literal is one byte\""},
+	"Comment":        {elsewhere: "internal/lexer TestErrors: \"unterminated comment\""},
 }
 
 func TestGrammarRules(t *testing.T) {

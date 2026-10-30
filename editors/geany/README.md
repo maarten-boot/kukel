@@ -51,6 +51,8 @@ Kukel's words. So:
 - a `#` comment after code on the same line (`f(); # note`) is not shown
   as a comment (one at the start of a line is);
 - a string that spans lines is shown as an unterminated string;
+- `\u{E9}` is not shown as one escape (the C lexer knows `\u` only with
+  four hexadecimal digits, as C writes it);
 - the symbol list takes Geany's C# parser (of the parsers Geany has, the one
   that reads Kukel's classes and functions without missing any): `global`
   and `const` names are not in it.

@@ -372,8 +372,13 @@ literal is at most 255 characters long.
 **Characters**: `'a'`, `'\n'`, `'\''` — one byte, whose value is an int (its
 code): `'A'` is 65.
 
-**Strings**: `"text"`, which may span lines. Escapes: `\n \t \r \0 \\ \" \'`
-and `\x41` (one or two hex digits). Any other escape is an error.
+**Strings**: `"text"`, which may span lines. Escapes: `\n \t \r \0 \\ \" \'`,
+`\x41` (one or two hex digits: a byte) and `\u{E9}` (one to six hex
+digits: a character by its code, written as UTF-8, so `"caf\u{E9}"` is
+`"café"` and `"\u{1F600}"` is four bytes). A code above `10FFFF` or a
+surrogate (`D800` to `DFFF`) is an error, and so is `\u` in a character
+literal, which is one byte. Any other escape is an error. (`\u{...}`:
+syntax version 9, Kukel v0.37.)
 Strings are sequences of bytes; UTF-8 text passes through unchanged, and
 the module [`utf8`](#utf8) counts and cuts it by character. (A raw
 NUL byte in the source ends its line, as if the rest were a comment;
@@ -2547,6 +2552,8 @@ main() {
 Strings are bytes (section 2), and the built-ins count and cut bytes:
 `len("é")` is 2. This module works on characters (Unicode code points)
 instead. The strings stay the same strings; only the counting differs.
+A character can also be written by its code in a string literal:
+`"\u{E9}"` is `utf8::char(0xE9)`, `"é"`.
 
 **Bytes that are not UTF-8** (from a file, a socket, `char(255)`) are
 kept: each one counts as one character, whose code is 0xFFFD (the

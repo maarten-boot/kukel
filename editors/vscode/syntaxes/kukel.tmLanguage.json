@@ -69,7 +69,7 @@
       "patterns": [
         {
           "name": "constant.character.escape.kukel",
-          "match": "\\\\(?:[ntr0\\\\\\\"']|x[0-9A-Fa-f]{1,2})"
+          "match": "\\\\(?:[ntr0\\\\\\\"']|x[0-9A-Fa-f]{1,2}|u\\{[0-9A-Fa-f]{1,6}\\})"
         },
         {
           "name": "invalid.illegal.escape.kukel",

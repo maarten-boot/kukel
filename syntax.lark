@@ -1,4 +1,4 @@
-// Lark grammar for Kukel (syntax.ebnf, syntax version 8; kukel v0.34 and later).
+// Lark grammar for Kukel (syntax.ebnf, syntax version 9; kukel v0.37 and later).
 //
 // Intended for:  Lark(grammar, parser="lalr", lexer="contextual")
 // (the default lexer for LALR; the start rule is "start"). The contextual
@@ -323,9 +323,10 @@ FLOAT.2: /[0-9](?:_?[0-9])*\.(?:[0-9](?:_?[0-9])*)?(?:[eE][+-]?[0-9](?:_?[0-9])*
 // Exactly one (possibly escaped) character; the quote is written '\''.
 CHARACTER: /'(?:\\x[0-9A-Fa-f]{1,2}|\\[ntr0\\\\"']|[^\\'])'/
 
-// Any length, may span lines. Escapes: \n \t \r \0 \\ \" \' \xH[H]; any
-// other escape is an error.
-STRING: /"(?:[^"\\]|\\x[0-9A-Fa-f]{1,2}|\\[ntr0\\\\"'])*"/
+// Any length, may span lines. Escapes: \n \t \r \0 \\ \" \' \xH[H] and
+// \u{H...} (1 to 6 hex digits; a code above 10FFFF or a surrogate is an
+// error, not checked here); any other escape is an error.
+STRING: /"(?:[^"\\]|\\x[0-9A-Fa-f]{1,2}|\\u\{[0-9A-Fa-f]{1,6}\}|\\[ntr0\\\\"'])*"/
 
 // ---- Skip -----------------------------------------------------------
 

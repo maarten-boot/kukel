@@ -1,5 +1,5 @@
 (*
-   Kukel syntax, as implemented by kukel v0.34 and later (syntax version 8).
+   Kukel syntax, as implemented by kukel v0.37 and later (syntax version 9).
 
    Notation: ISO/IEC 14977 EBNF.
        =  definition        ;  end of rule        |  alternative
@@ -12,7 +12,11 @@
    What programs mean is described in docs/reference.md; how they are
    compiled and run in docs/vm.md.
 
-   History: syntax version 8 added generators: the yield statement
+   History: syntax version 9 added the escape \u{...} in strings: a
+   character by its code (1 to 6 hexadecimal digits), written as UTF-8.
+   Programs of version 8 are unchanged ("\u" was an unknown escape).
+
+   Syntax version 8 added generators: the yield statement
    ("yield" is a new keyword). A function whose body yields is a
    generator function.
 
@@ -523,13 +527,20 @@ String              = '"' , { String_Item } , '"' ;
                       (* any length; may contain NUL bytes (\0) and, written
                          literally, newlines. Adjacent strings are not joined. *)
 
-String_Item         = Any_Character - ( '"' | "\" ) | Escape ;
+String_Item         = Any_Character - ( '"' | "\" ) | Escape | Unicode_Escape ;
 Char_Item           = Any_Character - ( "'" | "\" ) | Escape ;
 
 Escape              = "\" , ( "n" | "t" | "r" | "0" )      (* newline, tab, CR, NUL *)
                     | "\" , ( "\" | '"' | "'" )            (* the character itself *)
                     | "\" , "x" , Hex_Digit , [ Hex_Digit ] ;  (* a byte *)
                       (* Rule: any other character after "\" is an error. *)
+
+Unicode_Escape      = "\" , "u" , "{" , Hex_Digit , [ Hex_Digit ] , [ Hex_Digit ] ,
+                      [ Hex_Digit ] , [ Hex_Digit ] , [ Hex_Digit ] , "}" ;
+                      (* a character by its code, written as UTF-8 (1 to 4
+                         bytes): "\u{E9}" is "é". Only in strings: a
+                         character literal is one byte. Rule: a code above
+                         10FFFF or a surrogate (D800 to DFFF) is an error. *)
 
 Operator            = "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "~" | "!"
                     | "<" | ">" | "=" | "?" | ":" | "," | ";"
