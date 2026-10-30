@@ -2,8 +2,9 @@ name: Release
 
 # A tag v1.2.3 runs the whole CI (ci.yml); only when it passes are the
 # archives built (make dist) and published as the GitHub release of the
-# tag, with notes generated from the commits since the previous tag. A
-# release that already exists (made by hand) gets the archives added. The
+# tag, with the logo above notes generated from the commits since the
+# previous tag. A release that already exists (made by hand) gets the
+# archives added. The
 # Docker image (Dockerfile) is built for linux/amd64 and linux/arm64 and
 # pushed to ghcr.io as :v1.2.3, and as :latest when the tag is the newest
 # release (not one with a "-", such as v1.3.0-rc1).
@@ -37,11 +38,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
           else
-            gh release create "$TAG" dist/* --title "kukel $TAG" --generate-notes --verify-tag
+            # The logo above the notes GitHub generates (gh prepends --notes).
+            logo="<p align=\"center\"><img src=\"https://raw.githubusercontent.com/$REPO/$TAG/docs/Kukel-text-small.png\" alt=\"The Kukel logo\" width=\"120\"></p>"
+            gh release create "$TAG" dist/* --title "kukel $TAG" --notes "$logo" --generate-notes --verify-tag
           fi
 
   image:

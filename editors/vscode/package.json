@@ -4,6 +4,7 @@
   "description": "The Kukel language: syntax highlighting, and debugging with kukel dap",
   "version": "0.0.0",
   "publisher": "maarten-boot",
+  "icon": "icon.png",
   "license": "MIT",
   "repository": {
     "type": "git",

@@ -33,6 +33,8 @@ are unchanged (`from` is not a keyword); `.kkc` files must be built again.
   one. Host modules make generators with `Interp.Generator` (an `iter()`
   that gives one makes a host class iterable). `fs::memory([text])`: an
   `fs::File` in memory, with `f->text()`. Q96.
+- The logo: the VS Code extension's icon (the shield), and at the top of
+  each release's notes. Q97.
 
 ## v0.36.0 (2026-10-30)
 
