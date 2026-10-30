@@ -7,3 +7,6 @@ dist/
 
 # Worktrees of Claude Code agents (temporary)
 .claude/worktrees/
+
+# Sidecar files of image editors (darktable, digiKam, ...)
+*.xmp
