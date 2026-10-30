@@ -1,0 +1,50 @@
+// The module utf8: text as characters (Q93).
+use utf8;
+use re;
+
+main() {
+    local s = "héllo wörld €😀";
+
+    println(len(s), utf8::len(s), utf8::valid(s));
+    println(utf8::slice(s, 0, 5), utf8::upper(s), utf8::lower("ÀÉÎ"));
+    println(utf8::chars("hé€"), utf8::codes("hé€"));
+    println(utf8::char(233), utf8::string([75, 252, 107, 101, 108]), utf8::code(s, 13));
+
+    // Byte positions from find and re, as character positions, and back.
+    local b = find(s, "wörld");
+
+    println(b, utf8::index(s, b), utf8::offset(s, 6));
+    local m = re::compile("w.rld")->find(s);
+
+    println(m, utf8::len(m));
+
+    // Bytes that are not UTF-8 stay, each one character.
+    local bad = "a" + char(255) + "b";
+
+    println(utf8::len(bad), utf8::valid(bad), utf8::codes(bad), utf8::fix(bad), utf8::fix(bad, "?"));
+    println(utf8::upper(bad) == "A" + char(255) + "B", join(utf8::chars(bad), "") == bad);
+    println("[" + utf8::trim(utf8::char(0xA0) + " text" + utf8::char(0x3000)) + "]");
+
+    // Walk the characters.
+    for (local i, c in utf8::chars("añ€")) print(i, c, len(c), "");
+    println();
+
+    try {
+        utf8::char(0xD800);
+    } catch (e) {
+        println(e->kind, e->message);
+    }
+
+    try {
+        utf8::index(s, 2);
+    } catch (e) {
+        println(e->kind, e->message);
+    }
+
+    try {
+        utf8::slice(s, 3, 20);
+    } catch (e) {
+        println(e->kind, e->message);
+    }
+    println(utf8::UNICODE != "");
+}

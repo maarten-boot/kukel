@@ -204,7 +204,7 @@ Windows. Build tags can leave out the large modules (`go build -tags
 nogui`), and `kukel version` lists the modules a binary contains.
 
 *Done for `json`, `strings`, `time` (TODO.md Q36), `events`, `worker`, `zmq`,
-`db`, `uuid`, `re`, `fs` and `p9`, and `kukel version` lists them. Build tags
+`db`, `uuid`, `re`, `fs`, `p9` and `utf8`, and `kukel version` lists them. Build tags
 are done for the large ones (Q55, Q62): `nopostgres`, `nomysql`, `nosqlite`,
 `nozmq` and `no9p`; a GUI module would get `nogui`.*
 

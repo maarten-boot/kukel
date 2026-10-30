@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"unicode"
 
 	"github.com/maarten-boot/kukel/internal/bytecode"
 	"github.com/maarten-boot/kukel/internal/modules/dbmod"
@@ -17,8 +18,9 @@ import (
 // it, the module version of `go install ...@v1.2.3` is used.
 var version = ""
 
-// versionText describes this build: version, commit, Go version and the
-// bytecode format it reads and writes.
+// versionText describes this build: version, commit, Go version, the
+// bytecode format it reads and writes and the Unicode version of module
+// utf8.
 func versionText() string {
 	v, commit, dirty := version, "", false
 	if info, ok := debug.ReadBuildInfo(); ok {
@@ -47,7 +49,7 @@ func versionText() string {
 		}
 		text += " (" + commit + ")"
 	}
-	return fmt.Sprintf("%s, %s, bytecode format %d", text, runtime.Version(), bytecode.FormatVersion)
+	return fmt.Sprintf("%s, %s, bytecode format %d, Unicode %s", text, runtime.Version(), bytecode.FormatVersion, unicode.Version)
 }
 
 func cmdVersion(stdout io.Writer) error {

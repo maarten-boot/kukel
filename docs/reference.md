@@ -56,7 +56,7 @@ hello, Kukel
 | `kukel dap` | The debugger for editors: the Debug Adapter Protocol on standard input and output, which an editor starts (see [docs/debugging.md](debugging.md): Visual Studio Code, Neovim, Helix, Emacs) |
 | `kukel fmt [-w \| -l] a.kkl ...`, `kukel fmt -` | Format source files: indentation (4 spaces; `case` labels one level into the switch, their statements two) and the spaces between tokens (`{ }` becomes `{}`; a comment at the end of a line keeps its distance); line breaks and comments stay, at most one blank line in a row; CRLF line ends become LF (not inside a string or a `/* */` comment: those stay as written). A line that continues a statement outside brackets (`return c &&` and then `d;`) is indented one level more than the statement's first line. A line that starts with a closing bracket lines up with the line that opened it, also when more follows (`}, 1);` after `f(fn() {`); a comma at the end of a list stays, so a list with one item per line and its closing bracket on a line of its own formats as in Go. A statement that starts a line with `if`, `while`, `do`, `for`, `switch`, `try` or `with` (also after a label: `outer: for`, and with the label on a line of its own, where the blank line goes above the label) gets a blank line before it (above the comments right above it), except as the first statement of a block, after a label on its own line or a `case`, as the statement of `else` or a header without braces, or as the `while` of a `do`. The output is checked to give the same tokens and comments as the input; a file it cannot format safely is refused with an "internal error".  Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`; `-w` and `-l` together are a usage error). A file with a syntax error or a NUL byte is left alone, and the exit code is 1. `kukel fmt -` formats standard input to standard output (for editors; with `-w`, `-l` or files it is a usage error) |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | Show the tokens or the syntax tree of each file (for debugging; `-pos`, before the files, adds positions) |
-| `kukel version` (also `-version`, `--version`) | Show the version (with the commit and the Go version), the bytecode format, the modules written in Go, with the databases `db` can open (`db (SQLite, PostgreSQL, MySQL)`): a `kukel` built with tags may lack some (see the README), and the modules written in Kukel |
+| `kukel version` (also `-version`, `--version`) | Show the version (with the commit and the Go version), the bytecode format, the version of Unicode the module `utf8` knows, the modules written in Go, with the databases `db` can open (`db (SQLite, PostgreSQL, MySQL)`): a `kukel` built with tags may lack some (see the README), and the modules written in Kukel |
 | `kukel help` (also `-h`, `-help`, `--help`) | Show the commands (`kukel` without a command shows them too, with exit code 2) |
 
 A compile reports several errors at once, in the order of the source: the
@@ -374,7 +374,8 @@ code): `'A'` is 65.
 
 **Strings**: `"text"`, which may span lines. Escapes: `\n \t \r \0 \\ \" \'`
 and `\x41` (one or two hex digits). Any other escape is an error.
-Strings are sequences of bytes; UTF-8 text passes through unchanged. (A raw
+Strings are sequences of bytes; UTF-8 text passes through unchanged, and
+the module [`utf8`](#utf8) counts and cuts it by character. (A raw
 NUL byte in the source ends its line, as if the rest were a comment;
 `kukel fmt` and `kukel build -module` refuse such a file.)
 
@@ -1153,14 +1154,14 @@ ValueError int: "12abc" is not an integer
 
 | Function | Description |
 |---|---|
-| `len(x)` | Length of a string (in bytes), vector or map |
+| `len(x)` | Length of a string (in bytes; `utf8::len` counts characters), vector or map |
 | `find(s, sub [, from])` | Index of the first `sub` at or after `from`, or -1 |
 | `split(s, sep)` | Vector of the parts between the `sep`s; with `""`, the single bytes |
 | `join(v [, sep])` | The elements joined with `sep` (default `""`); non-strings as `str` gives them |
-| `upper(s)`, `lower(s)` | ASCII letters in upper or lower case |
+| `upper(s)`, `lower(s)` | ASCII letters in upper or lower case (all letters: `utf8::upper`, `utf8::lower`) |
 | `trim(s)` | `s` without white space at both ends |
 | `replace(s, old, new)` | Every `old` replaced by `new` (`ArgumentError` if `old` is `""`) |
-| `char(code)` | A one-byte string (code 0..255) |
+| `char(code)` | A one-byte string (code 0..255; a character of any code: `utf8::char`) |
 | `ord(s [, i])` | The byte at `i` (default 0) as an int |
 
 ### Vectors and maps
@@ -1171,7 +1172,7 @@ ValueError int: "12abc" is not an integer
 | `pop(v)` | Removes and returns the last element |
 | `insert(v, i, x)` | Inserts `x` at index `i` (0..`len(v)`); returns `nil` |
 | `remove(v, i)` | Removes and returns the element at `i` |
-| `slice(x, start [, end])` | A new vector (or string) of the elements (bytes) from `start` up to, not including, `end` (to the end without it): `slice("hello", 1, 3)` is `"el"` |
+| `slice(x, start [, end])` | A new vector (or string) of the elements (bytes; by character: `utf8::slice`) from `start` up to, not including, `end` (to the end without it): `slice("hello", 1, 3)` is `"el"` |
 | `sort(v [, less])` | Sorts `v` in place (stable); `less(a, b)` says whether `a` goes before `b` (default `<`, so values that `<` cannot compare are a `TypeError`). An exception in `less` comes out of `sort`; after any error `v` is unchanged |
 | `keys(m)`, `values(m)` | Vectors of a map's keys or values, in insertion order |
 | `haskey(m, k)` | Whether `k` is a key of `m` |
@@ -2526,6 +2527,61 @@ main() {
 
 An id the canvas does not have is a `ValueError`. A canvas prints as
 `tk::Canvas(2 items)` (`1 item`).
+
+### utf8
+
+```
+use utf8;
+
+main() {
+    local s = "héllo wörld";
+    println(len(s), utf8::len(s));                      // 13 11
+    println(utf8::upper(utf8::slice(s, 0, 5)));         // HÉLLO
+    println(utf8::index(s, find(s, "wörld")));         // 6
+
+    for (local c in utf8::chars("añ€")) print(c, "");  // a ñ €
+    println();
+}
+```
+
+Strings are bytes (section 2), and the built-ins count and cut bytes:
+`len("é")` is 2. This module works on characters (Unicode code points)
+instead. The strings stay the same strings; only the counting differs.
+
+**Bytes that are not UTF-8** (from a file, a socket, `char(255)`) are
+kept: each one counts as one character, whose code is 0xFFFD (the
+replacement character) and whose string is that byte, so
+`join(utf8::chars(s), "")` is `s` for any `s`. `utf8::valid` tells
+whether a string is UTF-8, and `utf8::fix` replaces such bytes.
+
+**Positions** are character positions, from 0. Finding one takes time
+along the string (characters have 1 to 4 bytes), so walk a string with
+`utf8::chars`, not with `utf8::slice(s, i, i + 1)` in a loop, which takes
+time in the square of the length. `find`, `slice` and `re` give and take
+byte positions; `utf8::offset` and `utf8::index` convert. A string of only
+ASCII characters costs nothing extra: its characters are its bytes.
+
+| Function | Description |
+|---|---|
+| `utf8::len(s)` | The number of characters |
+| `utf8::valid(s)` | Whether `s` is valid UTF-8 (a surrogate in UTF-8 form is not) |
+| `utf8::fix(s [, repl])` | `s` with each byte that is not UTF-8 replaced by `repl` (default `"�"`; `""` drops them) |
+| `utf8::chars(s)` | A vector of the characters, each a string |
+| `utf8::codes(s)` | A vector of the codes of the characters, ints (0xFFFD for a byte that is not UTF-8) |
+| `utf8::char(code)` | The string of the character with that code (`utf8::char(233)` is `"é"`; `char` gives one byte). A code outside 0..0x10FFFF, or a surrogate (0xD800..0xDFFF), is a `RangeError` |
+| `utf8::string(codes)` | The string of a vector of codes, each checked as `utf8::char` does (the opposite of `utf8::codes`) |
+| `utf8::code(s [, i])` | The code of character `i` (default 0); `i` outside the characters is a `RangeError` |
+| `utf8::slice(s, start [, end])` | The characters from `start` up to, not including, `end` (to the end without it), with the bounds and errors of `slice` |
+| `utf8::upper(s)`, `utf8::lower(s)` | `s` with the letters in upper or lower case, all of Unicode's (`upper` and `lower` change only ASCII letters). Each character becomes one character: `ß` stays `ß` |
+| `utf8::trim(s)` | `s` without Unicode white space at both ends (`trim` takes only ASCII white space; this also the no-break space and others) |
+| `utf8::offset(s, i)` | The byte position where character `i` starts (0 to `utf8::len(s)`, which gives `len(s)`) |
+| `utf8::index(s, b)` | The character position of byte position `b` (0 to `len(s)`); a `b` inside a character is a `ValueError` |
+
+`utf8::UNICODE` is the version of Unicode the module knows (what letters
+are and their cases), such as `"15.0.0"`; `kukel version` shows it too.
+Not in the module: normalization (`é` as one code or as `e` and an
+accent), letters made of several codes (some emoji), and widths on a
+terminal.
 
 ### uuid
 

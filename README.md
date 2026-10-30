@@ -60,7 +60,8 @@ caught RangeError: index 5 out of range for vector of length 3
   and a server of trees the program builds and of disk directories), `re`
   (regular expressions), `strings` (a string builder), `time`, `tk`
   (desktop windows with widgets, menus, dialogs and a canvas; in a kukel
-  built with the tag `tk`), `uuid`, `worker` (interpreters that run in
+  built with the tag `tk`), `utf8` (text by character instead of by byte),
+  `uuid`, `worker` (interpreters that run in
   parallel and exchange messages) and `zmq` (ZeroMQ sockets, to talk with
   other programs and machines); and written in Kukel: `iter` (generators
   to make, combine and use up sequences: `range`, `map`, `filter`, `take`,
@@ -199,7 +200,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/token`, `internal/diag` | token kinds and source positions; the error type all stages share |
 | `internal/lexer`, `internal/parser`, `internal/ast` | source to syntax tree |
 | `internal/loader` | finds and reads the modules a program uses |
-| `internal/native`, `internal/modules/...` | modules written in Go (`db`, `events`, `fs`, `json`, `p9`, `re`, `strings`, `time`, `tk`, `uuid`, `worker`, `zmq`) and native classes |
+| `internal/native`, `internal/modules/...` | modules written in Go (`db`, `events`, `fs`, `json`, `p9`, `re`, `strings`, `time`, `tk`, `utf8`, `uuid`, `worker`, `zmq`) and native classes |
 | `internal/compiler` | name resolution, the language's rules, code generation |
 | `internal/bytecode` | instruction set, `.kkc` files, the verifier that checks loaded files |
 | `internal/vm` | the stack machine: calls, objects, closures, generators, exceptions (specified in [docs/vm.md](docs/vm.md)) |
@@ -210,7 +211,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `editors/geany` | a filetype for Geany: highlighting, the symbol list, the Build menu ([editors/geany/README.md](editors/geany/README.md)) |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q92). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q93). Ideas for later are in [docs/future.md](docs/future.md).
 What changed in each release is in [CHANGELOG.md](CHANGELOG.md); all the
 documents are listed in [docs/README.md](docs/README.md).
 How to check a change (the subsystems, what else a change touches, and

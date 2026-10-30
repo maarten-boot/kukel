@@ -1,0 +1,14 @@
+21 14 true
+héllo HÉLLO WÖRLD €😀 àéî
+["h", "é", "€"] [104, 233, 8364]
+é Kükel 128512
+7 6 7
+wörld 5
+3 false [97, 65533, 98] a�b a?b
+true true
+[text]
+0 a 1 1 ñ 2 2 € 3 
+RangeError utf8::char: 0xD800 is a surrogate, not a character
+ValueError utf8::index: byte 2 is inside a character (which starts at byte 1)
+RangeError utf8::slice: end 20 out of range 0..14
+true

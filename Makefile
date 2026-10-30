@@ -66,6 +66,7 @@ fuzz:
 	$(GO) test -run '^$$' -fuzz '^FuzzJSON$$' -fuzztime $(FUZZTIME) ./internal/modules/jsonmod
 	$(GO) test -run '^$$' -fuzz '^FuzzFormat$$' -fuzztime $(FUZZTIME) ./internal/format
 	$(GO) test -run '^$$' -fuzz '^FuzzParseFormat$$' -fuzztime $(FUZZTIME) ./internal/modules/timemod
+	$(GO) test -run '^$$' -fuzz '^FuzzUTF8$$' -fuzztime $(FUZZTIME) ./internal/modules/utf8mod
 
 bench:
 	$(GO) test -run '^$$' -bench . -benchmem ./...

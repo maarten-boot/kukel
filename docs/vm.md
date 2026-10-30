@@ -43,7 +43,7 @@ source files ──loader (lexer, parser)──▶ syntax trees ──compiler�
 | `internal/vm` | the stack machine |
 | `internal/value` | run-time values and the semantics of the operators |
 | `internal/builtins` | built-in functions |
-| `internal/native`, `internal/modules/...` | modules written in Go (`db`, `events`, `fs`, `json`, `p9`, `re`, `strings`, `time`, `uuid`, `worker`, `zmq`) and their native classes |
+| `internal/native`, `internal/modules/...` | modules written in Go (`db`, `events`, `fs`, `json`, `p9`, `re`, `strings`, `time`, `utf8`, `uuid`, `worker`, `zmq`) and their native classes |
 
 The compiler checks everything the language requires at compile time; the
 VM checks the rest at run time and turns every failure into a Kukel

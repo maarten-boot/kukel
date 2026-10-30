@@ -257,7 +257,7 @@ func TestReferenceExamples(t *testing.T) {
 	// reference.golden (by a hash of their code; make golden writes it), so
 	// that a change in what one prints is noticed: its comments may say the
 	// old output.
-	goldenFile := filepath.Join(testdir, "reference.golden")
+	goldenFile, _ := filepath.Abs(filepath.Join(testdir, "reference.golden")) // the examples run in another directory
 	golden, printed := map[string]string{}, map[string]string{}
 	if data, err := os.ReadFile(goldenFile); err == nil {
 		if err := json.Unmarshal(data, &golden); err != nil {
@@ -376,7 +376,7 @@ func TestASTError(t *testing.T) {
 }
 
 // fullModules are the modules of a kukel built without tags.
-const fullModules = "db (SQLite, PostgreSQL, MySQL), events, fs, json, p9, re, strings, time, uuid, worker, zmq"
+const fullModules = "db (SQLite, PostgreSQL, MySQL), events, fs, json, p9, re, strings, time, utf8, uuid, worker, zmq"
 
 // withTk adds tk to the list of modules when this kukel has it (the build
 // tag tk).
@@ -421,7 +421,7 @@ func unavailable(src string) string {
 func TestVersion(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"version"}, nil, &stdout, &stderr); code != 0 ||
-		!strings.HasPrefix(stdout.String(), "kukel ") || !strings.Contains(stdout.String(), "bytecode format") ||
+		!strings.HasPrefix(stdout.String(), "kukel ") || !strings.Contains(stdout.String(), "bytecode format") || !strings.Contains(stdout.String(), ", Unicode ") ||
 		!strings.Contains(stdout.String(), "modules written in Go: "+withTk(fullModules)+"\n") && fullBuild() ||
 		!strings.HasSuffix(stdout.String(), "modules written in Kukel: iter\n") {
 		t.Errorf("version: exit %d, stdout %q", code, stdout.String())

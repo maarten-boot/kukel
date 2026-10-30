@@ -19,6 +19,11 @@ Two kinds of change need care when you upgrade:
   hung on it). Q91.
 - Kukel in Geany: `editors/geany/filetypes.Kukel.conf` gives highlighting,
   the symbol list and Build menu commands (check, format, run). Q92.
+- The module `utf8`: text by character (Unicode code point) instead of by
+  byte: `utf8::len`, `chars`, `codes`, `char`, `string`, `code`, `slice`,
+  `upper`, `lower`, `trim`, `valid`, `fix`, and `offset` and `index`
+  between character and byte positions. Bytes that are not UTF-8 are kept.
+  `kukel version` shows the Unicode version. Q93.
 
 ## v0.35.0 (2026-10-27)
 
