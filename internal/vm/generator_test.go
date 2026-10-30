@@ -225,6 +225,17 @@ guarded(name) {
 			outer() { try { yield from middle(); } finally { print("outer; "); } }
 			main() { for (local x in outer()) break; println(); local g = outer(); g->next(); g->close(); println(); }`,
 			"inner; middle; outer; \ninner; middle; outer; \n"},
+		{"a value sent to a plain yield is dropped, not kept for a later one", `
+			g() { yield 1; local a = yield 2; println("a", a); }
+			inner() { local a = yield 1; yield 2; local b = yield 3; println("b", b); }
+			outer(g) { yield from g; }
+			main() {
+				local x = g(); x->next(); x->send("stale");
+				for (local v in x) ;
+				local i = inner(); local o = outer(i);
+				o->next(); o->send("X"); o->send("Y");
+				for (local v in i) ;
+			}`, "a nil\nb nil\n"},
 		{"yield from: deep recursion", `
 			down(n) { if (n > 0) { yield n; yield from down(n - 1); } }
 			main() { local s = 0; for (local x in down(200)) s += x; println(s); }`, "20100\n"},

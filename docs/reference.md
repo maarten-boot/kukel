@@ -896,7 +896,8 @@ main() {
   `next()` and `for` give it `nil`. The first step has no `yield` waiting:
   a `send` before it is a `ValueError` (call `next()` first). A generator
   written in Go takes no values: `send` is `next` for it. (An example
-  follows the list.)
+  follows the list. `yield from` and the `yield` that gives a value:
+  syntax version 10, Kukel v0.37.)
 - The arguments are checked, and the defaults computed, when the
   generator function is called; the body starts at the first step.
 - A generator is an object of the built-in class `Generator`
@@ -1725,7 +1726,7 @@ $ kukel run notes.kkl
 | `fs::temp([pattern [, dir]])` | Makes a new, empty file and gives it as an `fs::File` open `"w+"`. Its name is `pattern` (by default `"kukel-*"`) with the last `*` replaced by random digits, or with them at the end when there is no `*` (`"report-*.txt"`); it is made in `dir`, or else in the system's directory for temporary files (`$TMPDIR` or `/tmp`; on Windows `%TMP%`). Only its owner can read and write it (`-rw-------`). `f->name()` gives its path. It stays until the program removes it (`fs::remove(f->name())`), so another program can be given its path. A pattern with a path separator is a `ValueError` (the directory is the second argument). A temporary file in the directory of the file it will replace can replace it at once with `fs::rename`, once it is closed (example below) |
 | `fs::tempdir([pattern [, dir]])` | Makes a new, empty directory in the same way (`drwx------`) and gives its path; `fs::removeall` removes it |
 | `fs::stdin()`, `fs::stdout()`, `fs::stderr()` | The program's standard input, output and error as `fs::File`s (the same object at each call). They share the program's own: the built-in `readline()` and the member function `readline()` of standard input read from the same input, what `println` and standard output's `write` write keeps its order, and standard error writes out standard output first, as `eprint` does. So a function can take any `fs::File` and be given a file or a standard stream |
-| `fs::memory([text])` | An `fs::File` in memory, open for reading and writing (mode `"r+"`), that holds `text` (by default nothing) with the position at its start. Everything but `lock` works as on a file on disk (`read`, `readline`, `for`, `write`, `print`, `seek`, `tell`, `truncate`, `close`; writing past the end fills the gap with zero bytes), and `f->text()` gives what it holds. So a function that writes to (or reads from) an `fs::File` can be given one in memory: `local f = fs::memory(); report(f); println(f->text());`. `lock` is a `ValueError`, `name()` gives `nil`, and it prints as `fs::File(<memory>, 12 bytes)`; nothing is written anywhere, and it is gone with its last reference |
+| `fs::memory([text])` | An `fs::File` in memory, open for reading and writing (mode `"r+"`), that holds `text` (by default nothing) with the position at its start. Everything but `lock` works as on a file on disk (`read`, `readline`, `for`, `write`, `print`, `seek`, `tell`, `truncate`, `close`; writing past the end fills the gap with zero bytes), and `f->text()` gives what it holds. So a function that writes to (or reads from) an `fs::File` can be given one in memory: `local f = fs::memory(); report(f); println(f->text());`. `lock` is a `ValueError`, `name()` gives `nil`, and it prints as `fs::File(<memory>, 12 bytes)` (closed: `fs::File(<memory>, closed)`, and `text()` is then a `ValueError` as the other member functions are); nothing is written anywhere, and it is gone with its last reference |
 
 An `fs::File`'s member functions; strings are bytes, so there is no text
 or binary mode:

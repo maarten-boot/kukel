@@ -484,6 +484,8 @@ func (vm *VM) enterGenerator(g *generator) error {
 		vm.stack[vm.sp] = g.sent
 		vm.sp++
 		g.recv, g.sent = false, value.NilValue
+	} else if !g.sent.IsNil() {
+		g.sent = value.NilValue // sent to a yield that takes no value: dropped, not kept for a later one
 	}
 	vm.frames = append(vm.frames, frame{fn: g.fn, ip: g.ip, base: base, argc: g.argc, this: g.this, cl: g.cl})
 	loops := g.loops

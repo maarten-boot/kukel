@@ -507,8 +507,8 @@ and the cells of captured parameters): a call runs that far as any call
 does, then `GENERATOR` keeps the frame in a **generator** and returns it
 instead of running the body. The generator is an object of the prelude's
 class `Generator` (made a native class when the VM starts: it has no
-constructor, and its member functions `next`, `done`, `close` and `iter`
-are written in Go); its Go value holds the frame while it is suspended:
+constructor, and its member functions `next`, `send`, `done`, `close`
+and `iter` are written in Go); its Go value holds the frame while it is suspended:
 the function, `ip`, `argc`, `this`, the closure, the slots and operands,
 and the frame's try handlers (their stack depths relative to its base).
 
@@ -1326,8 +1326,8 @@ make the VM crash or read outside its data.
 - per function: parameter, slot, stack and cache counts are in range;
 - no `BREAK` (it belongs to the debugger's copies only);
 - at most one `GENERATOR`, reached with an empty operand stack and no
-  handlers; `YIELD` and `GEN_RETURN` only in a function that has a
-  `GENERATOR`, and `GEN_RETURN` with no handlers left, as a return;
+  handlers; `YIELD`, `YIELD_VALUE` and `GEN_RETURN` only in a function
+  that has a `GENERATOR`, and `GEN_RETURN` with no handlers left, as a return;
 - every instruction is known and complete, and its operands are in range:
   constants, slots, globals, functions, classes and their statics, upvalues,
   cache slots, jump tables; member names are string constants; the
@@ -1355,10 +1355,11 @@ an iterator, a vector being built or a pending exception; `LOAD_MEMBER` or
 `LOAD_UPVALUE`/`STORE_UPVALUE` outside a closure or beyond its cells;
 `CLOSURE` capturing a slot that holds no cell, or an upvalue that is not
 there; `TRY_POP` whose innermost handler belongs to another frame;
-`YIELD` outside a step of its generator, `GENERATOR` in a running
+`YIELD` or `YIELD_VALUE` outside a step of its generator, `GENERATOR` in a running
 generator's frame or a constructor's, or with a handler of its frame
 registered (a loop's, which the verifier does not see), `ITER_CLOSE` of a generator whose
-loop handler is not the innermost one;
+loop handler is not the innermost one (`ITER_SEND` on a slot that holds no
+generator's iterator does nothing);
 `CALL_NATIVE` of a global that is not a native class, or on an object that
 is not of that class (the Go code would find a Go value of another type);
 an unknown opcode. Inline caches cannot make the VM crash: an entry is only

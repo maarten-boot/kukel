@@ -102,9 +102,9 @@ func unbraced(tree *ast.File) []*ast.Stmt {
 	return bare
 }
 
-// insertBraces gives src with "{ " before and " }" after each of the
-// statements. The "{" goes before comments between the header and the
-// statement, so it stays on the header's line (while (a) { // why).
+// insertBraces gives src with " {" right after the header of each of the
+// statements (its ")", else or do; before comments between the header and
+// the statement: while (a) { // why) and " }" after the statement.
 func insertBraces(bare []*ast.Stmt, toks []token.Token, src []byte) []byte {
 	type insert struct {
 		at   int
@@ -116,8 +116,8 @@ func insertBraces(bare []*ast.Stmt, toks []token.Token, src []byte) []byte {
 		for start > 0 && toks[start-1].Kind == token.COMMENT {
 			start--
 		}
-		end := toks[stmtEnd(toks, *p)]
-		ins = append(ins, insert{toks[start].Pos.Offset, "{ "}, insert{end.Pos.Offset + len(end.Text), " }"})
+		header, end := toks[start-1], toks[stmtEnd(toks, *p)] // (a statement of a header has its header before it)
+		ins = append(ins, insert{header.Pos.Offset + len(header.Text), " {"}, insert{end.Pos.Offset + len(end.Text), " }"})
 	}
 	sort.SliceStable(ins, func(i, j int) bool { return ins[i].at < ins[j].at })
 	var b bytes.Buffer
@@ -134,10 +134,12 @@ func insertBraces(bare []*ast.Stmt, toks []token.Token, src []byte) []byte {
 // expand gives src with a line break before each statement of the blocks
 // of function definitions and before their closing braces, where the token
 // before is on the same line. Comments right before a statement on its
-// line go with it (a; /* c */ b; breaks before the comment). Function
+// line go with it (a; /* c */ b; breaks before the comment); a comment
+// before a closing brace stays with the statement before it. Function
 // literals are left alone.
 func expand(tree *ast.File, toks []token.Token, src []byte) []byte {
-	var at []int // token indexes that start a line
+	var at []int              // token indexes that start a line
+	closers := map[int]bool{} // those of closing braces
 	for _, d := range tree.Decls {
 		fd, ok := d.(*ast.FuncDecl)
 		if !ok {
@@ -154,7 +156,8 @@ func expand(tree *ast.File, toks []token.Token, src []byte) []byte {
 				for _, s := range n.Stmts {
 					at = append(at, stmtStart(toks, s))
 				}
-				at = append(at, tokenAt(toks, n.Rbrace))
+				r := tokenAt(toks, n.Rbrace)
+				at, closers[r] = append(at, r), true
 			}
 			return true
 		})
@@ -164,7 +167,7 @@ func expand(tree *ast.File, toks []token.Token, src []byte) []byte {
 	last := 0
 	endLine := func(t token.Token) int { return t.Pos.Line + bytes.Count([]byte(t.Text), []byte("\n")) }
 	for _, i := range at {
-		for i > 0 && toks[i-1].Kind == token.COMMENT && endLine(toks[i-1]) == toks[i].Pos.Line {
+		for !closers[i] && i > 0 && toks[i-1].Kind == token.COMMENT && endLine(toks[i-1]) == toks[i].Pos.Line {
 			i--
 		}
 		if i == 0 || endLine(toks[i-1]) < toks[i].Pos.Line || toks[i].Pos.Offset < last {

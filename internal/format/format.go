@@ -97,6 +97,7 @@ type formatter struct {
 	stmtHanging   int           // the hanging levels of the line that started the current statement
 	ternaryColon  bool          // the last ":" was the one of ?:
 	openLine      int           // the line brackets opened on the current line count as theirs
+	fromWord      bool          // the last token is the from of "yield from" (not a variable): "(", "[" and "{" after it start its operand
 }
 
 func layout(toks []token.Token, src []byte) []byte {
@@ -338,6 +339,8 @@ func (f *formatter) needSpace(p, t *token.Token) bool {
 			p.Kind == token.PLUS && (t.Kind == token.PLUS || t.Kind == token.INC)
 	case (t.Kind == token.INC || t.Kind == token.DEC) && operandEnd(p):
 		return false // postfix
+	case f.fromWord && (t.Kind == token.LPAREN || t.Kind == token.LBRACK):
+		return true // yield from (x), yield from [1, 2]: not a call or an index
 	case t.Kind == token.LPAREN:
 		switch p.Kind {
 		case token.IDENT, token.RPAREN, token.RBRACK, token.FN:
@@ -437,6 +440,7 @@ func (f *formatter) after(t *token.Token) {
 		}
 	}
 	if t.Kind != token.COMMENT {
+		f.fromWord = t.Kind == token.IDENT && t.Text == "from" && f.last != nil && f.last.Kind == token.YIELD
 		f.last, f.lineCode = t, t
 	}
 	f.prev, f.unary = t, wasUnary
@@ -461,6 +465,9 @@ func (f *formatter) mapBrace() bool {
 	p := f.last
 	if p == nil {
 		return false
+	}
+	if f.fromWord {
+		return true // yield from {...}
 	}
 	switch p.Kind {
 	case token.ASSIGN, token.LPAREN, token.LBRACK, token.COMMA, token.RETURN, token.YIELD, token.QUESTION,

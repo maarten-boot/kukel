@@ -211,7 +211,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `editors/geany` | a filetype for Geany: highlighting, the symbol list, the Build menu ([editors/geany/README.md](editors/geany/README.md)) |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q97). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q98). Ideas for later are in [docs/future.md](docs/future.md).
 What changed in each release is in [CHANGELOG.md](CHANGELOG.md); all the
 documents are listed in [docs/README.md](docs/README.md).
 How to check a change (the subsystems, what else a change touches, and

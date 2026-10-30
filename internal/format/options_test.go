@@ -27,6 +27,14 @@ func TestStrict(t *testing.T) {
 		// a local declaration may not be the statement of a header: no
 		// braces, so the program stays an error (kukel check says so)
 		{"f(a) { if (a) local x = 1; }\n", "f(a) {\n    if (a) local x = 1;\n}\n"},
+		// a statement on the line after its header: the "{" goes on the
+		// header's line; a comment before a closing brace stays with the
+		// statement before it
+		{"f(a) { if (a)\n b(); else\n c(); }\ng() { b(); /* m */ }\n",
+			"f(a) {\n    if (a) {\n        b();\n    } else {\n        c();\n    }\n}\ng() {\n    b(); /* m */\n}\n"},
+		// yield from a literal keeps its space (it is not an index or call)
+		{"h(from) { yield from [1,2]; yield from (from); yield from {1:2}; local a = from[0]; yield (from)(1); }\n",
+			"h(from) {\n    yield from [1, 2];\n    yield from (from);\n    yield from {1: 2};\n    local a = from[0];\n    yield (from)(1);\n}\n"},
 		// a statement of several lines, a function literal inside it
 		{"f(a) {\n    if (a) g(1,\n        fn() { return 2; });\n}\n",
 			"f(a) {\n    if (a) {\n        g(1,\n            fn() { return 2; });\n    }\n}\n"},

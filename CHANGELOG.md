@@ -35,6 +35,11 @@ are unchanged (`from` is not a keyword); `.kkc` files must be built again.
   `fs::File` in memory, with `f->text()`. Q96.
 - The logo: the VS Code extension's icon (the shield), and at the top of
   each release's notes. Q97.
+- A check of Q94–Q97 (Q98): a value sent to a `yield` that takes none is
+  dropped (it was kept and given to a later one); `kukel fmt -strict`
+  puts the `{` on the header's line also when the statement is on the
+  next line, and keeps a comment before a closing brace with the statement
+  before it; `kukel fmt` keeps the space in `yield from [1, 2]`.
 
 ## v0.36.0 (2026-10-30)
 

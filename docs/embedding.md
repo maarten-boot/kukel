@@ -109,9 +109,9 @@ in the interpreter that made it (its step limit and cancellation): another
 interpreter's `for` refuses it with a `TypeError`.
 
 A host module makes a generator with `in.Generator(name, next)`: `next`
-gives the next value, or `false` at the end, and an error (or a panic)
-ends the generator and is thrown where the value was asked for, as a
-`Func`'s is. A member function `iter()` that gives one makes the objects of
+gives the next value, or `false` at the end, and an error (or a panic,
+as a `HostError` "*name* panicked: ...") ends the generator and is thrown
+where the value was asked for, as a `Func`'s is. A member function `iter()` that gives one makes the objects of
 a host class iterable with `for`:
 
 ```go
