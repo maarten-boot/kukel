@@ -38,7 +38,8 @@ Programming=Kukel;
 restart Geany. Kukel is now in Document → Set Filetype → Programming
 languages, and `.kkl` files open with it. The Build menu runs the `kukel`
 in your `PATH`; for another one, change the commands in Build → Set Build
-Commands.
+Commands. There too, `kukel fmt -w -strict "%f"` as the Format command
+also adds missing braces and puts every function on several lines.
 
 On Windows the directory is `%APPDATA%\geany` instead of
 `~/.config/geany`.

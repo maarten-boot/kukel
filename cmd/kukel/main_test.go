@@ -679,6 +679,28 @@ func TestFmt(t *testing.T) {
 			t.Errorf("%q: exit %d", args, code)
 		}
 	}
+	// -strict: braces and functions on several lines; with -l, -w and -.
+	const loose, strict = "f(a) { if (a) return 1; return 0; }\nmain() { f(1); }\n",
+		"f(a) {\n    if (a) {\n        return 1;\n    }\n    return 0;\n}\nmain() {\n    f(1);\n}\n"
+	os.WriteFile(messy, []byte(loose), 0o644)
+	out.Reset()
+	if code := run([]string{"fmt", "-l", messy, tidy}, nil, &out, &errOut); code != 0 || out.String() != "" {
+		t.Errorf("-l of a loose file that is tidy: exit %d, %q", code, out.String())
+	}
+	out.Reset()
+	if code := run([]string{"fmt", "-strict", "-l", messy, tidy}, nil, &out, &errOut); code != 0 || out.String() != messy+"\n" {
+		t.Errorf("-strict -l: exit %d, %q", code, out.String())
+	}
+	if code := run([]string{"fmt", "-w", "-strict", messy}, nil, &out, &errOut); code != 0 {
+		t.Errorf("-w -strict: exit %d", code)
+	}
+	if got, _ := os.ReadFile(messy); string(got) != strict {
+		t.Errorf("-w -strict wrote %q", got)
+	}
+	out.Reset()
+	if code := run([]string{"fmt", "-strict", "-"}, strings.NewReader(loose), &out, &errOut); code != 0 || out.String() != strict {
+		t.Errorf("fmt -strict -: exit %d, %q", code, out.String())
+	}
 }
 
 func TestRepl(t *testing.T) {

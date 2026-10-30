@@ -13,12 +13,9 @@
 package format
 
 import (
-	"bytes"
-	"fmt"
 	"strings"
 
 	"github.com/maarten-boot/kukel/internal/lexer"
-	"github.com/maarten-boot/kukel/internal/parser"
 	"github.com/maarten-boot/kukel/internal/token"
 )
 
@@ -28,22 +25,7 @@ const Indent = "    "
 // Source formats one source file. A file that does not parse is not
 // formatted: the syntax error is returned.
 func Source(file string, src []byte) ([]byte, error) {
-	if bytes.IndexByte(src, 0) >= 0 {
-		return nil, fmt.Errorf("%s: contains a NUL byte; not formatted", file)
-	}
-	if _, err := parser.ParseFile(file, src); err != nil {
-		return nil, err
-	}
-	toks, err := tokens(file, src)
-	if err != nil {
-		return nil, err
-	}
-	out := layout(toks, src)
-	again, err := tokens(file, out)
-	if err != nil || !same(toks, again) {
-		return nil, fmt.Errorf("%s: internal error: formatting would change the program; not formatted", file)
-	}
-	return out, nil
+	return SourceWith(file, src, Options{})
 }
 
 // tokens reads all tokens of src, comments included, without the EOF.

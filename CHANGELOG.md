@@ -20,6 +20,11 @@ Two kinds of change need care when you upgrade:
   hexadecimal digits), written as UTF-8: `"caf\u{E9}"` is `"café"`,
   `"\u{1F600}"` an emoji. A code above 10FFFF or a surrogate is an error;
   a character literal stays one byte and refuses it. Q94.
+- `kukel fmt -strict`: braces around every statement of `if`, `else`,
+  `for`, `while`, `do` and `with` that has none, and every function
+  definition on several lines, also one that fits on one (function
+  literals keep their lines). Comments stay; the output is checked to
+  differ from the input only by the braces. Q95.
 
 ## v0.36.0 (2026-10-30)
 

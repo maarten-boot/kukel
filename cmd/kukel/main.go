@@ -70,11 +70,15 @@ commands:
   disasm a.kkl ... | prog.kkc     show the bytecode in readable form
   tokens a.kkl ...                show the tokens of source files
   ast [-pos] a.kkl ...            show the syntax tree of source files
-  fmt [-w | -l] a.kkl ...         format source files (indentation, spacing,
+  fmt [-w | -l] [-strict] a.kkl ...
+                                  format source files (indentation, spacing,
                                   blank lines): print them, -w rewrite
                                   them, -l list the files whose
                                   formatting differs; fmt - formats
-                                  standard input
+                                  standard input; -strict also puts
+                                  braces around every statement of if,
+                                  else, for, while, do and with, and every
+                                  function on several lines
   version                         show the version, bytecode format and Go modules
   help                            show this text
 
@@ -600,8 +604,10 @@ func showText(text string) string {
 // cmdFmt formats source files: printed (default), rewritten (-w), or only
 // listed when their formatting differs (-l). A file that does not parse is
 // left alone and reported. "-" formats standard input to standard output.
+// -strict adds braces and puts functions on several lines (format.Options).
 func cmdFmt(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	write, list := false, false
+	var opt format.Options
 	var files []string
 	for _, a := range args {
 		switch a {
@@ -609,11 +615,13 @@ func cmdFmt(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			write = true
 		case "-l":
 			list = true
+		case "-strict":
+			opt.Strict = true
 		default:
 			files = append(files, a)
 		}
 	}
-	const fmtUsage = "kukel fmt [-w | -l] a.kkl ... | kukel fmt -"
+	const fmtUsage = "kukel fmt [-w | -l] [-strict] a.kkl ... | kukel fmt [-strict] -"
 	if len(files) == 0 || write && list {
 		fmt.Fprintln(stderr, "usage: "+fmtUsage)
 		return 2
@@ -626,7 +634,7 @@ func cmdFmt(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		src, err := io.ReadAll(stdin)
 		if err == nil {
 			var out []byte
-			if out, err = format.Source("<stdin>", src); err == nil {
+			if out, err = format.SourceWith("<stdin>", src, opt); err == nil {
 				_, err = stdout.Write(out)
 				return writeResult(err, stderr)
 			}
@@ -645,7 +653,7 @@ func cmdFmt(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			code = 1
 			continue
 		}
-		out, err := format.Source(file, src)
+		out, err := format.SourceWith(file, src, opt)
 		if err != nil {
 			fmt.Fprintln(stderr, toolError(err))
 			code = 1
