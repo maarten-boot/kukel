@@ -192,7 +192,10 @@ $ kukel run evens.kkl
 The generator keeps its place and its locals between steps, so a long or
 endless series costs nothing until it is asked for. A class becomes
 something `for` can walk by giving it a member function `iter()` that
-yields its values ([reference.md §7](reference.md#generators)).
+yields its values; `yield from x;` yields all the values of another
+generator (or of a vector), and `g->send(x)` hands a value back to the
+generator, which gets it from `local x = yield v;`
+([reference.md §7](reference.md#generators)).
 
 ## 5. Classes
 

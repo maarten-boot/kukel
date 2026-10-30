@@ -31,6 +31,7 @@ Error::Error(message = nil, kind = nil) {
 
 class Generator {
     next(otherwise);
+    send(value);
     done();
     close();
     iter();

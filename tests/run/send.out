@@ -1,0 +1,9 @@
+0 5 6 16
+0 1 1 2 2 3 3 4 
+start 0 1 2
+echo closed with ["a", "b"]
+true
+1 2 97 98 k 
+ValueError the generator counter has not started: no yield is waiting for the value (call next() first)
+nil 7 [7, 9] nil true
+echo closed with []

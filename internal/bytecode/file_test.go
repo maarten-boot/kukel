@@ -217,6 +217,8 @@ func TestVerifyRejects(t *testing.T) {
 		{"YIELD without GENERATOR", program(code(op(bytecode.OpNil), op(bytecode.OpYield), ret)), "YIELD in a function that is not a generator"},
 		{"GEN_RETURN without GENERATOR", program(code(op(bytecode.OpGenReturn))), "GEN_RETURN in a function that is not a generator"},
 		{"RETURN_NIL in a generator", program(code(op(bytecode.OpGenerator), op(bytecode.OpNil), op(bytecode.OpYield), ret)), "RETURN_NIL in a generator function"},
+		{"YIELD_VALUE without GENERATOR", program(code(op(bytecode.OpNil), op(bytecode.OpYieldValue), op(bytecode.OpPop), ret)), "YIELD_VALUE in a function that is not a generator"},
+		{"ITER_SEND slot", program(code(op(bytecode.OpNil), op(bytecode.OpIterSend, 5), ret)), "ITER_SEND uses slot 5"},
 		{"GENERATOR with a value on the stack", program(code(op(bytecode.OpNil), op(bytecode.OpGenerator), op(bytecode.OpPop), op(bytecode.OpGenReturn))), "GENERATOR with 0 try handlers and 1 values"},
 	}
 	for _, tt := range tests {

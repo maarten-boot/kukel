@@ -136,7 +136,7 @@ func (v *verifier) function(f *Function) error {
 				return fail(pc, "a second GENERATOR (the first is at %d)", generator)
 			}
 			generator = pc
-		case OpYield, OpGenReturn:
+		case OpYield, OpYieldValue, OpGenReturn:
 			yields = pc
 		case OpReturn, OpReturnNil:
 			returns = pc
@@ -345,7 +345,7 @@ func (v *verifier) operands(f *Function, pc int, op Op, x []int) error {
 			return err
 		}
 		return name(x[1])
-	case OpIterClose:
+	case OpIterClose, OpIterSend:
 		return slot(x[0])
 	case OpIterNext:
 		if x[1] < 1 || x[1] > 2 {

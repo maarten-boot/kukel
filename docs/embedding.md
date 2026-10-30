@@ -102,11 +102,35 @@ built with `-tags tk`).
 A generator (an object of the class `Generator`, from calling a Kukel
 generator function) stays a `Value` too: step it with
 `v.Object()` and `o.Call(in, "next")` (it gives `nil` at the end;
-`"done"` tells a `nil` from the end), and call `"close"` when a Go program
+`"done"` tells a `nil` from the end; `o.Call(in, "send", x)` gives `x` to
+the `yield` the step goes on from), and call `"close"` when a Go program
 stops before the end, or its `finally` blocks do not run. A generator runs
 in the interpreter that made it (its step limit and cancellation): another
-interpreter's `for` refuses it with a `TypeError`. A host module
-cannot make a generator yet: a host class is not iterable with `for`.
+interpreter's `for` refuses it with a `TypeError`.
+
+A host module makes a generator with `in.Generator(name, next)`: `next`
+gives the next value, or `false` at the end, and an error (or a panic)
+ends the generator and is thrown where the value was asked for, as a
+`Func`'s is. A member function `iter()` that gives one makes the objects of
+a host class iterable with `for`:
+
+```go
+cart := kukel.NewClass("Cart").
+	Method("iter", func(in *kukel.Interp, this *kukel.Object, args []kukel.Value) (kukel.Value, error) {
+		items, i := this.State().([]string), 0
+		return in.Generator("shop::Cart::iter", func() (kukel.Value, bool, error) {
+			if i == len(items) {
+				return kukel.Nil, false, nil
+			}
+			i++
+			return kukel.String(items[i-1]), true, nil
+		})
+	})
+```
+
+Kukel code then writes `for (local item in cart) ...`. A loop that stops
+early asks for no more values; `close` only ends such a generator, and
+`send` gives it no value (it is `next` for it).
 
 Vectors, maps and objects are shared, not copied: a `Value` from an
 interpreter refers to its data, and changing it (`Push`, `SetKey`) changes

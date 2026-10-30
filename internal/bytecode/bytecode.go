@@ -144,6 +144,10 @@ const (
 	OpIterClose // slot u16: close the generator a for-each loop walks with the iterator in slot (nothing for others)
 	OpGenReturn // the generator ends (its return; and the end of its body)
 
+	// send and yield from (Kukel v0.37).
+	OpYieldValue // pop x: as YIELD, and the next step goes on with the value sent to it (send; nil for next) pushed
+	OpIterSend   // slot u16: pop x, the value the next step of the generator a for-each loop walks with the iterator in slot gets (yield from; dropped for others)
+
 	numOps
 )
 
@@ -248,6 +252,8 @@ var opInfo = [numOps]OpInfo{
 	OpYield:        {"YIELD", nil},
 	OpIterClose:    {"ITER_CLOSE", u16},
 	OpGenReturn:    {"GEN_RETURN", nil},
+	OpYieldValue:   {"YIELD_VALUE", nil},
+	OpIterSend:     {"ITER_SEND", u16},
 }
 
 // The comparison operand of CMP_JUMP: one of these, plus CmpJumpIfTrue to

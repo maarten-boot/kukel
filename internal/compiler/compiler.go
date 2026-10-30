@@ -893,6 +893,10 @@ func (c *compiler) simpleStmt(s ast.Stmt) {
 		if !c.fs.gen {
 			c.errorf(s.Pos(), "yield is only allowed in a function")
 		}
+		if s.From {
+			c.yieldFrom(s)
+			return
+		}
 		if s.Value != nil {
 			c.expr(s.Value)
 		} else {
@@ -1044,6 +1048,30 @@ func (c *compiler) forEachStmt(s *ast.ForEachStmt, labels []*ast.Ident) {
 	c.patch(t.continues, top)
 	c.emit(bytecode.OpJump, top)
 	c.patch(append(t.breaks, next+4), c.here())
+	c.popTry()
+	c.emit(bytecode.OpIterClose, it)
+	c.popScope()
+}
+
+// yieldFrom is "yield from x;": a for-each loop over x whose body yields
+// each value with YIELD_VALUE and gives what was sent for it to the next
+// step of x (ITER_SEND). Leaving it, by its end or an exception (also the
+// closing of this generator), closes x as any such loop does.
+func (c *compiler) yieldFrom(s *ast.YieldStmt) {
+	c.pushScope()
+	it := c.declare(&ast.Ident{NamePos: s.Yield, Name: "(iterator)"}, "hidden").slot
+	c.mark(s.Value.Pos())
+	c.expr(s.Value)
+	c.emit(bytecode.OpIterInit)
+	c.emit(bytecode.OpStoreLocal, it)
+	c.pushTry(&tryCtx{iter: true, slot: it})
+	top := c.here()
+	c.mark(s.Yield)
+	next := c.emit(bytecode.OpIterNext, it, 1, 0)
+	c.emit(bytecode.OpYieldValue)
+	c.emit(bytecode.OpIterSend, it)
+	c.emit(bytecode.OpJump, top)
+	c.patch([]int{next + 4}, c.here())
 	c.popTry()
 	c.emit(bytecode.OpIterClose, it)
 	c.popScope()
@@ -1487,6 +1515,17 @@ func (c *compiler) expr(e ast.Expr) {
 		c.expr(e.Index)
 		c.mark(e.Lbrack)
 		c.emit(bytecode.OpIndexGet)
+	case *ast.YieldExpr:
+		if !c.fs.gen {
+			c.errorf(e.Pos(), "yield is only allowed in a function")
+		}
+		if e.Value != nil {
+			c.expr(e.Value)
+		} else {
+			c.emit(bytecode.OpNil)
+		}
+		c.mark(e.Yield)
+		c.emit(bytecode.OpYieldValue)
 	case *ast.ThisExpr:
 		c.loadThis(e.Pos())
 	case *ast.MemberExpr:

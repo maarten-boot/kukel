@@ -1,5 +1,5 @@
 (*
-   Kukel syntax, as implemented by kukel v0.37 and later (syntax version 9).
+   Kukel syntax, as implemented by kukel v0.37 and later (syntax version 10).
 
    Notation: ISO/IEC 14977 EBNF.
        =  definition        ;  end of rule        |  alternative
@@ -12,7 +12,12 @@
    What programs mean is described in docs/reference.md; how they are
    compiled and run in docs/vm.md.
 
-   History: syntax version 9 added the escape \u{...} in strings: a
+   History: syntax version 10 added "yield from x;" and the yield that
+   gives a value ("local x = yield v;", "x = yield v;", "(yield v)"), for
+   Generator::send. "from" is not a keyword. Programs of version 9 are
+   unchanged.
+
+   Syntax version 9 added the escape \u{...} in strings: a
    character by its code (1 to 6 hexadecimal digits), written as UTF-8.
    Programs of version 8 are unchanged ("\u" was an unknown escape).
 
@@ -119,7 +124,7 @@ definition          = class_definition
 
 global_declaration  = "global" , global_variable , { "," , global_variable } , ";" ;
 
-global_variable     = Identifier , [ "=" , assignment ] ;
+global_variable     = Identifier , [ "=" , assign_value ] ;
                       (* A global without an initializer is nil. Rules:
                          initializers run in program order (files in
                          command-line order) before main is called; a
@@ -298,18 +303,34 @@ return_statement    = "return" , [ expression ] , ";" ;
                       (* Rule: in a generator function, return takes no
                          value. *)
 
-yield_statement     = "yield" , [ expression ] , ";" ;
+yield_statement     = "yield" , [ expression ] , ";"
+                    | "yield" , "from" , expression , ";" ;
                       (* Makes the function it is in (a declaration or a
                          function literal; not one around a function literal
                          that yields) a generator function: calling it gives
                          a generator, and each step runs the body to the next
                          yield, which gives its value (nil without one).
+                         "yield from x" yields every value of x (a generator
+                         or what for walks), passing what is sent on to x.
+                         "from" is an Identifier, not a keyword: it means
+                         yield from only when an Identifier, a literal,
+                         "this", "new", "fn", "!", "~", "(", "[" or "{"
+                         follows it; else it is a variable's name ("yield
+                         from;", "yield from - 1;").
                          Rules: not in a constructor or main, nor outside a
                          function (the REPL's input). *)
 
+yield_value         = "yield" , [ assignment ] ;
+                      (* A yield that gives a value: what the step that goes
+                         on from it was sent (Generator::send; nil for next).
+                         Only after "=" (assign_value) or in parentheses
+                         (primary). Its assignment is left out before ";",
+                         ")" and ",". Rules: as yield_statement; "yield from"
+                         gives no value. *)
+
 local_declaration   = "local" , local_variable , { "," , local_variable } , ";" ;
 
-local_variable      = Identifier , [ "=" , assignment ] ;
+local_variable      = Identifier , [ "=" , assign_value ] ;
                       (* A local without an initializer is nil. Rules: a
                          declaration must be a statement directly in a block
                          (not, say, the body of an if) or a for initializer,
@@ -352,7 +373,7 @@ throw_statement     = "throw" , expression , ";" ;
 expression          = assignment ;
                       (* No comma operator here (see expression_list). *)
 
-assignment          = conditional , [ assignment_operator , assignment ] ;
+assignment          = conditional , [ assignment_operator , assign_value ] ;
                       (* right associative. Rule: the left side must be an
                          lvalue: a variable (global, parameter,
                          local, captured variable, member, a module's global
@@ -363,6 +384,8 @@ assignment          = conditional , [ assignment_operator , assignment ] ;
 
 assignment_operator = "=" | "+=" | "-=" | "*=" | "/=" | "%="
                     | "&=" | "|=" | "^=" | "<<=" | ">>=" ;
+
+assign_value        = assignment | yield_value ;
 
 conditional         = logical_or , [ "?" , expression , ":" , assignment ] ;
                       (* As in C, the last part is an assignment:
@@ -423,6 +446,7 @@ argument            = assignment , [ ".." ] ;
                          is a runtime error. *)
 
 primary             = "(" , expression , ")"
+                    | "(" , yield_value , ")"
                     | Integer | Float | Character | String
                     | "true" | "false" | "nil"
                     | "this"

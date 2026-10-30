@@ -163,6 +163,14 @@
     "keywords": {
       "patterns": [
         {
+          "comment": "from is a keyword only right after yield (yield from x;)",
+          "match": "\\b(yield)\\s+(from)\\b(?=\\s*[A-Za-z_0-9\"'(\\[{!~])",
+          "captures": {
+            "1": { "name": "keyword.control.kukel" },
+            "2": { "name": "keyword.control.kukel" }
+          }
+        },
+        {
           "name": "keyword.control.kukel",
           "match": "\\b(?:break|case|catch|continue|default|do|else|finally|for|if|in|return|switch|throw|try|while|with|yield)\\b"
         },

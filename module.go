@@ -341,6 +341,29 @@ func Errorf(kind, format string, args ...any) *Error {
 	return &Error{Kind: kind, Message: fmt.Sprintf(format, args...)}
 }
 
+// Generator makes a generator (an object of the class Generator) whose
+// values come from next, a Go function: it gives the next value, or false
+// at the end; an error ends the generator and is thrown where the value
+// was asked for, as a Func's error is. A member function iter() of a host
+// class that gives one makes its objects iterable with for. name is how
+// the generator shows ("shop::Cart::iter"). Kukel code steps it as one
+// written in Kukel, but send gives it no value and close only ends it.
+func (in *Interp) Generator(name string, next func() (Value, bool, error)) (Value, error) {
+	g, err := native.Generator(in.vm, name, func() (r value.Value, ok bool, err error) {
+		defer func() {
+			if p := recover(); p != nil {
+				r, ok, err = value.NilValue, false, value.Errorf("HostError", "%s panicked: %v", name, p)
+			}
+		}()
+		v, ok, err := next()
+		if err != nil {
+			return value.NilValue, false, toKukelError(err)
+		}
+		return v.v, ok, nil
+	})
+	return Value{g}, err
+}
+
 // ExitError is what Call, CallContext, CallValue and Global give when the
 // program calls exit(code) (Run gives the code instead). A Func may return
 // one to end the program as exit(code) does.

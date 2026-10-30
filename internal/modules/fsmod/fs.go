@@ -44,6 +44,7 @@ func init() {
 			"dir":       pathFunc("fs::dir", filepath.Dir),
 			"ext":       pathFunc("fs::ext", filepath.Ext),
 			"open":      open,
+			"memory":    memory,
 			"stdin":     standard(stdin, "stdin"),
 			"stdout":    standard(stdout, "stdout"),
 			"stderr":    standard(stderr, "stderr"),

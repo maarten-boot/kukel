@@ -189,6 +189,45 @@ guarded(name) {
 			try { g->next(1, 2); } catch (e) { println(e->message); }
 		}`, "TypeError there is no new Generator(): generators come from calling generator functions\n" +
 			"ArgumentError Generator::done expects 0 arguments, got 1\nGenerator::next expects at most 1 argument, got 2\n"},
+		// send and yield from (Q96).
+		{"send: the yield gives what was sent, next and for give nil", `
+			g() { for (local i = 0; i < 3; i++) print("got", (yield i), ""); }
+			main() {
+				local x = g();
+				println(x->next(), x->send("a"), x->next(), x->send("b"), x->send("c"), x->done());
+				for (local v in g()) print(v, "");
+				println();
+			}`, "got a got nil got b 0 1 2 nil nil true\n0 got nil 1 got nil 2 got nil \n"},
+		{"send: before the first step, after the end, arguments", `main() {
+			local g = countdown(1);
+			try { g->send(1); } catch (e) { println(e->kind, e->message); }
+			try { g->send(); } catch (e) { println(e->kind, e->message); }
+			println(g->next(), g->send(1), g->send(2), g->done());
+		}`, "ValueError the generator countdown has not started: no yield is waiting for the value (call next() first)\n" +
+			"ArgumentError Generator::send expects 1 argument, got 0\n1 nil nil true\n"},
+		{"closing at a yield that gives a value runs finally", `
+			g() { try { local x = yield 1; println("never", x); } finally { println("finally"); } }
+			main() { local x = g(); x->next(); x->close(); println(x->done()); }`, "finally\ntrue\n"},
+		{"yield from: values, sends passed on, the inner end goes on", `
+			inner() { local a = yield 1; local b = yield a; return; }
+			outer() { yield from inner(); yield "after"; yield from countdown(2); }
+			main() {
+				local g = outer();
+				println(g->next(), g->send("x"), g->send("y"), g->next(), g->next(), g->next(), g->done());
+			}`, "1 x after 2 1 nil true\n"},
+		{"yield from: an exception of the inner one reaches the outer one", `
+			bad() { yield 1; throw new Error("inner failed"); }
+			outer() { try { yield from bad(); } catch (e) { yield "caught " + e->message; } }
+			main() { for (local x in outer()) print(x, ""); println(); }`, "1 caught inner failed \n"},
+		{"yield from: closing closes every layer", `
+			inner() { try { yield 1; yield 2; } finally { print("inner; "); } }
+			middle() { try { yield from inner(); } finally { print("middle; "); } }
+			outer() { try { yield from middle(); } finally { print("outer; "); } }
+			main() { for (local x in outer()) break; println(); local g = outer(); g->next(); g->close(); println(); }`,
+			"inner; middle; outer; \ninner; middle; outer; \n"},
+		{"yield from: deep recursion", `
+			down(n) { if (n > 0) { yield n; yield from down(n - 1); } }
+			main() { local s = 0; for (local x in down(200)) s += x; println(s); }`, "20100\n"},
 		{"vectors, maps and strings as before", `main() {
 			for (local i, x in [7, 8]) print(i, x, "");
 			for (local k, v in {"a": 1}) print(k, v, "");

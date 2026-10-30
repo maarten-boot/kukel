@@ -160,6 +160,10 @@ func Inspect(n Node, f func(Node) bool) {
 	case *FuncLit:
 		params(n.Params)
 		walk(n.Body)
+	case *YieldExpr:
+		if n.Value != nil {
+			walk(n.Value)
+		}
 	case *StaticRef:
 		if n.Module != nil {
 			walk(n.Module)

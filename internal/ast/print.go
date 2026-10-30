@@ -231,7 +231,11 @@ func (p *printer) node(n Node) {
 			p.children(n.Value)
 		}
 	case *YieldStmt:
-		p.line(n, "Yield")
+		if n.From {
+			p.line(n, "YieldFrom")
+		} else {
+			p.line(n, "Yield")
+		}
 		if n.Value != nil {
 			p.children(n.Value)
 		}
@@ -289,6 +293,11 @@ func (p *printer) node(n Node) {
 	case *NewExpr:
 		p.line(n, "New %s", qualified(n.Module, n.Class))
 		p.children(exprs(n.Args)...)
+	case *YieldExpr:
+		p.line(n, "YieldValue")
+		if n.Value != nil {
+			p.children(n.Value)
+		}
 	case *FuncLit:
 		p.line(n, "Fn")
 		p.indent++

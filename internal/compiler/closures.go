@@ -93,7 +93,8 @@ func yieldIn(tree ast.Node) ast.Node {
 		if _, ok := n.(*ast.FuncLit); ok && n != tree || y != nil {
 			return false
 		}
-		if _, ok := n.(*ast.YieldStmt); ok {
+		switch n.(type) {
+		case *ast.YieldStmt, *ast.YieldExpr:
 			y = n
 		}
 		return true

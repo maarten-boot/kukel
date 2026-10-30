@@ -946,3 +946,59 @@ main() {}`, kukel.CompileOptions{})
 		t.Errorf("sum in another interpreter: %v", err)
 	}
 }
+
+// A host class whose iter() gives a generator made in Go is iterable with
+// for; the generator's errors and panics reach Kukel code as exceptions.
+func TestHostGenerator(t *testing.T) {
+	steps := 0
+	countdown := kukel.NewClass("Countdown").
+		New(func(in *kukel.Interp, this *kukel.Object, args []kukel.Value) (kukel.Value, error) {
+			n, _ := args[0].AsInt()
+			this.SetState(n)
+			return kukel.Nil, nil
+		}).
+		Method("iter", func(in *kukel.Interp, this *kukel.Object, args []kukel.Value) (kukel.Value, error) {
+			n := this.State().(int64)
+			return in.Generator("app::Countdown::iter", func() (kukel.Value, bool, error) {
+				steps++
+				switch {
+				case n == 99:
+					return kukel.Nil, false, kukel.Errorf("ValueError", "no countdown from 99")
+				case n == 98:
+					panic("broken")
+				case n < 0:
+					return kukel.Nil, false, nil
+				}
+				n--
+				return kukel.Int(n + 1), true, nil
+			})
+		})
+	app := kukel.NewModule("app").Class(countdown)
+	p := compile(t, `use app;
+list(n) { local v = []; for (local i, x in new app::Countdown(n)) push(v, str(i) + ":" + str(x)); return v; }
+first(n) { for (local x in new app::Countdown(n)) return x; }
+fails(n) { try { list(n); } catch (e) { return e->kind + " " + e->message; } }
+shown() { local c = new app::Countdown(1); return str(c->iter()) + " " + typeof(c->iter()); }
+main() {}`, kukel.CompileOptions{Modules: []*kukel.Module{app}})
+	in := interp(t, p, kukel.Options{})
+	for _, c := range []struct {
+		fn   string
+		n    int64
+		want string
+	}{
+		{"list", 3, `["0:3", "1:2", "2:1", "3:0"]`},
+		{"first", 5, "5"},
+		{"fails", 99, "ValueError no countdown from 99"},
+		{"fails", 98, "HostError app::Countdown::iter panicked: broken"},
+	} {
+		if v, err := in.Call(c.fn, kukel.Int(c.n)); err != nil || v.String() != c.want {
+			t.Errorf("%s(%d): %v, %v; want %s", c.fn, c.n, v, err, c.want)
+		}
+	}
+	if v, err := in.Call("shown"); err != nil || v.String() != "Generator(app::Countdown::iter) object" {
+		t.Errorf("shown: %v, %v", v, err)
+	}
+	if steps != 5+1+1+1 {
+		t.Errorf("%d steps (a loop left early asks no more)", steps)
+	}
+}

@@ -578,6 +578,8 @@ switch (x) { case 1: case 2: ...; break; default: ... }
 outer: for (...) { for (...) { if (...) continue outer; break outer; } }
 return value;
 yield value;                       // in a generator function (section 7)
+local x = yield value;             // ... and x is what send passes
+yield from g;                      // every value of g (a generator, vector, map, ...)
 throw value;
 try { ... } catch (e) { ... } finally { ... }
 ```
@@ -849,10 +851,10 @@ countdown(n) {
 class Tree { left, value, right; Tree(l, v, r); iter(); }
 Tree::Tree(l, v, r) { left = l; value = v; right = r; }
 Tree::iter() {                             // in order: left, value, right
-    if (left != nil) for (local x in left) yield x;
+    if (left != nil) yield from left;
     yield value;
 
-    if (right != nil) for (local x in right) yield x;
+    if (right != nil) yield from right;
 }
 
 leaf(v) { return new Tree(nil, v, nil); }
@@ -877,6 +879,24 @@ main() {
   the function it is written in: a function literal with a `yield` in it
   is a generator function itself, and does not make the function around
   it one.
+- `yield from x;` yields every value of `x`, in order: a generator, or
+  anything `for` walks (a vector, map, string, or an object with
+  `iter()`). It is a `for` loop that yields each value, with two
+  differences: what `send` passes goes on to `x`'s step (when `x` is a
+  generator), and closing the generator closes `x` (as leaving any `for`
+  loop over `x` does). `from` is a word only there, not a keyword: a
+  variable may be called `from` (`yield from;` yields it, as do
+  `yield from - 1;` and `yield from++;`; write `yield (from)(x);` and
+  `yield (from)[0];` to call or index it). `yield from` gives no value.
+- **Sending**: a `yield` can also give a value back, written after `=`
+  (`local x = yield v;`, `x = yield v;`, `x += yield;`) or in parentheses
+  anywhere else (`push(got, (yield n));`). It yields `v` as the statement
+  does; the value is what the step that goes on from there was sent:
+  `g->send(x)` runs the next step and gives the `yield` waiting there `x`,
+  `next()` and `for` give it `nil`. The first step has no `yield` waiting:
+  a `send` before it is a `ValueError` (call `next()` first). A generator
+  written in Go takes no values: `send` is `next` for it. (An example
+  follows the list.)
 - The arguments are checked, and the defaults computed, when the
   generator function is called; the body starts at the first step.
 - A generator is an object of the built-in class `Generator`
@@ -889,6 +909,7 @@ main() {
   | Member function | Description |
   |---|---|
   | `g->next([otherwise])` | Runs the next step and gives the value it yields; when the generator has ended (now or before), gives `otherwise` (`nil` without it) |
+  | `g->send(x)` | Runs the next step as `next()` does, and the `yield` that step goes on from gives `x` (see Sending); `nil` when the generator has ended. Before the first step: a `ValueError` |
   | `g->done()` | Whether the generator has ended: true once a step found the end (or it threw, or was closed). Since `nil` can be a value, this tells a `nil` from the end |
   | `g->close()` | Ends the generator now (see below); gives `nil` |
   | `g->iter()` | Gives `g` itself: a generator is iterable |
@@ -904,7 +925,7 @@ main() {
   `with` that holds it. Closing ends the body at its `yield` as a `return`
   there would: its `finally` blocks run and its `with` statements close
   what they hold; its `catch` blocks do not see it. So a generator that
-  opens a file closes it, also when the loop stops early (the example
+  opens a file closes it, also when the loop stops early (the second example
   below). A `yield` that closing reaches (in a `finally` block that closing
   runs) is a `ValueError`; a `yield` in a `finally` block is fine otherwise. If closing throws when a loop is left by an exception,
   the loop's exception goes on, as with `with`. A generator that is never
@@ -916,6 +937,29 @@ main() {
   function, besides the call that makes the generator (a generator
   written in Go, such as `fs::File::iter`, counts only that call); the debugger shows a running generator as a call above the
   loop that asked for its value.
+
+Sending: a running total that `send` adds to.
+
+```
+running() {
+    local total = 0;
+
+    for (;;) {
+        local x = yield total;
+
+        if (x != nil) total += x;
+    }
+}
+
+main() {
+    local t = running();
+    t->next();
+    t->send(5);
+    println(t->send(10), t->next());   // 15 15
+}
+```
+
+And a generator that opens a file closes it when the loop stops early:
 
 ```
 use fs;
@@ -1681,6 +1725,7 @@ $ kukel run notes.kkl
 | `fs::temp([pattern [, dir]])` | Makes a new, empty file and gives it as an `fs::File` open `"w+"`. Its name is `pattern` (by default `"kukel-*"`) with the last `*` replaced by random digits, or with them at the end when there is no `*` (`"report-*.txt"`); it is made in `dir`, or else in the system's directory for temporary files (`$TMPDIR` or `/tmp`; on Windows `%TMP%`). Only its owner can read and write it (`-rw-------`). `f->name()` gives its path. It stays until the program removes it (`fs::remove(f->name())`), so another program can be given its path. A pattern with a path separator is a `ValueError` (the directory is the second argument). A temporary file in the directory of the file it will replace can replace it at once with `fs::rename`, once it is closed (example below) |
 | `fs::tempdir([pattern [, dir]])` | Makes a new, empty directory in the same way (`drwx------`) and gives its path; `fs::removeall` removes it |
 | `fs::stdin()`, `fs::stdout()`, `fs::stderr()` | The program's standard input, output and error as `fs::File`s (the same object at each call). They share the program's own: the built-in `readline()` and the member function `readline()` of standard input read from the same input, what `println` and standard output's `write` write keeps its order, and standard error writes out standard output first, as `eprint` does. So a function can take any `fs::File` and be given a file or a standard stream |
+| `fs::memory([text])` | An `fs::File` in memory, open for reading and writing (mode `"r+"`), that holds `text` (by default nothing) with the position at its start. Everything but `lock` works as on a file on disk (`read`, `readline`, `for`, `write`, `print`, `seek`, `tell`, `truncate`, `close`; writing past the end fills the gap with zero bytes), and `f->text()` gives what it holds. So a function that writes to (or reads from) an `fs::File` can be given one in memory: `local f = fs::memory(); report(f); println(f->text());`. `lock` is a `ValueError`, `name()` gives `nil`, and it prints as `fs::File(<memory>, 12 bytes)`; nothing is written anywhere, and it is gone with its last reference |
 
 An `fs::File`'s member functions; strings are bytes, so there is no text
 or binary mode:
@@ -1699,7 +1744,8 @@ or binary mode:
 | `f->lock([kind [, timeout]])` | Locks the whole file, `"exclusive"` (the default) or `"shared"`, waiting until no other lock is in the way, or at most `timeout` seconds (0: only try). Gives `true`, or `false` when the time ran out. A file that has a lock gets the other kind in its place; when that kind cannot be had, it keeps the lock it had (unless another program took the file in that moment: then it has none, and `lock` gives `false` too). Below |
 | `f->unlock()` | Writes out what is buffered (what was written under the lock), then gives up the lock (a file without one: nothing). `close` does it too |
 | `f->close()` | Writes out what is buffered and closes the file; closing it again does nothing. A standard stream is only flushed, and stays open |
-| `f->closed()`, `f->name()`, `f->mode()` | Whether it is closed; the path as given to `fs::open` (`"<stdin>"`, `"<stdout>"`, `"<stderr>"` for the standard streams); the mode (`"r"` for standard input, `"w"` for the others) |
+| `f->closed()`, `f->name()`, `f->mode()` | Whether it is closed; the path as given to `fs::open` (`"<stdin>"`, `"<stdout>"`, `"<stderr>"` for the standard streams, `nil` for a file of `fs::memory`); the mode (`"r"` for standard input, `"w"` for the others, `"r+"` in memory) |
+| `f->text()` | What a file of `fs::memory` holds, all of it (also past the position); a `ValueError` for other files (`read` reads them) |
 
 - Reads and writes are buffered (64 KiB), so writing many small pieces is
   fast; `flush` writes them out when another program must see them at once

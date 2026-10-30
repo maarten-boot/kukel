@@ -1323,7 +1323,7 @@ func (vm *VM) catch(re *RuntimeError, stopDepth int) (*RuntimeError, bool) {
 				continue
 			}
 			vm.loopClosing++ // (what the close throws is dropped: the debugger is not told it is uncaught)
-			_, _, err := vm.resume(g, true)
+			_, _, err := vm.resume(g, true, value.NilValue)
 			vm.loopClosing--
 			if err != nil {
 				if e, ok := err.(*RuntimeError); ok && e.Fatal {

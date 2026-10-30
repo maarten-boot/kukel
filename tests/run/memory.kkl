@@ -1,0 +1,43 @@
+// fs::memory: an fs::File in memory (Q96).
+use fs;
+
+report(out) {
+    out->println("total", 3);
+    out->write("a", "b\n");
+}
+
+main() {
+    local f = fs::memory();
+    report(f);
+    println(f->text(), f->tell(), f, f->name(), f->mode());
+    f->seek(0);
+
+    for (local line in f) println("line:", line);
+    local r = fs::memory("one\ntwo\nthree");
+    println(r->readline(), r->read(3), r->tell());
+    r->write("XX");
+    println(r->text());
+    r->seek(0, "end");
+    r->write("!");
+    r->truncate(4);
+    println(r->text(), r->tell());
+    r->seek(10);
+    r->write("z");
+    println(len(r->text()), r->read());
+
+    try { r->lock(); } catch (e) { println(e->kind, e->message); }
+
+    try { fs::stdout()->text(); } catch (e) { println(e->kind, e->message); }
+
+    try { r->seek(-1); } catch (e) { println(e->kind, e->message); }
+    r->close();
+    println(r, r->closed());
+
+    try { r->read(); } catch (e) { println(e->kind, e->message); }
+
+    with (local m = fs::memory("x")) println(m->read());
+    // A generator written in Go takes no values: send is next for it.
+    local it = fs::memory("a\nb\n")->iter();
+
+    println(it->send(1), it->send(2), it->send(3), it->done());
+}

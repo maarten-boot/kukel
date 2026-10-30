@@ -79,6 +79,11 @@ func sexpr(x ast.Expr) string {
 		return list("method", append([]ast.Expr{x.X, x.Name}, x.Args...)...)
 	case *ast.MemberExpr:
 		return list("member", x.X, x.Name)
+	case *ast.YieldExpr:
+		if x.Value == nil {
+			return "(yield)"
+		}
+		return list("yield", x.Value)
 	}
 	return fmt.Sprintf("?%T", x)
 }
@@ -267,6 +272,10 @@ func TestErrors(t *testing.T) {
 		{"main() { x = 1 }", "1:16", "expected ';' after expression, found '}'"},
 		{"main() { yield 1 }", "1:18", "expected ';' after yield, found '}'"},
 		{"main() { local yield = 1; }", "1:16", "expected local variable name, found 'yield'"},
+		{"g() { f(yield 1); }", "1:9", "a yield that gives a value stands after = or in parentheses: (yield x)"},
+		{"g() { local a = 1 + yield; }", "1:21", "a yield that gives a value stands after = or in parentheses"},
+		{"g() { local a = yield from x; }", "1:23", "yield from is a statement: it gives no value"},
+		{"g() { yield from x }", "1:20", "expected ';' after yield from, found '}'"},
 		{"main() { with (x) ; }", "1:16", "expected 'local' after 'with ('"},
 		{"main() { with (local a) ; }", "1:22", "a needs a value: with closes what its variables hold"},
 		// temporaries (syntax version 3 and before), in all three places
@@ -364,6 +373,7 @@ func FuzzParser(f *testing.F) {
 		"main() { if (a) b; else if (c) d; else { do e; while (f); } }",
 		"main() { x = - - -1; !!y; a->b->c(); (p->f)(); C::x++; }",
 		"main() { f(1, [2, 3,], {4: 5,},); }",
+		"g() { local a = yield; b += yield a; f((yield), (yield 1)); yield from h(); yield from; yield from - 1; }",
 	} {
 		f.Add([]byte(s))
 	}
@@ -402,5 +412,58 @@ f(a, b = 2,) { }
 	}
 	if !f.Decls[2].(*ast.FuncDecl).Params.Params[1].Rest {
 		t.Errorf("A::r: the rest parameter is lost")
+	}
+}
+
+// TestYield checks yield from (with from as a variable's name where no
+// expression can follow it) and the yield that gives a value.
+func TestYield(t *testing.T) {
+	for _, c := range []struct{ src, want string }{
+		{"yield from x;", "from x"},
+		{"yield from (x);", "from x"},
+		{"yield from [1, 2];", "from [1 2]"},
+		{"yield from g()->h;", "from (member (call g) h)"},
+		{`yield from "ab";`, `from "ab"`},
+		{"yield from;", "yield from"},
+		{"yield from - 1;", "yield (- from 1)"},
+		{"yield from++;", "yield (++post from)"},
+		{"yield (from)(x);", "yield (call from x)"},
+		{"yield (from)[0];", "yield (index from 0)"},
+		{"yield;", "yield <nil>"},
+		{"local a = yield;", "local a = (yield)"},
+		{"local a = yield b + 1, c;", "local a = (yield (+ b 1))"},
+		{"a = yield;", "expr (= a (yield))"},
+		{"a += yield b;", "expr (+= a (yield b))"},
+		{"a = b = yield c;", "expr (= a (= b (yield c)))"},
+		{"f((yield), (yield 1));", "expr (call f (yield) (yield 1))"},
+		{"(yield x);", "expr (yield x)"},
+	} {
+		f, err := ParseFile("t.kkl", []byte("g() { "+c.src+" }"))
+		if err != nil {
+			t.Errorf("%s: %v", c.src, err)
+			continue
+		}
+		var got string
+		switch s := f.Decls[0].(*ast.FuncDecl).Body.Stmts[0].(type) {
+		case *ast.YieldStmt:
+			v := "<nil>"
+			if s.Value != nil {
+				v = sexpr(s.Value)
+			}
+			if s.From {
+				got = "from " + v
+			} else {
+				got = "yield " + v
+			}
+		case *ast.LocalDecl:
+			got = "local " + s.Vars[0].Name.Name + " = " + sexpr(s.Vars[0].Value)
+		case *ast.ExprStmt:
+			got = "expr " + sexpr(s.X)
+		default:
+			got = fmt.Sprintf("%T", s)
+		}
+		if got != c.want {
+			t.Errorf("%s: got %s, want %s", c.src, got, c.want)
+		}
 	}
 }

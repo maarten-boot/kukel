@@ -1,0 +1,18 @@
+total 3
+ab
+ 11 fs::File(<memory>, 11 bytes) nil r+
+line: total 3
+line: ab
+one two 7
+one
+twoXXhree
+one
+ 14
+11 nil
+ValueError fs::File::lock: a file in memory cannot be locked (no other program can see it)
+ValueError fs::File::text: <stdout> is not in memory (text() is for the files of fs::memory; read() reads a file)
+IOError fs::File::seek: a position before the start
+fs::File(<memory>, closed) true
+ValueError fs::File::read: <memory> is closed
+x
+a b nil true

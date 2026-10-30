@@ -14,7 +14,8 @@ Two kinds of change need care when you upgrade:
 
 ## Unreleased
 
-**Syntax version 9**: programs of version 8 are unchanged.
+**Syntax versions 9 and 10, bytecode format 11**: programs of version 8
+are unchanged (`from` is not a keyword); `.kkc` files must be built again.
 
 - The escape `\u{...}` in strings: a character by its code (one to six
   hexadecimal digits), written as UTF-8: `"caf\u{E9}"` is `"café"`,
@@ -25,6 +26,13 @@ Two kinds of change need care when you upgrade:
   definition on several lines, also one that fits on one (function
   literals keep their lines). Comments stay; the output is checked to
   differ from the input only by the braces. Q95.
+- Generators: `g->send(x)` resumes a generator and gives `x` to the `yield`
+  it goes on from, written `local x = yield v;`, `x = yield v;` or
+  `(yield v)`; `yield from x;` yields every value of a generator (or of
+  anything `for` walks), passing sends on and closing it with the outer
+  one. Host modules make generators with `Interp.Generator` (an `iter()`
+  that gives one makes a host class iterable). `fs::memory([text])`: an
+  `fs::File` in memory, with `f->text()`. Q96.
 
 ## v0.36.0 (2026-10-30)
 

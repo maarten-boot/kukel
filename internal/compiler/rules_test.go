@@ -38,9 +38,19 @@ var ruleCases = map[string]struct {
 		bad: [][2]string{{`g() { yield 1; return 2; } main() {}`, "a generator cannot return a value"}},
 	},
 	"yield_statement": {
-		ok: []string{`g(n) { yield; yield n; local f = fn () { yield 1; }; } main() { for (local x in g(1)) ; }`},
+		ok: []string{`g(n) { yield; yield n; local f = fn () { yield 1; }; yield from f(); yield from [1, 2]; } main() { for (local x in g(1)) ; }`},
 		bad: [][2]string{
 			{`class C { C(); } C::C() { yield 1; } main() {}`, "a constructor cannot yield"},
+			{`class C { C(); } C::C() { yield from [1]; } main() {}`, "a constructor cannot yield"},
+		},
+	},
+	"yield_value": {
+		ok: []string{`f(x) {} g(a) { local b = yield; a = yield b; a += yield; f((yield a)); } main() { local h = g(1); h->next(); h->send(2); }`},
+		bad: [][2]string{
+			{`class C { C(); } C::C() { local a = yield 1; } main() {}`, "a constructor cannot yield"},
+			{`main() { local a = yield; }`, "main cannot yield"},
+			{`global g = (yield 1); main() {}`, "yield is only allowed in a function"},
+			{`g() { local a = yield 1; return a; } main() {}`, "a generator cannot return a value"},
 		},
 	},
 	"with_statement": {

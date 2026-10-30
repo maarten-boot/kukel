@@ -133,7 +133,8 @@ main() {
 *Answered: it leaves `events::run()`, unless `events::onerror(f)` takes it.*
 **F-6** Callbacks only, or coroutines (`await`) later?
 *Answered for now: callbacks only. Generators (TODO.md Q86) now save and
-resume frames (vm.md §4.14), which a coroutine would build on.*
+resume frames (vm.md §4.14), and take values back with `send` (Q96), which
+a coroutine would build on.*
 
 ### 1.4 Values that travel: serialization
 

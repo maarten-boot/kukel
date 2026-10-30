@@ -1,0 +1,58 @@
+// send and yield from (Q96).
+counter() {
+    local n = 0;
+
+    for (;;) {
+        local step = yield n;
+        n += step == nil ? 1 : step;
+    }
+}
+
+class Tree { left; value; right; Tree(l, v, r); }
+Tree::Tree(l, v, r) { left = l; value = v; right = r; }
+
+walk(t) {
+    if (t == nil) return;
+    yield from walk(t->left);
+    yield t->value;
+    yield from walk(t->right);
+}
+
+echo() {
+    local got = [];
+
+    try {
+        for (;;) push(got, (yield len(got)));
+    } finally {
+        println("echo closed with", got);
+    }
+}
+
+relay() {
+    yield "start";
+    yield from echo();
+    yield "never";
+}
+
+main() {
+    local g = counter();
+    println(g->next(), g->send(5), g->next(), g->send(10));
+    local t = new Tree(new Tree(nil, 1, nil), 2, new Tree(nil, 3, new Tree(nil, 4, nil)));
+
+    for (local i, v in walk(t)) print(i, v, "");
+    println();
+    local r = relay();
+    println(r->next(), r->next(), r->send("a"), r->send("b"));
+    r->close();
+    println(r->done());
+
+    for (local x in fn() { yield from[1, 2]; yield from "ab"; yield from { "k": 1 }; } ()) print(x, "");
+    println();
+
+    try { counter()->send(1); } catch (e) { println(e->kind, e->message); }
+    local h = fn() { local a = yield; local b = (yield a) + 1; yield [a, b]; } ();
+    println(h->next(), h->send(7), h->send(8), h->next(), h->done());
+
+    // a loop that stops early closes the inner generator too
+    for (local x in relay()) { if (x != "start") break; }
+}

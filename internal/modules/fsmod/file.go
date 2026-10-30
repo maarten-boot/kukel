@@ -2,7 +2,8 @@ package fsmod
 
 // Open files (TODO.md Q83): fs::open gives an fs::File to read and write a
 // piece at a time; fs::stdin(), fs::stdout() and fs::stderr() give the
-// program's standard streams as such objects.
+// program's standard streams as such objects, and fs::memory() a file in
+// memory (Q96).
 //
 //	with (local log = fs::open("app.log", "a")) log->println(time::now(), "started");
 //
@@ -42,10 +43,14 @@ var File = &native.Class{
 		"flush":    method("flush", 0, 0, flush),
 		"close":    method("close", 0, 0, closeFile),
 		"iter":     method("iter", 0, 0, lines),
+		"text":     method("text", 0, 0, text),
 		"closed": method("closed", 0, 0, func(a native.Args, env value.Env, f *file) (value.Value, error) {
 			return value.MakeBool(f.closed), nil
 		}),
 		"name": method("name", 0, 0, func(a native.Args, env value.Env, f *file) (value.Value, error) {
+			if f.mem != nil {
+				return value.NilValue, nil
+			}
 			return value.MakeString(f.name), nil
 		}),
 		"mode": method("mode", 0, 0, func(a native.Args, env value.Env, f *file) (value.Value, error) {
@@ -57,6 +62,10 @@ var File = &native.Class{
 		switch {
 		case f.std != 0:
 			return "fs::File(" + f.name + ")"
+		case f.mem != nil && f.closed:
+			return "fs::File(<memory>, closed)"
+		case f.mem != nil:
+			return fmt.Sprintf("fs::File(<memory>, %d bytes)", len(f.mem.data))
 		case f.closed:
 			return fmt.Sprintf("fs::File(%q, closed)", f.name)
 		}
@@ -71,11 +80,20 @@ const (
 	stderr
 )
 
+// handle is what a file reads, writes and moves in: an *os.File, or a
+// memFile.
+type handle interface {
+	io.ReadWriteSeeker
+	Truncate(size int64) error
+	Close() error
+}
+
 // file is the Go part of an fs::File.
 type file struct {
 	name, mode    string
 	std           int // 0, or stdin, stdout, stderr
-	f             *os.File
+	f             handle
+	mem           *memFile      // the file of fs::memory, or nil
 	r             *bufio.Reader // nil when not open for reading
 	w             *bufio.Writer // nil when not open for writing (and for the standard streams)
 	env           value.Env     // of a standard stream: the interpreter whose streams it uses
@@ -154,6 +172,89 @@ func newFile(env value.Env, name, mode string, osf *os.File, waits bool) value.V
 	f.open.files[f] = struct{}{}
 	f.self = File.Object(f)
 	return f.self
+}
+
+// fs::memory([text]): an fs::File in memory, open for reading and writing
+// ("r+"), that holds text at first; f->text() gives what it holds.
+func memory(env value.Env, args []value.Value) (value.Value, error) {
+	a, err := native.Check("fs::memory", args, 0, 1)
+	if err != nil {
+		return value.NilValue, err
+	}
+	m := &memFile{}
+	if a.Has(0) {
+		s, err := a.String(0)
+		if err != nil {
+			return value.NilValue, err
+		}
+		m.data = []byte(s)
+	}
+	f := &file{name: "<memory>", mode: "r+", f: m, mem: m, reads: true, writes: true}
+	f.r = bufio.NewReaderSize(m, bufSize)
+	f.w = bufio.NewWriterSize(m, bufSize)
+	f.self = File.Object(f)
+	return f.self, nil
+}
+
+// memFile is the handle of a file in memory.
+type memFile struct {
+	data []byte
+	pos  int64
+}
+
+func (m *memFile) Read(p []byte) (int, error) {
+	if m.pos >= int64(len(m.data)) {
+		return 0, io.EOF
+	}
+	n := copy(p, m.data[m.pos:])
+	m.pos += int64(n)
+	return n, nil
+}
+
+func (m *memFile) Write(p []byte) (int, error) {
+	if end := m.pos + int64(len(p)); end > int64(len(m.data)) {
+		m.data = append(m.data, make([]byte, end-int64(len(m.data)))...) // past the end: zero bytes between, as a file
+	}
+	copy(m.data[m.pos:], p)
+	m.pos += int64(len(p))
+	return len(p), nil
+}
+
+func (m *memFile) Seek(off int64, whence int) (int64, error) {
+	switch whence {
+	case io.SeekCurrent:
+		off += m.pos
+	case io.SeekEnd:
+		off += int64(len(m.data))
+	}
+	if off < 0 {
+		return 0, errors.New("a position before the start")
+	}
+	m.pos = off
+	return off, nil
+}
+
+func (m *memFile) Truncate(size int64) error {
+	if size <= int64(len(m.data)) {
+		m.data = m.data[:size]
+	} else {
+		m.data = append(m.data, make([]byte, size-int64(len(m.data)))...)
+	}
+	return nil
+}
+
+func (m *memFile) Close() error { return nil }
+
+// f->text(): what a file of fs::memory holds, also what was written after
+// the position.
+func text(a native.Args, env value.Env, f *file) (value.Value, error) {
+	if f.mem == nil {
+		return value.NilValue, a.Errorf(value.ValueError, "%s is not in memory (text() is for the files of fs::memory; read() reads a file)", f.name)
+	}
+	if err := f.w.Flush(); err != nil {
+		return value.NilValue, ioError(a, err)
+	}
+	return value.MakeString(string(f.mem.data)), nil
 }
 
 // fs::temp([pattern [, dir]]): a new file, open "w+", named by pattern
@@ -511,14 +612,16 @@ func (f *file) close() error {
 		return nil
 	}
 	f.closed = true
-	delete(f.open.files, f)
+	if f.open != nil { // (not for a file in memory)
+		delete(f.open.files, f)
+	}
 	var err error
 	if f.w != nil {
 		err = f.w.Flush()
 	}
 	if f.locked != "" {
 		f.locked = ""
-		if uerr := unlockFile(f.f); err == nil {
+		if uerr := unlockFile(f.f.(*os.File)); err == nil {
 			err = uerr
 		}
 	}
@@ -606,6 +709,9 @@ func lock(a native.Args, env value.Env, f *file) (value.Value, error) {
 	if f.std != 0 {
 		return value.NilValue, a.Errorf(value.IOError, "%s: a standard stream cannot be locked", f.name)
 	}
+	if f.mem != nil {
+		return value.NilValue, a.Errorf(value.ValueError, "a file in memory cannot be locked (no other program can see it)")
+	}
 	if f.locked == kind {
 		return value.True, nil
 	}
@@ -624,7 +730,7 @@ func lock(a native.Args, env value.Env, f *file) (value.Value, error) {
 		f.r.Reset(f.f)
 	}
 	try := func() (bool, error) {
-		ok, kept, err := tryLock(f.f, kind == "exclusive", f.locked != "")
+		ok, kept, err := tryLock(f.f.(*os.File), kind == "exclusive", f.locked != "")
 		switch {
 		case ok:
 			f.locked = kind
@@ -671,7 +777,7 @@ func unlock(a native.Args, env value.Env, f *file) (value.Value, error) {
 		err = f.w.Flush()
 	}
 	f.locked = ""
-	if uerr := unlockFile(f.f); err == nil {
+	if uerr := unlockFile(f.f.(*os.File)); err == nil {
 		err = uerr
 	}
 	if err != nil {

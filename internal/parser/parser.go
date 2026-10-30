@@ -223,7 +223,7 @@ func (p *parser) parseVarList(what string, isConst bool) []*ast.VarSpec {
 			p.expect(token.ASSIGN, "after constant name")
 			v.Value = p.parseConditional()
 		} else if p.accept(token.ASSIGN) {
-			v.Value = p.parseAssign()
+			v.Value = p.parseAssignValue()
 		}
 		vars = append(vars, v)
 		if !p.accept(token.COMMA) {
@@ -418,6 +418,12 @@ func (p *parser) parseStmt() ast.Stmt {
 		return &ast.ReturnStmt{Return: pos, Value: v}
 	case token.YIELD:
 		p.next()
+		if p.atFrom() {
+			p.next()
+			v := p.parseExpr()
+			p.expect(token.SEMICOLON, "after yield from")
+			return &ast.YieldStmt{Yield: pos, Value: v, From: true}
+		}
 		var v ast.Expr
 		if !p.at(token.SEMICOLON) {
 			v = p.parseExpr()
@@ -624,7 +630,49 @@ func (p *parser) parseAssign() ast.Expr {
 	}
 	op := p.tok.Kind
 	p.next()
-	return &ast.AssignExpr{Op: op, LHS: lhs, RHS: p.parseAssign()}
+	return &ast.AssignExpr{Op: op, LHS: lhs, RHS: p.parseAssignValue()}
+}
+
+// parseAssignValue parses what follows "=" in an assignment or a variable
+// declaration: an assignment, or a yield that gives a value (x = yield v).
+func (p *parser) parseAssignValue() ast.Expr {
+	if p.at(token.YIELD) {
+		return p.parseYieldExpr()
+	}
+	return p.parseAssign()
+}
+
+// parseYieldExpr parses "yield [value]" where a value is wanted; the value
+// is left out before ";", ")" and ",".
+func (p *parser) parseYieldExpr() ast.Expr {
+	pos := p.tok.Pos
+	p.next()
+	if p.atFrom() {
+		p.errorf(p.tok.Pos, "yield from is a statement: it gives no value")
+	}
+	var v ast.Expr
+	if !p.at(token.SEMICOLON) && !p.at(token.RPAREN) && !p.at(token.COMMA) {
+		v = p.parseAssign()
+	}
+	return &ast.YieldExpr{Yield: pos, Value: v}
+}
+
+// atFrom tells whether the word after yield is the from of "yield from x":
+// the name from followed by a token that starts an expression and cannot
+// follow one (a name, a literal, new, fn, this, "!", "~"), or by "(", "["
+// or "{". from is not a keyword: "yield from;", "yield from - 1;" and
+// "yield from++;" yield a variable called from; "yield (from)(x);" and
+// "yield (from)[0];" call or index one.
+func (p *parser) atFrom() bool {
+	if !p.at(token.IDENT) || p.tok.Text != "from" {
+		return false
+	}
+	switch p.peek(1).Kind {
+	case token.IDENT, token.INT, token.FLOAT, token.CHAR, token.STRING, token.TRUE, token.FALSE, token.NIL,
+		token.THIS, token.NEW, token.FN, token.LPAREN, token.LBRACK, token.LBRACE, token.BANG, token.TILDE:
+		return true
+	}
+	return false
 }
 
 // parseConditional parses "c ? expression : assignment".
@@ -789,9 +837,16 @@ func (p *parser) parsePrimary() ast.Expr {
 	switch t.Kind {
 	case token.LPAREN:
 		p.next()
-		x := p.parseExpr()
+		var x ast.Expr
+		if p.at(token.YIELD) {
+			x = p.parseYieldExpr()
+		} else {
+			x = p.parseExpr()
+		}
 		p.expect(token.RPAREN, "to close '(' at "+t.Pos.String())
 		return x
+	case token.YIELD:
+		p.errorf(t.Pos, "a yield that gives a value stands after = or in parentheses: (yield x)")
 	case token.INT, token.FLOAT, token.CHAR, token.STRING:
 		return p.parseLiteral(t.Pos, false)
 	case token.TRUE, token.FALSE:

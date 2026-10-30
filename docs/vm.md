@@ -5,7 +5,7 @@ values, the program image, the execution model of the stack machine, every
 instruction, how the compiler translates the language's constructs, the
 `.kkc` file format and what the loader guarantees.
 
-It describes bytecode format version **10** (introduced in kukel v0.35). The language
+It describes bytecode format version **11** (introduced in kukel v0.37). The language
 itself is described in [reference.md](reference.md), its grammar in
 [syntax.ebnf](../syntax.ebnf).
 
@@ -518,6 +518,10 @@ list, and runs it until:
 
 - `YIELD`: the frame's slots, operands and handlers go back into the
   generator, the frame is dropped, and the value is the step's result;
+  `YIELD_VALUE` (a `yield` that gives a value, `local x = yield v;`) does
+  the same and notes it, so the next step starts with the value it was
+  sent (`send(x)`; `nil` from `next()` and `for`) pushed on the frame's
+  operands;
 - `GEN_RETURN` (its `return;`, and the end of its body): the frame is
   dropped, and the generator is done;
 - an exception leaves the body: it is done, and the exception goes on
@@ -554,14 +558,35 @@ and the loop's handler on the exception path, section 6.7). A generator
 that is dropped while suspended is not closed: Go has no finalizers that
 would run its `finally` blocks at a known time.
 
-A generator written in Go (`native.Generator`, as `fs::File::iter`) has
-no frame: a step calls its Go function, and closing it only marks it done.
+A generator written in Go (`native.Generator`, as `fs::File::iter`, or
+`Interp.Generator` of the Go API) has no frame: a step calls its Go
+function (a value sent to it is dropped), and closing it only marks it
+done.
+
+**`yield from x;`** compiles to a `for`-each loop over `x` (a hidden
+iterator slot, its handler, `ITER_CLOSE` on the way out) whose body yields
+each value with `YIELD_VALUE` and hands what was sent for it to
+`ITER_SEND`, which keeps it in the loop's iterator: the next `ITER_NEXT`
+starts `x`'s step with it (an iterator of a vector, map or string drops
+it). Closing the outer generator leaves the loop by the closing exception,
+so its handler closes `x`; nothing else is new:
+
+```
+outer() {                        GENERATOR
+    yield from inner();          LOAD_GLOBAL inner; CALL 0; ITER_INIT; STORE_LOCAL (iterator)
+                           top:  ITER_NEXT (iterator), 1, end
+                                 YIELD_VALUE                       (a step ends here)
+                                 ITER_SEND (iterator)              (what was sent goes to inner)
+                                 JUMP top
+                           end:  ITER_CLOSE (iterator)
+}                                GEN_RETURN
+```
 
 **In the dispatch loop** the generators cost almost nothing: `ITER_NEXT`
 of something that is not a vector, map or string iterator and `YIELD`
 each call a function outside the loop and reload the loop's state from
-the top frame (as calls do); `GENERATOR`, `GEN_RETURN` and `ITER_CLOSE`
-go to the loop's `default` case, and `ITER_INIT` of an object to its error
+the top frame (as calls do); `GENERATOR`, `GEN_RETURN`, `ITER_CLOSE`,
+`YIELD_VALUE` and `ITER_SEND` go to the loop's `default` case, and `ITER_INIT` of an object to its error
 path, which hand the instruction to the code for generators outside the
 loop instead of raising an error. The loop is measurably faster with less
 code in it: when the Go compiler takes it for a "big" function, it stops
@@ -677,6 +702,8 @@ code: the numbers, names, operands and stack effects.
 | 88 | `YIELD` | | 1 | 0 | `x`: the generator's step ends and gives `x`; the next step goes on after it |
 | 89 | `ITER_CLOSE` | slot:u16 | 0 | 0 | the loop with the iterator in `slot` is left: if it walks a generator, remove its handler and close it (nothing for a vector, map or string) |
 | 90 | `GEN_RETURN` | | 0 | 0 | the generator ends (its `return;` and the end of its body): drop the frame; a `for`-each loop goes on at its end |
+| 91 | `YIELD_VALUE` | | 1 | 1 | `x`: as `YIELD`; the next step goes on after it with the value sent to it (`send`; `nil` for `next` and `for`) pushed |
+| 92 | `ITER_SEND` | slot:u16 | 1 | 0 | `x`: the next step of the generator the loop with the iterator in `slot` walks gets `x` (`yield from`; dropped for a vector, map or string) |
 
 `CMP_JUMP`'s `cmp` operand is the comparison in its low byte (0 `<`,
 1 `<=`, 2 `>`, 3 `>=`, 4 `==`, 5 `!=`), plus 0x100 to jump when the
@@ -1202,7 +1229,7 @@ noted; `str` is a `uv` length followed by that many bytes.
 
 ```
 "KUKL"                       4 bytes: magic
-uv   format version          10
+uv   format version          11
 uv   flags                   0 (1: a module, below)
 uv   main                    global index of main
 uv   n, then n globals       str name, byte kind (0 variable, 1 function, 2 built-in, 3 class, 4 native),
@@ -1238,7 +1265,8 @@ version 6: native base classes, `CALL_NATIVE`; version 7: `ARITH_LK`,
 `CMP_JUMP_LK`; version 8: `INDEX_LL`, `GET_MEMBER_L`, `ARITH_LL`,
 `CMP_JUMP_LL`, `ARITH_K`, `CMP_JUMP_K`; version 9: generators,
 `GENERATOR`, `YIELD`, `ITER_CLOSE`; version 10: `GEN_RETURN`, for steps
-in the loop that walks the generator). `BREAK` came later
+in the loop that walks the generator; version 11: `YIELD_VALUE`,
+`ITER_SEND`, for `send` and `yield from`). `BREAK` came later
 without a new version: it is only in the debugger's copy of the code, and a
 file that holds one is refused. A reader refuses any version other
 than its own, telling the user to compile the program again. Built-ins and

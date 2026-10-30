@@ -227,6 +227,7 @@ type ReturnStmt struct {
 type YieldStmt struct {
 	Yield token.Pos
 	Value Expr // nil: yield nil
+	From  bool // "yield from x;": every value of x (Value is set)
 }
 
 // LocalDecl is "local a, b = 1;".
@@ -345,6 +346,14 @@ type NewExpr struct {
 	Module *Ident // nil without a module
 	Class  *Ident
 	Args   []Expr // may contain *Spread
+}
+
+// YieldExpr is "yield [value]" where a value is wanted (local x = yield v;,
+// x = yield v;, (yield v)): it yields as the statement does, and its value
+// is what the next step was sent (nil for next).
+type YieldExpr struct {
+	Yield token.Pos
+	Value Expr // nil: yield nil
 }
 
 // FuncLit is "fn (params) { ... }".
@@ -490,6 +499,7 @@ func (x *MapLit) Pos() token.Pos    { return x.Lbrace }
 func (x *MapEntry) Pos() token.Pos  { return x.Key.Pos() }
 func (x *NewExpr) Pos() token.Pos   { return x.New }
 func (x *FuncLit) Pos() token.Pos   { return x.Fn }
+func (x *YieldExpr) Pos() token.Pos { return x.Yield }
 func (x *StaticRef) Pos() token.Pos {
 	if x.Module != nil {
 		return x.Module.NamePos
@@ -555,6 +565,7 @@ func (*VectorLit) exprNode()  {}
 func (*MapLit) exprNode()     {}
 func (*NewExpr) exprNode()    {}
 func (*FuncLit) exprNode()    {}
+func (*YieldExpr) exprNode()  {}
 func (*StaticRef) exprNode()  {}
 func (*Spread) exprNode()     {}
 func (*CommaExpr) exprNode()  {}
