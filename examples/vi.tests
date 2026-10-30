@@ -1,0 +1,93 @@
+# Tests of vi.kkl, run in examples/ (see examples/README.md). Its output is
+# not a terminal here: it draws nothing and prints its messages, and the
+# keys come from a file (Esc is the byte 0x1b in it). :p and :%p print
+# the text; no case writes a file.
+
+# moves: counts, $, w and b over UTF-8 text, r, x, i, and p of a character
+$ testdata/vi.txt < testdata/vi-move.keys
+"testdata/vi.txt" 4L, 71B
+naïve café au lai
+naïXe café au lai
+naïXe café au Zlai
+aïXe café au Zlai
+ukel's viK
+ukel's viK
+	tabs and words: here, there
+aïXe café au Zlai
+ast line
+
+# insert mode: A I o O, Backspace (not past the start), Enter, Esc; u undoes the last insert
+$ testdata/vi.txt < testdata/vi-insert.keys
+"testdata/vi.txt" 4L, 71B
+Kukel's vi!
+A Kukel's vi!
+A Kukel's vi!
+above
+new line
+	tabs and words: here, there
+naïve café au lait
+last line
+A Kukel's vi!
+x
+yabove 
+new line
+	tabs and words: here, there
+naïve café au lait
+last line
+A Kukel's vi!
+above 
+new line
+	tabs and words: here, there
+naïve café au lait
+last line
+
+# lines: dd with a count, P, yy p, J, u twice (the second takes the undo back), G with a count, :N
+$ testdata/vi.txt < testdata/vi-lines.keys
+"testdata/vi.txt" 4L, 71B
+naïve café au lait
+last line
+Kukel's vi
+	tabs and words: here, there
+naïve café au lait
+last line
+Kukel's vi
+	tabs and words: here, there
+naïve café au lait
+last line
+Kukel's vi
+Kukel's vi tabs and words: here, there
+Kukel's vi tabs and words: here, there
+naïve café au lait
+last line
+Kukel's vi
+last line
+Kukel's vi tabs and words: here, there
+
+# search: /, n, N, around the ends, not found; Ctrl-G; an unknown command; :q refused after a change
+$ testdata/vi.txt < testdata/vi-search.keys
+"testdata/vi.txt" 4L, 71B
+	tabs and words: here, there
+	tabs and words: here, there
+	tabs and words: here, there
+search hit BOTTOM, continuing at TOP
+	tabs and words: here, there
+search hit TOP, continuing at BOTTOM
+last line
+Pattern not found: zzz
+"testdata/vi.txt" 4 lines
+Not an editor command: frob
+No write since last change (add ! to override)
+
+# a file that is not there yet
+$ testdata/no-such-file.txt < testdata/vi-quit.keys
+"testdata/no-such-file.txt" [New File]
+
+# no file name: :w and :x cannot write
+$ < testdata/vi-noname.keys
+No file name
+No file name
+
+# wrong use
+$ a b
+! usage: kukel run vi.kkl -- [file]
+exit 2

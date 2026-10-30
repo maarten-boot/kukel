@@ -1,0 +1,724 @@
+// vi.kkl: a small vi in the terminal (module term): normal, insert and :
+// command modes, the usual moves, counts, delete, yank and put, one level
+// of undo, and search.
+//
+//   kukel run vi.kkl -- notes.txt
+//
+// When the output is not a terminal, it draws nothing and prints its
+// messages as lines: the keys can then come from a file (vi.tests).
+
+use fs;
+use term;
+use utf8;
+
+global buf = [[]];            // the lines, each a vector of characters
+global cy = 0, cx = 0;        // the cursor: line and character
+global want = 0;              // the column j and k try to keep
+global top = 0, left = 0;     // the first line and screen column shown
+global rows = 23, cols = 80;  // the lines of text on the screen, and its width
+global name = nil;            // the file
+global dos = false;           // its lines end in "\r\n"
+global modified = false;
+global mode = "normal";       // or "insert"
+global count = 0;             // a count being typed (3dd)
+global pending = "";          // an operator waiting for its second key: d, y, g, r
+global yank = nil;            // what y, d and x took: {"lines": bool, "text": lines or characters}
+global undo = nil;            // the state before the last change
+global pattern = nil;         // the last search
+global message = "";          // shown on the status line
+global screen = false;        // drawing on a terminal
+global quit = false;
+
+main(args) {
+    if (len(args) > 1) {
+        eprintln("usage: kukel run vi.kkl -- [file]");
+        return 2;
+    }
+
+    screen = term::isterm();
+
+    if (len(args) == 1) load(args[0]);
+
+    if (screen) print("\x1b[?1049h");   // the alternate screen: the old one comes back at the end
+    term::raw(fn() {
+        while (!quit) {
+            if (screen) draw();
+            local k = term::key();
+
+            if (k == nil) break;         // the end of the keys (from a file)
+
+            if (mode == "insert") insertKey(k);
+            else normalKey(k);
+        }
+    });
+
+    if (screen) print("\x1b[?1049l");
+}
+
+// show reports something: on the status line, or as a line of output.
+show(text) {
+    if (screen) message = text;
+    else println(text);
+}
+
+// ----------------------------------------------------------------------
+// Files
+
+load(file) {
+    name = file;
+
+    if (!fs::exists(file)) {
+        show("\"" + file + "\" [New File]");
+        return;
+    }
+    local text = readfile(file);
+    local size = len(text);
+    dos = find(text, "\r\n") >= 0;
+
+    if (dos) text = replace(text, "\r\n", "\n");
+
+    if (len(text) > 0 && slice(text, len(text) - 1) == "\n") text = slice(text, 0, len(text) - 1);
+    buf = [];
+
+    for (local line in split(text, "\n")) push(buf, utf8::chars(line));
+    show("\"" + file + "\" " + str(len(buf)) + "L, " + str(size) + "B");
+}
+
+// save writes the text to file; whether it could.
+save(file) {
+    if (file == nil || file == "") {
+        show("No file name");
+        return false;
+    }
+    local lines = [];
+
+    for (local line in buf) push(lines, join(line));
+    local end = dos ? "\r\n" : "\n";
+    local text = join(lines, end) + end;
+
+    try {
+        writefile(file, text);
+    } catch (e) {
+        show("\"" + file + "\" cannot be written: " + e->message);
+        return false;
+    }
+
+    if (name == nil) name = file;
+
+    if (file == name) modified = false;
+    show("\"" + file + "\" " + str(len(buf)) + "L, " + str(len(text)) + "B written");
+    return true;
+}
+
+// ----------------------------------------------------------------------
+// The screen
+
+// cells gives the screen columns of a line, one string each: a tab takes
+// the columns up to the next multiple of 8, a control character two (^A).
+cells(line, upto) {
+    local out = [];
+
+    for (local i = 0; i < upto; i++) {
+        local c = line[i];
+
+        if (c == "\t") {
+            push(out, " ");
+
+            while (len(out) % 8 != 0) push(out, " ");
+        } else if (len(c) == 1 && ord(c) < 32) {
+            push(out, "^", char(ord(c) + 64));
+        } else {
+            push(out, c);
+        }
+    }
+    return out;
+}
+
+// column is the screen column of character i of the current line.
+column(i) { return len(cells(buf[cy], i)); }
+
+// scroll keeps the cursor on the screen.
+scroll() {
+    if (cy < top) top = cy;
+
+    if (cy >= top + rows) top = cy - rows + 1;
+    local c = column(cx);
+
+    if (c < left) left = c;
+
+    if (c >= left + cols) left = c - cols + 1;
+}
+
+draw() {
+    local size = term::size();
+    cols = size[0];
+    rows = max(size[1] - 1, 1);
+    scroll();
+    local out = ["\x1b[?25l\x1b[H"];
+
+    for (local r = 0; r < rows; r++) {
+        local i = top + r;
+
+        push(out, i < len(buf) ? visible(buf[i]) : "~");
+        push(out, "\x1b[K\r\n");
+    }
+    push(out, "\x1b[7m", fit(status()), "\x1b[0m");
+    push(out, "\x1b[" + str(cy - top + 1) + ";" + str(column(cx) - left + 1) + "H\x1b[?25h");
+    print(join(out));
+}
+
+// visible is the part of a line on the screen.
+visible(line) {
+    local c = cells(line, len(line));
+
+    if (left >= len(c)) return "";
+    return join(slice(c, left, min(len(c), left + cols)));
+}
+
+// status is the status line: the message, or the mode, file and position.
+status() {
+    local s = message;
+
+    if (s == "") {
+        s = (mode == "insert" ? "-- INSERT -- " : "") + (name == nil ? "[No Name]" : "\"" + name + "\"");
+
+        if (modified) s += " [+]";
+    }
+    local pos = str(cy + 1) + "," + str(cx + 1);
+    local gap = cols - utf8::len(s) - utf8::len(pos) - 1;
+    return gap > 0 ? s + spaces(gap) + pos : s;
+}
+
+// fit cuts or fills s to the width of the screen.
+fit(s) {
+    if (utf8::len(s) > cols) return utf8::slice(s, 0, cols);
+    return s + spaces(cols - utf8::len(s));
+}
+
+spaces(n) {
+    local v = [];
+
+    for (local i = 0; i < n; i++) push(v, " ");
+    return join(v);
+}
+
+// prompt reads a line on the status line after lead (":", "/"): nil when
+// Esc (or Backspace on an empty line) cancels it.
+prompt(lead) {
+    local text = [];
+
+    for (;;) {
+        if (screen) print("\x1b[" + str(rows + 1) + ";1H\x1b[K" + lead + join(text));
+        local k = term::key();
+
+        if (k == nil || k == "Esc") return nil;
+
+        if (k == "Enter") return join(text);
+
+        if (k == "Backspace") {
+            if (len(text) == 0) return nil;
+            pop(text);
+        } else if (utf8::len(k) == 1) {
+            push(text, k);
+        }
+    }
+}
+
+// more shows lines (:p) and waits for a key on the screen.
+more(lines) {
+    if (!screen) {
+        for (local line in lines) println(line);
+        return;
+    }
+    print("\x1b[2J\x1b[H");
+
+    for (local line in lines) print(line, "\r\n");
+    print("Press a key to continue");
+    term::key();
+}
+
+// ----------------------------------------------------------------------
+// Moving
+
+lastCol() {
+    local n = len(buf[cy]);
+    return mode == "insert" ? n : max(n - 1, 0);
+}
+
+firstNonBlank() {
+    local line = buf[cy];
+    cx = 0;
+
+    while (cx < len(line) - 1 && (line[cx] == " " || line[cx] == "\t")) cx++;
+    want = cx;
+}
+
+goLine(i) {
+    cy = max(0, min(i, len(buf) - 1));
+    firstNonBlank();
+}
+
+// The classes of characters for w and b: 0 blank, 1 punctuation, 2 word.
+kind(c) {
+    if (c == " " || c == "\t") return 0;
+
+    if (len(c) > 1 || c == "_" || c >= "0" && c <= "9" || c >= "a" && c <= "z" || c >= "A" && c <= "Z") return 2;
+    return 1;
+}
+
+// wordForward moves to the start of the next word; an empty line is one.
+wordForward() {
+    local line = buf[cy];
+
+    if (cx < len(line)) {
+        local k = kind(line[cx]);
+
+        if (k != 0) while (cx < len(line) && kind(line[cx]) == k) cx++;
+    }
+
+    for (;;) {
+        while (cx < len(line) && kind(line[cx]) == 0) cx++;
+
+        if (cx < len(line)) return;
+
+        if (cy == len(buf) - 1) {
+            cx = max(len(line) - 1, 0);
+            return;
+        }
+        cy++;
+        cx = 0;
+        line = buf[cy];
+
+        if (len(line) == 0) return;
+    }
+}
+
+// wordBack moves to the start of this word, or of the one before.
+wordBack() {
+    for (;;) {
+        if (cx == 0) {
+            if (cy == 0) return;
+            cy--;
+            cx = len(buf[cy]);
+
+            if (cx == 0) return;
+        }
+        cx--;
+
+        if (kind(buf[cy][cx]) != 0) break;
+    }
+    local k = kind(buf[cy][cx]);
+
+    while (cx > 0 && kind(buf[cy][cx - 1]) == k) cx--;
+}
+
+// search finds pattern from the cursor on, forward (dir 1) or backward
+// (-1), around the end of the text.
+search(dir) {
+    if (pattern == nil) {
+        show("No previous search");
+        return;
+    }
+    local n = len(buf);
+
+    for (local step = 0; step <= n; step++) {
+        local i = (cy + dir * step + n * 2) % n;
+        local s = join(buf[i]);
+        local found = -1;
+
+        if (dir > 0) {
+            local from = step == 0 ? utf8::offset(s, min(cx + 1, len(buf[i]))) : 0;
+
+            if (step == n) from = 0;   // back at the start: the part before the cursor
+            found = find(s, pattern, from);
+        } else {
+            local limit = step == 0 ? utf8::offset(s, cx) : len(s);
+
+            for (local j = find(s, pattern); j >= 0 && j < limit; j = find(s, pattern, j + 1)) found = j;
+        }
+
+        if (found >= 0) {
+            if (dir > 0 && (i < cy || i == cy && step > 0)) show("search hit BOTTOM, continuing at TOP");
+
+            if (dir < 0 && (i > cy || i == cy && step > 0)) show("search hit TOP, continuing at BOTTOM");
+            cy = i;
+            cx = utf8::index(s, found);
+            want = cx;
+            return;
+        }
+    }
+    show("Pattern not found: " + pattern);
+}
+
+// ----------------------------------------------------------------------
+// Changing
+
+snapshot() {
+    local copy = [];
+
+    for (local line in buf) push(copy, slice(line, 0));
+    return {"buf": copy, "cy": cy, "cx": cx};
+}
+
+// changing notes the state before a change, for u.
+changing() {
+    undo = snapshot();
+    modified = true;
+}
+
+undoChange() {
+    if (undo == nil) {
+        show("Already at oldest change");
+        return;
+    }
+    local now = snapshot();
+    buf = undo["buf"];
+    cy = undo["cy"];
+    cx = undo["cx"];
+    undo = now;   // u again takes it back
+    modified = true;
+}
+
+deleteChars(n) {
+    local line = buf[cy];
+
+    if (len(line) == 0) return;
+    changing();
+    local taken = [];
+
+    for (local i = 0; i < n && cx < len(line); i++) push(taken, remove(line, cx));
+    yank = {"lines": false, "text": taken};
+}
+
+deleteLines(n) {
+    changing();
+    n = min(n, len(buf) - cy);
+    local taken = [];
+
+    for (local i = 0; i < n; i++) push(taken, remove(buf, cy));
+
+    if (len(buf) == 0) push(buf, []);
+    yank = {"lines": true, "text": taken};
+    goLine(cy);
+}
+
+yankLines(n) {
+    local taken = [];
+
+    for (local i = cy; i < min(cy + n, len(buf)); i++) push(taken, slice(buf[i], 0));
+    yank = {"lines": true, "text": taken};
+
+    if (len(taken) > 2) show(str(len(taken)) + " lines yanked");
+}
+
+// put puts what was taken after the cursor (or before it, with P).
+put(after, n) {
+    if (yank == nil) return;
+    changing();
+    local text = yank["text"];
+
+    if (yank["lines"]) {
+        local at = after ? cy + 1 : cy;
+
+        for (local k = 0; k < n; k++) for (local line in text) insert(buf, at++, slice(line, 0));
+        goLine(after ? cy + 1 : cy);
+        return;
+    }
+    local line = buf[cy];
+    local at = after && len(line) > 0 ? cx + 1 : cx;
+
+    for (local k = 0; k < n; k++) for (local c in text) insert(line, at++, c);
+    cx = at - 1;
+}
+
+joinLines(n) {
+    if (cy == len(buf) - 1) return;
+    changing();
+
+    for (local k = 1; k < max(n, 2) && cy < len(buf) - 1; k++) {
+        local line = buf[cy], next = remove(buf, cy + 1);
+
+        while (len(next) > 0 && kind(next[0]) == 0) remove(next, 0);
+        cx = len(line);
+
+        if (len(line) > 0 && len(next) > 0 && next[0] != ")") push(line, " ");
+        else if (cx > 0) cx--;
+
+        for (local c in next) push(line, c);
+    }
+}
+
+// insertMode starts inserting, the cursor at character at of line cy.
+insertMode(at) {
+    changing();
+    mode = "insert";
+    cx = at;
+}
+
+openLine(below) {
+    changing();
+    cy = below ? cy + 1 : cy;
+    insert(buf, cy, []);
+    mode = "insert";
+    cx = 0;
+}
+
+// ----------------------------------------------------------------------
+// Keys
+
+normalKey(k) {
+    message = "";
+
+    if (pending == "r") {
+        pending = "";
+
+        if (utf8::len(k) == 1 && len(buf[cy]) > 0) {
+            changing();
+            buf[cy][cx] = k;
+        }
+        return;
+    }
+
+    if (pending == "g") {
+        pending = "";
+
+        if (k == "g") goLine(count > 0 ? count - 1 : 0);
+        count = 0;
+        return;
+    }
+
+    if (pending == "d" || pending == "y") {
+        local op = pending, n = max(count, 1);
+        pending = "";
+        count = 0;
+
+        if (k == op && op == "d") deleteLines(n);
+        else if (k == op) yankLines(n);
+        return;
+    }
+
+    if (utf8::len(k) == 1 && (k >= "1" && k <= "9" || k == "0" && count > 0)) {
+        count = count * 10 + int(k);
+        return;
+    }
+    local n = max(count, 1), given = count;
+    count = 0;
+
+    switch (k) {
+        case "h": case "Left": case "Backspace":
+            cx = max(cx - n, 0);
+            want = cx;
+            break;
+        case "l": case "Right": case " ":
+            cx = min(cx + n, lastCol());
+            want = cx;
+            break;
+        case "j": case "Down": case "Ctrl-N":
+            cy = min(cy + n, len(buf) - 1);
+            cx = min(want, lastCol());
+            break;
+        case "k": case "Up": case "Ctrl-P":
+            cy = max(cy - n, 0);
+            cx = min(want, lastCol());
+            break;
+        case "Enter":
+            goLine(cy + n);
+            break;
+        case "0": case "Home":
+            cx = 0;
+            want = 0;
+            break;
+        case "^":
+            firstNonBlank();
+            break;
+        case "$": case "End":
+            cx = lastCol();
+            want = 1 << 40;
+            break;
+        case "w":
+            for (local i = 0; i < n; i++) wordForward();
+            want = cx;
+            break;
+        case "b":
+            for (local i = 0; i < n; i++) wordBack();
+            want = cx;
+            break;
+        case "G":
+            goLine(given > 0 ? given - 1 : len(buf) - 1);
+            break;
+        case "Ctrl-F": case "PageDown":
+            goLine(cy + n * max(rows - 2, 1));
+            break;
+        case "Ctrl-B": case "PageUp":
+            goLine(cy - n * max(rows - 2, 1));
+            break;
+        case "g": case "d": case "y": case "r":
+            pending = k;
+            count = given;
+            break;
+        case "Y":
+            yankLines(n);
+            break;
+        case "x": case "Delete":
+            deleteChars(n);
+            break;
+        case "p":
+            put(true, n);
+            break;
+        case "P":
+            put(false, n);
+            break;
+        case "J":
+            joinLines(n);
+            break;
+        case "u":
+            undoChange();
+            break;
+        case "i":
+            insertMode(cx);
+            break;
+        case "a":
+            insertMode(len(buf[cy]) > 0 ? cx + 1 : 0);
+            break;
+        case "I":
+            firstNonBlank();
+            insertMode(cx);
+            break;
+        case "A":
+            insertMode(len(buf[cy]));
+            break;
+        case "o":
+            openLine(true);
+            break;
+        case "O":
+            openLine(false);
+            break;
+        case ":": {
+            local line = prompt(":");
+
+            if (line != nil) command(line);
+            break;
+        }
+        case "/": {
+            local p = prompt("/");
+
+            if (p != nil && p != "") pattern = p;
+
+            if (p != nil) search(1);
+            break;
+        }
+        case "n":
+            search(1);
+            break;
+        case "N":
+            search(-1);
+            break;
+        case "Ctrl-G":
+            show((name == nil ? "[No Name]" : "\"" + name + "\"") + (modified ? " [Modified]" : "") + " " + str(len(buf)) + " lines");
+            break;
+    }
+    cx = max(0, min(cx, lastCol()));
+}
+
+insertKey(k) {
+    local line = buf[cy];
+
+    switch (k) {
+        case "Esc":
+            mode = "normal";
+            cx = max(0, min(cx - 1, lastCol()));
+            want = cx;
+            return;
+        case "Enter":
+            buf[cy] = slice(line, 0, cx);
+            insert(buf, ++cy, slice(line, cx));
+            cx = 0;
+            return;
+        case "Backspace":
+            if (cx > 0) {
+                remove(line, --cx);
+            } else if (cy > 0) {
+                cy--;
+                cx = len(buf[cy]);
+
+                for (local c in remove(buf, cy + 1)) push(buf[cy], c);
+            }
+            return;
+        case "Delete":
+            if (cx < len(line)) remove(line, cx);
+            else if (cy < len(buf) - 1) for (local c in remove(buf, cy + 1)) push(line, c);
+            return;
+        case "Tab":
+            k = "\t";
+            break;
+        case "Left":
+            cx = max(cx - 1, 0);
+            return;
+        case "Right":
+            cx = min(cx + 1, len(line));
+            return;
+        case "Up": case "Down":
+            cy = k == "Up" ? max(cy - 1, 0) : min(cy + 1, len(buf) - 1);
+            cx = min(cx, len(buf[cy]));
+            return;
+        case "Home":
+            cx = 0;
+            return;
+        case "End":
+            cx = len(line);
+            return;
+    }
+
+    if (utf8::len(k) == 1) insert(line, cx++, k);
+}
+
+// isNumber tells whether s is a line number (:12).
+isNumber(s) {
+    if (s == "") return false;
+
+    for (local c in utf8::chars(s)) if (c < "0" || c > "9") return false;
+    return true;
+}
+
+command(line) {
+    line = trim(line);
+
+    if (line == "") return;
+
+    if (isNumber(line)) {
+        goLine(int(line) - 1);
+        return;
+    }
+    local cmd = line, arg = nil;
+    local sp = find(line, " ");
+
+    if (sp >= 0) {
+        cmd = slice(line, 0, sp);
+        arg = trim(slice(line, sp + 1));
+    }
+
+    switch (cmd) {
+        case "w": case "w!":
+            save(arg != nil ? arg : name);
+            break;
+        case "wq": case "x":
+            if (cmd == "x" && !modified || save(arg != nil ? arg : name)) quit = true;
+            break;
+        case "q":
+            if (modified) show("No write since last change (add ! to override)");
+            else quit = true;
+            break;
+        case "q!":
+            quit = true;
+            break;
+        case "p": case "%p": {
+            local lines = [];
+
+            for (local i = cmd == "p" ? cy : 0; i <= (cmd == "p" ? cy : len(buf) - 1); i++) push(lines, join(buf[i]));
+            more(lines);
+            break;
+        }
+        default:
+            show("Not an editor command: " + line);
+    }
+}

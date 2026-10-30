@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -341,6 +342,24 @@ func SetProgram(env value.Env, path string) {
 // Program is what SetProgram set, or "".
 func Program(env value.Env) string {
 	return *env.Local(programKey{}, func() any { return new(string) }).(*string)
+}
+
+type terminalKey struct{ in, out *os.File }
+
+// SetTerminal tells the interpreter of env that its standard input and
+// output are the files in and out of the process (kukel run and exec), so
+// that module term may make them raw and ask the size of the terminal
+// they are, if they are one. An interpreter without it (one a Go program
+// makes) has no terminal: term reads keys from its standard input as it
+// is, and changes no terminal.
+func SetTerminal(env value.Env, in, out *os.File) {
+	*env.Local(terminalKey{}, func() any { return new(terminalKey) }).(*terminalKey) = terminalKey{in, out}
+}
+
+// Terminal gives what SetTerminal set, or nil files.
+func Terminal(env value.Env) (in, out *os.File) {
+	t := env.Local(terminalKey{}, func() any { return new(terminalKey) }).(*terminalKey)
+	return t.in, t.out
 }
 
 // Waiter is a wait that Wait began; Done ends it.

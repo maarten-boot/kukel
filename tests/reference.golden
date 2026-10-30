@@ -21,5 +21,6 @@
   "ce0beaf6dc77": "10000 50 0 nil Point{x: 1, y: 2}\n",
   "d5e3e8d9e03f": "true true\np9::Client::write: /files/new.txt: read-only file system\n",
   "e11a39fcf4c9": "info: 9 10 6\n",
+  "f1bf969439b3": "[80, 24]\n\u001b[2J\u001b[H",
   "fc37b7c5dcf4": "0;1;2; 6\n"
 }

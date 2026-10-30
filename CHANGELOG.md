@@ -12,6 +12,14 @@ Two kinds of change need care when you upgrade:
   format version; build it again from its source after such a release
   (`kukel build`). The history is in [docs/vm.md](docs/vm.md) §7.
 
+## Unreleased
+
+- The module `term`: the terminal a key at a time (`term::raw(f)`,
+  `term::key([timeout])` with keys such as `"a"`, `"Enter"`, `"Up"`,
+  `"Ctrl-S"`), `term::size()` and `term::isterm()`; keys also come from a
+  pipe or a file, for tests. `examples/vi.kkl`: a small vi built on it.
+  Q99.
+
 ## v0.37.0 (2026-10-30)
 
 **Syntax versions 9 and 10, bytecode format 11**: programs of version 8

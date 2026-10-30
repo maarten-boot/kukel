@@ -29,6 +29,7 @@ import (
 	_ "github.com/maarten-boot/kukel/internal/modules/p9mod"
 	_ "github.com/maarten-boot/kukel/internal/modules/remod"
 	_ "github.com/maarten-boot/kukel/internal/modules/stringsmod"
+	_ "github.com/maarten-boot/kukel/internal/modules/termmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/timemod"
 	_ "github.com/maarten-boot/kukel/internal/modules/tkmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/utf8mod"
@@ -261,6 +262,11 @@ func runProgram(prog *bytecode.Program, name string, progArgs []string, stdin io
 	}
 	machine.SetStderr(stderr)
 	native.SetProgram(machine, name)
+	if in, ok := stdin.(*os.File); ok {
+		if outFile, ok := stdout.(*os.File); ok {
+			native.SetTerminal(machine, in, outFile) // module term: raw mode and the size, if they are a terminal
+		}
+	}
 	code, err := machine.Run(progArgs)
 	ferr := out.Flush()
 	if err != nil {

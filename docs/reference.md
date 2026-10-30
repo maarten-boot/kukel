@@ -2052,6 +2052,56 @@ it appends to `s` in place when nothing else was added after `s`.)
 
 A builder prints as `strings::Builder(6 bytes)`.
 
+### term
+
+```
+use term;
+
+main() {
+    println(term::size());                 // [80, 24]: columns and rows
+    term::raw(fn() {
+        print("\x1b[2J\x1b[H");             // clear the screen, cursor home
+
+        for (local k = term::key(); k != nil && k != "q"; k = term::key()) print(k, "\r\n");
+    });
+}
+```
+
+The terminal a key at a time, for programs that draw the screen
+themselves with ANSI escape codes (`"\x1b[2J"` clears it, `"\x1b[5;10H"`
+puts the cursor on row 5, column 10, `"\x1b[7m"` shows text reversed):
+a menu, a game, [examples/vi.kkl](../examples/vi.kkl). On Windows the
+console is switched to understand those codes while the terminal is raw.
+
+| Function | Description |
+|---|---|
+| `term::isterm()` | Whether the program's standard input and output are a terminal |
+| `term::size()` | `[columns, rows]` of the terminal; without one, from the environment variables `COLUMNS` and `LINES`, else `[80, 24]` |
+| `term::raw(f)` | Calls `f()` with the terminal in **raw mode** and gives its result: each key comes at once (no Enter needed), nothing typed is shown, and Ctrl-C is a key rather than the end of the program. Afterwards the terminal is as it was, also when `f` throws or the program calls `exit`. In raw mode a newline only moves down: write `"\r\n"` to start a new line. Without a terminal (or inside another `raw`) it only calls `f` |
+| `term::key([timeout])` | The next key: `nil` at the end of the input, or when none came within `timeout` seconds (a key that comes later is not lost) |
+
+A **key** is the character typed (`"a"`, `"é"`, `" "`: one character,
+`utf8::len(k) == 1`) or the name of a key, of two or more letters:
+`"Enter"`, `"Tab"`, `"Backspace"`, `"Esc"`, `"Up"`, `"Down"`, `"Left"`,
+`"Right"`, `"Home"`, `"End"`, `"PageUp"`, `"PageDown"`, `"Insert"`,
+`"Delete"`, `"F1"` to `"F12"`, `"Ctrl-A"` to `"Ctrl-Z"` (and
+`"Ctrl-Space"`, `"Ctrl-\\"`, `"Ctrl-]"`, `"Ctrl-^"`, `"Ctrl-_"`), and
+those a terminal sends with Ctrl, Alt or Shift held, as `"Ctrl-Left"`,
+`"Shift-Tab"`, `"Alt-Up"`. A sequence it does not know comes as it is,
+with `"Esc"` in front (`"Esc[99z"`). Esc and the keys after it are told
+apart from such sequences by time: an Esc followed by nothing within 50
+milliseconds is the Esc key.
+
+Keys come from the program's standard input, which need not be a
+terminal: from a pipe or a file the same bytes give the same keys (a
+line end, also `"\r\n"`, is `"Enter"`; the byte 0x1b is Esc), so a
+program can be tested with a file of keys, as `examples/vi.tests` does.
+Only `kukel run` and `kukel exec` give a program the terminal itself: in
+an interpreter of a Go program (the embedding API) `isterm()` is false
+and `raw` changes nothing, and `key()` reads the standard input the Go
+program gave it. Reading keys and `readline()` from the same input do not
+mix well: a key read ahead belongs to `term::key`.
+
 ### time
 
 ```

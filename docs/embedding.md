@@ -84,8 +84,10 @@ longer needed.
 
 `Builtins()` and `StandardModules()` list the names of the built-in
 functions and of the standard modules (`db`, `events`, `fs`, `json`, `p9`,
-`re`, `strings`, `time`, `utf8`, `uuid`, `worker`, `zmq`, and `tk` in a program
-built with `-tags tk`).
+`re`, `strings`, `term`, `time`, `utf8`, `uuid`, `worker`, `zmq`, and `tk` in a program
+built with `-tags tk`). `term` reads keys from the standard input of
+`Options`, but never makes a terminal raw: an interpreter has no terminal
+(`term::isterm()` is false).
 
 ## 2. Values
 
@@ -296,7 +298,7 @@ more does not compile, so it never runs half-way):
 ```go
 opts := kukel.CompileOptions{
     DenyBuiltins:    kukel.SystemBuiltins,          // readfile, writefile, appendfile, readline, getenv, exit
-    StandardModules: []string{"json", "strings"},   // no db, fs, p9, zmq, events, worker, re, time, utf8, uuid
+    StandardModules: []string{"json", "strings"},   // no db, fs, p9, zmq, events, worker, re, term, time, utf8, uuid
     NoFileModules:   true,                          // no program files: "use" finds only standard modules, no worker::startfile
 }
 ```

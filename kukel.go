@@ -45,6 +45,7 @@ import (
 	_ "github.com/maarten-boot/kukel/internal/modules/p9mod"
 	_ "github.com/maarten-boot/kukel/internal/modules/remod"
 	_ "github.com/maarten-boot/kukel/internal/modules/stringsmod"
+	_ "github.com/maarten-boot/kukel/internal/modules/termmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/timemod"
 	_ "github.com/maarten-boot/kukel/internal/modules/tkmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/utf8mod"

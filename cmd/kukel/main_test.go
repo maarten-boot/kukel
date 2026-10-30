@@ -376,7 +376,7 @@ func TestASTError(t *testing.T) {
 }
 
 // fullModules are the modules of a kukel built without tags.
-const fullModules = "db (SQLite, PostgreSQL, MySQL), events, fs, json, p9, re, strings, time, utf8, uuid, worker, zmq"
+const fullModules = "db (SQLite, PostgreSQL, MySQL), events, fs, json, p9, re, strings, term, time, utf8, uuid, worker, zmq"
 
 // withTk adds tk to the list of modules when this kukel has it (the build
 // tag tk).
