@@ -12,7 +12,7 @@ Two kinds of change need care when you upgrade:
   format version; build it again from its source after such a release
   (`kukel build`). The history is in [docs/vm.md](docs/vm.md) §7.
 
-## Unreleased
+## v0.37.0 (2026-10-30)
 
 **Syntax versions 9 and 10, bytecode format 11**: programs of version 8
 are unchanged (`from` is not a keyword); `.kkc` files must be built again.
