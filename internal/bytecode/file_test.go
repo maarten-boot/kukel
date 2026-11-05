@@ -8,6 +8,7 @@ import (
 	"hash/crc32"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -42,13 +43,30 @@ func fuzzBuiltins(name string) (*value.BuiltinObj, bool) {
 // time: a changed program of tests/run may sleep or wait for timers and
 // workers, which the step limit does not count, so it is cancelled after
 // a second (the waits stop then).
+//
+// A program that still runs fuzzWatchdog after it started was not stopped
+// by either: a path without a step (Q91), or one built-in call doing much
+// work. The watchdog then panics with the stacks of all goroutines, which
+// ends the fuzzing process: go test writes the input to testdata/fuzz (CI
+// prints it and keeps it as an artifact), where a hang that the end of
+// -fuzztime cuts off keeps nothing ("context deadline exceeded").
 func runFuzzed(m *vm.VM) {
 	m.StepLimit = 10000
 	c := m.Cancellable()
 	stop := time.AfterFunc(time.Second, func() { c.Cancel(errors.New("fuzzed program took too long")) })
 	defer stop.Stop()
+	dog := time.AfterFunc(fuzzWatchdog, func() {
+		buf := make([]byte, 1<<20)
+		buf = buf[:runtime.Stack(buf, true)]
+		panic(fmt.Sprintf("a fuzzed program still runs %v after it started, though it was cancelled after a second:\n%s", fuzzWatchdog, buf))
+	})
+	defer dog.Stop()
 	m.Run(nil)
 }
+
+// fuzzWatchdog is how long runFuzzed lets a program run (see there): well
+// past the cancellation, so that a slow machine does not set it off.
+const fuzzWatchdog = 5 * time.Second
 
 // compilePrograms compiles every program in tests/run that compiles.
 func compilePrograms(t testing.TB) map[string]*bytecode.Program {

@@ -41,6 +41,24 @@ jobs:
         run: make build && ./bin/kukel version
       - name: Fuzz briefly
         run: make fuzz FUZZTIME=10s
+      # A fuzz test that fails (or whose watchdog stops a program that runs
+      # on: internal/bytecode runFuzzed) leaves its input in testdata/fuzz:
+      # the new files are printed here and kept as an artifact, to run again
+      # with go test -run=FuzzName/<file> once put in the same place.
+      - name: Show the inputs that failed a fuzz test
+        if: failure()
+        run: |
+          mkdir -p "$RUNNER_TEMP/fuzz-failures"
+          git ls-files --others --exclude-standard -- '*/testdata/fuzz/*' | while read -r f; do
+            echo "== $f"; cat "$f"; cp --parents "$f" "$RUNNER_TEMP/fuzz-failures/"
+          done
+      - name: Keep the inputs that failed a fuzz test
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2
+        with:
+          name: fuzz-failures-go-${{ matrix.go }}
+          path: ${{ runner.temp }}/fuzz-failures
+          if-no-files-found: ignore
 
   # What is Windows' own: the fs module (locks with LockFileEx, chmod's
   # read-only flag, temporary files, its messages) and a kukel.exe that
