@@ -98,7 +98,7 @@ func TestLoadErrors(t *testing.T) {
 		files []string
 		msg   string
 	}{
-		{[]string{"missing.kkl"}, "missing.kkl:1:5: module nosuch not found: no nosuch.kkl in " + dir},
+		{[]string{"missing.kkl"}, "missing.kkl:1:5: module nosuch not found: no nosuch.kkl in " + dir + ", " + filepath.Join(dir, "sub") + "; nor is it a standard module of this kukel (kukel version lists them)"},
 		{[]string{"cycle.kkl"}, "y.kkl:1:5: modules use each other in a cycle: x -> y -> x"},
 		{[]string{"self.kkl"}, "self.kkl:1:5: " + filepath.Join(dir, "self.kkl") + " is both a file of the program and module self"},
 		{[]string{"twice.kkl"}, "sub.kkl:1:5: module dup is " + filepath.Join(dir, "sub", "dup.kkl") + " here, but " + filepath.Join(dir, "dup.kkl") + " elsewhere in the program"},

@@ -12,6 +12,13 @@ Two kinds of change need care when you upgrade:
   format version; build it again from its source after such a release
   (`kukel build`). The history is in [docs/vm.md](docs/vm.md) §7.
 
+## Unreleased
+
+- A `use` of a module that is neither found as a file nor a standard
+  module now says so, and that `kukel version` lists the standard
+  modules: a kukel older than the module (`use term;` in v0.37) said only
+  that `term.kkl` was missing. Q100.
+
 ## v0.38.0 (2026-10-30)
 
 - The module `term`: the terminal a key at a time (`term::raw(f)`,

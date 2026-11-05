@@ -507,7 +507,12 @@ geometry::Circle{r: 1}
   else in one of the directories listed in the environment variable
   `KUKEL_PATH` (separated by `:`, or `;` on Windows; empty entries are
   skipped, not taken as the current directory). In each directory a
-  compiled `name.kkc` counts when there is no `name.kkl`.
+  compiled `name.kkc` counts when there is no `name.kkl`. When none is
+  found, the message names the directories it looked in, and says that
+  `name` is not a standard module of this kukel either: `kukel version`
+  lists them, so a module that a newer kukel has shows up as missing from
+  this one (`module term not found: no term.kkl in .; nor is it a standard
+  module of this kukel (kukel version lists them)`).
 - A module is an ordinary source file with its own name space. Its
   top-level names are reached as `name::x`: functions (`geometry::hypot(3,
   4)`), constants (also in constant expressions), globals (which can be

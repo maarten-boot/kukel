@@ -195,10 +195,13 @@ func (l *loader) find(name, dir string) (string, error) {
 			}
 		}
 	}
+	// The standard modules came first: a name that is none of them may be
+	// one that a newer kukel has (use term; in an older one).
+	const notStandard = "; nor is it a standard module of this kukel (kukel version lists them)"
 	if len(dirs) == 0 {
-		return "", errors.New("module " + name + " not found: there is no directory to look for " + name + Ext + " in (no search path)")
+		return "", errors.New("module " + name + " not found: there is no directory to look for " + name + Ext + " in (no search path)" + notStandard)
 	}
-	return "", errors.New("module " + name + " not found: no " + name + Ext + " in " + strings.Join(dirs, ", "))
+	return "", errors.New("module " + name + " not found: no " + name + Ext + " in " + strings.Join(dirs, ", ") + notStandard)
 }
 
 func parse(file, module string) (*ast.File, error) {
