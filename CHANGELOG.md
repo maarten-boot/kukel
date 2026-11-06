@@ -22,6 +22,10 @@ From v1.0.0 on, what keeps working is in
   `fs::File`, with `timeout`, `closewrite` and `ondata` for the event
   loop), UDP packets (`net::udp`: `sendto`, `receive`, `onmessage`) and
   `net::lookup`. Q103.
+- The booklet ([docs/booklet](docs/booklet/README.md)), Part I: the
+  language, in twelve chapters, from getting started to modules, with a
+  picture of kukel's components. Every program in it is run by the tests.
+  Q104.
 
 ## v1.0.0 (2026-11-06)
 

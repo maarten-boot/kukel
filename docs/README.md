@@ -2,6 +2,7 @@
 
 | Document | What it is for |
 |---|---|
+| [booklet/](booklet/README.md) | learning Kukel, chapter by chapter: Part I, the language (getting started, values, collections, scope, expressions, statements, functions, closures, classes, exceptions, generators, modules); Part II, the modules, to come |
 | [tutorial.md](tutorial.md) | learning Kukel: a tour from the first program to modules, events and workers |
 | [reference.md](reference.md) | the whole language and tool: commands, the REPL, the debugger, the profiler, syntax, types, statements, classes, exceptions, the built-in functions, and every module written in Go (§11: `db`, `events`, `fs`, `json`, `net`, `p9`, `re`, `strings`, `term`, `time`, `tk`, `utf8`, `uuid`, `worker`, `zmq`) |
 | [debugging.md](debugging.md) | debugging in an editor with `kukel dap`: Visual Studio Code, Neovim, Helix, Emacs |

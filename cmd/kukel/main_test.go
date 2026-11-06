@@ -242,11 +242,11 @@ func TestBuildExecDisasm(t *testing.T) {
 }
 
 // TestReferenceExamples runs every example in docs/reference.md, the
-// tutorial and the README that has a main function: the documentation
-// must not show programs that fail.
+// tutorial, the booklet and the README that has a main function: the
+// documentation must not show programs that fail.
 func TestReferenceExamples(t *testing.T) {
 	var doc []byte
-	for _, name := range []string{"../../docs/reference.md", "../../docs/tutorial.md", "../../README.md"} {
+	for _, name := range docFiles(t) {
 		text, err := os.ReadFile(name)
 		if err != nil {
 			t.Fatal(err)
@@ -397,6 +397,17 @@ func fullBuild() bool {
 
 // unavailable tells why program src cannot run in this kukel, built
 // without a module or database it uses ("" if it can).
+// docFiles are the documents whose programs the tests run: the reference,
+// the tutorial, the booklet's chapters (in order) and the README.
+func docFiles(t *testing.T) []string {
+	booklet, err := filepath.Glob("../../docs/booklet/*.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := []string{"../../docs/reference.md", "../../docs/tutorial.md"}
+	return append(append(files, booklet...), "../../README.md")
+}
+
 func unavailable(src string) string {
 	if _, ok := native.Lookup("zmq"); !ok && strings.Contains(src, "use zmq;") {
 		return "built without zmq (tag nozmq)"

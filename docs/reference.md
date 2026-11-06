@@ -1138,7 +1138,7 @@ Kinds of runtime errors:
 | `CompileError` | `worker::startfile` of a program with a compile error |
 | `WorkerError` | `w->wait()` of a worker that failed (the message holds the worker's error) |
 | `DBError` | an error the database reports: SQL that is not valid, a broken constraint (UNIQUE, CHECK, FOREIGN KEY), a database that cannot be opened |
-| `NetError` | a network problem in `zmq` or `p9`: an address that cannot be bound, listened on or reached, a server that does not answer, a connection that is lost, a message that cannot be sent or received |
+| `NetError` | a network problem in `net`, `zmq` or `p9`: an address that cannot be bound, listened on or reached, a server that does not answer, a connection that is lost, a message that cannot be sent or received |
 | `HostError` | a function of a Go program that embeds Kukel failed ([embedding.md](embedding.md)) |
 | `CancelledError` | the Go program that runs Kukel stopped it (a time limit); cannot be caught |
 | `StepLimitError` | the step limit set by a Go program that runs Kukel was reached; cannot be caught |
