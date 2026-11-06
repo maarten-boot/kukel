@@ -271,6 +271,9 @@ func TestReferenceExamples(t *testing.T) {
 	blocks := strings.Split(string(doc), "```")
 	n := 0
 	for i := 1; i < len(blocks); i += 2 {
+		if tagged(blocks[i]) {
+			continue // ```go and the like: not Kukel
+		}
 		code := strings.TrimPrefix(blocks[i], "\n")
 		if !strings.Contains(code, "main(") {
 			if name, ok := strings.CutPrefix(strings.SplitN(code, "\n", 2)[0], "// "); ok && strings.HasSuffix(name, ".kkl") {
@@ -397,6 +400,13 @@ func fullBuild() bool {
 
 // unavailable tells why program src cannot run in this kukel, built
 // without a module or database it uses ("" if it can).
+// tagged reports whether a fenced block names its language (```go): the
+// blocks of Kukel programs and of output name none.
+func tagged(block string) bool {
+	first, _, _ := strings.Cut(block, "\n")
+	return strings.TrimSpace(first) != ""
+}
+
 // docFiles are the documents whose programs the tests run: the reference,
 // the tutorial, the booklet's chapters (in order) and the README.
 func docFiles(t *testing.T) []string {

@@ -148,6 +148,9 @@ func docPrograms(t *testing.T) []string {
 		}
 		blocks := strings.Split(string(text), "```")
 		for i := 1; i < len(blocks); i += 2 {
+			if tagged(blocks[i]) {
+				continue // ```go and the like: not Kukel
+			}
 			code := strings.TrimPrefix(blocks[i], "\n")
 			first := strings.SplitN(code, "\n", 2)[0]
 			if strings.Contains(code, "main(") || strings.HasPrefix(first, "// ") && strings.HasSuffix(first, ".kkl") {

@@ -28,7 +28,7 @@ BOOKLET = os.path.join(ROOT, "docs", "booklet")
 REPO = "https://github.com/maarten-boot/kukel"
 
 # The parts, by the number of their first chapter.
-PARTS = {1: "Part I: the language", 13: "Part II: the modules"}
+PARTS = {1: "Part I: the language", 13: "Part II: the modules", 22: "Appendices"}
 
 CSS = """
 @page {
@@ -49,7 +49,7 @@ p, li { orphans: 3; widows: 3; }
 a { color: #0b3d91; text-decoration: none; }
 code, pre { font-family: "DejaVu Sans Mono", "Noto Sans Mono", monospace; }
 code { font-size: 9pt; }
-pre { font-size: 8.4pt; line-height: 1.35; background: #f3f3f3; color: #000; border: 0.5pt solid #bbb;
+pre { font-size: 8.4pt; line-height: 1.35; background: #fcfcfc; color: #000; border: 0.6pt solid #999;
       padding: 6pt 8pt; white-space: pre-wrap; overflow-wrap: anywhere; break-inside: avoid; }
 p + pre { break-before: avoid; }
 pre.long { break-inside: auto; }

@@ -15,6 +15,14 @@ Two kinds of change need care when you upgrade:
 From v1.0.0 on, what keeps working is in
 [docs/compatibility.md](docs/compatibility.md).
 
+## Unreleased
+
+- The booklet's appendices: embedding Kukel in Go, Go in Kukel (host
+  modules), code that is not trusted, and tables to look things up; their
+  Go programs are run by the tests too. The tutorial is now a ten-minute
+  tour that leads into the booklet. In the PDF, code stands in a box on a
+  white background. Q104, Q105.
+
 ## v1.1.0 (2026-11-06)
 
 Syntax version 10 and bytecode format 11, as in v1.0.0: programs and

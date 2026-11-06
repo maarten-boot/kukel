@@ -67,5 +67,13 @@ takes them one by one.
 
 ## Appendices
 
-*To come:* embedding Kukel in Go; Go in Kukel (host modules); code that
-is not trusted; keywords, operators, the grammar and compatibility.
+For Go programmers, and to look things up:
+
+- A. [Embedding Kukel in Go](22-embedding.md): compiling, interpreters,
+  calling Kukel functions, values, errors
+- B. [Go in Kukel: host modules](23-host-modules.md): Go functions and
+  classes that Kukel code uses
+- C. [Code that is not trusted](24-untrusted.md): what a script may use,
+  and how long it may run
+- D. [Tables](25-tables.md): keywords, operators, statements, escapes,
+  built-in functions, kinds of errors, the modules, what stays the same

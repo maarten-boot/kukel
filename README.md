@@ -68,11 +68,12 @@ caught RangeError: index 5 out of range for vector of length 3
   other programs and machines); and written in Kukel: `iter` (generators
   to make, combine and use up sequences: `range`, `map`, `filter`, `take`,
   `zip`, `reduce`, ...)
-- 55 built-in functions (strings, collections, math, files, ...)
+- 56 built-in functions (strings, collections, math, files, ...)
 
-New to Kukel? [The booklet](docs/booklet/README.md) teaches the language
-from the first program on (Parts I and II are ready; the appendices follow), and
-[docs/tutorial.md](docs/tutorial.md) is a fifteen-minute tour. The full description is in [docs/reference.md](docs/reference.md); the
+New to Kukel? [docs/tutorial.md](docs/tutorial.md) is a ten-minute tour,
+and [the booklet](docs/booklet/README.md) teaches the language and its
+modules from the first program on (each release also has it as a PDF).
+The full description is in [docs/reference.md](docs/reference.md); the
 grammar is in [syntax.ebnf](syntax.ebnf) (and as a
 [Lark](https://github.com/lark-parser/lark) grammar in
 [syntax.lark](syntax.lark)). How programs are compiled and run (the virtual

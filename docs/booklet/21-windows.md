@@ -1,6 +1,6 @@
 # 21. Windows
 
-[The booklet](README.md) · previous: [20. The tools](20-tools.md) · next: Appendices (to come)
+[The booklet](README.md) · previous: [20. The tools](20-tools.md) · next: [A. Embedding Kukel in Go](22-embedding.md)
 
 The module `tk` opens windows on the desktop, with buttons, text fields,
 lists, menus, dialogs and a canvas to draw on. It uses Tk, the toolkit of
@@ -165,4 +165,4 @@ have it, for example with a setting in a file.
 
 The [reference](../reference.md#tk) describes each, with its options.
 
-[The booklet](README.md) · previous: [20. The tools](20-tools.md) · next: Appendices (to come)
+[The booklet](README.md) · previous: [20. The tools](20-tools.md) · next: [A. Embedding Kukel in Go](22-embedding.md)

@@ -1,10 +1,11 @@
 # A tour of Kukel
 
-This tour takes about fifteen minutes. It goes from a first program to
-classes, exceptions, modules, events and workers, one short program at a
-time. Every program here is run by the tests, so what it prints is what
-you will see. The full rules are in [reference.md](reference.md); this tour
-only shows the way in.
+This tour takes about ten minutes: a first program, values, vectors and
+maps, functions and classes, one short program at a time. Every program
+here is run by the tests, so what it prints is what you will see. Then
+[the booklet](booklet/README.md) takes over: it teaches the whole
+language and every module, chapter by chapter, and is also in each
+release as a PDF. The full rules are in [reference.md](reference.md).
 
 Contents:
 
@@ -13,11 +14,7 @@ Contents:
 3. [Vectors and maps](#3-vectors-and-maps)
 4. [Functions](#4-functions)
 5. [Classes](#5-classes)
-6. [Exceptions](#6-exceptions)
-7. [Modules](#7-modules)
-8. [Events](#8-events)
-9. [Workers](#9-workers)
-10. [The tools](#10-the-tools)
+6. [Where to go next](#6-where-to-go-next)
 
 ## 1. A first program
 
@@ -247,246 +244,28 @@ from as `Account::Account(owner)`, and `Account::describe()` runs the
 version it replaces. Every member function is virtual: `acc->describe()`
 runs the one of the object's own class.
 
-## 6. Exceptions
+## 6. Where to go next
 
-```
-class InputError : Error { line; InputError(msg, line); }
-InputError::InputError(msg, line) {
-    Error::Error(msg);
-    this->line = line;
-}
+The [booklet](booklet/README.md) goes on from here:
 
-parse(lines) {
-    local numbers = [];
-
-    for (local i = 0; i < len(lines); i++) {
-        try {
-            push(numbers, int(lines[i]));
-        } catch (e) {
-            throw new InputError("not a number: " + lines[i], i + 1);
-        }
-    }
-    return numbers;
-}
-
-main() {
-    println(parse(["1", "2", "3"]));
-
-    try {
-        parse(["4", "five", "6"]);
-    } catch (e) {
-        println(e->kind + " on line " + str(e->line) + ": " + e->message);
-    } finally {
-        println("done reading");
-    }
-
-    try {
-        local v = [1, 2];
-        println(v[5]);
-    } catch (e) {
-        println("caught", e->kind);
-    }
-}
-```
-
-```
-$ kukel run errors.kkl
-[1, 2, 3]
-InputError on line 2: not a number: five
-done reading
-caught RangeError
-```
-
-`throw` throws an object of the class `Error`, or of a class derived from
-it; `catch` catches it, and `finally` runs either way. Every error has a
-`kind` (the name of its class, unless given) and a `message`. Errors of the
-language itself are `Error` objects too, with kinds such as `TypeError`,
-`RangeError` and `ValueError`, so the same `catch` handles them. An error
-nothing catches ends the program with its kind, message and the calls that
-led to it.
-
-## 7. Modules
-
-A program can be split into files. A *module* is a file that another file
-uses:
-
-```
-// stats.kkl
-mean(v) { return _sum(v) / float(len(v)); }
-
-spread(v) { return max(v..) - min(v..); }
-
-_sum(v) {
-    local total = 0;
-
-    for (local x in v) total += x;
-    return total;
-}
-```
-
-```
-use json;
-use stats;
-
-main() {
-    local text = "{\"city\": \"Utrecht\", \"temps\": [12, 15, 9, 14]}";
-    local data = json::decode(text);
-    local temps = data["temps"];
-    println(data["city"], "mean", stats::mean(temps), "spread", stats::spread(temps));
-    println(json::encode({"city": data["city"], "mean": stats::mean(temps)}));
-}
-```
-
-```
-$ kukel run weather.kkl
-Utrecht mean 12.5 spread 6
-{"city":"Utrecht","mean":12.5}
-```
-
-`use stats;` loads `stats.kkl` from the same directory (or from the
-directories in `KUKEL_PATH`), and its names are reached as `stats::mean`.
-A name that starts with `_` stays private to its module. `use json;` loads
-a module written in Go that comes with kukel: there are modules for
-databases (`db`), files (`fs`), JSON, regular expressions (`re`), dates
-(`time`), text by character (`utf8`: `utf8::len("é")` is 1 where `len`
-counts 2 bytes), the terminal a key at a time (`term`), UUIDs, networking
-(`zmq`, `p9`), windows (`tk`), and the two
-below. Each is described in [reference.md §11](reference.md#11-modules-written-in-go).
-One standard module is written in Kukel itself: `iter`, with `range`,
-`map`, `filter`, `take`, `zip`, `reduce` and more, all generators
-([reference.md §12](reference.md#12-modules-written-in-kukel)).
-
-`fs` also opens files, to read or write them a line or a piece at a time
-instead of whole; `with` closes them however its statement is left:
-
-```
-use fs;
-
-main() {
-    with (local out = fs::open("shopping.txt", "w")) {
-        out->println("bread");
-        out->println("cheese", 2);
-    }
-
-    with (local f = fs::open("shopping.txt")) {
-        for (local i, line in f) println(str(i + 1) + ".", line);
-    }
-}
-```
-
-```
-$ kukel run shopping.kkl
-1. bread
-2. cheese 2
-```
-
-`for` walks the lines of a file, as it walks the values of a generator
-(with two names, a count from 0 too). `fs::open(path, "a")` appends, and `fs::stdin()`, `fs::stdout()` and
-`fs::stderr()` are the standard streams as such files.
-
-## 8. Events
-
-A program that waits for several things at once, such as timers, network
-messages or clicks in a window, gives each a function to call and lets the
-event loop run:
-
-```
-use events;
-
-main() {
-    local n = 0, tick;
-    tick = events::every(0.1, fn() {
-        n++;
-        println("tick", n);
-
-        if (n == 3) tick->cancel();
-    });
-    events::after(0.25, fn() { println("a quarter second"); });
-    println("start");
-    events::run();
-    println("nothing left to do");
-}
-```
-
-```
-$ kukel run timers.kkl
-start
-tick 1
-tick 2
-a quarter second
-tick 3
-nothing left to do
-```
-
-`events::every` calls its function every 0.1 seconds, `events::after`
-once. `events::run()` calls them as their time comes, one at a time, and
-returns when nothing is left to wait for. Sockets of `zmq` and windows of
-`tk` deliver their events through the same loop, so one program can mix
-them.
-
-## 9. Workers
-
-Workers run functions in parallel, each in an interpreter of its own:
-
-```
-use worker;
-
-primes(from, to) {
-    local count = 0;
-
-    for (local n = from; n < to; n++) {
-        local prime = n > 1;
-
-        for (local d = 2; d * d <= n; d++) {
-            if (n % d == 0) {
-                prime = false;
-                break;
-            }
-        }
-
-        if (prime) count++;
-    }
-    return count;
-}
-
-main() {
-    local workers = [];
-
-    for (local i = 0; i < 4; i++) push(workers, worker::start(primes, i * 25000, (i + 1) * 25000));
-    local total = 0;
-
-    for (local w in workers) total += w->wait();
-    println("primes below 100000:", total);
-}
-```
-
-```
-$ kukel run primes.kkl
-primes below 100000: 9592
-```
-
-`worker::start(f, args...)` runs `f` in a new interpreter on its own
-thread, and `w->wait()` gives what it returned. Workers share no
-variables: they get copies of their arguments, and talk with `send` and
-`receive` (or `onmessage`, through the event loop), so nothing needs a
-lock.
-
-## 10. The tools
-
-`kukel` has more than `run`:
-
-| Command | For |
+| To learn about | Read |
 |---|---|
-| `kukel repl` | trying things out, a line at a time |
-| `kukel fmt -w a.kkl` | laying out a file as all the examples here are |
-| `kukel check a.kkl` | finding errors without running the program |
-| `kukel debug a.kkl` | stopping at a line and looking at the values ([reference.md](reference.md#the-debugger)); in an editor with `kukel dap` ([debugging.md](debugging.md)) |
-| `kukel profile a.kkl` | finding which functions and lines take the time ([reference.md](reference.md#the-profiler)) |
-| `kukel build a.kkl` | compiling to a `.kkc` file that `kukel exec` runs |
+| exceptions: `try`, `catch`, `throw` | [chapter 10](booklet/10-exceptions.md) |
+| generators: `yield` | [chapter 11](booklet/11-generators.md) |
+| splitting a program into modules | [chapter 12](booklet/12-modules.md) |
+| files and directories | [chapter 13](booklet/13-files.md) |
+| JSON, regular expressions, text by character | [chapter 14](booklet/14-text.md) |
+| databases | [chapter 16](booklet/16-databases.md) |
+| timers, events and workers in parallel | [chapter 17](booklet/17-events.md) |
+| the network | [chapter 18](booklet/18-networking.md) |
+| the debugger, the profiler and the other tools | [chapter 20](booklet/20-tools.md) |
+| windows | [chapter 21](booklet/21-windows.md) |
+| running Kukel from a Go program | [appendix A](booklet/22-embedding.md) |
 
-Where to go next:
+And elsewhere:
 
-- [reference.md](reference.md): the whole language, and every module;
+- [reference.md](reference.md): the whole language, and every module, in
+  full detail;
 - [examples/](../examples/README.md): longer programs, such as a `grep`, a
-  chat over ZeroMQ, a to-do list in SQLite and a notes window in Tk;
-- [embedding.md](embedding.md): running Kukel from a Go program.
+  small `vi`, a chat over ZeroMQ, a to-do list in SQLite and a notes window
+  in Tk.
