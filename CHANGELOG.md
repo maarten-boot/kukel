@@ -12,7 +12,15 @@ Two kinds of change need care when you upgrade:
   format version; build it again from its source after such a release
   (`kukel build`). The history is in [docs/vm.md](docs/vm.md) §7.
 
-## Unreleased
+From v1.0.0 on, what keeps working is in
+[docs/compatibility.md](docs/compatibility.md).
+
+## v1.0.0 (2026-11-06)
+
+The first stable release: [docs/compatibility.md](docs/compatibility.md)
+says what keeps working within v1 (the language of syntax version 10, the
+built-in functions and standard modules, the commands, the Go package)
+and what may change (the bytecode format, messages). Q102.
 
 - A `use` of a module that is neither found as a file nor a standard
   module now says so, and that `kukel version` lists the standard

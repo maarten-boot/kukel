@@ -7,6 +7,7 @@
 | [debugging.md](debugging.md) | debugging in an editor with `kukel dap`: Visual Studio Code, Neovim, Helix, Emacs |
 | [embedding.md](embedding.md) | using Kukel from a Go program: interpreters, values, Go functions for Kukel, errors, untrusted code, goroutines, profiling |
 | [vm.md](vm.md) | how programs run: the virtual machine, every instruction, how the compiler translates programs, the `.kkc` file format |
+| [compatibility.md](compatibility.md) | what stays working within v1: the language, the modules, the commands, the Go package; what may change (the bytecode format, messages) |
 | [checks.md](checks.md) | for developers: the subsystems, what to check after a change, and the tests |
 | [future.md](future.md) | ideas for later, and the questions they raise |
 

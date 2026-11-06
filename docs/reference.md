@@ -7,7 +7,8 @@ file to run later.
 
 The formal grammar is in [`syntax.ebnf`](../syntax.ebnf); this document
 describes what programs mean. How they are compiled and executed is
-specified in [vm.md](vm.md).
+specified in [vm.md](vm.md). What stays working from one release to the
+next is in [compatibility.md](compatibility.md).
 
 ```
 // hello.kkl

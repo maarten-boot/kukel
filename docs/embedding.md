@@ -8,6 +8,7 @@ tested; this page explains the parts and how they fit.
 [examples/embed](../examples/embed) is a whole program: it prices orders
 with rules users write in Kukel, with a host module and the limits of
 section 5.
+What the package keeps within v1 is in [compatibility.md](compatibility.md).
 
 ```go
 import "github.com/maarten-boot/kukel"
