@@ -1,12 +1,11 @@
 name: Release
 
 # A tag v1.2.3 runs the whole CI (ci.yml); only when it passes are the
-# archives built (make dist) and published as the GitHub release of the
-# tag, with the logo above notes generated from the commits since the
-# previous tag. A release that already exists (made by hand) gets the
-# archives added. The
-# Docker image (Dockerfile) is built for linux/amd64 and linux/arm64 and
-# pushed to ghcr.io as :v1.2.3, and as :latest when the tag is the newest
+# archives built (make dist), and the booklet as a PDF (make booklet), and
+# published as the GitHub release of the tag, with the logo above notes
+# generated from the commits since the previous tag. A release that already
+# exists (made by hand) gets the files added. The Docker image (Dockerfile)
+# is built for linux/amd64 and linux/arm64 and pushed to ghcr.io as :v1.2.3, and as :latest when the tag is the newest
 # release (not one with a "-", such as v1.3.0-rc1).
 
 on:
@@ -34,6 +33,11 @@ jobs:
           go-version: stable
       - name: Build the archives
         run: make dist VERSION=${{ github.ref_name }}
+      - name: Build the booklet (a PDF; SHA256SUMS made again with it)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 fonts-dejavu-core
+          make booklet VERSION=${{ github.ref_name }}
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}

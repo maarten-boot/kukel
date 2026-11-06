@@ -60,6 +60,25 @@ jobs:
           path: ${{ runner.temp }}/fuzz-failures
           if-no-files-found: ignore
 
+  # The booklet as one PDF (make booklet: tools/booklet), kept as an
+  # artifact; the release workflow attaches it to the release.
+  booklet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          fetch-depth: 0           # tags, for the version on its title page
+      - name: Build the booklet
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 fonts-dejavu-core
+          make booklet
+      - name: Keep the booklet
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2
+        with:
+          name: kukel-booklet
+          path: dist/kukel-booklet-*.pdf
+
   # What is Windows' own: the fs module (locks with LockFileEx, chmod's
   # read-only flag, temporary files, its messages) and a kukel.exe that
   # runs. Failing lines also become annotations (::error::), which the

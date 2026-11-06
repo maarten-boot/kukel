@@ -9,7 +9,8 @@ program on. Part I is the language; Part II, the modules that come with
 it; the appendices, how Go programs and Kukel work together.
 
 Every program in the booklet is run by kukel's tests, and what it prints
-is what you see here. The rules in full detail are in the
+is what you see here. Each release on GitHub also has the whole booklet as
+one PDF, `kukel-booklet-<version>.pdf`. The rules in full detail are in the
 [reference](../reference.md); this booklet explains them in order.
 
 <p align="center"><img src="components.svg" alt="Kukel's components: kukel in the centre; above it presentation, text (print, term) and gui (tk); below it storage, files (fs) and databases (db); to its right communication, net, zmq and p9" width="600"></p>

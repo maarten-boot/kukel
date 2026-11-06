@@ -6,7 +6,7 @@ LDFLAGS  := -X main.version=$(VERSION)
 # The build tags that leave everything optional out (make small).
 SMALL    := nosqlite,nopostgres,nomysql,nozmq,no9p
 
-.PHONY: all build small tk install test test-small test-tk test-all vet fmt fuzz bench golden dist docker vscode clean
+.PHONY: all build small tk install test test-small test-tk test-all vet fmt fuzz bench golden dist booklet docker vscode clean
 
 all: vet test build
 
@@ -95,6 +95,20 @@ dist:
 		rm -rf dist/$$name; \
 	done; done
 	cd dist && sha256sum kukel-* > SHA256SUMS
+
+# The booklet (docs/booklet) as one PDF: dist/kukel-booklet-<version>.pdf,
+# by tools/booklet/booklet.py. Needs python3 with venv, and Pango (the
+# library WeasyPrint draws text with; libpango-1.0-0 on Debian and Ubuntu);
+# the Python packages, pinned in tools/booklet/requirements.txt, go into a
+# virtual environment of their own (BOOKLET_VENV). After make dist, the
+# checksums in dist/SHA256SUMS are made again, with the PDF.
+BOOKLET_VENV ?= bin/booklet-venv
+booklet:
+	@test -x $(BOOKLET_VENV)/bin/python || python3 -m venv $(BOOKLET_VENV)
+	$(BOOKLET_VENV)/bin/pip install -q -r tools/booklet/requirements.txt
+	mkdir -p dist
+	$(BOOKLET_VENV)/bin/python -I tools/booklet/booklet.py --version $(VERSION) -o dist/kukel-booklet-$(VERSION).pdf
+	@if [ -f dist/SHA256SUMS ]; then cd dist && sha256sum kukel-* > SHA256SUMS; fi
 
 # The Docker image for this machine's platform (the release workflow builds
 # and pushes linux/amd64 and linux/arm64 to ghcr.io).

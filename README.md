@@ -214,7 +214,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `editors/geany` | a filetype for Geany: highlighting, the symbol list, the Build menu ([editors/geany/README.md](editors/geany/README.md)) |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q104). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q105). Ideas for later are in [docs/future.md](docs/future.md).
 What changed in each release is in [CHANGELOG.md](CHANGELOG.md), what
 stays working within v1 in [docs/compatibility.md](docs/compatibility.md); all the
 documents are listed in [docs/README.md](docs/README.md).
@@ -237,10 +237,11 @@ when a full cross-check is due) is in [docs/checks.md](docs/checks.md).
 | `make vscode` | the Visual Studio Code extension (`editors/vscode`) as `dist/kukel-vscode-<version>.vsix`; needs Node.js (npx fetches vsce) |
 | `make docker` | the Docker image for this machine, `kukel:dev` (`IMAGE=...` for another name) |
 | `make dist VERSION=v1.2.3` | the archives of a release in `dist/`: `kukel` and `kukel-tk` for Linux, macOS and Windows on amd64 and arm64 (`PLATFORMS=...` picks others), with `SHA256SUMS` |
+| `make booklet` | the booklet as one PDF, `dist/kukel-booklet-<version>.pdf` (`tools/booklet`); needs python3 and Pango (`libpango-1.0-0`), and installs the Python packages it uses in `bin/booklet-venv` |
 
 **Releases**: pushing a tag `v1.2.3` runs `.github/workflows/release.yml`,
 which first runs the whole CI (`ci.yml`); when that passes, the archives
-of `make dist` are published as the GitHub release of the tag, with notes
+of `make dist` and the booklet's PDF are published as the GitHub release of the tag, with notes
 made from the commits since the previous tag. A release that already
 exists (made by hand) gets the archives added, replacing files of the same
 name. At the same time the Docker image is built for linux/amd64 and

@@ -26,6 +26,9 @@ From v1.0.0 on, what keeps working is in
   language, in twelve chapters, from getting started to modules, with a
   picture of kukel's components; Part II, the modules, in nine chapters,
   from files to windows. Every program in it is run by the tests. Q104.
+- The booklet as one PDF, `kukel-booklet-<version>.pdf`, with each
+  release (`make booklet`: a title page, contents with page numbers,
+  links within the PDF). Q105.
 
 ## v1.0.0 (2026-11-06)
 
