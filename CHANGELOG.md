@@ -15,7 +15,10 @@ Two kinds of change need care when you upgrade:
 From v1.0.0 on, what keeps working is in
 [docs/compatibility.md](docs/compatibility.md).
 
-## Unreleased
+## v1.1.0 (2026-11-06)
+
+Syntax version 10 and bytecode format 11, as in v1.0.0: programs and
+`.kkc` files work unchanged.
 
 - The module `net`: TCP connections and connections over Unix sockets
   (`net::connect`, `net::listen`; a connection reads and writes as an
