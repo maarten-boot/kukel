@@ -71,7 +71,7 @@ caught RangeError: index 5 out of range for vector of length 3
 - 55 built-in functions (strings, collections, math, files, ...)
 
 New to Kukel? [The booklet](docs/booklet/README.md) teaches the language
-from the first program on (Part I is ready; the modules follow), and
+from the first program on (Parts I and II are ready; the appendices follow), and
 [docs/tutorial.md](docs/tutorial.md) is a fifteen-minute tour. The full description is in [docs/reference.md](docs/reference.md); the
 grammar is in [syntax.ebnf](syntax.ebnf) (and as a
 [Lark](https://github.com/lark-parser/lark) grammar in

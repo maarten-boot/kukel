@@ -46,11 +46,23 @@ takes them one by one.
 
 ## Part II: the modules
 
-*To come:* files and directories (`fs`); text and data (`strings`,
-`utf8`, `re`, `json`); time and IDs (`time`, `uuid`); databases (`db`);
-events and workers (`events`, `worker`); networking (`net`, `zmq`, `p9`);
-the terminal (`term`); the tools (build, fmt, debug, profile, editors);
-windows (`tk`).
+13. [Files and directories](13-files.md): whole files, open files,
+    directories, paths (`fs`)
+14. [Text and data](14-text.md): characters (`utf8`), patterns (`re`),
+    JSON (`json`), building text (`strings`)
+15. [Time and identifiers](15-time.md): dates, times and time zones
+    (`time`), UUIDs (`uuid`)
+16. [Databases](16-databases.md): SQLite, PostgreSQL and MySQL, and
+    objects in tables (`db`)
+17. [Events and workers](17-events.md): the event loop (`events`), work in
+    parallel (`worker`)
+18. [Networking](18-networking.md): TCP and UDP (`net`), messages (`zmq`),
+    files over the network (`p9`)
+19. [The terminal](19-terminal.md): a key at a time (`term`)
+20. [The tools](20-tools.md): formatting, the debugger, the profiler,
+    building
+21. [Windows](21-windows.md): windows, forms, menus and drawing (`tk`, in
+    `kukel-tk`)
 
 ## Appendices
 

@@ -22,7 +22,8 @@ import (
 	"github.com/maarten-boot/kukel/internal/vm"
 )
 
-// TestExamples runs the tk examples of docs/reference.md and examples/,
+// TestExamples runs the tk examples of docs/reference.md, the booklet and
+// examples/,
 // each in a process of its own (Tk starts once in a process), in the
 // directory examples (where the pictures of the reference are): each must
 // open its windows, and end without an error once they are closed (a
@@ -48,6 +49,24 @@ func TestExamples(t *testing.T) {
 	}
 	if len(files) < 4 {
 		t.Fatalf("%d tk examples in docs/reference.md, want at least 4", len(files))
+	}
+	booklet, _ := filepath.Glob("../../../docs/booklet/*.md")
+	for _, name := range booklet {
+		text, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		blocks := strings.Split(string(text), "```")
+		for i := 1; i < len(blocks); i += 2 {
+			code := strings.TrimPrefix(blocks[i], "\n")
+			if strings.Contains(code, "use tk;") && strings.Contains(code, "main(") {
+				file := filepath.Join(dir, fmt.Sprintf("booklet-%d.kkl", len(files)+1))
+				if err := os.WriteFile(file, []byte(code), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				files = append(files, file)
+			}
+		}
 	}
 	examples, _ := filepath.Glob("../../../examples/*.kkl")
 	for i, file := range examples {

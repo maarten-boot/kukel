@@ -1,6 +1,6 @@
 # 12. Your own modules
 
-[The booklet](README.md) · previous: [11. Generators](11-generators.md) · next: Part II (to come)
+[The booklet](README.md) · previous: [11. Generators](11-generators.md) · next: [13. Files and directories](13-files.md)
 
 A program can grow beyond one file. A *module* is a file that other files
 use: its functions, classes, constants and globals are reached with the
@@ -128,4 +128,4 @@ way, `use fs;` and then `fs::open(...)`. They are Part II of this
 booklet. A Go program that embeds Kukel can add modules of its own in Go
 (an appendix).
 
-[The booklet](README.md) · previous: [11. Generators](11-generators.md) · next: Part II (to come)
+[The booklet](README.md) · previous: [11. Generators](11-generators.md) · next: [13. Files and directories](13-files.md)
