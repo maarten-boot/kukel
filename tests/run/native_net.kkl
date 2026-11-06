@@ -1,0 +1,76 @@
+// Native module net: a line-based protocol over TCP, served by a worker
+// (blocking calls) and on the event loop (handlers), and UDP packets.
+use net;
+use worker;
+use events;
+
+// Answers "add a b" and "upper s" lines until the client ends.
+server() {
+    with (local l = net::listen("tcp://127.0.0.1:0")) {
+        worker::send(l->endpoint());
+
+        with (local c = l->accept(5)) {
+            for (local line in c) {
+                local words = split(line, " ");
+
+                switch (words[0]) {
+                    case "add":
+                        c->println(int(words[1]) + int(words[2]));
+                        break;
+                    case "upper":
+                        c->println(upper(words[1]));
+                        break;
+                    default:
+                        c->println("error: unknown command " + words[0]);
+                }
+            }
+        }
+    }
+}
+
+main() {
+    local w = worker::start(server);
+
+    with (local c = net::connect(w->receive(5), 5)->timeout(5)) {
+        for (local q in ["add 2 40", "upper kukel", "fly"]) {
+            c->println(q);
+            println(q, "->", c->readline());
+        }
+    }
+    w->wait();
+
+    // The same with handlers: a server that counts the bytes of each client.
+    local srv = net::listen("tcp://127.0.0.1:0"), served = 0;
+    srv->onconnect(fn(conn) {
+        local n = 0;
+        conn->ondata(fn(data) {
+            if (data != nil) {
+                n = n + len(data);
+                return;
+            }
+            conn->println(n, "bytes");
+            conn->close();
+
+            if (++served == 2) srv->close();
+        });
+    });
+    local a = net::connect(srv->endpoint()), b = net::connect(srv->endpoint());
+    a->write("hello");
+    a->closewrite();
+    b->write("hello, world");
+    b->closewrite();
+    events::run();
+    println(a->readline(), "/", b->readline());
+    a->close();
+    b->close();
+
+    // UDP: a question and its answer, sent back to where it came from.
+    local u = net::udp("udp://127.0.0.1:0"), v = net::udp("udp://127.0.0.1:0");
+    u->sendto("ping", v->endpoint());
+    local p = v->receive(5);
+    v->sendto(p[0] + "/pong", p[1]);
+    println(u->receive(5)[0], u->receive(0.01));
+    u->close();
+    v->close();
+    println(str(u) == "net::UDP(" + u->endpoint() + ", closed)", v->closed());
+}

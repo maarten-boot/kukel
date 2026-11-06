@@ -42,6 +42,7 @@ import (
 	_ "github.com/maarten-boot/kukel/internal/modules/eventsmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/fsmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/jsonmod"
+	_ "github.com/maarten-boot/kukel/internal/modules/netmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/p9mod"
 	_ "github.com/maarten-boot/kukel/internal/modules/remod"
 	_ "github.com/maarten-boot/kukel/internal/modules/stringsmod"
@@ -65,8 +66,9 @@ var SystemBuiltins = []string{"readfile", "writefile", "appendfile", "readline",
 func Builtins() []string { return builtins.Names() }
 
 // StandardModules lists the modules written in Go that come with Kukel
-// (db, events, fs, json, p9, re, strings, time, uuid, worker, zmq, and tk
-// when built with -tags tk), less those that build tags left out.
+// (db, events, fs, json, net, p9, re, strings, term, time, utf8, uuid,
+// worker, zmq, and tk when built with -tags tk), less those that build
+// tags left out.
 func StandardModules() []string { return native.Names() }
 
 // CompileOptions say what a program may use beyond its own code.

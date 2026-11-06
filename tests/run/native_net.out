@@ -1,0 +1,6 @@
+add 2 40 -> 42
+upper kukel -> KUKEL
+fly -> error: unknown command fly
+5 bytes / 12 bytes
+ping/pong nil
+true true

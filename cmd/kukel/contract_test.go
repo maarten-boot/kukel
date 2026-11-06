@@ -539,6 +539,9 @@ var working = map[string]string{
 	"db::Query":        `local c = db::open("sqlite::memory:"); c->migrate(Item); local r = c->find(Item);`,
 	"events::Timer":    `local r = events::after(1000, idle);`,
 	"fs::File":         `local r = fs::open("f.txt", "w+");`,
+	"net::Conn":        `local l = net::listen("tcp://127.0.0.1:0"); local r = net::connect(l->endpoint());`,
+	"net::Listener":    `local r = net::listen("tcp://127.0.0.1:0");`,
+	"net::UDP":         `local r = net::udp("udp://127.0.0.1:0");`,
 	"p9::Tree":         `local r = new p9::Tree();`,
 	"p9::Server":       `local r = p9::serve(new p9::Tree(), "tcp://127.0.0.1:0");`,
 	"p9::Client":       `local s = p9::serve(new p9::Tree(), "tcp://127.0.0.1:0"); local r = p9::dial(s->endpoint());`,
@@ -571,6 +574,8 @@ func TestMessagesWithoutGoOperations(t *testing.T) {
 		{"worker", `worker::startfile("nope.kkl")`}, {"worker", `worker::startfile("adir")`},
 		{"p9", `p9::dial("tcp://127.0.0.1:1")`}, {"p9", `p9::disk("nope")`}, {"p9", `p9::serve(new p9::Tree(), "unix:///nope/dir/sock")`},
 		{"zmq", `new zmq::Socket("REP")->bind("ipc:///nope/dir/sock")`},
+		{"net", `net::connect("tcp://127.0.0.1:1")`}, {"net", `net::listen("unix:///nope/dir/sock")`}, {"net", `net::lookup("nope.invalid")`},
+		{"net", `net::udp("udp://127.0.0.1:0")->sendto("x", "udp://nope.invalid:1")`},
 		{"db", `db::open("sqlite:nope/dir/x.db")`}, {"db", `db::open("sqlite:adir")`},
 	}
 	var src strings.Builder

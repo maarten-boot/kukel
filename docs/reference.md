@@ -34,7 +34,7 @@ hello, Kukel
 8. [Classes and objects](#8-classes-and-objects)
 9. [Exceptions](#9-exceptions)
 10. [Built-in functions](#10-built-in-functions)
-11. [Modules written in Go](#11-modules-written-in-go): db, events, fs, json, p9, re, strings, time, tk (with the build tag tk), uuid, worker, zmq
+11. [Modules written in Go](#11-modules-written-in-go): db, events, fs, json, net, p9, re, strings, term, time, tk (with the build tag tk), utf8, uuid, worker, zmq
 12. [Modules written in Kukel](#12-modules-written-in-kukel): iter
 
 ---
@@ -668,7 +668,8 @@ close a
   `return`, `break`, `continue` or an exception), `x->close()` is called for
   each of them that is not `nil`, the last one first.
 - Any value with a `close()` member function works: `fs::File`, `db::Conn`,
-  `db::Cursor`, `zmq::Socket`, `p9::Client`, `p9::Server`, and objects of
+  `db::Cursor`, `net::Conn`, `net::Listener`, `net::UDP`, `zmq::Socket`,
+  `p9::Client`, `p9::Server`, and objects of
   your own classes. A
   value without one gives a `TypeError` or `MemberError` when it is closed.
 - If the statement throws and a `close()` throws too, the statement's
@@ -1854,6 +1855,117 @@ main() {
 |---|---|
 | `json::encode(v [, indent])` | `v` as JSON text: `nil` is `null`, vectors are arrays, maps are objects in their order (number keys become their text, so keys `1` and `"1"` in one map give the same JSON key twice; a key `inf` or `nan` is a `ValueError`). Floats keep a `.0` so they decode as floats again. With `indent` (spaces and tabs, such as `"  "`; anything else is a `ValueError`) the text spreads over lines. A function, class or object is a `TypeError`; `inf`, `nan`, a string that is not UTF-8, a value that contains itself, or vectors and maps nested more than 10000 deep is a `ValueError` |
 | `json::decode(s)` | The value JSON text `s` stands for: objects become maps (in the order of the text; a repeated key keeps its first place and its last value), arrays vectors, a number without fraction or exponent that fits in 64 bits an int, any other number a float (one too large for a float is `inf` or `-inf`). Invalid UTF-8 and lone surrogates (`"\ud800"`) become U+FFFD. Invalid JSON is a `ValueError` whose message names the byte (counted from 1) where the text goes wrong: `invalid JSON at byte 7: invalid character '}' where a value should be`, or `invalid JSON: unexpected end of text`. Arrays and objects nested more than 10000 deep are a `ValueError` too ("arrays and objects nested more than 10000 deep") |
+
+### net
+
+TCP connections, connections over Unix sockets, and UDP packets: to talk
+with other programs and machines in their own protocols (a web server, a
+mail server, a game, a device). For messages between Kukel programs `zmq`
+is often simpler; for files over the network `p9`.
+
+```
+use net;
+use events;
+
+main() {
+    local server = net::listen("tcp://127.0.0.1:0");   // port 0: any free port
+
+    server->onconnect(fn(conn) {                        // an echo server, on the event loop
+        conn->ondata(fn(data) {
+            if (data == nil) {                          // the client sends no more
+                conn->close();
+                server->close();
+            } else {
+                conn->write(upper(data));
+            }
+        });
+    });
+    local c = net::connect(server->endpoint(), 5);      // at most 5 seconds to connect
+    c->println("hello");
+    c->println("world");
+    c->closewrite();
+    events::run();                                      // until the server is closed
+
+    for (local line in c) println(line);                // HELLO, WORLD
+    c->close();
+}
+```
+
+Addresses are `"tcp://host:port"` (`"tcp://[::1]:80"` for IPv6),
+`"unix:///path"` (a Unix socket file; `"unix://name"` is a path relative
+to the current directory) and, for UDP, `"udp://host:port"`. Port 0 picks
+a free port, which `endpoint()` then shows. To listen, host `*` or nothing
+(`"tcp://*:8080"`, `"tcp://:8080"`) is every interface. Data is strings
+(bytes): text, or anything else such as the bytes of a binary protocol.
+
+| Function | Description |
+|---|---|
+| `net::connect(address [, timeout])` | Connects to a `tcp://` or `unix://` address and gives a `net::Conn`; with `timeout`, waits at most that many seconds (without it, until the system gives up, often after a minute or more). A server that cannot be reached is a `NetError` (`net::connect: tcp://127.0.0.1:1: connection refused`, `host x not found`, `no connection within 5 seconds`); a wrong address (also a port beyond 65535, or a socket path longer than the system takes, 107 bytes on Linux) a `ValueError` |
+| `net::listen(address)` | Listens on a `tcp://` or `unix://` address and gives a `net::Listener`. An address in use or not allowed is a `NetError` (`address already in use`, also for a socket file that is there already). A Unix socket file is removed when the listener is closed |
+| `net::udp(address)` | A `net::UDP` that sends and receives packets from the `udp://` address it is bound to (`"udp://127.0.0.1:0"`, or `"udp://*:5000"` to receive from every interface) |
+| `net::lookup(host)` | The addresses of a host name, as strings (`["192.0.2.10", "2001:db8::10"]`); a name that is not found is a `NetError`, `""` a `ValueError` |
+
+A `net::Conn` is one connection, both ways. Its reads and writes wait
+until they are done; `timeout` bounds them, `ondata` hands what comes to
+the event loop instead.
+
+| Member function | Description |
+|---|---|
+| `c->read([n])` | What has come, at most `n` bytes (64 KiB without `n`); waits only when nothing has. `nil` at the end: the other side closed the connection, or its writing. `n` of 0 gives `""`, a negative one is a `ValueError` |
+| `c->readline()` | The next line without its `\n` (or `\r\n`), or `nil` at the end; a last line without `\n` is a line too. A line longer than 1 MiB (1048576 bytes) is a `NetError`, so that a peer cannot fill the memory with one line; its bytes stay, for `read` |
+| `c->readall()` | Everything until the end (`""` if nothing came). Only for a peer that ends: it has no limit |
+| `c->iter()` | A generator of the lines, as `readline` gives them: `for (local line in c)` |
+| `c->write(s, ...)` | Sends the strings and gives `c`; any other value is a `TypeError`. Nothing is buffered: what is written is sent |
+| `c->print([x, ...])`, `c->println([x, ...])` | Send as the built-ins `print` and `println` write |
+| `c->timeout(seconds)` | From now on each `read`, `readline`, `readall` and `write` that waits longer than `seconds` is a `NetError` (`no data within 5 seconds`; for `write`: `the data could not be sent within 5 seconds (part of it may have been)`); what came before the time ran out is kept for the next read. `nil` takes the limit away (the default). Gives `c`, so that `net::connect(a)->timeout(10)` works |
+| `c->closewrite()` | Tells the other side that nothing more comes (its reads end), while this side can still read the answer. Many protocols need it: the other side answers once it has everything |
+| `c->ondata(f)` | The event loop (`events`) calls `f(data)` with what comes, and `f(nil)` once at the end; `events::run()` keeps going until then or until the connection is closed. Afterwards `read`, `readline`, `readall` and a second `ondata` are a `ValueError`. A connection that breaks is a `NetError` of the event loop (as for `zmq::Socket::onmessage`). `timeout` does not apply |
+| `c->endpoint()`, `c->peer()` | The addresses of this side and the other side (`"tcp://127.0.0.1:43127"`; for a Unix socket, the one of the side that listens, and `""` for the other) |
+| `c->close()`, `c->closed()` | Closes the connection (closing again has no effect); whether it is closed. Using a closed connection is a `ValueError`, except `close`, `closed`, `endpoint` and `peer` |
+
+| Member function of `net::Listener` | Description |
+|---|---|
+| `l->accept([timeout])` | The next connection that comes, a `net::Conn`; with `timeout`, `nil` after that many seconds. A connection that comes later is kept for the next `accept` |
+| `l->onconnect(f)` | The event loop calls `f(conn)` for each connection that comes; `events::run()` keeps going until the listener is closed. Afterwards `accept` and a second `onconnect` are a `ValueError` |
+| `l->endpoint()` | The address listened on, with the port that port 0 picked; for every interface, the address the system reports (`"tcp://[::]:8080"`) |
+| `l->close()`, `l->closed()` | Stops listening; the connections it gave stay open |
+
+| Member function of `net::UDP` | Description |
+|---|---|
+| `u->sendto(data, address)` | Sends `data` as one packet to a `udp://` address. Packets may get lost, come twice or in another order: the protocol must allow that. A packet larger than the system takes (about 64 KiB, often less on the way) is a `NetError` |
+| `u->receive([timeout])` | The next packet as `[data, from]`, where `from` is the sender's address, which `sendto` takes for the answer; with `timeout`, `nil` after that many seconds. A packet that comes later is kept for the next `receive` |
+| `u->onmessage(f)` | The event loop calls `f(data, from)` for each packet; `events::run()` keeps going until the socket is closed. Afterwards `receive` and a second `onmessage` are a `ValueError` |
+| `u->endpoint()`, `u->close()`, `u->closed()` | The address bound to; closing; whether it is closed |
+
+```
+use net;
+
+main() {
+    local a = net::udp("udp://127.0.0.1:0"), b = net::udp("udp://127.0.0.1:0");
+    a->sendto("ping", b->endpoint());
+    local p = b->receive(5);                           // [data, from], or nil after 5 seconds
+
+    if (p != nil) {
+        println(p[0], p[1] == a->endpoint());          // ping true
+        b->sendto("pong", p[1]);
+    }
+
+    println(a->receive(5)[0]);                         // pong
+    a->close();
+    b->close();
+}
+```
+
+Connections print as `net::Conn(tcp://127.0.0.1:8080)` (the other side),
+listeners as `net::Listener(tcp://127.0.0.1:8080)` and UDP sockets as
+`net::UDP(udp://127.0.0.1:5000)`, with `, closed` once closed. What a
+program leaves open is closed when it ends, and `with` closes them too.
+A program waiting in `connect`, `accept`, a read, a write or `receive` can
+be stopped by the Go program that runs it, as other waits can. There is no
+TLS (encryption) yet: use `net` on a trusted network, or through an
+encrypted tunnel. A Go program that embeds Kukel keeps the network away
+from a program by leaving `net` (and `zmq` and `p9`) out of
+`StandardModules`.
 
 ### p9
 

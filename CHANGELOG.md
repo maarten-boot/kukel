@@ -15,6 +15,14 @@ Two kinds of change need care when you upgrade:
 From v1.0.0 on, what keeps working is in
 [docs/compatibility.md](docs/compatibility.md).
 
+## Unreleased
+
+- The module `net`: TCP connections and connections over Unix sockets
+  (`net::connect`, `net::listen`; a connection reads and writes as an
+  `fs::File`, with `timeout`, `closewrite` and `ondata` for the event
+  loop), UDP packets (`net::udp`: `sendto`, `receive`, `onmessage`) and
+  `net::lookup`. Q103.
+
 ## v1.0.0 (2026-11-06)
 
 The first stable release: [docs/compatibility.md](docs/compatibility.md)
