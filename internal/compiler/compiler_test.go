@@ -36,6 +36,7 @@ func TestCompileErrors(t *testing.T) {
 		// names
 		{"main() { x = 1; }", "1:10", "undefined name x (declare globals with 'global')"},
 		{"main() { println(y); }", "1:18", "undefined name y"},
+		{"main() { g(x: 1); }", "1:10", "undefined name g"}, // not an error of the named argument
 		{"f() {}", "1:1", "the program has no main function"},
 		{"global main; f() {}", "1:1", "the program has no main function"},
 		{"main(a, b) {}", "1:1", "main takes at most one parameter"},

@@ -124,9 +124,9 @@ link (12, blue)
   an error before the program runs.
 - Named arguments work in calls of functions, of static member functions
   and of constructors (`new Point(y: 2, x: 1)`, chapter 9), whose
-  parameters `kukel` knows when it compiles. Built-in functions, and member
-  functions called on an object (`p->m(...)`), take arguments by place
-  only.
+  parameters `kukel` knows when it compiles. Built-in functions, functions
+  of modules written in Go (`fs::open`), and member functions called on an
+  object (`p->m(...)`) take arguments by place only.
 
 ## Recursion
 

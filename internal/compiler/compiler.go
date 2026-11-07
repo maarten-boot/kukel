@@ -1476,10 +1476,10 @@ func (c *compiler) expr(e ast.Expr) {
 		c.checkClassCall(e)
 		ps := c.staticCallee(e.Fun)
 		c.checkArgs(ps, e.Args, e.Lparen)
+		c.expr(e.Fun) // first: an undefined name is that error, not one of the named arguments
 		if hasNamed(e.Args) && ps == nil {
 			c.noNamed(e.Args, c.whyNotNamed(e.Fun))
 		}
-		c.expr(e.Fun)
 		if hasNamed(e.Args) {
 			c.namedArgs(ps, e.Args, e.Lparen, func(argc int) { c.emit(bytecode.OpCall, argc) })
 			return
