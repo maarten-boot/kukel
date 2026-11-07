@@ -50,7 +50,7 @@ main() {
 
 Run in a terminal, it shows each key as it is pressed:
 
-```
+```text
 a terminal: true
 arrows move, q quits
 key Up -> position 0 -1

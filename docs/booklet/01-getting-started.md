@@ -22,7 +22,7 @@ you like) in a directory on your `PATH`.
 
 **From the source**, with Go 1.25 or newer:
 
-```
+```text
 go install github.com/maarten-boot/kukel/cmd/kukel@latest
 go install -tags tk github.com/maarten-boot/kukel/cmd/kukel@latest   # with tk
 ```

@@ -24,6 +24,10 @@ From v1.0.0 on, what keeps working is in
   that for every call and definition with 2 or more items. Q106.
 - The booklet's programs are laid out by `kukel fmt -vertical` (so is its
   PDF). Q106.
+- `make booklet-proof`: a copy of the booklet to proofread, with margins of
+  0.5 cm and a box around each page; CI keeps it with the PDF. Only
+  programs get line numbers in the PDF (not keyword lists or sample
+  output). Q105.
 - The booklet's PDF: code without a background (in its box), and line
   numbers in the programs. Q105.
 

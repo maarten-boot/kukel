@@ -8,7 +8,7 @@ The short forms of what the chapters explain, to look things up. The
 
 ## Keywords
 
-```
+```text
 break  case  catch  class  const  continue  default  do  else  false
 finally  fn  for  global  if  in  local  new  nil  return  static
 switch  this  throw  true  try  use  while  with  yield
@@ -39,7 +39,7 @@ In a `for` loop's first and last part, `,` joins expressions.
 
 ## Statements
 
-```
+```text
 local x = 1, y;                     global g;         const MAX = 10;
 if (c) s; else if (d) t; else u;
 while (c) s;      do s; while (c);      for (local i = 0; i < n; i++) s;

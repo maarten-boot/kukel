@@ -6,7 +6,7 @@ LDFLAGS  := -X main.version=$(VERSION)
 # The build tags that leave everything optional out (make small).
 SMALL    := nosqlite,nopostgres,nomysql,nozmq,no9p
 
-.PHONY: all build small tk install test test-small test-tk test-all vet fmt fuzz bench golden dist booklet docker vscode clean
+.PHONY: all build small tk install test test-small test-tk test-all vet fmt fuzz bench golden dist booklet booklet-proof docker vscode clean
 
 all: vet test build
 
@@ -109,6 +109,14 @@ booklet:
 	mkdir -p dist
 	$(BOOKLET_VENV)/bin/python -I tools/booklet/booklet.py --version $(VERSION) -o dist/kukel-booklet-$(VERSION).pdf
 	@if [ -f dist/SHA256SUMS ]; then cd dist && sha256sum kukel-* > SHA256SUMS; fi
+
+# A copy of the booklet to proofread: margins of 0.5 cm and a box around
+# each page, dist/booklet-proof-<version>.pdf (not a release file).
+booklet-proof:
+	@test -x $(BOOKLET_VENV)/bin/python || python3 -m venv $(BOOKLET_VENV)
+	$(BOOKLET_VENV)/bin/pip install -q -r tools/booklet/requirements.txt
+	mkdir -p dist
+	$(BOOKLET_VENV)/bin/python -I tools/booklet/booklet.py --proof --version $(VERSION) -o dist/booklet-proof-$(VERSION).pdf
 
 # The Docker image for this machine's platform (the release workflow builds
 # and pushes linux/amd64 and linux/arm64 to ghcr.io).

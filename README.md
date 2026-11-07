@@ -239,6 +239,7 @@ when a full cross-check is due) is in [docs/checks.md](docs/checks.md).
 | `make docker` | the Docker image for this machine, `kukel:dev` (`IMAGE=...` for another name) |
 | `make dist VERSION=v1.2.3` | the archives of a release in `dist/`: `kukel` and `kukel-tk` for Linux, macOS and Windows on amd64 and arm64 (`PLATFORMS=...` picks others), with `SHA256SUMS` |
 | `make booklet` | the booklet as one PDF, `dist/kukel-booklet-<version>.pdf` (`tools/booklet`); needs python3 and Pango (`libpango-1.0-0`), and installs the Python packages it uses in `bin/booklet-venv` |
+| `make booklet-proof` | a copy of the booklet to proofread, `dist/booklet-proof-<version>.pdf`: margins of 0.5 cm and a box around each page (CI keeps it with the booklet as the artifact `kukel-booklet`) |
 
 **Releases**: pushing a tag `v1.2.3` runs `.github/workflows/release.yml`,
 which first runs the whole CI (`ci.yml`); when that passes, the archives

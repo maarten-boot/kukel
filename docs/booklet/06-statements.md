@@ -312,7 +312,7 @@ generators (chapter 11).
 
 These words are the language's own, and cannot be used as names:
 
-```
+```text
 break  case  catch  class  const  continue  default  do  else  false
 finally  fn  for  global  if  in  local  new  nil  return  static
 switch  this  throw  true  try  use  while  with  yield

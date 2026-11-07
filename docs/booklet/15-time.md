@@ -34,7 +34,7 @@ main() {
 
 It prints something like
 
-```
+```text
 it is 20:11 on Friday  6 November 2026
 that took 0.200707139 seconds
 1.7939923184486878e+09 0.200816823

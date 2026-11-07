@@ -1,6 +1,6 @@
 """Builds the booklet (docs/booklet/*.md) into one PDF (TODO.md Q105).
 
-    python3 tools/booklet/booklet.py [-o kukel-booklet.pdf] [--version v1.1.0] [--html out.html]
+    python3 tools/booklet/booklet.py [-o kukel-booklet.pdf] [--version v1.1.0] [--html out.html] [--proof]
 
 The chapters come in the order of the booklet's README (its links to
 NN-name.md files). The PDF has a title page, the README's introduction,
@@ -76,6 +76,21 @@ img { max-width: 100%; }
 """
 
 
+# PROOF is added to CSS for a copy to proofread (--proof): outer margins
+# of 0.5 cm, so that more fits on a page, and a box around the page's text
+# (its area, with a little room inside), the running head and the page
+# number small in the margins outside it.
+PROOF = """
+@page {
+    margin: 5mm;
+    border: 0.6pt solid #000;
+    padding: 4mm 5mm;
+    @bottom-center { content: counter(page); font-size: 7pt; color: #333; vertical-align: middle; }
+    @top-right { content: string(chapter); font-size: 7pt; color: #333; vertical-align: middle; }
+}
+"""
+
+
 def chapters():
     """The chapter files, in the order the booklet's README links them."""
     readme = open(os.path.join(BOOKLET, "README.md"), encoding="utf-8").read()
@@ -140,22 +155,24 @@ def convert(text, chapter, names, version, source_dir):
 def code_block(m):
     """A code block of the PDF: programs get line numbers (each line a
     span, numbered by a CSS counter, so that a wrapped line keeps one
-    number); commands and what they print ("$ kukel run ..."), and blocks
-    of one line, do not.
+    number); commands and what they print ("$ kukel run ..."), blocks of
+    one line, and blocks marked as text (```text: keyword lists, sample
+    output) do not.
     Long blocks may break across pages; short ones stay whole."""
     opening, text = m.group(1), m.group(2)
     lines = text.split("\n")
     if lines and lines[-1] == "":
         lines.pop()
     classes = ["long"] if len(lines) > 40 else []
-    if len(lines) > 1 and not html.unescape(lines[0]).startswith("$ "):
+    program = 'class="' not in opening or "language-go" in opening   # ```text and the like are not
+    if program and len(lines) > 1 and not html.unescape(lines[0]).startswith("$ "):
         classes.append("numbered")
         text = "".join('<span class="line">%s</span>' % (l if l else "&#8203;") for l in lines)
     attr = ' class="%s"' % " ".join(classes) if classes else ""
     return "<pre%s>%s%s</code></pre>" % (attr, opening, text)
 
 
-def build(version):
+def build(version, proof=False):
     names = chapters()
     if not names:
         sys.exit("booklet: no chapters found in docs/booklet/README.md")
@@ -197,7 +214,7 @@ def build(version):
     parts.append('<section class="toc"><h1 id="contents">Contents</h1><ul>%s</ul></section>' % "".join(toc))
     parts.extend(body)
     return ('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>The Kukel booklet</title>'
-            '<style>%s</style></head><body>%s</body></html>' % (CSS, "\n".join(parts)))
+            '<style>%s</style></head><body>%s</body></html>' % (CSS + (PROOF if proof else ""), "\n".join(parts)))
 
 
 def main():
@@ -205,8 +222,9 @@ def main():
     ap.add_argument("-o", "--output", default="kukel-booklet.pdf")
     ap.add_argument("--version", default="main", help="the version on the title page, and of the GitHub links")
     ap.add_argument("--html", help="also write the HTML the PDF is made from")
+    ap.add_argument("--proof", action="store_true", help="a copy to proofread: margins of 0.5 cm and a box around each page")
     args = ap.parse_args()
-    doc = build(args.version)
+    doc = build(args.version, args.proof)
     if args.html:
         open(args.html, "w", encoding="utf-8").write(doc)
     weasyprint.HTML(string=doc, base_url=BOOKLET).write_pdf(args.output)

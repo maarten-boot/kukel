@@ -72,12 +72,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 fonts-dejavu-core
-          make booklet
-      - name: Keep the booklet
+          make booklet booklet-proof
+      - name: Keep the booklet (and its copy to proofread)
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2
         with:
           name: kukel-booklet
-          path: dist/kukel-booklet-*.pdf
+          path: |
+            dist/kukel-booklet-*.pdf
+            dist/booklet-proof-*.pdf
 
   # What is Windows' own: the fs module (locks with LockFileEx, chmod's
   # read-only flag, temporary files, its messages) and a kukel.exe that
