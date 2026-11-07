@@ -261,16 +261,19 @@ func tidy(tree *ast.File, toks []token.Token, src []byte) []byte {
 	return b.Bytes()
 }
 
-// expand gives src with a line break before each statement of the blocks
-// of function definitions and before their closing braces, where the token
-// before is on the same line. Comments right before a statement on its
+// expand gives src with a line break before each top-level declaration,
+// and before each statement of the blocks of function definitions and
+// their closing braces, where the token before is on the same line. Comments right before a statement on its
 // line go with it (a; /* c */ b; breaks before the comment); a comment
 // before a closing brace stays with the statement before it. Function
 // literals are left alone.
 func expand(tree *ast.File, toks []token.Token, src []byte) []byte {
 	var at []int              // token indexes that start a line
 	closers := map[int]bool{} // those of closing braces
-	for _, d := range tree.Decls {
+	for k, d := range tree.Decls {
+		if k > 0 { // each declaration on a line of its own: "use a; f() {} g() {}"
+			at = append(at, tokenAt(toks, d.Pos()))
+		}
 		fd, ok := d.(*ast.FuncDecl)
 		if !ok {
 			continue

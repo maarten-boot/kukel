@@ -8,7 +8,9 @@ const LOYAL = 5;  // years for the loyalty discount
 discount(order) {
     local c = shop::customer(order["customer"]), off = 0, units = 0;
 
-    for (local it in order["items"]) units += it["qty"];
+    for (local it in order["items"]) {
+        units += it["qty"];
+    }
 
     if (units >= BULK) {
         off += 5;

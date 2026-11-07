@@ -40,6 +40,10 @@ func TestStrict(t *testing.T) {
 		// goes to the line of its "{" (not when code follows it)
 		{"f(a) {\n    if (a) {\n        b();\n    }\n    else c();\n    if (a) { b(); }\n    // keep\n    else c();\n}\ng() { return 1; } // one\nh() { return 2; } /* two */ \n",
 			"f(a) {\n    if (a) {\n        b();\n    } else {\n        c();\n    }\n\n    if (a) {\n        b();\n    }\n    // keep\n    else {\n        c();\n    }\n}\ng() { // one\n    return 1;\n}\nh() { /* two */\n    return 2;\n}\n"},
+		// each top-level declaration on a line of its own; an empty body
+		// stays {}
+		{"use json; global g = 1; f() { return 1; } main() {} class A { m(); } A::m() { return 2; }\n",
+			"use json;\nglobal g = 1;\nf() {\n    return 1;\n}\nmain() {}\nclass A { m(); }\nA::m() {\n    return 2;\n}\n"},
 		// a statement of several lines, a function literal inside it
 		{"f(a) {\n    if (a) g(1,\n        fn() { return 2; });\n}\n",
 			"f(a) {\n    if (a) {\n        g(1,\n            fn() { return 2; });\n    }\n}\n"},

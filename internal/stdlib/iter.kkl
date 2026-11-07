@@ -19,10 +19,14 @@ range(a, b = nil, step = 1) {
     }
     _int("iter::range", 1, a);
 
-    if (b != nil) _int("iter::range", 2, b);
+    if (b != nil) {
+        _int("iter::range", 2, b);
+    }
     _int("iter::range", 3, step);
 
-    if (step == 0) throw new Error("iter::range: the step is 0", "ValueError");
+    if (step == 0) {
+        throw new Error("iter::range: the step is 0", "ValueError");
+    }
     return _range(start, stop, step);
 }
 
@@ -32,13 +36,17 @@ _range(start, stop, step) {
         for (local i = start; i < stop; i += step) {
             yield i;
 
-            if (i > stop - step) break;
+            if (i > stop - step) {
+                break;
+            }
         }
     } else {
         for (local i = start; i > stop; i += step) {
             yield i;
 
-            if (i < stop - step) break;
+            if (i < stop - step) {
+                break;
+            }
         }
     }
 }
@@ -51,7 +59,9 @@ count(start = 0, step = 1) {
 }
 
 _count(start, step) {
-    for (local i = start;; i += step) yield i;
+    for (local i = start;; i += step) {
+        yield i;
+    }
 }
 
 // map(f, xs): f(x) for each x.
@@ -62,7 +72,9 @@ map(f, xs) {
 }
 
 _map(f, xs) {
-    for (local x in xs) yield f(x);
+    for (local x in xs) {
+        yield f(x);
+    }
 }
 
 // filter(f, xs): the x for which f(x) is true.
@@ -73,7 +85,11 @@ filter(f, xs) {
 }
 
 _filter(f, xs) {
-    for (local x in xs) if (f(x)) yield x;
+    for (local x in xs) {
+        if (f(x)) {
+            yield x;
+        }
+    }
 }
 
 // take(xs, n): the first n values (fewer if there are not as many).
@@ -84,13 +100,17 @@ take(xs, n) {
 }
 
 _take(xs, n) {
-    if (n == 0) return;
+    if (n == 0) {
+        return;
+    }
     local i = 0;
 
     for (local x in xs) {
         yield x;
 
-        if (++i == n) return; // without asking xs for one more
+        if (++i == n) {
+            return; // without asking xs for one more
+        }
     }
 }
 
@@ -122,7 +142,9 @@ takewhile(f, xs) {
 
 _takewhile(f, xs) {
     for (local x in xs) {
-        if (!f(x)) return;
+        if (!f(x)) {
+            return;
+        }
         yield x;
     }
 }
@@ -138,7 +160,9 @@ _dropwhile(f, xs) {
     local dropping = true;
 
     for (local x in xs) {
-        if (dropping && f(x)) continue;
+        if (dropping && f(x)) {
+            continue;
+        }
         dropping = false;
         yield x;
     }
@@ -152,22 +176,30 @@ enumerate(xs, start = 0) {
 }
 
 _enumerate(xs, i) {
-    for (local x in xs) yield [i++, x];
+    for (local x in xs) {
+        yield [i++, x];
+    }
 }
 
 // zip(xs, ys, ...): vectors of one value of each, up to the end of the
 // shortest.
 zip(all..) {
-    for (local i = 0; i < len(all); i++) _values("iter::zip", i + 1, all[i]);
+    for (local i = 0; i < len(all); i++) {
+        _values("iter::zip", i + 1, all[i]);
+    }
     return _zip(all);
 }
 
 _zip(all) {
-    if (len(all) == 0) return;
+    if (len(all) == 0) {
+        return;
+    }
     local gens = [];
 
     try {
-        for (local xs in all) push(gens, _each(xs));
+        for (local xs in all) {
+            push(gens, _each(xs));
+        }
 
         for (;;) {
             local row = [];
@@ -175,28 +207,40 @@ _zip(all) {
             for (local g in gens) {
                 local x = g->next();
 
-                if (g->done()) return;
+                if (g->done()) {
+                    return;
+                }
                 push(row, x);
             }
             yield row;
         }
     } finally {
-        for (local g in gens) g->close();
+        for (local g in gens) {
+            g->close();
+        }
     }
 }
 
 _each(xs) {
-    for (local x in xs) yield x;
+    for (local x in xs) {
+        yield x;
+    }
 }
 
 // chain(xs, ys, ...): the values of each in turn.
 chain(all..) {
-    for (local i = 0; i < len(all); i++) _values("iter::chain", i + 1, all[i]);
+    for (local i = 0; i < len(all); i++) {
+        _values("iter::chain", i + 1, all[i]);
+    }
     return _chain(all);
 }
 
 _chain(all) {
-    for (local xs in all) for (local x in xs) yield x;
+    for (local xs in all) {
+        for (local x in xs) {
+            yield x;
+        }
+    }
 }
 
 // collect(xs): a vector of all the values.
@@ -204,7 +248,9 @@ collect(xs) {
     _values("iter::collect", 1, xs);
     local v = [];
 
-    for (local x in xs) push(v, x);
+    for (local x in xs) {
+        push(v, x);
+    }
     return v;
 }
 
@@ -214,7 +260,9 @@ reduce(f, xs, init..) {
     _fn("iter::reduce", 1, f);
     _values("iter::reduce", 2, xs);
 
-    if (len(init) > 1) throw new Error("iter::reduce expects 2 to 3 arguments, got " + str(2 + len(init)), "ArgumentError");
+    if (len(init) > 1) {
+        throw new Error("iter::reduce expects 2 to 3 arguments, got " + str(2 + len(init)), "ArgumentError");
+    }
     local have = len(init) == 1, acc = have ? init[0] : nil;
 
     for (local x in xs) {
@@ -226,7 +274,9 @@ reduce(f, xs, init..) {
         }
     }
 
-    if (!have) throw new Error("iter::reduce: no values, and no initial value", "ValueError");
+    if (!have) {
+        throw new Error("iter::reduce: no values, and no initial value", "ValueError");
+    }
     return acc;
 }
 
@@ -235,7 +285,9 @@ reduce(f, xs, init..) {
 first(xs, otherwise = nil) {
     _values("iter::first", 1, xs);
 
-    for (local x in xs) return x;
+    for (local x in xs) {
+        return x;
+    }
     return otherwise;
 }
 
@@ -245,7 +297,11 @@ any(f, xs) {
     _fn("iter::any", 1, f);
     _values("iter::any", 2, xs);
 
-    for (local x in xs) if (f(x)) return true;
+    for (local x in xs) {
+        if (f(x)) {
+            return true;
+        }
+    }
     return false;
 }
 
@@ -253,7 +309,11 @@ all(f, xs) {
     _fn("iter::all", 1, f);
     _values("iter::all", 2, xs);
 
-    for (local x in xs) if (!f(x)) return false;
+    for (local x in xs) {
+        if (!f(x)) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -261,24 +321,45 @@ all(f, xs) {
 // in Go.
 
 _fn(where, i, f) {
-    if (typeof(f) != "function") _wrong(where, i, "a function", f);
+    if (typeof(f) != "function") {
+        _wrong(
+            where,
+            i,
+            "a function",
+            f,
+        );
+    }
 }
 
 _int(where, i, n) {
-    if (typeof(n) != "int") _wrong(where, i, "an int", n);
+    if (typeof(n) != "int") {
+        _wrong(
+            where,
+            i,
+            "an int",
+            n,
+        );
+    }
 }
 
 _count_arg(where, i, n) {
     _int(where, i, n);
 
-    if (n < 0) throw new Error(where + ": a negative count (" + str(n) + ")", "ValueError");
+    if (n < 0) {
+        throw new Error(where + ": a negative count (" + str(n) + ")", "ValueError");
+    }
 }
 
 _values(where, i, xs) {
     local t = typeof(xs);
 
     if (t != "vector" && t != "map" && t != "string" && t != "object") {
-        _wrong(where, i, "values to walk (a vector, map, string, generator, or object with iter())", xs);
+        _wrong(
+            where,
+            i,
+            "values to walk (a vector, map, string, generator, or object with iter())",
+            xs,
+        );
     }
 }
 

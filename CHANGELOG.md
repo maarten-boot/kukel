@@ -20,6 +20,10 @@ From v1.0.0 on, what keeps working is in
 - `kukel fmt -strict` splits a vector or map literal one element per line
   when its line is longer than `-linelength`, and `-vertical` every
   literal of 2 or more elements, as they do argument lists. Q106.
+- `kukel fmt -strict` puts each top-level declaration on a line of its
+  own (`use json; f() {} main() {}` becomes three). The example programs,
+  `iter.kkl`, and the Kukel code inside the booklet's Go programs are laid
+  out by it, as the documents are. Q106.
 
 ## v1.2.0 (2026-11-07)
 

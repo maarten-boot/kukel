@@ -25,8 +25,13 @@ import (
 // The rules, as a user might write them: in a file, a database or a form.
 const rules = `
 discount(total) {
-    if (total >= 500) return 0.15;
-    if (total >= 100) return 0.10;
+    if (total >= 500) {
+        return 0.15;
+    }
+
+    if (total >= 100) {
+        return 0.10;
+    }
     return 0;
 }
 
@@ -34,7 +39,9 @@ describe(order) {
     return order["customer"] + ": " + str(len(order["items"])) + " items";
 }
 
-main() { println("rules loaded"); }
+main() {
+    println("rules loaded");
+}
 `
 
 func main() {
@@ -117,7 +124,9 @@ func main() {
 summary(v) {
     local total = 0;
 
-    for (local x in v) total += x;
+    for (local x in v) {
+        total += x;
+    }
     return {"count": len(v), "total": total, "mean": total / float(len(v)), "max": max(v..)};
 }
 
@@ -178,7 +187,9 @@ import (
 
 func main() {
 	prog, err := kukel.CompileSource("calc.kkl", `
-divide(a, b) { return a / b; }
+divide(a, b) {
+    return a / b;
+}
 main() {}
 `, kukel.CompileOptions{})
 	if err != nil {
@@ -206,7 +217,7 @@ main() {}
 
 ```
 $ go run .
-ZeroDivisionError | integer division by zero | divide 2
+ZeroDivisionError | integer division by zero | divide 3
 bad.kkl 1 18 undefined name x
 ```
 

@@ -62,18 +62,42 @@ func try(name, src string) {
 }
 
 func main() {
-	try("fair.kkl", `use json; rule(total) { return json::encode({"discount": total > 100 ? 10 : 0}); } main() {}`)
-	try("snoop.kkl", `rule(total) { return readfile("/etc/passwd"); } main() {}`)
-	try("disk.kkl", `use fs; rule(total) { return fs::readdir("/"); } main() {}`)
-	try("forever.kkl", `rule(total) { for (;;) total++; } main() {}`)
+	try("fair.kkl", `
+use json;
+rule(total) {
+    return json::encode({"discount": total > 100 ? 10 : 0});
+}
+main() {}
+`)
+	try("snoop.kkl", `
+rule(total) {
+    return readfile("/etc/passwd");
+}
+main() {}
+`)
+	try("disk.kkl", `
+use fs;
+rule(total) {
+    return fs::readdir("/");
+}
+main() {}
+`)
+	try("forever.kkl", `
+rule(total) {
+    for (;;) {
+        total++;
+    }
+}
+main() {}
+`)
 }
 ```
 
 ```
 $ go run .
 fair.kkl gives {"discount":10}
-snoop.kkl does not compile: snoop.kkl:1:22: built-in function readfile is not available in this program
-disk.kkl does not compile: disk.kkl:1:5: module fs is not available in this program
+snoop.kkl does not compile: snoop.kkl:3:12: built-in function readfile is not available in this program
+disk.kkl does not compile: disk.kkl:2:5: module fs is not available in this program
 forever.kkl stopped: StepLimitError
 ```
 

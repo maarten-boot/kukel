@@ -148,8 +148,12 @@ class Logged : shop::Stock {
     changed(name, n);
 }
 
-Logged::Logged() { shop::Stock::Stock(); }      // sets up the Go part
-Logged::changed(name, n) { println("now", n, name); }
+Logged::Logged() { // sets up the Go part
+    shop::Stock::Stock();
+}
+Logged::changed(name, n) {
+    println("now", n, name);
+}
 
 main() {
     local s = new shop::Stock();
