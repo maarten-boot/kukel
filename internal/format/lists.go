@@ -123,10 +123,11 @@ func code(toks []token.Token, i, end int) int {
 // byCount chooses the lists that Strict (more than 3 arguments of a call)
 // and Vertical (2 or more items of a call, definition or vector or map
 // literal) put one per line,
-// and the lists around them that they are an argument of (directly or
-// inside other arguments, not inside a function literal's body or a map:
-// f(g(1, 2, 3, 4), x) puts g's arguments and f's one per line), so that a
-// list is never half on one line and half on several.
+// and the lists around them that they are an item of (directly or inside
+// other items, not inside a function literal's body: f(g(1, 2, 3, 4), x)
+// puts g's arguments and f's one per line; a vector or map literal in
+// between is a list itself, so it is split too and passes it on), so that
+// a list is never half on one line and half on several.
 func byCount(ls []list, toks []token.Token, vertical bool) []list {
 	chosen := map[int]bool{}
 	for _, l := range ls {
@@ -159,7 +160,8 @@ func byCount(ls []list, toks []token.Token, vertical bool) []list {
 }
 
 // braced reports whether a "{" opened after toks[from] is still open at
-// toks[to]: to is inside a block or a map literal there.
+// toks[to]: to is inside a block or a map literal there. A map literal is
+// a list of its own, so the lists around it are still reached through it.
 func braced(toks []token.Token, from, to int) bool {
 	depth := 0
 	for i := from + 1; i < to; i++ {

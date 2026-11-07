@@ -15,6 +15,13 @@ Two kinds of change need care when you upgrade:
 From v1.0.0 on, what keeps working is in
 [docs/compatibility.md](docs/compatibility.md).
 
+## Unreleased
+
+- Documentation: what `kukel fmt -strict` splits around a split list is
+  described as it works (vector and map literals too, outward), and
+  docs/future.md §9 and §9.5 say what is built and what is not. Q106,
+  Q107.
+
 ## v1.3.0 (2026-11-07)
 
 Syntax version 10 and bytecode format 11, as in v1.2: programs and `.kkc`

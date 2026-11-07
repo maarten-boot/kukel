@@ -805,8 +805,8 @@ step that needs them; F-28 to F-31 are those of the named arguments
 
 ## 9. Named arguments
 
-*A proposal (TODO.md Q107), to be checked with the user before it is
-built.* An argument may be given by the name of its parameter instead of
+*Designed (TODO.md Q107), the open questions answered (9.4); not built
+yet.* An argument may be given by the name of its parameter instead of
 by its place:
 
 ```
@@ -927,11 +927,13 @@ only when its line is longer than `-linelength` (the outermost first),
 
 Raised with F-31: `kukel fmt -strict` (and `-vertical`) split argument
 lists that are long or have many items, but not vector and map literals,
-which can be just as long:
+which can be just as long. `kukel fmt -vertical` now turns
 
 ```
 local config = {"host": "localhost", "port": 8080, "timeout": 30, "retries": 3, "log": "info"};
 ```
+
+into
 
 ```
 local config = {
@@ -943,9 +945,9 @@ local config = {
 };
 ```
 
-To settle before it is built: split a literal only when its line is
-longer than `-linelength`, or also by its number of elements (as calls
-with more than 3 arguments), with `-vertical` splitting every literal of
-2 or more? And nested literals (a vector of maps): the outermost first,
-as for calls.
+`kukel fmt -strict` does so only when the line is longer than
+`-linelength`: this one, of 99 characters, stays as it is with the
+default of 120. Nested literals (a vector of maps) are split from the
+outermost on, as calls are, and a literal that holds a split list is
+split too.
 
