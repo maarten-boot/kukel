@@ -39,7 +39,13 @@ class Task {
 }
 
 Task::columns() {
-    return {"id": "UUID", "num": "INTEGER NOT NULL UNIQUE", "title": "TEXT NOT NULL", "due": "DATE", "done": "BOOLEAN NOT NULL"};
+    return {
+        "id": "UUID",
+        "num": "INTEGER NOT NULL UNIQUE",
+        "title": "TEXT NOT NULL",
+        "due": "DATE",
+        "done": "BOOLEAN NOT NULL",
+    };
 }
 
 Task::relations() {
@@ -105,7 +111,14 @@ main(args) {
 
 // command runs one command in a transaction, and gives the exit code.
 command(w) {
-    local run = {"add": cmdadd, "done": cmddone, "rm": cmdrm, "tag": cmdtag, "list": cmdlist, "export": cmdexport}[w[0]];
+    local run = {
+        "add": cmdadd,
+        "done": cmddone,
+        "rm": cmdrm,
+        "tag": cmdtag,
+        "list": cmdlist,
+        "export": cmdexport,
+    }[w[0]];
 
     if (run == nil) {
         return usage("unknown command " + w[0]);

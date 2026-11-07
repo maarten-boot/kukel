@@ -919,7 +919,11 @@ refusing named arguments. This is a second step, with its own design.
   And long vector and map literals should be split the same way (one
   element per line, a "," after the last): see 9.5.*
 
-### 9.5 Next for kukel fmt: long vectors and maps
+### 9.5 Long vectors and maps in kukel fmt
+
+*Done (2026-11-07, TODO.md Q106), as answered: `-strict` splits a literal
+only when its line is longer than `-linelength` (the outermost first),
+`-vertical` every literal of 2 or more elements.*
 
 Raised with F-31: `kukel fmt -strict` (and `-vertical`) split argument
 lists that are long or have many items, but not vector and map literals,

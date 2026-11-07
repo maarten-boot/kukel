@@ -82,10 +82,11 @@ commands:
                                   else, for, while, do and with, every
                                   function on several lines, and one
                                   argument per line in a call with more
-                                  than 3, or on a line longer than
+                                  than 3, and one item per line in a call
+                                  or literal on a line longer than
                                   -linelength (120); -vertical as -strict,
-                                  and one per line in every call and
-                                  definition with 2 or more
+                                  and one per line in every call,
+                                  definition and literal with 2 or more
   version                         show the version, bytecode format and Go modules
   help                            show this text
 

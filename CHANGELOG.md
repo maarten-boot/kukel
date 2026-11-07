@@ -15,6 +15,12 @@ Two kinds of change need care when you upgrade:
 From v1.0.0 on, what keeps working is in
 [docs/compatibility.md](docs/compatibility.md).
 
+## Unreleased
+
+- `kukel fmt -strict` splits a vector or map literal one element per line
+  when its line is longer than `-linelength`, and `-vertical` every
+  literal of 2 or more elements, as they do argument lists. Q106.
+
 ## v1.2.0 (2026-11-07)
 
 Syntax version 10 and bytecode format 11, as in v1.1: programs and `.kkc`

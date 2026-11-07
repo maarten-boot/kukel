@@ -107,6 +107,13 @@ func TestLists(t *testing.T) {
 		// empty list and a function literal's parameters stay
 		{vertical, "add(a, b) { return a + b; }\nmain() { println(add(1, 2)); f(); g(fn(x, y) { return x; }); }\n",
 			"add(\n    a,\n    b,\n) {\n    return a + b;\n}\nmain() {\n    println(\n        add(\n            1,\n            2,\n        ),\n    );\n    f();\n    g(fn(x, y) { return x; });\n}\n"},
+		// vector and map literals: by length with Strict (the outermost
+		// first: the maps inside fit after that), every one of 2 or more
+		// with Vertical; a block is not a map
+		{Options{Strict: true, LineLength: 40}, "main() { local v = [{\"a\": 1, \"b\": 2}, {\"a\": 3, \"b\": 4}, [5, 6]]; if (v) { f([1, 2]); } }\n",
+			"main() {\n    local v = [\n        {\"a\": 1, \"b\": 2},\n        {\"a\": 3, \"b\": 4},\n        [5, 6],\n    ];\n\n    if (v) {\n        f([1, 2]);\n    }\n}\n"},
+		{vertical, "main() { local m = {\"a\": [1, 2], \"b\": {}}; local one = [1]; }\n",
+			"main() {\n    local m = {\n        \"a\": [\n            1,\n            2,\n        ],\n        \"b\": {},\n    };\n    local one = [1];\n}\n"},
 	}
 	for _, tc := range tests {
 		got, err := SourceWith("t.kkl", []byte(tc.in), tc.opt)

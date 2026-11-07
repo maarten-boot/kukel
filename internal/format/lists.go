@@ -1,10 +1,11 @@
 package format
 
 // Lists put one per line (TODO.md Q106): with Strict, the arguments of a
-// call with more than 3 of them, and those of a call or the parameters of
-// a definition on a line longer than Options.LineLength; with Vertical,
-// every argument list of a call and every parameter list of a function or
-// member function definition with 2 or more items. Such a list gets a line
+// call with more than 3 of them, and those of a call, the parameters of a
+// definition or the elements of a vector or map literal on a line longer
+// than Options.LineLength; with Vertical, every argument list of a call,
+// parameter list of a function or member function definition, and vector
+// and map literal with 2 or more items. Such a list gets a line
 // break after its "(" and after each item's ",", a "," after its last item,
 // and its ")" on a line of its own; layout then indents the items one level
 // and lines the ")" up with the line the list started on.
@@ -28,6 +29,7 @@ type list struct {
 	trailing bool // a "," after the last item
 	empty    bool // no items (perhaps comments)
 	def      bool // the parameters of a definition
+	literal  bool // the elements of a vector or map literal ("[" or "{")
 }
 
 func (l list) items() int {
@@ -42,7 +44,7 @@ func (l list) items() int {
 // definitions of tree, by their "(" in toks.
 func lists(tree *ast.File, toks []token.Token) []list {
 	var lps []int
-	defs := map[int]bool{}
+	defs, literals := map[int]bool{}, map[int]bool{}
 	after := func(id *ast.Ident) int { // the "(" after a name
 		i := tokenAt(toks, id.NamePos) + 1
 		for i < len(toks) && toks[i].Kind == token.COMMENT {
@@ -63,16 +65,22 @@ func lists(tree *ast.File, toks []token.Token) []list {
 				lps = append(lps, after(n.Name))
 			case *ast.NewExpr:
 				lps = append(lps, after(n.Class))
+			case *ast.VectorLit:
+				i := tokenAt(toks, n.Lbrack)
+				lps, literals[i] = append(lps, i), true
+			case *ast.MapLit:
+				i := tokenAt(toks, n.Lbrace)
+				lps, literals[i] = append(lps, i), true
 			}
 			return true
 		})
 	}
 	var ls []list
 	for _, lp := range lps {
-		if lp >= len(toks) || toks[lp].Kind != token.LPAREN {
+		if lp >= len(toks) || toks[lp].Kind != token.LPAREN && !literals[lp] {
 			continue // (not expected: the tree and the tokens agree)
 		}
-		l := list{lp: lp, def: defs[lp]}
+		l := list{lp: lp, def: defs[lp], literal: literals[lp]}
 		depth := 0
 	scan:
 		for i := lp + 1; i < len(toks); i++ {
@@ -113,7 +121,8 @@ func code(toks []token.Token, i, end int) int {
 }
 
 // byCount chooses the lists that Strict (more than 3 arguments of a call)
-// and Vertical (2 or more items of a call or definition) put one per line,
+// and Vertical (2 or more items of a call, definition or vector or map
+// literal) put one per line,
 // and the lists around them that they are an argument of (directly or
 // inside other arguments, not inside a function literal's body or a map:
 // f(g(1, 2, 3, 4), x) puts g's arguments and f's one per line), so that a
@@ -122,7 +131,7 @@ func byCount(ls []list, toks []token.Token, vertical bool) []list {
 	chosen := map[int]bool{}
 	for _, l := range ls {
 		n := l.items()
-		if !l.def && n > 3 || vertical && n >= 2 {
+		if !l.def && !l.literal && n > 3 || vertical && n >= 2 {
 			chosen[l.lp] = true
 		}
 	}

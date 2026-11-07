@@ -62,8 +62,10 @@ comma too, so that adding or moving a line never touches another; the `)`
 lines up with the start of the statement. A call that holds such a list
 among its arguments is split as well (the first `println` has four
 arguments; the second holds `frame(...)`, a function of the program).
-`kukel fmt -vertical` does the same for every call and definition with two
-or more items, `report(v, title)` and `join(v, ", ")` included.
+`kukel fmt -vertical` does the same for every call, definition and vector
+or map literal with two or more items, `report(v, title)` and `join(v,
+", ")` included. A vector or map literal on a line that is too long is
+split in the same way, one element per line.
 
 ## Finding bugs: `kukel debug`
 
