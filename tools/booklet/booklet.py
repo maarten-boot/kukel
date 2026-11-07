@@ -49,8 +49,12 @@ p, li { orphans: 3; widows: 3; }
 a { color: #0b3d91; text-decoration: none; }
 code, pre { font-family: "DejaVu Sans Mono", "Noto Sans Mono", monospace; }
 code { font-size: 9pt; }
-pre { font-size: 8.4pt; line-height: 1.35; background: #fcfcfc; color: #000; border: 0.6pt solid #999;
+pre { font-size: 8.4pt; line-height: 1.35; background: none; color: #000; border: 0.6pt solid #999;
       padding: 6pt 8pt; white-space: pre-wrap; overflow-wrap: anywhere; break-inside: avoid; }
+pre.numbered { counter-reset: line; padding-left: 4pt; }
+pre.numbered .line { display: block; padding-left: 3.2em; text-indent: -3.2em; }
+pre.numbered .line::before { counter-increment: line; content: counter(line); display: inline-block;
+      width: 2.4em; margin-right: 0.8em; text-align: right; text-indent: 0; color: #555; }
 p + pre { break-before: avoid; }
 pre.long { break-inside: auto; }
 pre code { font-size: inherit; }
@@ -129,11 +133,26 @@ def convert(text, chapter, names, version, source_dir):
         return 'src="file://%s"' % html.escape(os.path.normpath(os.path.join(source_dir, src)))
 
     body = re.sub(r'src="([^"]*)"', image, body)
-    # Long code blocks may break across pages; short ones stay whole.
-    body = re.sub(r"<pre>(<code[^>]*>)((?:.|\n)*?)</pre>",
-                  lambda m: ('<pre class="long">' if m.group(2).count("\n") > 40 else "<pre>") + m.group(1) + m.group(2) + "</pre>",
-                  body)
+    body = re.sub(r"<pre>(<code[^>]*>)((?:.|\n)*?)</code></pre>", code_block, body)
     return body
+
+
+def code_block(m):
+    """A code block of the PDF: programs get line numbers (each line a
+    span, numbered by a CSS counter, so that a wrapped line keeps one
+    number); commands and what they print ("$ kukel run ..."), and blocks
+    of one line, do not.
+    Long blocks may break across pages; short ones stay whole."""
+    opening, text = m.group(1), m.group(2)
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    classes = ["long"] if len(lines) > 40 else []
+    if len(lines) > 1 and not html.unescape(lines[0]).startswith("$ "):
+        classes.append("numbered")
+        text = "".join('<span class="line">%s</span>' % (l if l else "&#8203;") for l in lines)
+    attr = ' class="%s"' % " ".join(classes) if classes else ""
+    return "<pre%s>%s%s</code></pre>" % (attr, opening, text)
 
 
 def build(version):

@@ -15,6 +15,11 @@ Two kinds of change need care when you upgrade:
 From v1.0.0 on, what keeps working is in
 [docs/compatibility.md](docs/compatibility.md).
 
+## Unreleased
+
+- The booklet's PDF: code without a background (in its box), and line
+  numbers in the programs. Q105.
+
 ## v1.1.1 (2026-11-06)
 
 Documentation only: kukel itself is as in v1.1.0.
