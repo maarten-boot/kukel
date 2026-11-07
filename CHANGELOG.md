@@ -17,6 +17,11 @@ From v1.0.0 on, what keeps working is in
 
 ## Unreleased
 
+- `kukel fmt -strict` also puts the arguments of a call one per line when
+  there are more than 3 of them, or when the line is longer than 120
+  characters (`-linelength n` sets another length), with a `,` after the
+  last one and the `)` on a line of its own; `kukel fmt -vertical` does
+  that for every call and definition with 2 or more items. Q106.
 - The booklet's PDF: code without a background (in its box), and line
   numbers in the programs. Q105.
 

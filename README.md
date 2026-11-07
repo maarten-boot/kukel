@@ -155,7 +155,7 @@ machine as `kukel:dev` (`IMAGE=...` names it otherwise).
 | `kukel build -module [-o m.kkc] m.kkl` | compile a module on its own; `use m;` finds `m.kkc` when there is no `m.kkl` |
 | `kukel exec prog.kkc [--] [args]` | run a bytecode file |
 | `kukel disasm prog.kkc` (or `a.kkl ...`) | show the bytecode |
-| `kukel fmt [-w \| -l] [-strict] a.kkl ...` | format source files (indentation, spacing, a blank line before `if`, `for`, ...); `kukel fmt -` formats standard input; `-strict` also adds the braces a statement of `if`, `for`, ... lacks and puts every function on several lines |
+| `kukel fmt [-w \| -l] [-strict \| -vertical] [-linelength n] a.kkl ...` | format source files (indentation, spacing, a blank line before `if`, `for`, ...); `kukel fmt -` formats standard input; `-strict` also adds the braces a statement of `if`, `for`, ... lacks, puts every function on several lines, and puts one argument per line in a call with more than 3 arguments or on a line longer than `-linelength` (120); `-vertical` does that for every call and definition with 2 or more |
 | `kukel debug a.kkl ... [-- args]` | run a program under the debugger (breakpoints, stepping, values; it also stops where an exception nothing catches is thrown) |
 | `kukel profile [-o file] [-pprof file] [-cpu] a.kkl ... [-- args]` | run a program and report which functions and lines took the time, with call counts (also of workers); `-pprof` writes it for `go tool pprof` (flame graphs); Ctrl-C stops the program and writes the report |
 | `kukel dap` | the debugger for editors (the Debug Adapter Protocol): Visual Studio Code (with the extension in `editors/vscode`, `make vscode`), Neovim, Helix, Emacs; see [docs/debugging.md](docs/debugging.md) |
@@ -215,7 +215,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `editors/geany` | a filetype for Geany: highlighting, the symbol list, the Build menu ([editors/geany/README.md](editors/geany/README.md)) |
 
 [TODO.md](TODO.md) holds the plan the interpreter was built from, with all
-design decisions (Q1–Q105). Ideas for later are in [docs/future.md](docs/future.md).
+design decisions (Q1–Q106). Ideas for later are in [docs/future.md](docs/future.md).
 What changed in each release is in [CHANGELOG.md](CHANGELOG.md), what
 stays working within v1 in [docs/compatibility.md](docs/compatibility.md); all the
 documents are listed in [docs/README.md](docs/README.md).

@@ -19,9 +19,25 @@ type Options struct {
 	// function and member function definition on several lines: each
 	// statement of its blocks on a line of its own, also in a function
 	// that fits on one (f() { return 1; }). Function literals keep their
-	// lines (they get the braces); empty blocks stay {}.
+	// lines (they get the braces); empty blocks stay {}. It also puts one
+	// argument per line in a call with more than 3 arguments, and in a call
+	// or definition on a line longer than LineLength (lists.go).
 	Strict bool
+	// Vertical (kukel fmt -vertical) does what Strict does, and puts one
+	// item per line in every call with 2 or more arguments and every
+	// function and member function definition with 2 or more parameters.
+	Vertical bool
+	// LineLength is the longest line, in characters, that Strict leaves a
+	// call or definition on (0: DefaultLineLength).
+	LineLength int
 }
+
+// DefaultLineLength is the line length of Options when it gives none.
+const DefaultLineLength = 120
+
+// maxRounds bounds the rounds of breaking lists that are too long: each
+// breaks the outermost list of each long line, and a line holds few.
+const maxRounds = 50
 
 // SourceWith formats one source file as Source does, with the choices of
 // opt.
@@ -38,6 +54,12 @@ func SourceWith(file string, src []byte, opt Options) ([]byte, error) {
 		return nil, err
 	}
 	changed := fmt.Errorf("%s: internal error: formatting would change the program; not formatted", file)
+	if opt.Vertical {
+		opt.Strict = true
+	}
+	if opt.LineLength <= 0 {
+		opt.LineLength = DefaultLineLength
+	}
 	var bare []*ast.Stmt // with Strict: the statements that get braces
 	in, inToks := src, toks
 	if opt.Strict {
@@ -51,9 +73,35 @@ func SourceWith(file string, src []byte, opt Options) ([]byte, error) {
 			return nil, changed
 		}
 		in = expand(braced, toks, in)
-		if inToks, err = tokens(file, in); err != nil {
-			return nil, changed
+		// The lists to put one item per line by their number of items, then
+		// those on lines too long, a round at a time (the outermost list of
+		// a long line first; what is still too long after that, next).
+		for round := 0; ; round++ {
+			tree, err := parser.ParseFile(file, in)
+			if err != nil {
+				return nil, changed
+			}
+			if inToks, err = tokens(file, in); err != nil {
+				return nil, changed
+			}
+			ls := lists(tree, inToks)
+			var chosen []list
+			if round == 0 {
+				chosen = byCount(ls, inToks, opt.Vertical)
+			} else {
+				chosen = tooLong(ls, inToks, in, opt.LineLength)
+			}
+			if len(chosen) == 0 && round > 0 || round == maxRounds {
+				break
+			}
+			next := breakLists(chosen, inToks, in)
+			nextToks, err := tokens(file, next)
+			if err != nil {
+				return nil, changed
+			}
+			in = layout(nextToks, next)
 		}
+		toks = inToks // the commas added after last items are the program's tokens now
 	}
 	out := layout(inToks, in)
 	again, err := tokens(file, out)

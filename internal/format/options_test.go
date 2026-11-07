@@ -59,17 +59,58 @@ func TestStrictExamples(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		once, err := SourceWith(file, src, Options{Strict: true})
-		if err != nil {
-			t.Errorf("%s: %v", file, err)
+		for _, opt := range []Options{{Strict: true}, {Vertical: true}, {Strict: true, LineLength: 40}} {
+			once, err := SourceWith(file, src, opt)
+			if err != nil {
+				t.Errorf("%s %+v: %v", file, opt, err)
+				continue
+			}
+			twice, err := SourceWith(file, once, opt)
+			if err != nil || string(twice) != string(once) {
+				t.Errorf("%s %+v: formatting again changes it (%v):\n%s", file, opt, err, twice)
+			}
+			if plain, err := Source(file, once); err != nil || string(plain) != string(once) {
+				t.Errorf("%s %+v: kukel fmt changes the strict form (%v)", file, opt, err)
+			}
+		}
+	}
+}
+
+func TestLists(t *testing.T) {
+	strict, vertical, short := Options{Strict: true}, Options{Vertical: true}, Options{Strict: true, LineLength: 30}
+	tests := []struct {
+		opt     Options
+		in, out string
+	}{
+		// more than 3 arguments: one per line, a "," after the last, the ")"
+		// at the indentation of the line the call starts on
+		{strict, "main() { local t = sum(1, 2, 3, 4); f(1, 2, 3); }\n",
+			"main() {\n    local t = sum(\n        1,\n        2,\n        3,\n        4,\n    );\n    f(1, 2, 3);\n}\n"},
+		// member calls and new; the call around a split one is split too,
+		// not one inside a function literal's body
+		{strict, "main() { f(p->m(1, 2, 3, 4), new C(1, 2, 3, 4)); g(fn() { h(1, 2, 3, 4); }); }\n",
+			"main() {\n    f(\n        p->m(\n            1,\n            2,\n            3,\n            4,\n        ),\n        new C(\n            1,\n            2,\n            3,\n            4,\n        ),\n    );\n    g(fn() { h(\n        1,\n        2,\n        3,\n        4,\n    ); });\n}\n"},
+		// comments stay with their items; a "," already after the last item
+		// is kept; a call written over lines by hand is put one per line
+		{strict, "main() {\n    f(1, /* two */ 2, 3,\n      4 // four\n    );\n    g(1, 2, 3, 4,);\n}\n",
+			"main() {\n    f(\n        1,\n        /* two */ 2,\n        3,\n        4, // four\n    );\n    g(\n        1,\n        2,\n        3,\n        4,\n    );\n}\n"},
+		// definitions are not split by count in strict, by length they are
+		{strict, "add(a, b, c, d) { return a; }\nmain() {}\n", "add(a, b, c, d) {\n    return a;\n}\nmain() {}\n"},
+		{short, "addition(firstnumber, secondnumber) { return firstnumber; }\nmain() { println(addition(1, 2), \"a long text\"); }\n",
+			"addition(\n    firstnumber,\n    secondnumber,\n) {\n    return firstnumber;\n}\nmain() {\n    println(\n        addition(1, 2),\n        \"a long text\",\n    );\n}\n"},
+		// vertical: every list of 2 or more, definitions too; one item, an
+		// empty list and a function literal's parameters stay
+		{vertical, "add(a, b) { return a + b; }\nmain() { println(add(1, 2)); f(); g(fn(x, y) { return x; }); }\n",
+			"add(\n    a,\n    b,\n) {\n    return a + b;\n}\nmain() {\n    println(\n        add(\n            1,\n            2,\n        ),\n    );\n    f();\n    g(fn(x, y) { return x; });\n}\n"},
+	}
+	for _, tc := range tests {
+		got, err := SourceWith("t.kkl", []byte(tc.in), tc.opt)
+		if err != nil || string(got) != tc.out {
+			t.Errorf("%+v format of\n%s\ngot (%v):\n%s\nwant:\n%s", tc.opt, tc.in, err, got, tc.out)
 			continue
 		}
-		twice, err := SourceWith(file, once, Options{Strict: true})
-		if err != nil || string(twice) != string(once) {
-			t.Errorf("%s: formatting again changes it (%v):\n%s", file, err, twice)
-		}
-		if plain, err := Source(file, once); err != nil || string(plain) != string(once) {
-			t.Errorf("%s: kukel fmt changes the strict form (%v)", file, err)
+		if again, err := SourceWith("t.kkl", got, tc.opt); err != nil || string(again) != string(got) {
+			t.Errorf("%+v: formatting again changes\n%s\n(%v):\n%s", tc.opt, got, err, again)
 		}
 	}
 }
@@ -84,14 +125,18 @@ func FuzzStrict(f *testing.F) {
 		}
 	}
 	f.Fuzz(func(t *testing.T, src string) {
-		once, err := SourceWith("f.kkl", []byte(src), Options{Strict: true})
+		opt := Options{Strict: true, LineLength: 40} // short lines: many lists split
+		if len(src)%2 == 1 {
+			opt = Options{Vertical: true}
+		}
+		once, err := SourceWith("f.kkl", []byte(src), opt)
 		if err != nil {
 			if strings.Contains(err.Error(), "internal error") {
 				t.Fatalf("%v for:\n%s", err, src)
 			}
 			return
 		}
-		twice, err := SourceWith("f.kkl", once, Options{Strict: true})
+		twice, err := SourceWith("f.kkl", once, opt)
 		if err != nil || string(twice) != string(once) {
 			t.Fatalf("not idempotent (%v):\n%s\n----\n%s\n----\n%s", err, src, once, twice)
 		}

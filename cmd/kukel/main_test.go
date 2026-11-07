@@ -654,6 +654,43 @@ func TestBuildMissingOutputName(t *testing.T) {
 	}
 }
 
+// -vertical and -linelength (TODO.md Q106), on standard input, and the
+// mistakes in their use.
+func TestFmtLists(t *testing.T) {
+	src := "main() { println(add(1, 2), \"a text long enough\"); }\n"
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"fmt", "-vertical", "-"},
+			"main() {\n    println(\n        add(\n            1,\n            2,\n        ),\n        \"a text long enough\",\n    );\n}\n"},
+		{[]string{"fmt", "-strict", "-"}, "main() {\n    println(add(1, 2), \"a text long enough\");\n}\n"},
+		{[]string{"fmt", "-strict", "-linelength", "40", "-"},
+			"main() {\n    println(\n        add(1, 2),\n        \"a text long enough\",\n    );\n}\n"},
+		{[]string{"fmt", "-linelength=40", "-strict", "-"},
+			"main() {\n    println(\n        add(1, 2),\n        \"a text long enough\",\n    );\n}\n"},
+	} {
+		var out, errOut bytes.Buffer
+		if code := run(tc.args, strings.NewReader(src), &out, &errOut); code != 0 || out.String() != tc.want {
+			t.Errorf("%q: exit %d, %q %q", tc.args, code, out.String(), errOut.String())
+		}
+	}
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"fmt", "-linelength", "80", "-"}, "-linelength goes with -strict or -vertical"},
+		{[]string{"fmt", "-strict", "-linelength"}, "-linelength needs a number"},
+		{[]string{"fmt", "-strict", "-linelength", "x", "-"}, "-linelength x: a number of characters from 20 to 1000"},
+		{[]string{"fmt", "-strict", "-linelength=10", "-"}, "-linelength 10: a number of characters from 20 to 1000"},
+	} {
+		var out, errOut bytes.Buffer
+		if code := run(tc.args, strings.NewReader(src), &out, &errOut); code != 2 || !strings.Contains(errOut.String(), tc.want) {
+			t.Errorf("%q: exit %d, %q", tc.args, code, errOut.String())
+		}
+	}
+}
+
 func TestFmt(t *testing.T) {
 	dir := t.TempDir()
 	messy := filepath.Join(dir, "messy.kkl")

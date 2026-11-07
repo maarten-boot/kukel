@@ -72,15 +72,20 @@ commands:
   disasm a.kkl ... | prog.kkc     show the bytecode in readable form
   tokens a.kkl ...                show the tokens of source files
   ast [-pos] a.kkl ...            show the syntax tree of source files
-  fmt [-w | -l] [-strict] a.kkl ...
+  fmt [-w | -l] [-strict | -vertical] [-linelength n] a.kkl ...
                                   format source files (indentation, spacing,
                                   blank lines): print them, -w rewrite
                                   them, -l list the files whose
                                   formatting differs; fmt - formats
                                   standard input; -strict also puts
                                   braces around every statement of if,
-                                  else, for, while, do and with, and every
-                                  function on several lines
+                                  else, for, while, do and with, every
+                                  function on several lines, and one
+                                  argument per line in a call with more
+                                  than 3, or on a line longer than
+                                  -linelength (120); -vertical as -strict,
+                                  and one per line in every call and
+                                  definition with 2 or more
   version                         show the version, bytecode format and Go modules
   help                            show this text
 
@@ -611,26 +616,51 @@ func showText(text string) string {
 // cmdFmt formats source files: printed (default), rewritten (-w), or only
 // listed when their formatting differs (-l). A file that does not parse is
 // left alone and reported. "-" formats standard input to standard output.
-// -strict adds braces and puts functions on several lines (format.Options).
+// -strict adds braces, puts functions on several lines and long argument
+// lists one per line; -vertical puts every list of 2 or more one per line;
+// -linelength sets what is long (format.Options).
 func cmdFmt(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	write, list := false, false
 	var opt format.Options
 	var files []string
-	for _, a := range args {
-		switch a {
-		case "-w":
+	const fmtUsage = "kukel fmt [-w | -l] [-strict | -vertical] [-linelength n] a.kkl ... | kukel fmt [-strict | -vertical] [-linelength n] -"
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "-w":
 			write = true
-		case "-l":
+		case a == "-l":
 			list = true
-		case "-strict":
+		case a == "-strict":
 			opt.Strict = true
+		case a == "-vertical":
+			opt.Vertical = true
+		case a == "-linelength" || strings.HasPrefix(a, "-linelength="):
+			v, found := strings.CutPrefix(a, "-linelength=")
+			if !found {
+				if i+1 == len(args) {
+					fmt.Fprintln(stderr, "kukel fmt: -linelength needs a number\nusage: "+fmtUsage)
+					return 2
+				}
+				i++
+				v = args[i]
+			}
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 20 || n > 1000 {
+				fmt.Fprintf(stderr, "kukel fmt: -linelength %s: a number of characters from 20 to 1000\nusage: %s\n", v, fmtUsage)
+				return 2
+			}
+			opt.LineLength = n
 		default:
 			files = append(files, a)
 		}
 	}
-	const fmtUsage = "kukel fmt [-w | -l] [-strict] a.kkl ... | kukel fmt [-strict] -"
 	if len(files) == 0 || write && list {
 		fmt.Fprintln(stderr, "usage: "+fmtUsage)
+		return 2
+	}
+	if opt.LineLength > 0 && !opt.Strict && !opt.Vertical {
+		fmt.Fprintln(stderr, "kukel fmt: -linelength goes with -strict or -vertical (only they break lines)\nusage: "+fmtUsage)
 		return 2
 	}
 	if slices.Contains(files, "-") {

@@ -13,13 +13,57 @@ around operators, a blank line before `if` and the loops. Every program in
 this booklet is laid out by it.
 
 ```
-$ kukel fmt -l *.kkl          # which files would change
-$ kukel fmt -w *.kkl          # change them
-$ kukel fmt -w -strict a.kkl  # also add the braces an if, for, ... lacks
+$ kukel fmt -l *.kkl            # which files would change
+$ kukel fmt -w *.kkl            # change them
+$ kukel fmt -w -strict a.kkl    # also braces, and long argument lists one per line
+$ kukel fmt -w -vertical a.kkl  # every list of 2 or more one per line
 ```
 
 Without `-w` it writes the result to standard output; `kukel fmt -`
 formats standard input, for editors. Comments stay where they are.
+
+`-strict` goes further. It adds the braces an `if`, `for`, `while`, ...
+lacks, puts each statement of a function on a line of its own, and puts
+the arguments of a call one per line when there are more than 3, or when
+the line is longer than 120 characters (`-linelength 100` sets another
+length). Take this function:
+
+```
+report(v, title) {
+    println(title + ":", max(v..), min(v..), join(v, ", "));
+    println(frame(title, 20, "-", true), len(v));
+}
+```
+
+`kukel fmt -strict` makes it:
+
+```
+report(v, title) {
+    println(
+        title + ":",
+        max(v..),
+        min(v..),
+        join(v, ", "),
+    );
+    println(
+        frame(
+            title,
+            20,
+            "-",
+            true,
+        ),
+        len(v),
+    );
+}
+```
+
+Each argument starts a line of its own, one level in; the last one gets a
+comma too, so that adding or moving a line never touches another; the `)`
+lines up with the start of the statement. A call that holds such a list
+among its arguments is split as well (the first `println` has four
+arguments; the second holds `frame(...)`, a function of the program).
+`kukel fmt -vertical` does the same for every call and definition with two
+or more items, `report(v, title)` and `join(v, ", ")` included.
 
 ## Finding bugs: `kukel debug`
 
