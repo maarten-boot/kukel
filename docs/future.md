@@ -64,7 +64,9 @@ compiled on their own into `.kkc` files (TODO.md Q49).*
 **F-2** Do the current built-ins move into modules (`str::split`,
 `math::sqrt`), or stay global as a small core? *Within v1 they stay: the
 built-ins keep their names (docs/compatibility.md); new functions go into
-modules.*
+modules.* *Answered (2026-11-07) for v2: yes, and v2 should consider
+more rules for name spaces (which names are global, how modules are
+named and nested).*
 
 ### 1.2 Classes and objects implemented in Go ("native classes")
 
@@ -258,6 +260,7 @@ everything public? *Answered: a `_` prefix.*
 also be compiled on its own (`kukel build -module`) and is then linked
 into the program when the program is compiled (TODO.md Q49).*
 **F-21** Is `ffi` wanted at all, and with structs and callbacks?
+*Answered (2026-11-07): not now; postponed until a library needs it.*
 
 ---
 
@@ -771,6 +774,7 @@ ideas above make useful:
 
   The suggestion was A as an example first, then C if scripts want an HTML
   front end, and B only when a native window really matters (**F-27**).
+  *Answered (2026-11-07): A, for now; B and C would add much more.*
 
 ---
 
@@ -899,14 +903,45 @@ refusing named arguments. This is a second step, with its own design.
 
 - **F-28** Is the first step (calls the compiler knows, constructors
   included) useful enough on its own, or should member function calls
-  come at once?
+  come at once? *Answered (2026-11-07): the first step on its own;
+  member function calls later.*
 - **F-29** Should a call be allowed to name a required parameter that
   comes before a positional one it skips (`f(b: 2, 1)`)? This proposal
-  says no: positional first, as in Python.
+  says no: positional first, as in Python. *Answered: no, as in Python.*
 - **F-30** Should Go functions of host modules (`kukel.NewModule(...).Func`)
   be able to declare parameter names, so that `app::notify(level:
-  "warn")` works? It would need an addition to the Go API.
+  "warn")` works? It would need an addition to the Go API. *Answered:
+  yes, later, as an addition to the Go API; until then Go functions
+  refuse named arguments with a message that says so.*
 - **F-31** `kukel fmt -vertical` puts named arguments one per line like
   the others; should a call with only named arguments always be split,
-  whatever their number?
+  whatever their number? *Answered: no, the rule of the other arguments.
+  And long vector and map literals should be split the same way (one
+  element per line, a "," after the last): see 9.5.*
+
+### 9.5 Next for kukel fmt: long vectors and maps
+
+Raised with F-31: `kukel fmt -strict` (and `-vertical`) split argument
+lists that are long or have many items, but not vector and map literals,
+which can be just as long:
+
+```
+local config = {"host": "localhost", "port": 8080, "timeout": 30, "retries": 3, "log": "info"};
+```
+
+```
+local config = {
+    "host": "localhost",
+    "port": 8080,
+    "timeout": 30,
+    "retries": 3,
+    "log": "info",
+};
+```
+
+To settle before it is built: split a literal only when its line is
+longer than `-linelength`, or also by its number of elements (as calls
+with more than 3 arguments), with `-vertical` splitting every literal of
+2 or more? And nested literals (a vector of maps): the outermost first,
+as for calls.
 
