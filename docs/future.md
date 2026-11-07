@@ -16,7 +16,7 @@ Contents:
 6. [Files: a module fs and 9P](#6-files-a-module-fs-and-9p)
 7. [Smaller items](#7-smaller-items)
 8. [Suggested order](#8-suggested-order)
-9. [Named arguments](#9-named-arguments) (a proposal, 2026-11-07)
+9. [Named arguments](#9-named-arguments) (the first step done, 2026-11-07)
 
 ---
 
@@ -805,8 +805,10 @@ step that needs them; F-28 to F-31 are those of the named arguments
 
 ## 9. Named arguments
 
-*Designed (TODO.md Q107), the open questions answered (9.4); not built
-yet.* An argument may be given by the name of its parameter instead of
+*The first step is done (2026-11-07, TODO.md Q107; the reference, §7,
+describes it): named arguments in the calls whose function the compiler
+knows, as answered (9.4). Member function calls (9.3) and Go functions
+with parameter names (F-30) are still to come.* An argument may be given by the name of its parameter instead of
 by its place:
 
 ```
@@ -886,6 +888,18 @@ way for open-ended options (a set of options that grows, or is passed on).
   again). `JUMP_IF_ARG` gets one comparison more; its cost is to be
   measured (GOMAXPROCS=1, best of 9 alternating runs) before the change
   is kept.
+
+  *As built:* measured, that one comparison made unrelated programs 30 to
+  40% slower (the Go compiler then kept many more of the dispatch loop's
+  values on the stack), whatever its form. So `JUMP_IF_ARG` and the loop
+  stay as they were: a function with optional parameters has a second
+  copy of its prologue after its body (`NamedEntry`), with a new
+  `JUMP_IF_GIVEN` that counts the marker as missing, and a call that
+  passes the marker is preceded by `NAMED_CALL`, which starts the frame
+  there. `ABSENT`, `NAMED_CALL` and `JUMP_IF_GIVEN` run outside the loop,
+  as the generators' instructions do (docs/vm.md, section 4.3). Other
+  calls cost the same as before; a call that skips a parameter about
+  120 ns more.
 - `kukel fmt` writes `name: value` (no space before the ":"); the
   debugger, the profiler and the `.kkc` format need nothing else.
 

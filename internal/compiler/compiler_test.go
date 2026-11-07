@@ -296,6 +296,7 @@ func FuzzCompile(f *testing.F) {
 		"f(x) { a: for (;;) { try { try { if (x) return x; break a; } catch (e) { continue; } finally { x++; } } finally { } } } main() { f(1); }",
 		"main() { switch (1) { case 1: try { throw new Error(); } catch (e) { try { } finally { while (1) break; } } default: } }",
 		"class E : Error { E(); } E::E() { Error::Error(\"m\"); } main() { try { throw new E(); } catch (e) { throw e; } finally { return; } }",
+		"f(a, b = a, c = fn() { return b; }, d..) { return [a, b, c(), d]; } class P { x; P(x, y); m(z); static s(q, r); } P::P(x, y = x) { this->x = y; } P::m(z = 1) { return P::s(r: z, q: x); } P::s(q, r = 2) { return q; } main() { f(1, c: fn() { return 2; }); f(b: 3, a: f(a: 1)); new P(y: 1, x: 2)->m(); }",
 		"main(a) { local t; local f = fn(x = a, y..) { local z; return fn() { a++; t = x; return z = y; }; }; for (local i = 0; i < 2; i++) f(i)(); }",
 		"class K { v; m(); } K::m() { return fn() { return fn() { v++; return this; }; }; } main() { try { new K()->m()()(); } catch (e) { local g = fn() { return e; }; } }",
 	} {
@@ -306,8 +307,14 @@ func FuzzCompile(f *testing.F) {
 		if err != nil {
 			return
 		}
-		if _, err := Compile([]*ast.File{file}, testBuiltins); err != nil && strings.Contains(err.Error(), "internal error") {
+		prog, err := Compile([]*ast.File{file}, testBuiltins)
+		if err != nil && strings.Contains(err.Error(), "internal error") {
 			t.Fatalf("%q: %v", src, err)
+		}
+		if err == nil {
+			if err := bytecode.Verify(prog); err != nil { // what the compiler makes, the VM can run
+				t.Fatalf("%q: %v", src, err)
+			}
 		}
 	})
 }

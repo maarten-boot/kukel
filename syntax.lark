@@ -1,4 +1,4 @@
-// Lark grammar for Kukel (syntax.ebnf, syntax version 10; kukel v0.37 and later).
+// Lark grammar for Kukel (syntax.ebnf, syntax version 11; kukel v1.4 and later).
 //
 // Intended for:  Lark(grammar, parser="lalr", lexer="contextual")
 // (the default lexer for LALR; the start rule is "start"). The contextual
@@ -21,6 +21,9 @@
 //    p->m(...)  (a method call, not a call of the data member p->m).
 //
 // Smaller differences in what is accepted:
+//  * Named arguments (f(1, z: 3)) may come in any order here; Kukel wants
+//    the positional ones first (syntax.ebnf, call_arguments): saying so
+//    in LALR(1) would need two tokens of lookahead (name and ":").
 //  * A label's ":" may only follow the name after spaces or tabs here; Kukel
 //    also allows a comment in between (a /*c*/ : while ...).
 //  * "from" right after "yield" is always the from of "yield from" here;
@@ -218,7 +221,10 @@ yield_value: "yield" [assignment]
         | postfix "->" IDENTIFIER                           -> member
         | postfix incdec                                    -> postincdec
 
-arguments: argument ("," argument)* [","]
+arguments: call_argument ("," call_argument)* [","]
+
+?call_argument: argument
+              | IDENTIFIER ":" assignment                   -> named_argument
 
 ?argument: assignment
          | assignment ".."                                  -> spread

@@ -876,6 +876,66 @@ main() {
 - Functions are values: `local f = square; f(3);`.
 - Recursion is limited to 10000 nested calls (`StackOverflowError`).
 
+**Named arguments** (syntax version 11): an argument can be given by the
+name of its parameter, `name: value`, after the positional ones:
+
+```
+box(width, height, depth = 1, label = "box") {
+    return [width, height, depth, label];
+}
+
+class Point {
+    x, y;
+    Point(x, y);
+}
+
+Point::Point(x, y) {
+    this->x = x;
+    this->y = y;
+}
+
+main() {
+    println(box(10, 20, label: "crate"));            // depth keeps its default
+    println(box(height: 2, width: 1));
+    println(new Point(y: 2, x: 1));
+}
+```
+
+```
+$ kukel run named.kkl
+[10, 20, 1, "crate"]
+[1, 2, 1, "box"]
+Point{x: 1, y: 2}
+```
+
+- Positional arguments fill the parameters from the first on; each named
+  argument fills the parameter of that name (the names of the definition,
+  `Point::Point(x, y)`, not of the declaration in the class). An optional
+  parameter may be skipped anywhere: its default runs, and sees the
+  parameters before it, given or computed.
+- The arguments are evaluated as they are written, left to right, whatever
+  the order of the parameters.
+- Compile errors: a positional argument after a named one; a name the
+  function has no parameter for (`area has no parameter hh; its parameters
+  are w and h`); a name given twice, or given by place and by name; a
+  required parameter left out (`area: argument w is missing`); naming the
+  rest parameter, or positional arguments that reach it (it gets nothing
+  in a call with named arguments); a spread argument in the same call.
+- They work in the calls whose function the compiler knows: functions of
+  the program and of modules written in Kukel (`f(...)`, `m::f(...)`),
+  static member functions (`C::f(...)`), `Base::m(...)`, and constructors
+  (`new C(...)`, `new m::C(...)`). Elsewhere they are a compile error that
+  says why: member function calls (`p->m(...)`, and `m(...)` meaning
+  `this->m(...)`, chosen only when the call runs), calls of variables, and
+  built-in functions and functions of modules written in Go, whose
+  parameters have no names in Kukel.
+- Maps stay the way to pass a set of options that grows or is passed on
+  (`{"width": 10}`, as `tk` does); named arguments are checked when
+  compiling, and use the defaults the function has.
+- A call that skips an optional parameter costs a little more (about
+  120 ns) than one that gives its arguments by place; other calls cost the
+  same as before (docs/vm.md, section 4.3).
+
 **Function literals** (closures):
 
 ```

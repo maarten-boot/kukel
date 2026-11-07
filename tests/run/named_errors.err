@@ -1,0 +1,10 @@
+named_errors.kkl:15:17: area has no parameter hh; its parameters are w and h
+named_errors.kkl:19:23: w is given twice
+named_errors.kkl:23:20: w is given twice: by place and by name
+named_errors.kkl:27:16: area: argument w is missing
+named_errors.kkl:31:19: more is the rest parameter of all; it cannot be named
+named_errors.kkl:35:15: all: in a call with named arguments the rest parameter more gets nothing, so at most 1 argument can be given by place (got 2)
+named_errors.kkl:39:16: a spread (x..) cannot be combined with named arguments: which parameters it fills is known only when the call runs
+named_errors.kkl:44:14: named argument w: f is a variable; named arguments need a function the compiler knows: a function, a static member function, Base::m(...) or a constructor
+named_errors.kkl:48:16: named argument x: len is a built-in function, whose parameters have no names in Kukel
+named_errors.kkl:52:25: named argument value: json::encode is written in Go, and its parameters have no names in Kukel

@@ -8,7 +8,9 @@ import (
 
 // paramShape is what a call needs to know about a function's parameters.
 type paramShape struct {
-	name     string // as in run-time messages: "f", "C::m"
+	name     string   // as in run-time messages: "f", "C::m"
+	names    []string // of the parameters, the rest parameter not included
+	restName string   // of the rest parameter
 	required int
 	optional int
 	rest     bool
@@ -19,12 +21,14 @@ func shapeOf(name string, pl *ast.ParamList) *paramShape {
 	for _, p := range pl.Params {
 		switch {
 		case p.Rest:
-			ps.rest = true
+			ps.rest, ps.restName = true, p.Name.Name
+			continue
 		case p.Default != nil:
 			ps.optional++
 		default:
 			ps.required++
 		}
+		ps.names = append(ps.names, p.Name.Name)
 	}
 	return ps
 }
@@ -34,8 +38,8 @@ func shapeOf(name string, pl *ast.ParamList) *paramShape {
 // or a constructor. These cannot be reassigned, so the check is exact. A
 // call with spread arguments is checked at run time.
 func (c *compiler) checkArgs(ps *paramShape, args []ast.Expr, pos token.Pos) {
-	if ps == nil || hasSpread(args) {
-		return
+	if ps == nil || hasSpread(args) || hasNamed(args) {
+		return // with named arguments, namedArgs checks them
 	}
 	n := len(args)
 	switch {
@@ -131,36 +135,42 @@ func (c *compiler) checkClassCall(e *ast.CallExpr) {
 // checkNew checks new C(...) when C names a class directly (not a variable
 // holding one): the parameters of the constructor that runs (C's own, else
 // the nearest base class's, Q33), or no arguments at all when there is none.
-func (c *compiler) checkNew(e *ast.NewExpr) {
+// It returns the constructor's parameters for named arguments, or why there
+// are none.
+func (c *compiler) checkNew(e *ast.NewExpr) (*paramShape, string) {
+	const variable = "the class is a variable; " + knownCallees
 	if e.Module == nil {
 		if _, ok := c.lookupLocal(e.Class.Name); ok {
-			return
+			return nil, variable
 		}
 		if _, ok := c.upvalue(c.fs, e.Class.Name); ok {
-			return
+			return nil, variable
 		}
 	}
 	k := c.findClass(e.Module, e.Class)
 	if k == nil {
-		return
+		return nil, variable
 	}
+	goCtor := "the constructor of " + k.name + " is written in Go, and its parameters have no names in Kukel"
 	if k.native {
 		if k.constructor() == nil {
 			c.errorf(e.New, "native class %s has no constructor: its objects come from the functions of its module", k.name)
 		}
-		return // the constructor checks its arguments when it runs
+		return nil, goCtor // the constructor checks its arguments when it runs
 	}
 	ctor := k.constructor()
 	switch {
 	case ctor != nil && ctor.class.native:
-		return // a native base class's constructor: it checks its arguments when it runs
+		return nil, goCtor // a native base class's constructor: it checks its arguments when it runs
 	case ctor == nil:
 		if len(e.Args) > 0 && !hasSpread(e.Args) {
 			c.errorf(e.New, "class %s has no constructor, so new %s() takes no arguments (got %d)", k.name, k.name, len(e.Args))
 		}
+		return nil, "class " + k.name + " has no constructor"
 	case ctor.fn < 0:
 		c.errorf(e.New, "%s is declared but not defined", ctor.fullName())
 	default:
 		c.checkArgs(ctor.def, e.Args, e.New)
 	}
+	return ctor.def, ctor.fullName() + " is declared but not defined"
 }

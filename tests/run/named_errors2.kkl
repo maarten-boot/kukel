@@ -1,0 +1,35 @@
+// More named arguments that the compiler refuses: member function calls,
+// which are chosen when they run, and parameters a constructor does not
+// have.
+
+class Point {
+    x, y;
+    Point(x, y);
+    norm(scale);
+    twice();
+}
+
+Point::Point(x, y) {
+    this->x = x;
+    this->y = y;
+}
+
+Point::norm(scale) {
+    return scale * (x + y);
+}
+
+Point::twice() {
+    return norm(scale: 2);
+}
+
+method(p) {
+    return p->norm(scale: 2);
+}
+
+constructor() {
+    return new Point(1, z: 2);
+}
+
+main() {
+    println("not printed");
+}

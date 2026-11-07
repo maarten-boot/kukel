@@ -438,7 +438,16 @@ func (c *compiler) newClassValue(mod, id *ast.Ident) {
 
 // callArgs compiles the arguments of a call and the call instruction:
 // fixed(argc) without spread arguments, spread() with an argument vector.
-func (c *compiler) callArgs(args []ast.Expr, pos token.Pos, fixed func(argc int), spread func()) {
+// Named arguments need the callee's parameters ps; without them, why says
+// why they are refused.
+func (c *compiler) callArgs(ps *paramShape, why string, args []ast.Expr, pos token.Pos, fixed func(argc int), spread func()) {
+	if hasNamed(args) {
+		if ps == nil {
+			c.noNamed(args, why)
+		}
+		c.namedArgs(ps, args, pos, fixed)
+		return
+	}
 	if hasSpread(args) {
 		c.argVector(args)
 		c.mark(pos)
@@ -477,13 +486,13 @@ func (c *compiler) memberCall(e *ast.CallExpr) bool {
 				c.emit(bytecode.OpLoadFunc, c.funcIndex(m, fun.NamePos))
 			}
 			c.checkArgs(m.def, e.Args, e.Lparen)
-			c.callArgs(e.Args, e.Lparen, call, callV)
+			c.callArgs(m.def, m.fullName()+" is written in Go, and its parameters have no names in Kukel", e.Args, e.Lparen, call, callV)
 			return true
 		}
 		c.checkThis(fun.NamePos, "member function "+m.name)
 		c.emit(bytecode.OpLoadThis)
 		name := c.constIndex(stringValue(m.name), fun.NamePos)
-		c.callArgs(e.Args, e.Lparen,
+		c.callArgs(nil, fun.Name+"(...) is this->"+fun.Name+"(...): a member function, which is chosen only when the call runs; "+knownCallees, e.Args, e.Lparen,
 			func(argc int) { c.emit(bytecode.OpCallMethod, name, argc, c.cache(fun.NamePos)) },
 			func() { c.emit(bytecode.OpCallMethodV, name, c.cache(fun.NamePos)) })
 		return true
@@ -509,6 +518,7 @@ func (c *compiler) memberCall(e *ast.CallExpr) bool {
 			// (Base::Base(...)): found by name in the native class.
 			g := c.globalIndex(m.class.global, fun.Name.NamePos)
 			name := c.constIndex(stringValue(m.name), fun.Name.NamePos)
+			c.noNamed(e.Args, m.fullName()+" is written in Go, and its parameters have no names in Kukel")
 			c.emit(bytecode.OpLoadThis)
 			for _, a := range e.Args {
 				c.expr(a)
@@ -520,6 +530,13 @@ func (c *compiler) memberCall(e *ast.CallExpr) bool {
 		fn := c.funcIndex(m, fun.Name.NamePos)
 		c.checkArgs(m.def, e.Args, e.Lparen)
 		c.emit(bytecode.OpLoadThis)
+		if hasNamed(e.Args) {
+			if m.def == nil {
+				c.noNamed(e.Args, m.fullName()+" is declared but not defined")
+			}
+			c.namedArgs(m.def, e.Args, e.Lparen, func(argc int) { c.emit(bytecode.OpCallDirect, fn, argc) })
+			return true
+		}
 		for _, a := range e.Args {
 			c.expr(a)
 		}

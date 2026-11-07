@@ -192,6 +192,13 @@ func op(o bytecode.Op, operands ...int) []byte {
 
 func code(parts ...[]byte) []byte { return bytes.Join(parts, nil) }
 
+// named gives main a named entry and optional parameters.
+func named(p *bytecode.Program, entry, optional int) *bytecode.Program {
+	p.Funcs[0].NamedEntry, p.Funcs[0].NumOptional = entry, optional
+	p.Funcs[0].NumSlots = max(p.Funcs[0].NumSlots, optional)
+	return p
+}
+
 func TestVerifyRejects(t *testing.T) {
 	ret := op(bytecode.OpReturnNil)
 	tests := []struct {
@@ -238,6 +245,13 @@ func TestVerifyRejects(t *testing.T) {
 		{"YIELD_VALUE without GENERATOR", program(code(op(bytecode.OpNil), op(bytecode.OpYieldValue), op(bytecode.OpPop), ret)), "YIELD_VALUE in a function that is not a generator"},
 		{"ITER_SEND slot", program(code(op(bytecode.OpNil), op(bytecode.OpIterSend, 5), ret)), "ITER_SEND uses slot 5"},
 		{"GENERATOR with a value on the stack", program(code(op(bytecode.OpNil), op(bytecode.OpGenerator), op(bytecode.OpPop), op(bytecode.OpGenReturn))), "GENERATOR with 0 try handlers and 1 values"},
+		// Named arguments (Q107).
+		{"NAMED_CALL without a call", program(code(op(bytecode.OpNamedCall), op(bytecode.OpNil), op(bytecode.OpPop), ret)), "NAMED_CALL not followed by CALL"},
+		{"NAMED_CALL at the end", program(code(ret, op(bytecode.OpNamedCall))), "NAMED_CALL not followed by CALL"},
+		{"named entry without optional parameters", named(program(code(ret, ret)), 1, 0), "named entry 1 is not an instruction"},
+		{"named entry inside an instruction", named(program(code(op(bytecode.OpJump, 5), ret)), 2, 1), "named entry 2 is not an instruction"},
+		{"named entry past the end", named(program(code(ret)), 9, 1), "named entry 9 is not an instruction"},
+		{"named entry running past the end", named(program(code(ret, op(bytecode.OpAbsent))), 1, 1), "the code runs past its end"},
 	}
 	for _, tt := range tests {
 		err := bytecode.Verify(tt.p)

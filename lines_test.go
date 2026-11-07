@@ -1,6 +1,8 @@
 package kukel
 
 import (
+	"bytes"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -51,8 +53,8 @@ func TestFuseKeepsLines(t *testing.T) {
 	files, _ := filepath.Glob("tests/run/*.kkl")
 	more, _ := filepath.Glob("examples/*.kkl")
 	for _, file := range append(files, more...) {
-		if filepath.Base(file) == "compile_error.kkl" {
-			continue
+		if err, _ := os.ReadFile(strings.TrimSuffix(file, ".kkl") + ".err"); bytes.HasPrefix(err, []byte(filepath.Base(file)+":")) {
+			continue // a program that does not compile (compile_error.kkl, named_errors.kkl, ...)
 		}
 		sameLines(t, file, func() (*Program, error) {
 			return CompileFiles([]string{file}, CompileOptions{Path: []string{"tests/run/lib"}})

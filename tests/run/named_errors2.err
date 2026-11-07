@@ -1,0 +1,3 @@
+named_errors2.kkl:22:17: named argument scale: norm(...) is this->norm(...): a member function, which is chosen only when the call runs; named arguments need a function the compiler knows: a function, a static member function, Base::m(...) or a constructor
+named_errors2.kkl:26:20: named argument scale: p->m(...) calls a member function, which is chosen only when the call runs; named arguments need a function the compiler knows: a function, a static member function, Base::m(...) or a constructor
+named_errors2.kkl:30:25: Point::Point has no parameter z; its parameters are x and y

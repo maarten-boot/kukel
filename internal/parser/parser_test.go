@@ -56,6 +56,8 @@ func sexpr(x ast.Expr) string {
 		return x.Class.Name + "::" + x.Name.Name
 	case *ast.Spread:
 		return list("..", x.X)
+	case *ast.NamedArg:
+		return list(x.Name.Name+":", x.X)
 	case *ast.CommaExpr:
 		return list(",", x.List...)
 	case *ast.AssignExpr:
@@ -137,6 +139,14 @@ func TestExpressions(t *testing.T) {
 		{"a[i][j]", "(index (index a i) j)"},
 		{"a->b->c(1)", "(method (member a b) c 1)"},
 		{"a->m()->n(x, y..)", "(method (method a m) n x (.. y))"},
+		// Named arguments (syntax version 11): only in a call's or new's
+		// argument list, after the positional ones.
+		{"f(1, b: 2, c: x ? y : z,)", "(call f 1 (b: 2) (c: (? x y z)))"},
+		{"f(a ? b : c, d: e = 1)", "(call f (? a b c) (d: (= e 1)))"},
+		{"new P(y: 2, x: 1)", "(new P (y: 2) (x: 1))"},
+		{"m::f(x: [1, 2], y: {\"k\": 1})", "(call m::f (x: [1 2]) (y: {\"k\":1}))"},
+		{"a->m(n: 1)", "(method a m (n: 1))"},
+		{"f(g(x: 1), y: h(z: 2))", "(call f (call g (x: 1)) (y: (call h (z: 2))))"},
 		{"(p->f)(x)", "(call (member p f) x)"},
 		{"this->x", "(member this x)"},
 		{"new C(1)->m()", "(method (new C 1) m)"},
@@ -270,6 +280,10 @@ main() {
 func TestErrors(t *testing.T) {
 	tests := []struct{ src, pos, msg string }{
 		{"main() { x = 1 }", "1:16", "expected ';' after expression, found '}'"},
+		{"main() { f(a: 1, 2); }", "1:18", "a positional argument after a named one (name: value): positional arguments come first"},
+		{"main() { f(a: 1, v..); }", "1:18", "a positional argument after a named one"},
+		{"main() { local v = [a: 1]; }", "1:22", "expected ']' to close the vector"},
+		{"main() { f(1: 2); }", "1:13", "expected ')'"},
 		{"main() { yield 1 }", "1:18", "expected ';' after yield, found '}'"},
 		{"main() { local yield = 1; }", "1:16", "expected local variable name, found 'yield'"},
 		{"g() { f(yield 1); }", "1:9", "a yield that gives a value stands after = or in parentheses: (yield x)"},
@@ -374,6 +388,7 @@ func FuzzParser(f *testing.F) {
 		"main() { x = - - -1; !!y; a->b->c(); (p->f)(); C::x++; }",
 		"main() { f(1, [2, 3,], {4: 5,},); }",
 		"g() { local a = yield; b += yield a; f((yield), (yield 1)); yield from h(); yield from; yield from - 1; }",
+		"main() { f(1, b: 2, c: x ? y : z,); new P(y: f(x: 1)); m::g(a: [1], b: {k: 2}); }",
 	} {
 		f.Add([]byte(s))
 	}

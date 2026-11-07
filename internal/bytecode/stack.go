@@ -12,7 +12,7 @@ func StackUse(op Op, operands []int) (pops, pushes int) {
 		return 0
 	}
 	switch op {
-	case OpConst, OpNil, OpTrue, OpFalse, OpLoadLocal, OpLoadGlobal, OpLoadThis,
+	case OpConst, OpNil, OpAbsent, OpTrue, OpFalse, OpLoadLocal, OpLoadGlobal, OpLoadThis,
 		OpLoadMember, OpLoadFunc, OpLoadStatic, OpLoadCell, OpLoadUpvalue, OpClosure, OpArithLK, OpIndexLL, OpGetMemberL, OpArithLL:
 		return 0, 1
 	case OpPop, OpStoreLocal, OpStoreGlobal, OpStoreMember, OpStoreStatic, OpStoreCell,

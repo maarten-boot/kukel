@@ -5,7 +5,7 @@ values, the program image, the execution model of the stack machine, every
 instruction, how the compiler translates the language's constructs, the
 `.kkc` file format and what the loader guarantees.
 
-It describes bytecode format version **11** (introduced in kukel v0.37). The language
+It describes bytecode format version **12** (introduced in kukel v1.4). The language
 itself is described in [reference.md](reference.md), its grammar in
 [syntax.ebnf](../syntax.ebnf).
 
@@ -198,6 +198,19 @@ Missing optional arguments are filled in by the callee's own code: its
 prologue has, for each optional parameter `i`, `JUMP_IF_ARG i` over the code
 of the default value (section 6.5). So a default runs only when the
 argument is missing, and may use the parameters before it.
+
+**Named arguments** (`box(2, label: "crate")`) are turned into positional
+ones by the compiler, which knows the callee's parameters. An optional
+parameter that such a call skips gets the *absent* marker (`ABSENT`, a nil
+that Kukel code never sees), and the call instruction is preceded by
+`NAMED_CALL`. That makes the new frame start at the function's second
+entry, `NamedEntry`: a copy of the prologue (after the body) with
+`JUMP_IF_GIVEN`, which counts an absent argument as missing, instead of
+`JUMP_IF_ARG`; it then jumps to the code after the first prologue. Calls
+without `ABSENT` run exactly as before. `ABSENT`, `NAMED_CALL` and
+`JUMP_IF_GIVEN` go to the dispatch loop's `default` case (section 4.14),
+so the loop has no code for them: such a call costs about 120 ns more than
+a call that gives every argument by place.
 
 Returning (`RETURN`, `RETURN_NIL`) drops the frame's slots, its operands and
 the callee, and pushes the result where the callee was. A constructor
@@ -586,12 +599,16 @@ outer() {                        GENERATOR
 of something that is not a vector, map or string iterator and `YIELD`
 each call a function outside the loop and reload the loop's state from
 the top frame (as calls do); `GENERATOR`, `GEN_RETURN`, `ITER_CLOSE`,
-`YIELD_VALUE` and `ITER_SEND` go to the loop's `default` case, and `ITER_INIT` of an object to its error
+`YIELD_VALUE` and `ITER_SEND` (and those of named arguments, `ABSENT`,
+`NAMED_CALL` and `JUMP_IF_GIVEN`) go to the loop's `default` case, and `ITER_INIT` of an object to its error
 path, which hand the instruction to the code for generators outside the
 loop instead of raising an error. The loop is measurably faster with less
 code in it: when the Go compiler takes it for a "big" function, it stops
 inlining small functions into it, and unrelated programs ran 20 to 40%
-slower (the first version of generators); so `CLOSURE` and `MAKE_MAP`,
+slower (the first version of generators; and again with named arguments,
+when one more condition in `JUMP_IF_ARG` made unrelated programs 30 to
+40% slower: the Go compiler then kept many more of the loop's values on the
+stack instead of in registers); so `CLOSURE` and `MAKE_MAP`,
 whose cost is their allocation, run in functions of their own. Pointers in
 the handler records cost another 10% (the garbage collector's write
 barriers at every `TRY_PUSH`): handlers of loops keep the index of their
@@ -704,6 +721,9 @@ code: the numbers, names, operands and stack effects.
 | 90 | `GEN_RETURN` | | 0 | 0 | the generator ends (its `return;` and the end of its body): drop the frame; a `for`-each loop goes on at its end |
 | 91 | `YIELD_VALUE` | | 1 | 1 | `x`: as `YIELD`; the next step goes on after it with the value sent to it (`send`; `nil` for `next` and `for`) pushed |
 | 92 | `ITER_SEND` | slot:u16 | 1 | 0 | `x`: the next step of the generator the loop with the iterator in `slot` walks gets `x` (`yield from`; dropped for a vector, map or string) |
+| 93 | `ABSENT` | | 0 | 1 | push the absent marker: the argument of an optional parameter that a call with named arguments skips (section 4.3) |
+| 94 | `JUMP_IF_GIVEN` | n:u16, target:u32 | 0 | 0 | as `JUMP_IF_ARG`, but an `ABSENT` argument counts as missing (in the prologue at `NamedEntry`) |
+| 95 | `NAMED_CALL` | | 0 | 0 | the next instruction, a `CALL`, `CALL_DIRECT` or `NEW` whose arguments hold `ABSENT`, makes the call; the new frame starts at its function's `NamedEntry` |
 
 `CMP_JUMP`'s `cmp` operand is the comparison in its low byte (0 `<`,
 1 `<=`, 2 `>`, 3 `>=`, 4 `==`, 5 `!=`), plus 0x100 to jump when the
@@ -936,6 +956,64 @@ defs(a, b = a * 2, rest..) {     0  JUMP_IF_ARG   1 -> 17
 
 A call with spread arguments builds a vector with `MAKE_VECTOR`, `APPEND`
 and `EXTEND`, then uses `CALL_V`, `CALL_METHOD_V` or `NEW_V`.
+
+A function with optional parameters has a second copy of its prologue
+after its body, its `NamedEntry`, for calls with named arguments that skip
+one (section 4.3). Such a call pushes `ABSENT` in its place. Named
+arguments in the order of the parameters are pushed as they are
+evaluated; in another order, they are evaluated into hidden slots first,
+as they are written, then loaded in the order of the parameters. Here
+`box`'s named entry is at 40, and both calls skip `depth`:
+
+<!-- disasm exact box main
+box(w, depth = 1, label = "box") {
+    return [w, depth, label];
+}
+
+main() {
+    box(2, label: "crate");
+    box(label: "a", w: 3);
+}
+-->
+```
+box(w, depth = 1,                 0  JUMP_IF_ARG   1 -> 13
+    label = "box") {              7  CONST         0  ; 1
+                                 10  STORE_LOCAL   1  ; depth
+                                 13  JUMP_IF_ARG   2 -> 26
+                                 20  CONST         1  ; "box"
+                                 23  STORE_LOCAL   2  ; label
+    return [w, depth, label];    26  LOAD_LOCAL    0  ; w
+                                 ...
+}                                39  RETURN_NIL
+                                 40  JUMP_IF_GIVEN 1 -> 53
+                                 47  CONST         0  ; 1
+                                 50  STORE_LOCAL   1  ; depth
+                                 53  JUMP_IF_GIVEN 2 -> 66
+                                 60  CONST         1  ; "box"
+                                 63  STORE_LOCAL   2  ; label
+                                 66  JUMP          -> 26
+
+main() {
+    box(2, label: "crate");       0  LOAD_GLOBAL   2  ; box
+                                  3  CONST         0  ; 2
+                                  6  ABSENT
+                                  7  CONST         1  ; "crate"
+                                 10  NAMED_CALL
+                                 11  CALL          3
+                                 14  POP
+    box(label: "a", w: 3);       15  LOAD_GLOBAL   2  ; box
+                                 18  CONST         2  ; "a"
+                                 21  STORE_LOCAL   0  ; (temp)
+                                 24  CONST         3  ; 3
+                                 27  STORE_LOCAL   1  ; (temp)
+                                 30  LOAD_LOCAL    1  ; (temp)
+                                 33  ABSENT
+                                 34  LOAD_LOCAL    0  ; (temp)
+                                 37  NAMED_CALL
+                                 38  CALL          3
+                                 41  POP
+}                                42  RETURN_NIL
+```
 
 ### 6.6 Loops
 
@@ -1229,7 +1307,7 @@ noted; `str` is a `uv` length followed by that many bytes.
 
 ```
 "KUKL"                       4 bytes: magic
-uv   format version          11
+uv   format version          12
 uv   flags                   0 (1: a module, below)
 uv   main                    global index of main
 uv   n, then n globals       str name, byte kind (0 variable, 1 function, 2 built-in, 3 class, 4 native),
@@ -1246,7 +1324,7 @@ A function:
 
 ```
 str  name, str file, uv line
-uv   required, uv optional, byte rest (0/1)
+uv   required, uv optional, byte rest (0/1), uv named entry (NamedEntry; 0: none)
 uv   slots, uv max stack, uv cache slots
 uv   n + str                 slot names
 uv   n + upvalues            str name, byte from-local (0/1), uv index
@@ -1266,7 +1344,8 @@ version 6: native base classes, `CALL_NATIVE`; version 7: `ARITH_LK`,
 `CMP_JUMP_LL`, `ARITH_K`, `CMP_JUMP_K`; version 9: generators,
 `GENERATOR`, `YIELD`, `ITER_CLOSE`; version 10: `GEN_RETURN`, for steps
 in the loop that walks the generator; version 11: `YIELD_VALUE`,
-`ITER_SEND`, for `send` and `yield from`). `BREAK` came later
+`ITER_SEND`, for `send` and `yield from`; version 12: named arguments,
+`ABSENT`, `JUMP_IF_GIVEN`, `NAMED_CALL` and a function's named entry). `BREAK` came later
 without a new version: it is only in the debugger's copy of the code, and a
 file that holds one is refused. A reader refuses any version other
 than its own, telling the user to compile the program again. Built-ins and

@@ -89,6 +89,45 @@ hello, Ann. welcome, Bo!
 - `numbers..` in a call does the opposite of `rest..`: it spreads a vector
   into separate arguments.
 
+## Arguments by name
+
+An argument can also be given by the name of its parameter, as
+`name: value`, after the arguments given by place. That makes a call with
+many arguments easier to read, and lets it skip an optional parameter in
+the middle:
+
+```
+label(text, size = 12, bold = false, colour = "black") {
+    return text + " (" + str(size) + (bold ? ", bold" : "") + ", " + colour + ")";
+}
+
+main() {
+    println(label("title", bold: true));
+    println(label("note", colour: "red", size: 9));
+    println(label(colour: "blue", text: "link"));
+}
+```
+
+```
+$ kukel run named.kkl
+title (12, bold, black)
+note (9, red)
+link (12, blue)
+```
+
+- The parameters that are not named keep their defaults: `size` in the
+  first call, `bold` in the others.
+- The named arguments may come in any order, but after those given by
+  place; the arguments are computed in the order they are written.
+- `kukel` checks the names when it compiles: a name the function has no
+  parameter for, a name given twice, or a required parameter left out is
+  an error before the program runs.
+- Named arguments work in calls of functions, of static member functions
+  and of constructors (`new Point(y: 2, x: 1)`, chapter 9), whose
+  parameters `kukel` knows when it compiles. Built-in functions, and member
+  functions called on an object (`p->m(...)`), take arguments by place
+  only.
+
 ## Recursion
 
 A function may call itself. Each call has its own parameters and locals:

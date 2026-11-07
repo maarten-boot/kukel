@@ -11,7 +11,8 @@ working. A release that breaks it is v2.
 
 ## Stable
 
-- **The language**: programs of syntax version 10, as
+- **The language**: programs of syntax version 10 (that of v1.0.0) and
+  later (11 since v1.4: named arguments), as
   [docs/reference.md](reference.md) and [syntax.ebnf](../syntax.ebnf)
   describe them, keep compiling and mean the same. New syntax adds forms; it
   does not refuse or change old ones. New words get their meaning from
@@ -32,7 +33,7 @@ working. A release that breaks it is v2.
 ## Not stable
 
 - **The bytecode format.** A `.kkc` file is read only by a kukel of the same
-  format version (11 in v1.0.0). A minor release may change the format;
+  format version (11 in v1.0.0, 12 since v1.4). A minor release may change the format;
   then `kukel build` must run again from the source, and the CHANGELOG says
   so. Source is the stable form; [vm.md](vm.md) §7 has the history.
 - **Error messages**, warnings and other text meant for people: their words

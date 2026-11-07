@@ -173,7 +173,8 @@ func (vm *VM) generatorOf(v value.Value) *generator {
 }
 
 // errGenStep is how run leaves an instruction to genStep: the generators'
-// instructions, ITER_INIT of an object and ITER_NEXT of a generator. (Run
+// instructions, ITER_INIT of an object and ITER_NEXT of a generator, and
+// those of named arguments, ABSENT, NAMED_CALL and JUMP_IF_GIVEN. (Run
 // has no code of its own for them: the dispatch loop is faster with less
 // code in it, and these have the error paths of run for ITER_INIT and
 // ITER_NEXT, and its default case.) fail leaves the frame at the
@@ -257,6 +258,31 @@ func (vm *VM) genOp(start, sp, stopDepth int) error {
 			return bad(f, "GEN_RETURN outside a step of its generator")
 		}
 		return vm.genReturn(f, g, stopDepth)
+	case bytecode.OpAbsent:
+		vm.stack[sp] = value.Absent
+		vm.sp = sp + 1
+	case bytecode.OpNamedCall:
+		// The call instruction after it, whose arguments hold ABSENT: the
+		// function's frame starts at its NamedEntry.
+		call := bytecode.Op(code[ip])
+		if call == bytecode.OpBreak {
+			call = f.fn.Saved[ip]
+		}
+		n := len(vm.frames)
+		if err := vm.callOp(call, f, ip+1, sp); err != nil {
+			return err
+		}
+		if len(vm.frames) > n {
+			if nf := &vm.frames[len(vm.frames)-1]; nf.fn.NamedEntry != 0 {
+				nf.ip = nf.fn.NamedEntry
+			}
+		}
+	case bytecode.OpJumpIfGiven: // forward only (in the prologue at NamedEntry): no step to count
+		if n := bytecode.ReadU16(code, ip); n < f.argc && !vm.stack[f.base+n].IsAbsent() {
+			f.ip = bytecode.ReadU32(code, ip+2)
+		} else {
+			f.ip = ip + 6
+		}
 	default:
 		return value.Errorf(value.InternalError, "bad opcode %d at %d in %s", op, start, f.fn.FuncName)
 	}

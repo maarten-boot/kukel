@@ -182,6 +182,8 @@ counted 3
 A parameter can have a default (`greeting = "hello"`), and the last one can
 collect the rest of the arguments in a vector (`rest..`). `v..` does the
 opposite in a call: it passes the elements of `v` as separate arguments.
+An argument can also be given by name, after the others:
+`greet("Bo", greeting: "welcome")`.
 Functions are values: they can be stored, passed and returned. A function
 literal keeps the variables around it alive, so each counter that
 `counter()` makes has its own `n`.

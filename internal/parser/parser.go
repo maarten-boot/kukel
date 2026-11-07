@@ -814,16 +814,31 @@ func (p *parser) parsePostfix() ast.Expr {
 
 // parseArgs parses "[argument {, argument} [,]]" up to (not including)
 // close: a trailing comma may come before it. An argument may be spread:
-// "v..".
+// "v..". In a call or new (close is ")"), an argument may be named,
+// "name: x" (syntax version 11), after the positional ones.
 func (p *parser) parseArgs(close token.Kind) []ast.Expr {
 	if p.at(close) {
 		return nil
 	}
 	var args []ast.Expr
+	named := false
 	for {
-		x := p.parseAssign()
-		if p.accept(token.DOTDOT) {
-			x = &ast.Spread{X: x}
+		var x ast.Expr
+		if close == token.RPAREN && p.at(token.IDENT) && p.peek(1).Kind == token.COLON {
+			name := &ast.Ident{NamePos: p.tok.Pos, Name: p.tok.Text}
+			p.next()
+			colon := p.tok.Pos
+			p.next()
+			x, named = &ast.NamedArg{Name: name, Colon: colon, X: p.parseAssign()}, true
+		} else {
+			pos := p.tok.Pos
+			x = p.parseAssign()
+			if p.accept(token.DOTDOT) {
+				x = &ast.Spread{X: x}
+			}
+			if named {
+				p.errorf(pos, "a positional argument after a named one (name: value): positional arguments come first")
+			}
 		}
 		args = append(args, x)
 		if !p.accept(token.COMMA) || p.at(close) {

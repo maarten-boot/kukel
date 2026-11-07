@@ -272,7 +272,7 @@ func (d *disasm) operand(f *Function, op Op, pc int) string {
 		return fmt.Sprintf("%s->%s  ; cache %d", d.slotName(f, ReadU16(f.Code, pc+1)), d.constName(f, ReadU16(f.Code, pc+3)), ReadU16(f.Code, pc+5))
 	case OpIndexLL:
 		return fmt.Sprintf("%s[%s]", d.slotName(f, ReadU16(f.Code, pc+1)), d.slotName(f, ReadU16(f.Code, pc+3)))
-	case OpJumpIfArg:
+	case OpJumpIfArg, OpJumpIfGiven:
 		return fmt.Sprintf("%d -> %d", ReadU16(f.Code, pc+1), ReadU32(f.Code, pc+3))
 	case OpSwitchTable:
 		t := ReadU16(f.Code, pc+1)

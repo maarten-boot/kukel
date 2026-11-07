@@ -542,6 +542,7 @@ func (c *compiler) function(name string, pos token.Pos, params *ast.ParamList, c
 	// Parameters take slots 0, 1, ... in order. The code of a default value
 	// runs at the start of the function when the argument is missing; it
 	// sees only the parameters before it.
+	lvs := make([]localVar, len(params.Params))
 	for i, p := range params.Params {
 		switch {
 		case p.Rest:
@@ -564,11 +565,14 @@ func (c *compiler) function(name string, pos token.Pos, params *ast.ParamList, c
 			}
 			fs.fn.NumParams++
 		}
-		if lv := c.declare(p.Name, "parameter"); lv.cell {
+		lv := c.declare(p.Name, "parameter")
+		if lv.cell {
 			c.emit(bytecode.OpLoadLocal, lv.slot)
 			c.emit(bytecode.OpNewCell, lv.slot)
 		}
+		lvs[i] = lv
 	}
+	bodyStart := c.here()
 
 	// A function whose body yields is a generator function: once its
 	// arguments are in place, GENERATOR returns a generator that runs the
@@ -586,6 +590,9 @@ func (c *compiler) function(name string, pos token.Pos, params *ast.ParamList, c
 	}
 	body()
 	c.emit(c.returnNil())
+	if fs.fn.NumOptional > 0 {
+		c.namedEntry(params, lvs, bodyStart)
+	}
 	for i := range fs.fn.Locals {
 		if fs.fn.Locals[i].End < 0 { // the parameters
 			fs.fn.Locals[i].End = c.here()
@@ -1467,8 +1474,16 @@ func (c *compiler) expr(e ast.Expr) {
 			return
 		}
 		c.checkClassCall(e)
-		c.checkArgs(c.staticCallee(e.Fun), e.Args, e.Lparen)
+		ps := c.staticCallee(e.Fun)
+		c.checkArgs(ps, e.Args, e.Lparen)
+		if hasNamed(e.Args) && ps == nil {
+			c.noNamed(e.Args, c.whyNotNamed(e.Fun))
+		}
 		c.expr(e.Fun)
+		if hasNamed(e.Args) {
+			c.namedArgs(ps, e.Args, e.Lparen, func(argc int) { c.emit(bytecode.OpCall, argc) })
+			return
+		}
 		if hasSpread(e.Args) {
 			c.argVector(e.Args)
 			c.mark(e.Lparen)
@@ -1543,13 +1558,13 @@ func (c *compiler) expr(e ast.Expr) {
 		c.emit(bytecode.OpGetMember, c.nameConst(e.Name), c.cache(e.Name.NamePos))
 	case *ast.MethodCall:
 		c.expr(e.X)
-		c.callArgs(e.Args, e.Name.NamePos,
+		c.callArgs(nil, whyMethodCall, e.Args, e.Name.NamePos,
 			func(argc int) { c.emit(bytecode.OpCallMethod, c.nameConst(e.Name), argc, c.cache(e.Name.NamePos)) },
 			func() { c.emit(bytecode.OpCallMethodV, c.nameConst(e.Name), c.cache(e.Name.NamePos)) })
 	case *ast.NewExpr:
-		c.checkNew(e)
+		ps, why := c.checkNew(e)
 		c.newClassValue(e.Module, e.Class)
-		c.callArgs(e.Args, e.New,
+		c.callArgs(ps, why, e.Args, e.New,
 			func(argc int) { c.emit(bytecode.OpNew, argc) },
 			func() { c.emit(bytecode.OpNewV) })
 	case *ast.StaticRef:
@@ -1558,6 +1573,8 @@ func (c *compiler) expr(e ast.Expr) {
 		c.emit(bytecode.OpClosure, c.funcLit(e))
 	case *ast.Spread:
 		c.errorf(e.Pos(), "a spread (x..) is only allowed in an argument list or vector literal")
+	case *ast.NamedArg:
+		c.errorf(e.Pos(), "internal error: a named argument outside a call")
 	default:
 		c.errorf(e.Pos(), "internal error: unknown expression %T", e)
 	}

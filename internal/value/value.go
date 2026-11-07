@@ -75,6 +75,12 @@ var (
 	NilValue = Value{}
 	True     = Value{kind: Bool, num: 1}
 	False    = Value{kind: Bool}
+
+	// Absent is what ABSENT passes for an optional parameter that a call
+	// with named arguments skips (f(1, c: 3) skips b): the parameter's
+	// default replaces it before the function body runs. It is a nil, so
+	// that it would act as one if it ever reached Kukel code.
+	Absent = Value{num: 1}
 )
 
 func MakeBool(b bool) Value {
@@ -198,6 +204,7 @@ func (v Value) IntValue() (int64, bool) {
 
 func (v Value) Kind() Kind       { return v.kind }
 func (v Value) IsNil() bool      { return v.kind == Nil }
+func (v Value) IsAbsent() bool   { return v.kind == Nil && v.num == 1 }
 func (v Value) AsBool() bool     { return v.num != 0 }
 func (v Value) AsInt() int64     { return int64(v.num) }
 func (v Value) AsFloat() float64 { return math.Float64frombits(v.num) }

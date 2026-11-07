@@ -17,6 +17,19 @@ From v1.0.0 on, what keeps working is in
 
 ## Unreleased
 
+Syntax version 11 and bytecode format 12: programs of version 10 work
+unchanged, but `.kkc` files must be built again (`kukel build`).
+
+- Named arguments: `box(10, 20, label: "crate")`, `new Point(y: 2, x: 1)`.
+  After the positional arguments, an argument can be given by the name of
+  its parameter; optional parameters may be skipped anywhere (their
+  defaults run). Checked when compiling, in the calls whose function the
+  compiler knows: functions (also of modules written in Kukel), static
+  member functions, `Base::m(...)` and constructors; member function
+  calls (`p->m(...)`), built-ins and functions written in Go refuse them
+  with a message that says why. The reference (§7) and the booklet
+  (chapter 7) describe them; the VM's dispatch loop is unchanged, so other
+  calls are as fast as before. Q107.
 - Documentation: what `kukel fmt -strict` splits around a split list is
   described as it works (vector and map literals too, outward), and
   docs/future.md §9 and §9.5 say what is built and what is not. Q106,

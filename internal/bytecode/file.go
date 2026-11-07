@@ -27,7 +27,7 @@ import (
 //	u32 CRC-32 (IEEE) of everything before it
 //
 // A function is: str name, str file, uv line, uv required, uv optional,
-// byte rest, uv slots, uv max stack, uv caches, uv n + str slot names,
+// byte rest, uv named entry (0: none), uv slots, uv max stack, uv caches, uv n + str slot names,
 // uv n + upvalues (str name, byte from-local, uv index), uv n + code bytes,
 // uv n + constants (byte tag, then: int zigzag uv, float 8 bytes, string str),
 // uv n + line entries (uv pc, uv line), uv n + jump tables (int zigzag uv
@@ -42,7 +42,7 @@ const (
 )
 
 // FormatVersion is the version of the .kkc format written by Encode.
-const FormatVersion = 11 // 2: milestone 12 superinstructions; 3: native modules (GlobalNative); 4: THROW takes only Error objects (Kukel v0.4); 5: jump tables and ADD_LOCAL (Kukel v0.8); 6: native base classes, CALL_NATIVE (Kukel v0.9); 7: ARITH_LK, CMP_JUMP_LK (Kukel v0.22); 8: INDEX_LL and the other fused forms of Kukel v0.26; 9: generators, GENERATOR, YIELD and ITER_CLOSE (Kukel v0.34); 10: GEN_RETURN (Kukel v0.35: a generator steps in the loop that walks it); 11: YIELD_VALUE and ITER_SEND (Kukel v0.37: send and yield from)
+const FormatVersion = 12 // 2: milestone 12 superinstructions; 3: native modules (GlobalNative); 4: THROW takes only Error objects (Kukel v0.4); 5: jump tables and ADD_LOCAL (Kukel v0.8); 6: native base classes, CALL_NATIVE (Kukel v0.9); 7: ARITH_LK, CMP_JUMP_LK (Kukel v0.22); 8: INDEX_LL and the other fused forms of Kukel v0.26; 9: generators, GENERATOR, YIELD and ITER_CLOSE (Kukel v0.34); 10: GEN_RETURN (Kukel v0.35: a generator steps in the loop that walks it); 11: YIELD_VALUE and ITER_SEND (Kukel v0.37: send and yield from); 12: ABSENT, and JUMP_IF_ARG treats it as missing (Kukel v1.4: named arguments)
 
 const magic = "KUKL"
 
@@ -127,6 +127,7 @@ func (e *encoder) function(f *Function) error {
 	e.uv(f.NumParams)
 	e.uv(f.NumOptional)
 	e.flag(f.HasRest)
+	e.uv(f.NamedEntry)
 	e.uv(f.NumSlots)
 	e.uv(f.MaxStack)
 	e.uv(f.NumCaches)
@@ -341,6 +342,7 @@ func (d *decoder) strs() []string {
 func (d *decoder) function() *Function {
 	f := &Function{FuncName: d.str(), File: d.str(), Line: d.uv()}
 	f.NumParams, f.NumOptional, f.HasRest = d.uv(), d.uv(), d.flag()
+	f.NamedEntry = d.uv()
 	f.NumSlots, f.MaxStack, f.NumCaches = d.uv(), d.uv(), d.uv()
 	f.SlotNames = d.strs()
 	f.Upvalues = make([]Upvalue, d.count())

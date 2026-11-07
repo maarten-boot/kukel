@@ -171,6 +171,8 @@ func Inspect(n Node, f func(Node) bool) {
 		walk(n.Class, n.Name)
 	case *Spread:
 		walk(n.X)
+	case *NamedArg:
+		walk(n.Name, n.X)
 	case *CommaExpr:
 		exprs(n.List)
 	case *AssignExpr:

@@ -2,6 +2,7 @@ package bytecode
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/maarten-boot/kukel/internal/value"
 )
@@ -140,6 +141,10 @@ func (v *verifier) function(f *Function) error {
 			yields = pc
 		case OpReturn, OpReturnNil:
 			returns = pc
+		case OpNamedCall:
+			if next := pc + op.Size(); next >= len(f.Code) || !slices.Contains([]Op{OpCall, OpCallDirect, OpNew}, Op(f.Code[next])) {
+				return fail(pc, "NAMED_CALL not followed by CALL, CALL_DIRECT or NEW")
+			}
 		}
 		start[pc] = true
 		instrs[pc] = instr{op, operands}
@@ -162,6 +167,12 @@ func (v *verifier) function(f *Function) error {
 	}
 	type item struct{ pc, depth, handlers int }
 	work := []item{{0, 0, 0}}
+	if f.NamedEntry != 0 { // a second entry, for calls that skip an optional parameter
+		if f.NumOptional == 0 || f.NamedEntry < 0 || f.NamedEntry >= len(f.Code) || !start[f.NamedEntry] {
+			return fail(0, "named entry %d is not an instruction of a function with optional parameters", f.NamedEntry)
+		}
+		work = append(work, item{f.NamedEntry, 0, 0})
+	}
 	h := 0 // handlers at the instruction being looked at
 	visit := func(pc, d, from int) error {
 		if pc < 0 || pc >= len(f.Code) || !start[pc] {
@@ -232,7 +243,7 @@ func (v *verifier) function(f *Function) error {
 			if err = visit(in.operands[2], after, it.pc); err == nil {
 				err = visit(next, after, it.pc)
 			}
-		case OpJumpIfArg:
+		case OpJumpIfArg, OpJumpIfGiven:
 			if err = visit(in.operands[1], after, it.pc); err == nil {
 				err = visit(next, after, it.pc)
 			}

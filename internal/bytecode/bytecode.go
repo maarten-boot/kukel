@@ -148,6 +148,12 @@ const (
 	OpYieldValue // pop x: as YIELD, and the next step goes on with the value sent to it (send; nil for next) pushed
 	OpIterSend   // slot u16: pop x, the value the next step of the generator a for-each loop walks with the iterator in slot gets (yield from; dropped for others)
 
+	// Named arguments (Kukel v1.4). Run has no code for them (genOp does
+	// them): they run only in calls that skip an optional parameter.
+	OpAbsent      // push the absent marker: an optional parameter a call skips (its default runs)
+	OpJumpIfGiven // n u16, target u32: as JUMP_IF_ARG, but an ABSENT argument counts as not passed (in the prologue at NamedEntry)
+	OpNamedCall   // the call instruction after it (CALL, CALL_DIRECT or NEW) passes ABSENT: the function starts at its NamedEntry
+
 	numOps
 )
 
@@ -254,6 +260,9 @@ var opInfo = [numOps]OpInfo{
 	OpGenReturn:    {"GEN_RETURN", nil},
 	OpYieldValue:   {"YIELD_VALUE", nil},
 	OpIterSend:     {"ITER_SEND", u16},
+	OpAbsent:       {"ABSENT", nil},
+	OpJumpIfGiven:  {"JUMP_IF_GIVEN", []int{2, 4}},
+	OpNamedCall:    {"NAMED_CALL", nil},
 }
 
 // The comparison operand of CMP_JUMP: one of these, plus CmpJumpIfTrue to
@@ -358,6 +367,13 @@ type Function struct {
 	// Index is the function's position in Program.Funcs (-1 for Init). It is
 	// not stored in files: the compiler and Decode set it.
 	Index int
+
+	// NamedEntry is where a call starts that passes ABSENT for an optional
+	// parameter (a call with named arguments that skips it): a copy of the
+	// parameters' code with JUMP_IF_GIVEN for JUMP_IF_ARG, which then jumps
+	// to the code after them. 0: none (a function without optional
+	// parameters).
+	NamedEntry int
 }
 
 // LocalInfo is a parameter or local: slot Slot holds it in the code from

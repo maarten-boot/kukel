@@ -63,6 +63,7 @@ caught RangeError: index 5 out of range for vector of length 3
 - ints (64-bit, wrapping), floats, strings (bytes), booleans, `nil`
 - vectors and maps (insertion order) with literals, indexing and for-each
 - functions with default and rest parameters, spread arguments (`f(v..)`)
+  and named arguments (`box(10, 20, label: "crate")`)
 - function literals (`fn (x) { ... }`) that capture variables by reference
 - classes with single inheritance, constructors, static members, virtual
   member functions and bound methods (`p->method`)

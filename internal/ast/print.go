@@ -309,6 +309,9 @@ func (p *printer) node(n Node) {
 	case *Spread:
 		p.line(n, "Spread")
 		p.children(n.X)
+	case *NamedArg:
+		p.line(n, "Named %s", n.Name.Name)
+		p.children(n.X)
 	case *CommaExpr:
 		p.line(n, "Comma")
 		p.children(exprs(n.List)...)

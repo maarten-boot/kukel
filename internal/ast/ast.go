@@ -345,7 +345,7 @@ type NewExpr struct {
 	New    token.Pos
 	Module *Ident // nil without a module
 	Class  *Ident
-	Args   []Expr // may contain *Spread
+	Args   []Expr // may contain *Spread and *NamedArg
 }
 
 // YieldExpr is "yield [value]" where a value is wanted (local x = yield v;,
@@ -375,6 +375,15 @@ type StaticRef struct {
 // Spread is "x.." in an argument list or vector literal.
 type Spread struct {
 	X Expr
+}
+
+// NamedArg is "name: x" in the argument list of a call or new (syntax
+// version 11): the argument of the parameter called name. Named arguments
+// come after the positional ones.
+type NamedArg struct {
+	Name  *Ident
+	Colon token.Pos
+	X     Expr
 }
 
 // CommaExpr is "a, b, c": evaluated left to right, value of the last. It
@@ -424,7 +433,7 @@ type IncDecExpr struct {
 type CallExpr struct {
 	Fun    Expr
 	Lparen token.Pos
-	Args   []Expr // may contain *Spread
+	Args   []Expr // may contain *Spread and *NamedArg
 }
 
 // IndexExpr is "x[index]".
@@ -438,7 +447,7 @@ type IndexExpr struct {
 type MethodCall struct {
 	X    Expr
 	Name *Ident
-	Args []Expr // may contain *Spread
+	Args []Expr // may contain *Spread and *NamedArg
 }
 
 // MemberExpr is "x->name" without a call: a data member or bound method.
@@ -507,6 +516,7 @@ func (x *StaticRef) Pos() token.Pos {
 	return x.Class.NamePos
 }
 func (x *Spread) Pos() token.Pos     { return x.X.Pos() }
+func (x *NamedArg) Pos() token.Pos   { return x.Name.NamePos }
 func (x *CommaExpr) Pos() token.Pos  { return x.List[0].Pos() }
 func (x *AssignExpr) Pos() token.Pos { return x.LHS.Pos() }
 func (x *CondExpr) Pos() token.Pos   { return x.Cond.Pos() }
@@ -568,6 +578,7 @@ func (*FuncLit) exprNode()    {}
 func (*YieldExpr) exprNode()  {}
 func (*StaticRef) exprNode()  {}
 func (*Spread) exprNode()     {}
+func (*NamedArg) exprNode()   {}
 func (*CommaExpr) exprNode()  {}
 func (*AssignExpr) exprNode() {}
 func (*CondExpr) exprNode()   {}

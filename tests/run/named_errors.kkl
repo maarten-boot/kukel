@@ -1,0 +1,57 @@
+// Named arguments that the compiler refuses: one error for each function
+// at most, all of them in one run.
+
+use json;
+
+area(w, h = w) {
+    return w * h;
+}
+
+all(first, more..) {
+    return more;
+}
+
+unknown() {
+    return area(hh: 1);
+}
+
+twice() {
+    return area(w: 1, w: 2);
+}
+
+placeAndName() {
+    return area(3, w: 2);
+}
+
+missing() {
+    return area(h: 2);
+}
+
+restNamed() {
+    return all(1, more: 2);
+}
+
+restByPlace() {
+    return all(1, 2, first: 3);
+}
+
+spread(v) {
+    return area(v.., h: 2);
+}
+
+variable() {
+    local f = area;
+    return f(w: 1);
+}
+
+builtin() {
+    return len(x: [1]);
+}
+
+goModule() {
+    return json::encode(value: 1);
+}
+
+main() {
+    println("not printed");
+}

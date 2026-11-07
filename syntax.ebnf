@@ -1,5 +1,5 @@
 (*
-   Kukel syntax, as implemented by kukel v0.37 and later (syntax version 10).
+   Kukel syntax, as implemented by kukel v1.4 and later (syntax version 11).
 
    Notation: ISO/IEC 14977 EBNF.
        =  definition        ;  end of rule        |  alternative
@@ -12,7 +12,12 @@
    What programs mean is described in docs/reference.md; how they are
    compiled and run in docs/vm.md.
 
-   History: syntax version 10 added "yield from x;" and the yield that
+   History: syntax version 11 added named arguments: in the argument
+   list of a call, a method call or new, "name: value" after the
+   positional arguments, as in f(1, z: 3) (call_arguments). Programs of
+   version 10 are unchanged.
+
+   Syntax version 10 added "yield from x;" and the yield that
    gives a value ("local x = yield v;", "x = yield v;", "(yield v)"), for
    Generator::send. "from" is not a keyword. Programs of version 9 are
    unchanged.
@@ -414,9 +419,9 @@ unary               = ( "-" | "!" | "~" ) , unary
 
 postfix             = primary , { postfix_operator } ;
 
-postfix_operator    = "(" , [ arguments ] , ")"                      (* call *)
-                    | "[" , expression , "]"                         (* index *)
-                    | "->" , Identifier , "(" , [ arguments ] , ")"  (* method call *)
+postfix_operator    = "(" , [ call_arguments ] , ")"                      (* call *)
+                    | "[" , expression , "]"                              (* index *)
+                    | "->" , Identifier , "(" , [ call_arguments ] , ")"  (* method call *)
                     | "->" , Identifier                              (* data member *)
                     | "++" | "--" ;              (* Rule: on an lvalue *)
                     (* "->" followed by "(" is always a method call; call a
@@ -444,6 +449,31 @@ argument            = assignment , [ ".." ] ;
                       (* "v.." spreads the elements of vector v as separate
                          arguments. Rule: a spread value that is not a vector
                          is a runtime error. *)
+
+call_arguments      = arguments
+                    | { argument , "," } , named_argument ,
+                      { "," , named_argument } , [ "," ] ;
+                      (* The arguments of a call, a method call or new: the
+                         positional ones first, then the named ones. *)
+
+named_argument      = Identifier , ":" , assignment ;
+                      (* The argument of the parameter called Identifier
+                         (syntax version 11). Rules, checked when compiling:
+                         named arguments are allowed only in a call whose
+                         function the compiler knows (a function of the
+                         program or of a module written in Kukel, a static
+                         member function C::f(...), Base::m(...), and new
+                         C(...)), not in a member function call (p->m(...),
+                         or m(...) meaning this->m(...)), a call of a
+                         variable, a built-in or a function written in Go;
+                         the name must be a parameter of the function (the
+                         definition's), given once, not one a positional
+                         argument filled, and not the rest parameter; every
+                         required parameter must be given; positional
+                         arguments may not reach the rest parameter; no
+                         spread argument in the same call. Optional
+                         parameters may be skipped anywhere: their defaults
+                         run. The arguments are evaluated as written. *)
 
 primary             = "(" , expression , ")"
                     | "(" , yield_value , ")"
@@ -477,7 +507,7 @@ primary             = "(" , expression , ")"
                        or of a class derived from it, and without spread
                        arguments. *)
 
-new_expression      = "new" , [ Identifier , "::" ] , Identifier , "(" , [ arguments ] , ")" ;
+new_expression      = "new" , [ Identifier , "::" ] , Identifier , "(" , [ call_arguments ] , ")" ;
                       (* A class name, or a variable holding a class.
                          The new object's data members are nil; then the
                          constructor runs with the arguments: C::C, or, if C
