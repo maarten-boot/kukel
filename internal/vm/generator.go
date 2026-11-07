@@ -277,9 +277,15 @@ func (vm *VM) genOp(start, sp, stopDepth int) error {
 				nf.ip = nf.fn.NamedEntry
 			}
 		}
-	case bytecode.OpJumpIfGiven: // forward only (in the prologue at NamedEntry): no step to count
+	case bytecode.OpJumpIfGiven: // the compiler's jumps forward; one back is a step, as in JUMP_IF_ARG
 		if n := bytecode.ReadU16(code, ip); n < f.argc && !vm.stack[f.base+n].IsAbsent() {
-			f.ip = bytecode.ReadU32(code, ip+2)
+			t := bytecode.ReadU32(code, ip+2)
+			if t < ip {
+				if err := vm.step(start); err != nil {
+					return err
+				}
+			}
+			f.ip = t
 		} else {
 			f.ip = ip + 6
 		}

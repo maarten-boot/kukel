@@ -396,6 +396,44 @@ func TestSharedCacheSlot(t *testing.T) {
 	}
 }
 
+// TestJumpIfGivenBack: the compiler's JUMP_IF_GIVEN jumps forward, but the
+// verifier lets one jump back, so that it must count a step, as JUMP_IF_ARG
+// does; else a loop of it never ends (found by FuzzVerifyCode).
+func TestJumpIfGivenBack(t *testing.T) {
+	f, err := parser.ParseFile("t.kkl", []byte("f(a = 1) { return a; }\nmain() { f(5); }"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := compiler.Compile([]*ast.File{f}, builtins.Names())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fn := range p.Funcs {
+		if fn.FuncName == "f" {
+			fn.Code = []byte{byte(bytecode.OpJumpIfGiven), 0, 0, 0, 0, 0, 0, byte(bytecode.OpReturnNil)} // a jump to itself
+			fn.NamedEntry = 0
+		}
+	}
+	if err := bytecode.Verify(p); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	m, err := vm.New(p, builtins.Lookup, &bytes.Buffer{}, strings.NewReader(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.StepLimit = 1000
+	done := make(chan error, 1)
+	go func() { _, err := m.Run(nil); done <- err }()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "more than 1000 steps") {
+			t.Errorf("run: %v, want a step limit error", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a loop of JUMP_IF_GIVEN still runs after 5s")
+	}
+}
+
 // Debuggable copies the code with a BREAK at each line start and keeps the
 // program as it was; a file with a BREAK is refused.
 func TestDebuggable(t *testing.T) {
