@@ -1,6 +1,6 @@
 # Kukel: ideas for the future
 
-Ideas written down from v0.1.0 on; most are built now (kukel v1.3).
+Ideas written down from v0.1.0 on; most are built now (kukel v1.4).
 Parts marked *Done* are built in the current version (see the language reference and docs/embedding.md); for the rest,
 the Kukel code below shows how things *could* look and is not meant to run.
 Each idea lists open questions (**F-n**) to settle before it is built, in

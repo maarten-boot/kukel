@@ -15,7 +15,7 @@ Two kinds of change need care when you upgrade:
 From v1.0.0 on, what keeps working is in
 [docs/compatibility.md](docs/compatibility.md).
 
-## Unreleased
+## v1.4.0 (2026-11-07)
 
 Syntax version 11 and bytecode format 12: programs of version 10 work
 unchanged, but `.kkc` files must be built again (`kukel build`).

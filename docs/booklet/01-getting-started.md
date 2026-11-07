@@ -31,7 +31,7 @@ Check what you have:
 
 ```
 $ kukel version
-kukel v1.0.0, go1.26.8, bytecode format 11, Unicode 15.0.0
+kukel v1.4.0, go1.26.8, bytecode format 12, Unicode 15.0.0
 modules written in Go: db (SQLite, PostgreSQL, MySQL), events, fs, json, net, p9, re, strings, term, time, utf8, uuid, worker, zmq
 modules written in Kukel: iter
 ```
