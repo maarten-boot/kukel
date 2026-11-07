@@ -15,7 +15,12 @@ Two kinds of change need care when you upgrade:
 From v1.0.0 on, what keeps working is in
 [docs/compatibility.md](docs/compatibility.md).
 
-## Unreleased
+## v1.2.0 (2026-11-07)
+
+Syntax version 10 and bytecode format 11, as in v1.1: programs and `.kkc`
+files work unchanged. `kukel fmt -strict` lays code out differently than
+before (formatting is not among what v1 keeps the same:
+[docs/compatibility.md](docs/compatibility.md)).
 
 - `kukel fmt -strict` also puts the arguments of a call one per line when
   there are more than 3 of them, or when the line is longer than 120
@@ -34,6 +39,8 @@ From v1.0.0 on, what keeps working is in
   output). Q105.
 - The booklet's PDF: code without a background (in its box), and line
   numbers in the programs. Q105.
+- A proposal for named arguments (`f(1, z: 3)`), not built yet:
+  [docs/future.md](docs/future.md) §9. Q107.
 
 ## v1.1.1 (2026-11-06)
 
