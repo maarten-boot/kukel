@@ -15,7 +15,11 @@ Two kinds of change need care when you upgrade:
 From v1.0.0 on, what keeps working is in
 [docs/compatibility.md](docs/compatibility.md).
 
-## Unreleased
+## v1.3.0 (2026-11-07)
+
+Syntax version 10 and bytecode format 11, as in v1.2: programs and `.kkc`
+files work unchanged. `kukel fmt -strict` lays out literals and top-level
+declarations differently than before.
 
 - `kukel fmt -strict` splits a vector or map literal one element per line
   when its line is longer than `-linelength`, and `-vertical` every
@@ -24,6 +28,10 @@ From v1.0.0 on, what keeps working is in
   own (`use json; f() {} main() {}` becomes three). The example programs,
   `iter.kkl`, and the Kukel code inside the booklet's Go programs are laid
   out by it, as the documents are. Q106.
+- The open questions of [docs/future.md](docs/future.md) answered: named
+  arguments (§9) for calls known when compiling first, positional
+  arguments before named ones; no `ffi` module for now; v2 to move
+  built-in functions into modules. Q107.
 
 ## v1.2.0 (2026-11-07)
 
