@@ -25,15 +25,8 @@ main() {
 
     local g = countdown(2);
     println(g);
-    println(
-        g->next(),
-        g->next(),
-        g->done(),
-    );
-    println(
-        g->next(),
-        g->done(),
-    );
+    println(g->next(), g->next(), g->done());
+    println(g->next(), g->done());
 }
 ```
 
@@ -83,10 +76,7 @@ main() {
         if (i == 10) {
             break;
         }
-        push(
-            first,
-            f,
-        );
+        push(first, f);
     }
     println(first);
 }
@@ -112,11 +102,7 @@ class Tree {
     iter();
 }
 
-Tree::Tree(
-    left,
-    value,
-    right,
-) {
+Tree::Tree(left, value, right) {
     this->left = left;
     this->value = value;
     this->right = right;
@@ -134,23 +120,11 @@ Tree::iter() {                          // in order: left, value, right
 }
 
 leaf(v) {
-    return new Tree(
-        nil,
-        v,
-        nil,
-    );
+    return new Tree(nil, v, nil);
 }
 
 main() {
-    local t = new Tree(
-        new Tree(
-            leaf(1),
-            2,
-            leaf(3),
-        ),
-        4,
-        leaf(5),
-    );
+    local t = new Tree(new Tree(leaf(1), 2, leaf(3)), 4, leaf(5));
 
     for (local x in t) {
         print(x);
@@ -185,11 +159,7 @@ average() {
 main() {
     local avg = average();
     avg->next();                         // run to the first yield
-    println(
-        avg->send(10),
-        avg->send(20),
-        avg->send(60),
-    );
+    println(avg->send(10), avg->send(20), avg->send(60));
 }
 ```
 
@@ -249,39 +219,11 @@ make, change and combine sequences, and functions that use them up:
 use iter;
 
 main() {
-    local squares = iter::map(
-        fn(x) { return x * x; },
-        iter::count(1),
-    );
-    local even = iter::filter(
-        fn(x) { return x % 2 == 0; },
-        squares,
-    );
-    println(
-        iter::collect(
-            iter::take(
-                even,
-                4,
-            ),
-        ),
-    );
-    println(
-        iter::reduce(
-            fn(a, b) { return a + b; },
-            iter::range(
-                1,
-                101,
-            ),
-        ),
-    );
-    println(
-        iter::collect(
-            iter::zip(
-                ["a", "b", "c"],
-                iter::count(),
-            ),
-        ),
-    );
+    local squares = iter::map(fn(x) { return x * x; }, iter::count(1));
+    local even = iter::filter(fn(x) { return x % 2 == 0; }, squares);
+    println(iter::collect(iter::take(even, 4)));
+    println(iter::reduce(fn(a, b) { return a + b; }, iter::range(1, 101)));
+    println(iter::collect(iter::zip(["a", "b", "c"], iter::count())));
 }
 ```
 

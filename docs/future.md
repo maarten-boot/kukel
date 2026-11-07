@@ -1,7 +1,7 @@
 # Kukel: ideas for the future
 
-Ideas for after v0.1.0. Parts marked *Done* are built in the current
-version (see the language reference and docs/embedding.md); for the rest,
+Ideas written down from v0.1.0 on; most are built now (kukel v1.1).
+Parts marked *Done* are built in the current version (see the language reference and docs/embedding.md); for the rest,
 the Kukel code below shows how things *could* look and is not meant to run.
 Each idea lists open questions (**F-n**) to settle before it is built, in
 the same way the Q-list in [TODO.md](../TODO.md) settled the first version.
@@ -27,9 +27,9 @@ first keeps each idea small.
 
 ### 1.1 Modules (name spaces)
 
-Today all built-ins share one flat name space with the program (55 names
-plus the class `Error`, reserved at the top level; locals and members may
-reuse them). GUI, messaging and database libraries would add hundreds.
+Today all built-ins share one flat name space with the program (56
+functions plus the classes `Error` and `Generator`, reserved at the top
+level; locals and members may reuse them). GUI, messaging and database libraries would add hundreds.
 They need name spaces, loaded only when a program asks for them:
 
 ```
@@ -62,7 +62,9 @@ compiled on their own into `.kkc` files (TODO.md Q49).*
 **F-1** Syntax: `use gui;` or `import gui;`? Also for `.kkl` files?
 *Answered: `use name;`, also for `.kkl` files.*
 **F-2** Do the current built-ins move into modules (`str::split`,
-`math::sqrt`), or stay global as a small core?
+`math::sqrt`), or stay global as a small core? *Within v1 they stay: the
+built-ins keep their names (docs/compatibility.md); new functions go into
+modules.*
 
 ### 1.2 Classes and objects implemented in Go ("native classes")
 
@@ -206,9 +208,11 @@ Windows. Build tags can leave out the large modules (`go build -tags
 nogui`), and `kukel version` lists the modules a binary contains.
 
 *Done for `json`, `strings`, `time` (TODO.md Q36), `events`, `worker`, `zmq`,
-`db`, `uuid`, `re`, `fs`, `p9` and `utf8`, and `kukel version` lists them. Build tags
-are done for the large ones (Q55, Q62): `nopostgres`, `nomysql`, `nosqlite`,
-`nozmq` and `no9p`; a GUI module would get `nogui`.*
+`db`, `uuid`, `re`, `fs`, `p9`, `utf8`, `term` (Q99) and `net` (Q103), and
+`kukel version` lists them. Build tags are done for the large ones (Q55,
+Q62): `nopostgres`, `nomysql`, `nosqlite`, `nozmq` and `no9p`. The GUI
+module `tk` is the other way round: only in a kukel built with the tag
+`tk` (Q67).*
 
 **Foreign libraries (`.so` on Linux, `.dll` on Windows, `.dylib` on
 macOS).** For a C library that has no Go binding. Go offers four ways:
@@ -315,10 +319,14 @@ main(args) {
     while (true) {
         local msg = worker::receive();        // from the parent
 
-        if (msg == nil) break;                // the parent stopped us
+        if (msg == nil) {
+            break;                // the parent stopped us
+        }
         local total = 0;
 
-        for (local x in msg["data"]) total += x;
+        for (local x in msg["data"]) {
+            total += x;
+        }
         worker::send(total);
     }
 }
@@ -407,6 +415,10 @@ Design notes:
   only with a tag (`go build -tags tk`), or as a separate binary
   (`kukel-tk`), so the default `kukel` stays small.
 
+*Done (TODO.md Q67): the module `tk`, with the names of the reference
+rather than of the sketch above (`onclick`, `settext`, and the loop of the
+module `events`, `events::run()`).*
+
 **F-11** Which binding: pure Go (`tk9.0`), cgo, or a `wish` pipe?
 *Answered: pure Go, `modernc.org/tk9.0`.*
 **F-12** Tk specifically, or open to another toolkit (Fyne, a web UI)?
@@ -493,8 +505,9 @@ main() {
     conn->exec("CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY, name TEXT, price REAL)");
     conn->exec("INSERT INTO items (name, price) VALUES (?, ?)", "pen", 1.5);
 
-    for (local row in conn->query("SELECT * FROM items WHERE price < ?", 10))
+    for (local row in conn->query("SELECT * FROM items WHERE price < ?", 10)) {
         println(row["id"], row["name"], row["price"]);   // a row is a map
+    }
 
     try {
         conn->begin();
@@ -531,13 +544,15 @@ main() {
     conn->migrate(Item);                                  // CREATE TABLE if needed
 
     local pen = new Item();
-    pen->name = "pen"; pen->price = 1.5;
+    pen->name = "pen";
+    pen->price = 1.5;
     conn->save(pen);                                      // INSERT; sets pen->id
     pen->price = 1.75;
     conn->save(pen);                                      // UPDATE
 
-    for (local item in conn->find(Item)->where("price < ?", 10)->orderBy("name")->all())
+    for (local item in conn->find(Item)->where("price < ?", 10)->orderBy("name")->all()) {
         println(item->id, item->name, item->price);       // objects of class Item
+    }
     conn->delete(pen);
 }
 ```
@@ -589,10 +604,11 @@ plan9port and Inferno).
 use fs;
 
 main(args) {
-    for (local e in fs::readdir(args[0]))            // the entries, sorted by name
+    for (local e in fs::readdir(args[0])) {            // the entries, sorted by name
         println(e["name"], e["dir"] ? "/" : e["size"]);
+    }
     fs::walk(args[0], fn(path, info) {                // every file below, depth first
-        if (!info["dir"] && find(path, ".kkl") > 0) println(path);
+        if (!info["dir"] && find(path, ".kkl") > 0) { println(path); }
     });
 }
 ```
@@ -622,7 +638,9 @@ use p9;
 main() {
     local c = p9::dial("tcp://fileserver:564", {"user": "ann"});   // attach as user ann
 
-    for (local e in c->readdir("/logs")) println(e["name"]);
+    for (local e in c->readdir("/logs")) {
+        println(e["name"]);
+    }
     println(c->read("/logs/today.txt"));
     c->write("/tmp/note", "hello");
     c->close();
@@ -720,7 +738,11 @@ ideas above make useful:
   vector);
 - a code formatter (`kukel fmt`): *done* for indentation and spacing
   (TODO.md Q47), and a blank line before `if`, `while`, `do`, `for`,
-  `switch`, `try` and `with` (Q53);
+  `switch`, `try` and `with` (Q53); `-strict` adds braces and puts
+  functions on several lines (Q95), and long argument lists one per line;
+  `-vertical` every list of two or more (`-linelength`, Q106);
+- TCP and UDP for any protocol: *done*, the module `net` (TODO.md Q103);
+  TLS is not there yet, for `net` nor for `p9`;
 - an HTML front end next to Tk, for example through
   [Wails](https://wails.io) (a Go framework whose windows are the
   system's web view: HTML, CSS and JS in front, Go functions bound for JS
@@ -771,8 +793,9 @@ Each step is usable on its own and prepares the next:
 Steps 4, 5, 7 and 8 are independent of each other once 1 and 3 exist. A
 `ffi` module (1.6) can come at any point after step 1.
 
-The open questions **F-1** to **F-27** are best answered just before the
-step that needs them.
+The open questions **F-1** to **F-31** are best answered just before the
+step that needs them; F-28 to F-31 are those of the named arguments
+(section 9).
 
 ---
 

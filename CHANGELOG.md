@@ -22,8 +22,12 @@ From v1.0.0 on, what keeps working is in
   characters (`-linelength n` sets another length), with a `,` after the
   last one and the `)` on a line of its own; `kukel fmt -vertical` does
   that for every call and definition with 2 or more items. Q106.
-- The booklet's programs are laid out by `kukel fmt -vertical` (so is its
-  PDF). Q106.
+- `kukel fmt -strict` keeps comments with what they are about: a comment
+  after a statement that gets braces stays on its line, and a comment
+  after a block written on one line goes to the line of its `{`; an `else`
+  on the line after a `}` is joined to it (`} else {`). The examples and
+  every document's code (the booklet's too, instead of `-vertical`) are
+  laid out by `kukel fmt -strict`. Q106.
 - `make booklet-proof`: a copy of the booklet to proofread, with margins of
   0.5 cm and a box around each page; CI keeps it with the PDF. Only
   programs get line numbers in the PDF (not keyword lists or sample

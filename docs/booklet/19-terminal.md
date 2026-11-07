@@ -13,10 +13,7 @@ game or an editor, needs the terminal a key at a time. That is the module
 use term;
 
 main() {
-    println(
-        "a terminal:",
-        term::isterm(),
-    );
+    println("a terminal:", term::isterm());
     local moves = {"Up": [0, -1], "Down": [0, 1], "Left": [-1, 0], "Right": [1, 0]};
     local x = 0, y = 0;
 
@@ -24,10 +21,7 @@ main() {
         print("arrows move, q quits\r\n");
 
         for (local k = term::key(); k != nil && k != "q"; k = term::key()) {
-            if (haskey(
-                moves,
-                k,
-            )) {
+            if (haskey(moves, k)) {
                 x += moves[k][0];
                 y += moves[k][1];
             }
@@ -40,11 +34,7 @@ main() {
             );
         }
     });
-    println(
-        "ended at",
-        x,
-        y,
-    );
+    println("ended at", x, y);
 }
 ```
 

@@ -15,26 +15,12 @@ whole files; the module `fs` does everything else.
 
 ```
 main() {
-    writefile(
-        "todo.txt",
-        "buy milk\n",
-    );
-    appendfile(
-        "todo.txt",
-        "call Ann\n",
-    );
+    writefile("todo.txt", "buy milk\n");
+    appendfile("todo.txt", "call Ann\n");
 
     local text = readfile("todo.txt");
     print(text);
-    println(
-        len(
-            split(
-                trim(text),
-                "\n",
-            ),
-        ),
-        "things to do",
-    );
+    println(len(split(trim(text), "\n")), "things to do");
 }
 ```
 
@@ -60,45 +46,23 @@ ends:
 use fs;
 
 main() {
-    with (local out = fs::open(
-        "scores.txt",
-        "w",
-    )) {
-        out->println(
-            "Ann",
-            31,
-        );
-        out->println(
-            "Bo",
-            27,
-        );
+    with (local out = fs::open("scores.txt", "w")) {
+        out->println("Ann", 31);
+        out->println("Bo", 27);
         out->write("Cy 40\n");
     }
 
-    with (local more = fs::open(
-        "scores.txt",
-        "a",
-    )) {
-        more->println(
-            "Di",
-            35,
-        );
+    with (local more = fs::open("scores.txt", "a")) {
+        more->println("Di", 35);
     }
 
     local best = "", top = -1;
 
     with (local f = fs::open("scores.txt")) {
         for (local i, line in f) {
-            local parts = split(
-                line,
-                " ",
-            );
+            local parts = split(line, " ");
             local score = int(parts[1]);
-            println(
-                i + 1,
-                parts[0],
-                score,
-            );
+            println(i + 1, parts[0], score);
 
             if (score > top) {
                 best = parts[0];
@@ -106,11 +70,7 @@ main() {
             }
         }
     }
-    println(
-        "best:",
-        best,
-        top,
-    );
+    println("best:", best, top);
 }
 ```
 
@@ -148,15 +108,8 @@ use fs;
 
 main() {
     local f = fs::memory("0123456789");
-    println(
-        f->read(3),
-        f->tell(),
-        f->read(2),
-    );
-    f->seek(
-        -2,
-        "end",
-    );
+    println(f->read(3), f->tell(), f->read(2));
+    f->seek(-2, "end");
     println(f->read());
     f->seek(0);
     f->write("AB");
@@ -183,29 +136,17 @@ given a file on disk, a stream or a file in memory:
 ```
 use fs;
 
-report(
-    out,
-    names,
-) {
+report(out, names) {
     for (local i, n in names) {
-        out->println(
-            str(i + 1) + ".",
-            n,
-        );
+        out->println(str(i + 1) + ".", n);
     }
 }
 
 main() {
-    report(
-        fs::stdout(),
-        ["Ann", "Bo"],
-    );
+    report(fs::stdout(), ["Ann", "Bo"]);
 
     local mem = fs::memory();
-    report(
-        mem,
-        ["Cy"],
-    );
+    report(mem, ["Cy"]);
     print(mem->text());
 }
 ```
@@ -227,21 +168,8 @@ use fs;
 
 main() {
     local dir = fs::tempdir("demo-*");
-    fs::mkdirall(
-        fs::join(
-            dir,
-            "src",
-            "lib",
-        ),
-    );
-    writefile(
-        fs::join(
-            dir,
-            "src",
-            "main.kkl",
-        ),
-        "main() {}\n",
-    );
+    fs::mkdirall(fs::join(dir, "src", "lib"));
+    writefile(fs::join(dir, "src", "main.kkl"), "main() {}\n");
     writefile(
         fs::join(
             dir,
@@ -251,33 +179,18 @@ main() {
         ),
         "f() {}\n",
     );
-    writefile(
-        fs::join(
-            dir,
-            "notes.txt",
-        ),
-        "remember\n",
-    );
+    writefile(fs::join(dir, "notes.txt"), "remember\n");
 
     for (local e in fs::readdir(dir)) {
-        println(
-            e["name"],
-            e["dir"] ? "(directory)" : e["size"],
-        );
+        println(e["name"], e["dir"] ? "(directory)" : e["size"]);
     }
 
     local sources = 0;
-    fs::walk(
-        dir,
-        fn(path, e) {
-            if (fs::ext(path) == ".kkl") { sources++; }
-            return true;                       // false: do not go into this directory
-        },
-    );
-    println(
-        sources,
-        "Kukel files",
-    );
+    fs::walk(dir, fn(path, e) {
+        if (fs::ext(path) == ".kkl") { sources++; }
+        return true;                       // false: do not go into this directory
+    });
+    println(sources, "Kukel files");
 
     local p = fs::join(
         dir,
@@ -291,30 +204,8 @@ main() {
         fs::base(fs::dir(p)),
         fs::exists(p),
     );
-    fs::rename(
-        fs::join(
-            dir,
-            "notes.txt",
-        ),
-        fs::join(
-            dir,
-            "old-notes.txt",
-        ),
-    );
-    println(
-        fs::exists(
-            fs::join(
-                dir,
-                "notes.txt",
-            ),
-        ),
-        fs::stat(
-            fs::join(
-                dir,
-                "old-notes.txt",
-            ),
-        )["size"],
-    );
+    fs::rename(fs::join(dir, "notes.txt"), fs::join(dir, "old-notes.txt"));
+    println(fs::exists(fs::join(dir, "notes.txt")), fs::stat(fs::join(dir, "old-notes.txt"))["size"]);
     fs::removeall(dir);
     println(fs::exists(dir));
 }
@@ -357,31 +248,16 @@ the old version or the new one, never half of it.
 ```
 use fs;
 
-save(
-    path,
-    text,
-) {
-    local tmp = fs::temp(
-        fs::base(path) + "-*",
-        fs::dir(path),
-    );
+save(path, text) {
+    local tmp = fs::temp(fs::base(path) + "-*", fs::dir(path));
     tmp->write(text);
     tmp->close();
-    fs::rename(
-        tmp->name(),
-        path,
-    );
+    fs::rename(tmp->name(), path);
 }
 
 main() {
-    save(
-        "settings.txt",
-        "colour = blue\n",
-    );
-    save(
-        "settings.txt",
-        "colour = green\n",
-    );
+    save("settings.txt", "colour = blue\n");
+    save("settings.txt", "colour = green\n");
     print(readfile("settings.txt"));
 }
 ```
@@ -408,19 +284,13 @@ main() {
     try {
         readfile("no-such-file.txt");
     } catch (e) {
-        println(
-            e->kind,
-            e->message,
-        );
+        println(e->kind, e->message);
     }
 
     try {
         fs::readdir("no-such-dir");
     } catch (e) {
-        println(
-            e->kind,
-            e->message,
-        );
+        println(e->kind, e->message);
     }
 }
 ```

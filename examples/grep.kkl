@@ -43,15 +43,21 @@ main(args) {
         }
 
         for (local c in slice(args[i], 1)) {
-            if (find("icFhlnorv", char(c)) < 0) return usage("unknown option -" + char(c));
+            if (find("icFhlnorv", char(c)) < 0) {
+                return usage("unknown option -" + char(c));
+            }
             opts[char(c)] = true;
         }
     }
 
-    if (i == len(args)) return usage("no pattern");
+    if (i == len(args)) {
+        return usage("no pattern");
+    }
     local pattern = args[i];
 
-    if (haskey(opts, "F")) pattern = re::quote(pattern);
+    if (haskey(opts, "F")) {
+        pattern = re::quote(pattern);
+    }
     local rx;
 
     try {
@@ -62,20 +68,41 @@ main(args) {
 
     local files = slice(args, i + 1), found = false;
 
-    if (haskey(opts, "r")) files = below(len(files) == 0 ? ["."] : files);
+    if (haskey(opts, "r")) {
+        files = below(len(files) == 0 ? ["."] : files);
+    }
 
     if (len(files) == 0) {
-        found = search(rx, "(standard input)", fs::stdin(), false);
+        found = search(
+            rx,
+            "(standard input)",
+            fs::stdin(),
+            false,
+        );
     } else {
         local named = (len(files) > 1 || walked) && !haskey(opts, "h");
 
         for (local f in files) {
             try {
                 if (f == "-") {
-                    if (search(rx, "(standard input)", fs::stdin(), named)) found = true;
+                    if (search(
+                        rx,
+                        "(standard input)",
+                        fs::stdin(),
+                        named,
+                    )) {
+                        found = true;
+                    }
                 } else {
                     with (local file = fs::open(f)) {
-                        if (search(rx, f, file, named)) found = true;
+                        if (search(
+                            rx,
+                            f,
+                            file,
+                            named,
+                        )) {
+                            found = true;
+                        }
                     }
                 }
             } catch (e) {
@@ -94,24 +121,35 @@ search(rx, name, file, showName) {
     local count = 0, prefix = showName ? name + ":" : "";
 
     for (local i, line in file) {
-        if (rx->match(line) == haskey(opts, "v")) continue;
+        if (rx->match(line) == haskey(opts, "v")) {
+            continue;
+        }
         count++;
 
-        if (haskey(opts, "l")) break;
+        if (haskey(opts, "l")) {
+            break;
+        }
 
-        if (haskey(opts, "c")) continue;
+        if (haskey(opts, "c")) {
+            continue;
+        }
         local at = prefix + (haskey(opts, "n") ? str(i + 1) + ":" : "");
 
         if (haskey(opts, "o")) { // with -v: nothing (no matching parts)
-            for (local m in haskey(opts, "v") ? [] : rx->findall(line))
-                if (m != "") println(at + m); // as GNU grep: no empty matches
+            for (local m in haskey(opts, "v") ? [] : rx->findall(line)) {
+                if (m != "") {
+                    println(at + m); // as GNU grep: no empty matches
+                }
+            }
         } else {
             println(at + line);
         }
     }
 
     if (haskey(opts, "l")) { // -l wins over -c
-        if (count > 0) println(name);
+        if (count > 0) {
+            println(name);
+        }
     } else if (haskey(opts, "c")) {
         println(prefix + str(count));
     }
@@ -129,7 +167,7 @@ below(paths) {
             if (p != "-" && fs::exists(p) && fs::stat(p)["dir"]) {
                 walked = true;
                 fs::walk(p, fn(path, e) {
-                    if (!e["dir"] && !e["link"]) push(out, path);
+                    if (!e["dir"] && !e["link"]) { push(out, path); }
                 });
             } else {
                 push(out, p);

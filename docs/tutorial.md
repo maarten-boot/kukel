@@ -48,12 +48,26 @@ runs as a command of its own: `./hello.kkl Kukel`.
 main() {
     local count = 3, price = 2.5, item = "apple";
     local total = count * price;
-    println(item, "x", count, "=", total);
+    println(
+        item,
+        "x",
+        count,
+        "=",
+        total,
+    );
     println("as text: " + str(total) + " euro");
-    println(7 / 2, 7 % 2, 7.0 / 2, int("42") + 1);
+    println(
+        7 / 2,
+        7 % 2,
+        7.0 / 2,
+        int("42") + 1,
+    );
 
-    if (total > 5) println("expensive");
-    else println("cheap");
+    if (total > 5) {
+        println("expensive");
+    } else {
+        println("cheap");
+    }
 }
 ```
 
@@ -81,15 +95,23 @@ main() {
     local counts = {};
 
     for (local w in words) {
-        if (haskey(counts, w)) counts[w]++;
-        else counts[w] = 1;
+        if (haskey(counts, w)) {
+            counts[w]++;
+        } else {
+            counts[w] = 1;
+        }
     }
     println(counts);
 
     local common = keys(counts);
     sort(common, fn(a, b) { return counts[a] > counts[b]; });
     println("most common:", common[0], counts[common[0]]);
-    println(len(words), "words,", len(counts), "different");
+    println(
+        len(words),
+        "words,",
+        len(counts),
+        "different",
+    );
 }
 ```
 
@@ -118,7 +140,9 @@ greet(name, greeting = "hello") {
 total(first, rest..) {
     local sum = first;
 
-    for (local x in rest) sum += x;
+    for (local x in rest) {
+        sum += x;
+    }
     return sum;
 }
 
@@ -140,7 +164,9 @@ main() {
     local v = [1, 2, 3];
     local doubled = [];
 
-    for (local x in v) push(doubled, double(x));
+    for (local x in v) {
+        push(doubled, double(x));
+    }
     println(doubled);
 }
 ```
@@ -166,17 +192,26 @@ generator, which runs the body a step at a time, up to each `yield`. A
 
 ```
 evens(limit) {
-    for (local n = 0; n <= limit; n += 2) yield n;
+    for (local n = 0; n <= limit; n += 2) {
+        yield n;
+    }
 }
 
 main() {
     local v = [];
 
-    for (local n in evens(6)) push(v, n);
+    for (local n in evens(6)) {
+        push(v, n);
+    }
     println(v);
 
     local g = evens(2);
-    println(g->next(), g->next(), g->next(), g->done());
+    println(
+        g->next(),
+        g->next(),
+        g->next(),
+        g->done(),
+    );
 }
 ```
 
@@ -206,15 +241,21 @@ Account::deposit(amount) {
     balance += amount;
     return this;
 }
-Account::describe() { return owner + ": " + str(balance); }
+Account::describe() {
+    return owner + ": " + str(balance);
+}
 
 class Savings : Account { rate; Savings(owner, rate); addinterest(); describe(); }
 Savings::Savings(owner, rate) {
     Account::Account(owner);
     this->rate = rate;
 }
-Savings::addinterest() { deposit(balance * rate); }
-Savings::describe() { return Account::describe() + " (savings)"; }
+Savings::addinterest() {
+    deposit(balance * rate);
+}
+Savings::describe() {
+    return Account::describe() + " (savings)";
+}
 
 main() {
     local a = new Account("Ann"), s = new Savings("Bo", 0.1);
@@ -222,7 +263,9 @@ main() {
     s->deposit(200);
     s->addinterest();
 
-    for (local acc in [a, s]) println(acc->describe());
+    for (local acc in [a, s]) {
+        println(acc->describe());
+    }
     println(a);
 }
 ```

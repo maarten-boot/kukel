@@ -55,7 +55,7 @@ hello, Kukel
 | `kukel debug a.kkl ... [-- args]` | Run the program under the debugger: breakpoints, stepping, values (see [The debugger](#the-debugger)) |
 | `kukel profile [-o report.txt] [-pprof prof.pb.gz] [-cpu] a.kkl ... [-- args]` | Run the program as `run` does, then report where its time went: the functions and lines that took it, with call counts, also of workers (see [The profiler](#the-profiler)); `-pprof` also for `go tool pprof`; Ctrl-C stops the program and writes the report |
 | `kukel dap` | The debugger for editors: the Debug Adapter Protocol on standard input and output, which an editor starts (see [docs/debugging.md](debugging.md): Visual Studio Code, Neovim, Helix, Emacs) |
-| `kukel fmt [-w \| -l] [-strict \| -vertical] [-linelength n] a.kkl ...`, `kukel fmt [-strict \| -vertical] [-linelength n] -` | Format source files: indentation (4 spaces; `case` labels one level into the switch, their statements two) and the spaces between tokens (`{ }` becomes `{}`; a comment at the end of a line keeps its distance); line breaks and comments stay, at most one blank line in a row; CRLF line ends become LF (not inside a string or a `/* */` comment: those stay as written). A line that continues a statement outside brackets (`return c &&` and then `d;`) is indented one level more than the statement's first line. A line that starts with a closing bracket lines up with the line that opened it, also when more follows (`}, 1);` after `f(fn() {`); a comma at the end of a list stays, so a list with one item per line and its closing bracket on a line of its own formats as in Go. A statement that starts a line with `if`, `while`, `do`, `for`, `switch`, `try` or `with` (also after a label: `outer: for`, and with the label on a line of its own, where the blank line goes above the label) gets a blank line before it (above the comments right above it), except as the first statement of a block, after a label on its own line or a `case`, as the statement of `else` or a header without braces, or as the `while` of a `do`. The output is checked to give the same tokens and comments as the input; a file it cannot format safely is refused with an "internal error".  Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`; `-w` and `-l` together are a usage error). A file with a syntax error or a NUL byte is left alone, and the exit code is 1. `kukel fmt -` formats standard input to standard output (for editors; with `-w`, `-l` or files it is a usage error). **`-strict`** also puts braces around the statement of each `if`, `else`, `for`, `while`, `do` and `with` that has none (not around the `if` of an `else if`, and not around a `local` declaration there, which is an error either way), and puts every function and member function definition on several lines: each statement of its blocks on a line of its own, also when it fits on one (`f() { return 1; }`). Function literals get the braces but keep their lines; an empty body stays `{}`. Comments stay where they are: a `{` goes before a comment between a header and its statement (`while (a) { // why`). It also puts the arguments of a call one per line when there are more than 3 of them, and the arguments of a call or the parameters of a function or member function definition when its line is longer than `-linelength` characters (120 by default; 20 to 1000; the outermost list of the line first, then what is still too long): a line break after the `(` and after each `,`, a `,` after the last item (syntax version 7), the `)` on a line of its own at the indentation of the line the list starts on, the items one level deeper; a call that has such a list among its arguments (not inside a function literal's body) gets its own arguments one per line too. Comments go with the item they are next to. Calls are `f(...)`, `p->m(...)`, `new C(...)` and `Base::m(...)`; the parameters of function literals and the declarations in a class stay. **`-vertical`** does all that `-strict` does, and puts one item per line in every call with 2 or more arguments and every definition with 2 or more parameters (`println(x);` and `f();` stay). `-linelength` goes with `-strict` or `-vertical` (alone it is a usage error). The output is checked to differ from the input only by those braces, line breaks and commas |
+| `kukel fmt [-w \| -l] [-strict \| -vertical] [-linelength n] a.kkl ...`, `kukel fmt [-strict \| -vertical] [-linelength n] -` | Format source files: indentation (4 spaces; `case` labels one level into the switch, their statements two) and the spaces between tokens (`{ }` becomes `{}`; a comment at the end of a line keeps its distance); line breaks and comments stay, at most one blank line in a row; CRLF line ends become LF (not inside a string or a `/* */` comment: those stay as written). A line that continues a statement outside brackets (`return c &&` and then `d;`) is indented one level more than the statement's first line. A line that starts with a closing bracket lines up with the line that opened it, also when more follows (`}, 1);` after `f(fn() {`); a comma at the end of a list stays, so a list with one item per line and its closing bracket on a line of its own formats as in Go. A statement that starts a line with `if`, `while`, `do`, `for`, `switch`, `try` or `with` (also after a label: `outer: for`, and with the label on a line of its own, where the blank line goes above the label) gets a blank line before it (above the comments right above it), except as the first statement of a block, after a label on its own line or a `case`, as the statement of `else` or a header without braces, or as the `while` of a `do`. The output is checked to give the same tokens and comments as the input; a file it cannot format safely is refused with an "internal error".  Prints the result, or rewrites the files (`-w`), or lists the files whose formatting differs (`-l`; `-w` and `-l` together are a usage error). A file with a syntax error or a NUL byte is left alone, and the exit code is 1. `kukel fmt -` formats standard input to standard output (for editors; with `-w`, `-l` or files it is a usage error). **`-strict`** also puts braces around the statement of each `if`, `else`, `for`, `while`, `do` and `with` that has none (not around the `if` of an `else if`, and not around a `local` declaration there, which is an error either way), and puts every function and member function definition on several lines: each statement of its blocks on a line of its own, also when it fits on one (`f() { return 1; }`). Function literals get the braces but keep their lines; an empty body stays `{}`. Comments stay where they are: a `{` goes before a comment between a header and its statement (`while (a) { // why`), and a `}` it adds after the comments at the end of the statement's line (on the next line after a `//` comment), so that they stay with the statement. A block written on one line that it puts on several gives a comment at the end of that line to the line of its `{` (`f() { return 1; } // why` becomes `f() { // why` and the rest); an `else` on the line after the `}` of its `if` (with nothing between) goes up to it: `} else {`. It also puts the arguments of a call one per line when there are more than 3 of them, and the arguments of a call or the parameters of a function or member function definition when its line is longer than `-linelength` characters (120 by default; 20 to 1000; the outermost list of the line first, then what is still too long): a line break after the `(` and after each `,`, a `,` after the last item (syntax version 7), the `)` on a line of its own at the indentation of the line the list starts on, the items one level deeper; a call that has such a list among its arguments (not inside a function literal's body) gets its own arguments one per line too. Comments go with the item they are next to. Calls are `f(...)`, `p->m(...)`, `new C(...)` and `Base::m(...)`; the parameters of function literals and the declarations in a class stay. **`-vertical`** does all that `-strict` does, and puts one item per line in every call with 2 or more arguments and every definition with 2 or more parameters (`println(x);` and `f();` stay). `-linelength` goes with `-strict` or `-vertical` (alone it is a usage error). The output is checked to differ from the input only by those braces, line breaks and commas |
 | `kukel tokens a.kkl ...`, `kukel ast [-pos] a.kkl ...` | Show the tokens or the syntax tree of each file (for debugging; `-pos`, before the files, adds positions) |
 | `kukel version` (also `-version`, `--version`) | Show the version (with the commit and the Go version), the bytecode format, the version of Unicode the module `utf8` knows, the modules written in Go, with the databases `db` can open (`db (SQLite, PostgreSQL, MySQL)`): a `kukel` built with tags may lack some (see the README), and the modules written in Kukel |
 | `kukel help` (also `-h`, `-help`, `--help`) | Show the commands (`kukel` without a command shows them too, with exit code 2) |
@@ -176,11 +176,20 @@ module). For this `shop.kkl`:
 // A small shop: a cart of items and prices.
 class Cart { items; Cart(); add(name, price); total(); }
 
-Cart::Cart() { items = {}; }
+Cart::Cart() {
+    items = {};
+}
 Cart::add(name, price) {
     items[name] = price;
 }
-Cart::total() { local t = 0; for (local k, p in items) t += p; return t; }
+Cart::total() {
+    local t = 0;
+
+    for (local k, p in items) {
+        t += p;
+    }
+    return t;
+}
 
 // The program.
 main() {
@@ -194,23 +203,23 @@ a session goes like this:
 
 ```
 $ kukel debug shop.kkl
-main at shop.kkl:12
-   12      local cart = new Cart();
+main at shop.kkl:21
+   21      local cart = new Cart();
 (kdb) b Cart::add
-breakpoint 1 at shop.kkl:6
+breakpoint 1 at shop.kkl:8
 (kdb) c
-breakpoint 1, Cart::add at shop.kkl:6
-    6      items[name] = price;
+breakpoint 1, Cart::add at shop.kkl:8
+    8      items[name] = price;
 (kdb) p name
 "pen"
 (kdb) p this->items
 {}
 (kdb) bt
-*0 Cart::add (shop.kkl:6)
- 1 main (shop.kkl:13)
+*0 Cart::add (shop.kkl:8)
+ 1 main (shop.kkl:22)
 (kdb) finish
-main at shop.kkl:14
-   14      println(cart->total());
+main at shop.kkl:23
+   23      println(cart->total());
 (kdb) c
 1.5
 the program ended (exit code 0)
@@ -258,16 +267,22 @@ use time;
 
 // isPrime tests by dividing: slow on purpose.
 isPrime(n) {
-    for (local d = 2; d * d <= n; d++)
-        if (n % d == 0) return false;
+    for (local d = 2; d * d <= n; d++) {
+        if (n % d == 0) {
+            return false;
+        }
+    }
     return n > 1;
 }
 
 main() {
     local count = 0;
 
-    for (local n = 0; n < 200000; n++)
-        if (isPrime(n)) count++;
+    for (local n = 0; n < 200000; n++) {
+        if (isPrime(n)) {
+            count++;
+        }
+    }
     time::sleep(0.1);                    // waiting counts too
     println(count, "primes");
 }
@@ -276,20 +291,20 @@ main() {
 the report (on standard error) is:
 
 ```
-0.430 s in 313 samples, one every 1.38 ms on average (wall time, with waiting).
+0.343 s in 231 samples, one every 1.48 ms on average (wall time, with waiting).
 The time of built-ins and Go functions counts on the line that calls them.
 
 Functions, by their own time (total: with the functions they call):
         own      %      total      %       calls  function
-    0.313 s  72.7%    0.313 s  72.7%      200000  isPrime (primes.kkl:4)
-    0.118 s  27.3%    0.430 s 100.0%           1  main (primes.kkl:10)
+    0.228 s  66.6%    0.228 s  66.6%      200000  isPrime (primes.kkl:4)
+    0.115 s  33.4%    0.343 s 100.0%           1  main (primes.kkl:13)
 
 Lines, by their own time (the 4 slowest):
         own      %  line
-    0.313 s  72.7%  primes.kkl:5  for (local d = 2; d * d <= n; d++)
-    0.101 s  23.4%  primes.kkl:14  time::sleep(0.1);                    // waiting counts too
-    0.015 s   3.5%  primes.kkl:12  for (local n = 0; n < 200000; n++)
-    0.002 s   0.5%  primes.kkl:13  if (isPrime(n)) count++;
+    0.228 s  66.6%  primes.kkl:5  for (local d = 2; d * d <= n; d++) {
+    0.102 s  29.6%  primes.kkl:21  time::sleep(0.1);                    // waiting counts too
+    0.010 s   2.8%  primes.kkl:17  if (isPrime(n)) {
+    0.003 s   1.0%  primes.kkl:16  for (local n = 0; n < 200000; n++) {
 
 Built-ins and Go functions, by calls:
        calls  function
@@ -434,11 +449,24 @@ A program is one or more files; each holds definitions, in any order:
 ```
 global count = 0, names;        // global variables (nil without a value)
 const MAX = 100, HALF = MAX / 2; // constants, computed when compiling
-square(x) { return x * x; }      // a function
+square(x) { // a function
+    return x * x;
+}
 class Point { x, y; Point(x, y); } // a class (see section 8)
-Point::Point(x, y) { this->x = x; this->y = y; }
+Point::Point(x, y) {
+    this->x = x;
+    this->y = y;
+}
 
-main(args) { println(square(MAX), HALF, count, names, new Point(1, 2)); }
+main(args) {
+    println(
+        square(MAX),
+        HALF,
+        count,
+        names,
+        new Point(1, 2),
+    );
+}
 ```
 
 - All top-level names (globals, constants, functions, classes) of the
@@ -474,11 +502,19 @@ A file can use other source files as *modules*:
 const PI = 3.14159;
 
 class Circle { r; Circle(r); area(); }
-Circle::Circle(r) { this->r = r; }
-Circle::area() { return PI * r * r; }
+Circle::Circle(r) {
+    this->r = r;
+}
+Circle::area() {
+    return PI * r * r;
+}
 
-_square(x) { return x * x; }             // private to the module
-hypot(a, b) { return sqrt(_square(a) + _square(b)); }
+_square(x) { // private to the module
+    return x * x;
+}
+hypot(a, b) {
+    return sqrt(_square(a) + _square(b));
+}
 ```
 
 ```
@@ -486,8 +522,13 @@ hypot(a, b) { return sqrt(_square(a) + _square(b)); }
 use geometry;
 
 class Ring : geometry::Circle { inner; Ring(r, inner); area(); }
-Ring::Ring(r, inner) { geometry::Circle::Circle(r); this->inner = inner; }
-Ring::area() { return geometry::Circle::area() - geometry::PI * inner * inner; }
+Ring::Ring(r, inner) {
+    geometry::Circle::Circle(r);
+    this->inner = inner;
+}
+Ring::area() {
+    return geometry::Circle::area() - geometry::PI * inner * inner;
+}
 
 main() {
     println(geometry::hypot(3, 4), round(new Ring(2, 1)->area()));
@@ -641,9 +682,16 @@ With a class of your own: anything with a `close()` member function.
 
 ```
 class Log { name; Log(name); write(s); close(); }
-Log::Log(name) { this->name = name; println("open", name); }
-Log::write(s) { println(name + ":", s); }
-Log::close() { println("close", name); }
+Log::Log(name) {
+    this->name = name;
+    println("open", name);
+}
+Log::write(s) {
+    println(name + ":", s);
+}
+Log::close() {
+    println("close", name);
+}
 
 main() {
     with (local a = new Log("a"), b = new Log("b")) {
@@ -716,8 +764,21 @@ as an int; strings cannot be changed (`s[i] = x` is an error).
 
 ```
 main() {
-    println(7 / 2, -7 / 2, 7 % 3, -7 % 3, 7.0 / 2, 7.5 % 2);
-    println(1 << 4, -16 >> 2, 5 & 3, 5 | 3, 5 ^ 3);
+    println(
+        7 / 2,
+        -7 / 2,
+        7 % 3,
+        -7 % 3,
+        7.0 / 2,
+        7.5 % 2,
+    );
+    println(
+        1 << 4,
+        -16 >> 2,
+        5 & 3,
+        5 | 3,
+        5 ^ 3,
+    );
     println("n = " + str(42), "ab" + "cd");
 }
 ```
@@ -770,17 +831,28 @@ version 7, Kukel v0.31.)
 ## 7. Functions and closures
 
 ```
-area(w, h = w) { return w * h; }               // h is optional, its default may use w
-report(level, parts..) { println(level, parts..); } // parts: a vector of the rest
+area(w, h = w) { // h is optional, its default may use w
+    return w * h;
+}
+report(level, parts..) { // parts: a vector of the rest
+    println(level, parts..);
+}
 sum(v) {
     local total = 0;
 
-    for (local x in v) total += x;
+    for (local x in v) {
+        total += x;
+    }
     return total;
 }
 
 main() {
-    report("info:", area(3), area(2, 5), sum([1, 2, 3]));   // info: 9 10 6
+    report(
+        "info:",
+        area(3),
+        area(2, 5),
+        sum([1, 2, 3]),
+    );   // info: 9 10 6
 }
 ```
 
@@ -814,12 +886,15 @@ counter() {
 
 main() {
     local next = counter();
-    next(); next();
+    next();
+    next();
     println(next());                // 3
 
     local fs = [];
 
-    for (local i = 0; i < 3; i++) push(fs, fn() { return i; });
+    for (local i = 0; i < 3; i++) {
+        push(fs, fn() { return i; });
+    }
     println(fs[0](), fs[1](), fs[2]());   // 0 1 2: a new i for each iteration
 }
 ```
@@ -852,28 +927,49 @@ function `iter()` that gives one:
 
 ```
 countdown(n) {
-    for (local i = n; i > 0; i--) yield i;
+    for (local i = n; i > 0; i--) {
+        yield i;
+    }
 }
 
 class Tree { left, value, right; Tree(l, v, r); iter(); }
-Tree::Tree(l, v, r) { left = l; value = v; right = r; }
+Tree::Tree(l, v, r) {
+    left = l;
+    value = v;
+    right = r;
+}
 Tree::iter() {                             // in order: left, value, right
-    if (left != nil) yield from left;
+    if (left != nil) {
+        yield from left;
+    }
     yield value;
 
-    if (right != nil) yield from right;
+    if (right != nil) {
+        yield from right;
+    }
 }
 
-leaf(v) { return new Tree(nil, v, nil); }
+leaf(v) {
+    return new Tree(nil, v, nil);
+}
 
 main() {
-    for (local x in countdown(3)) print(x, "");
+    for (local x in countdown(3)) {
+        print(x, "");
+    }
     println();                             // 3 2 1
 
-    for (local i, x in new Tree(leaf(1), 2, leaf(3))) print(i, x, "");
+    for (local i, x in new Tree(leaf(1), 2, leaf(3))) {
+        print(i, x, "");
+    }
     println();                             // 0 1 1 2 2 3
     local g = countdown(2);
-    println(g->next(), g->next(), g->next(), g->done());   // 2 1 nil true
+    println(
+        g->next(),
+        g->next(),
+        g->next(),
+        g->done(),
+    );   // 2 1 nil true
 }
 ```
 
@@ -955,7 +1051,9 @@ running() {
     for (;;) {
         local x = yield total;
 
-        if (x != nil) total += x;
+        if (x != nil) {
+            total += x;
+        }
     }
 }
 
@@ -974,7 +1072,11 @@ use fs;
 
 matching(path, word) {
     with (local f = fs::open(path)) {
-        for (local line in f) if (find(line, word) >= 0) yield line;
+        for (local line in f) {
+            if (find(line, word) >= 0) {
+                yield line;
+            }
+        }
     }
 }
 
@@ -1002,9 +1104,16 @@ class Shape {
     static total();         // a static member function (no this)
 }
 
-Shape::Shape(name) { this->name = name; count = count == nil ? 1 : count + 1; }
-Shape::describe() { return name + " " + str(area()); }   // area() is this->area()
-Shape::total() { return count; }
+Shape::Shape(name) {
+    this->name = name;
+    count = count == nil ? 1 : count + 1;
+}
+Shape::describe() { // area() is this->area()
+    return name + " " + str(area());
+}
+Shape::total() {
+    return count;
+}
 
 class Rect : Shape {
     w, h;
@@ -1012,8 +1121,14 @@ class Rect : Shape {
     area();
 }
 
-Rect::Rect(w, h) { Shape::Shape("rect"); this->w = w; this->h = h; }
-Rect::area() { return w * h; }
+Rect::Rect(w, h) {
+    Shape::Shape("rect");
+    this->w = w;
+    this->h = h;
+}
+Rect::area() {
+    return w * h;
+}
 
 class Square : Rect {}     // no constructor: uses Rect's
 
@@ -1085,14 +1200,20 @@ main() {
 
 ```
 class ParseError : Error { line; ParseError(msg, line); }
-ParseError::ParseError(msg, line) { Error::Error(msg); this->line = line; }
+ParseError::ParseError(msg, line) {
+    Error::Error(msg);
+    this->line = line;
+}
 
 main() {
     try {
         throw new ParseError("unexpected '}'", 12);
     } catch (e) {
-        if (instanceof(e, ParseError)) println(e->kind, e->message, e->line);
-        else throw e;                       // rethrow: keeps the original trace
+        if (instanceof(e, ParseError)) {
+            println(e->kind, e->message, e->line);
+        } else {
+            throw e;                       // rethrow: keeps the original trace
+        }
     } finally {
         println("cleanup");
     }
@@ -1193,10 +1314,20 @@ program printed before a wait is seen during it.
 
 ```
 main() {
-    println(int("42") + 1, int(" -0x10 "), int("1_000"), int(3.9), int(-3.9));
+    println(
+        int("42") + 1,
+        int(" -0x10 "),
+        int("1_000"),
+        int(3.9),
+        int(-3.9),
+    );
     println(float("2.5") * 2, float(" 1e3 "), str(1.0 / 4) + "!");
 
-    try { int("12abc"); } catch (e) { println(e->kind, e->message); }
+    try {
+        int("12abc");
+    } catch (e) {
+        println(e->kind, e->message);
+    }
 }
 ```
 
@@ -1362,8 +1493,9 @@ main() {
     conn->exec("CREATE TABLE items (name TEXT, price REAL)");
     conn->exec("INSERT INTO items VALUES (?, ?)", "pen", 1.5);
 
-    for (local row in conn->query("SELECT * FROM items WHERE price < ?", 10))
+    for (local row in conn->query("SELECT * FROM items WHERE price < ?", 10)) {
         println(row["name"], row["price"]);         // pen 1.5
+    }
     conn->close();
 }
 ```
@@ -1436,23 +1568,35 @@ class Item {
     id, name, price, instock;
     static columns();
 }
-Item::columns() { return {"name": "TEXT NOT NULL", "price": "REAL", "instock": "BOOLEAN"}; }
+Item::columns() {
+    return {"name": "TEXT NOT NULL", "price": "REAL", "instock": "BOOLEAN"};
+}
 
 main() {
     local conn = db::open("sqlite::memory:");
     conn->migrate(Item);                         // CREATE TABLE item (...)
 
     local pen = new Item();
-    pen->name = "pen"; pen->price = 1.5; pen->instock = true;
+    pen->name = "pen";
+    pen->price = 1.5;
+    pen->instock = true;
     conn->save(pen);                             // INSERT; sets pen->id
     pen->price = 1.75;
     conn->save(pen);                             // UPDATE
     local ink = new Item();
-    ink->name = "ink"; ink->price = 3.0; ink->instock = false;
+    ink->name = "ink";
+    ink->price = 3.0;
+    ink->instock = false;
     conn->save(ink);
 
-    for (local i in conn->find(Item)->where("price < ?", 5)->orderby("name")->all())
-        println(i->id, i->name, i->price, i->instock);   // 2 ink 3.0 false, then 1 pen 1.75 true
+    for (local i in conn->find(Item)->where("price < ?", 5)->orderby("name")->all()) {
+        println(
+            i->id,
+            i->name,
+            i->price,
+            i->instock,
+        );   // 2 ink 3.0 false, then 1 pen 1.75 true
+    }
     println(conn->get(Item, 1)->name, conn->find(Item)->count());   // pen 2
     conn->delete(pen);
 }
@@ -1491,10 +1635,14 @@ main() {
   to such objects are declared `"UUID"` too:
 
   ```
-  class Doc { id, title, parentid, parent; static columns(); static relations(); }
-  Doc::columns() { return {"id": "UUID", "title": "VARCHAR(40)", "parentid": "UUID"}; }
-  Doc::relations() { return {"parent": db::one(Doc, "parentid")}; }
-  ```
+class Doc { id, title, parentid, parent; static columns(); static relations(); }
+Doc::columns() {
+    return {"id": "UUID", "title": "VARCHAR(40)", "parentid": "UUID"};
+}
+Doc::relations() {
+    return {"parent": db::one(Doc, "parentid")};
+}
+```
 
 - The database fills in `id` when its type (from `columns()`, else the
   default above) is the default, or has `AUTO_INCREMENT`, `IDENTITY` or
@@ -1553,18 +1701,23 @@ class Line { id, orderid, product, qty; }
 main() {
     local conn = db::open("sqlite::memory:");
 
-    for (local c in [Customer, Order, Line]) conn->migrate(c);
+    for (local c in [Customer, Order, Line]) {
+        conn->migrate(c);
+    }
 
     local ann = new Customer();
     ann->name = "Ann";
     conn->save(ann);
     local o = new Order();
-    o->customerid = ann->id; o->day = "mon";
+    o->customerid = ann->id;
+    o->day = "mon";
     conn->save(o);
 
     for (local p in ["pen", "ink"]) {
         local l = new Line();
-        l->orderid = o->id; l->product = p; l->qty = 1;
+        l->orderid = o->id;
+        l->product = p;
+        l->qty = 1;
         conn->save(l);
     }
 
@@ -1573,8 +1726,9 @@ main() {
     conn->load(back, "customer", "lines");
     println(back->customer->name, len(back->lines));      // Ann 2
 
-    for (local x in conn->find(Order)->include("customer", "lines")->all())
+    for (local x in conn->find(Order)->include("customer", "lines")->all()) {
         println(x->day, x->customer->name, x->lines[0]->product);   // mon Ann pen
+    }
 }
 ```
 
@@ -1615,7 +1769,7 @@ main() {
         n++;
         println("tick", n);
 
-        if (n == 3) tick->cancel();
+        if (n == 3) { tick->cancel(); }
     });
     events::after(1.2, println, "after 1.2 s");
     events::run();              // tick 1, tick 2, after 1.2 s, tick 3
@@ -1665,11 +1819,12 @@ start at the current directory.
 use fs;
 
 main() {
-    for (local e in fs::readdir("."))
+    for (local e in fs::readdir(".")) {
         println(e["name"], e["dir"] ? "(directory)" : e["size"]);
+    }
     local n = 0;
     fs::walk(".", fn(path, e) {
-        if (fs::ext(path) == ".kkl") n++;
+        if (fs::ext(path) == ".kkl") { n++; }
         return e["name"] != ".git";              // false: not into this directory
     });
     println(n, "Kukel files");
@@ -1715,7 +1870,9 @@ main() {
         }
     }
 
-    with (local more = fs::open("notes.txt", "a")) more->println("third line");
+    with (local more = fs::open("notes.txt", "a")) {
+        more->println("third line");
+    }
     println(len(readfile("notes.txt")), "bytes");
 }
 ```
@@ -1886,7 +2043,9 @@ main() {
     c->closewrite();
     events::run();                                      // until the server is closed
 
-    for (local line in c) println(line);                // HELLO, WORLD
+    for (local line in c) {
+        println(line);                // HELLO, WORLD
+    }
     c->close();
 }
 ```
@@ -1989,8 +2148,9 @@ main() {
 
     local c = p9::dial(s->endpoint());     // could as well be another program
 
-    for (local e in c->readdir("/"))
+    for (local e in c->readdir("/")) {
         println(e["name"], e["dir"] ? "(directory)" : e["size"]);   // motd 6, notes 0, stats (directory)
+    }
     print(c->read("/motd"));                // hello
     println(c->read("/stats/visits"), c->read("/stats/visits"));   // 1 2
     c->write("/notes", "remember the milk");
@@ -2152,7 +2312,9 @@ use strings;
 main() {
     local b = new strings::Builder();
 
-    for (local i = 0; i < 3; i++) b->add(i, ";");
+    for (local i = 0; i < 3; i++) {
+        b->add(i, ";");
+    }
     println(b->str(), b->len());            // 0;1;2; 6
 }
 ```
@@ -2180,7 +2342,7 @@ main() {
     term::raw(fn() {
         print("\x1b[2J\x1b[H");             // clear the screen, cursor home
 
-        for (local k = term::key(); k != nil && k != "q"; k = term::key()) print(k, "\r\n");
+        for (local k = term::key(); k != nil && k != "q"; k = term::key()) { print(k, "\r\n"); }
     });
 }
 ```
@@ -2226,7 +2388,14 @@ mix well: a key read ahead belongs to `term::key`.
 use time;
 
 main() {
-    local t = new time::Time(2026, 10, 14, 9, 30, 0);       // UTC
+    local t = new time::Time(
+        2026,
+        10,
+        14,
+        9,
+        30,
+        0,
+    );       // UTC
     println(t->format("%d.%m.%Y %H:%M"), t->weekday());    // 14.10.2026 09:30 3
     local xmas = time::Time::parse("2026-12-25", "%Y-%m-%d");
     println(floor(xmas->sub(t) / 86400), "days");          // 71 days
@@ -2540,7 +2709,8 @@ main() {
     open->pack({"pady": 5});
     local s = nil;
     open->onclick(fn() {
-        if (s != nil && !s->closed()) return;   // one at a time
+        if (s != nil && !s->closed()) { return;   // one at a time
+        }
         s = new tk::Window("Settings");
         local f = new tk::Frame(s, {"padding": 10});
         f->pack({"fill": "both", "expand": true});
@@ -2549,10 +2719,18 @@ main() {
         local size = new tk::Radiogroup(settings["size"]), row = 1;
 
         for (local name in ["small", "medium", "large"]) {
-            new tk::Radiobutton(f, name, size, name)->grid({"row": row, "column": 0, "sticky": "w"});
+            new tk::Radiobutton(
+                f,
+                name,
+                size,
+                name,
+            )->grid({"row": row, "column": 0, "sticky": "w"});
             row = row + 1;
         }
-        local volume = new tk::Scale(f, {"from": 0, "to": 100, "step": 5, "length": 200, "label": "Volume", "showvalue": true});
+        local volume = new tk::Scale(
+            f,
+            {"from": 0, "to": 100, "step": 5, "length": 200, "label": "Volume", "showvalue": true},
+        );
         volume->setvalue(settings["volume"])->grid({"row": 4, "column": 0, "sticky": "ew"});
         local ok = new tk::Button(f, "OK");
         ok->grid({"row": 5, "column": 0, "sticky": "e", "pady": 5});
@@ -2562,7 +2740,10 @@ main() {
             s->close();
         });
         s->onclose(fn() {
-            return tk::messagebox("Close without saving?", {"buttons": "yesno", "icon": "question", "parent": s}) == "yes";
+            return tk::messagebox(
+                "Close without saving?",
+                {"buttons": "yesno", "icon": "question", "parent": s},
+            ) == "yes";
         });
     });
     events::run();
@@ -2604,7 +2785,7 @@ main() {
     file->item("Save as...", fn() {
         local path = tk::savefile({"ext": ".txt", "parent": w});
 
-        if (path != nil) writefile(path, text->text());
+        if (path != nil) { writefile(path, text->text()); }
     }, {"accelerator": "Ctrl+S"});
     file->separator();
     file->item("Quit", fn() { w->close(); });
@@ -2692,17 +2873,29 @@ main() {
     local w = new tk::Window("Drag");
     local c = new tk::Canvas(w, {"width": 300, "height": 200, "background": "white"});
     c->pack();
-    c->rect(20, 20, 100, 70, {"fill": "orange"});
-    c->oval(150, 50, 250, 150, {"fill": "light blue"});
+    c->rect(
+        20,
+        20,
+        100,
+        70,
+        {"fill": "orange"},
+    );
+    c->oval(
+        150,
+        50,
+        250,
+        150,
+        {"fill": "light blue"},
+    );
     local item = nil, last = nil;
     c->bind("<Button-1>", fn(e) {
         item = c->itemat(e["x"], e["y"]);
         last = e;
 
-        if (item != nil) c->raise(item);
+        if (item != nil) { c->raise(item); }
     });
     c->bind("<B1-Motion>", fn(e) {
-        if (item != nil) c->move(item, e["x"] - last["x"], e["y"] - last["y"]);
+        if (item != nil) { c->move(item, e["x"] - last["x"], e["y"] - last["y"]); }
         last = e;
     });
     events::run();
@@ -2729,7 +2922,16 @@ main() {
     local last = nil;
     c->bind("<Double-Button-1>", fn(e) {      // a new circle
         local r = size->value();
-        c->tag(c->oval(e["x"] - r, e["y"] - r, e["x"] + r, e["y"] + r, {"fill": colour->text()}), "shape");
+        c->tag(
+            c->oval(
+                e["x"] - r,
+                e["y"] - r,
+                e["x"] + r,
+                e["y"] + r,
+                {"fill": colour->text()},
+            ),
+            "shape",
+        );
     });
     c->binditem("shape", "<Button-1>", fn(e) {
         c->raise(e["item"]);
@@ -2759,7 +2961,9 @@ main() {
     println(utf8::upper(utf8::slice(s, 0, 5)));         // HÉLLO
     println(utf8::index(s, find(s, "wörld")));         // 6
 
-    for (local c in utf8::chars("añ€")) print(c, "");  // a ñ €
+    for (local c in utf8::chars("añ€")) {
+        print(c, "");  // a ñ €
+    }
     println();
 }
 ```
@@ -2842,8 +3046,9 @@ data, so no locking is needed.
 use worker;
 
 square(id) {                                // runs in the worker
-    for (local m = worker::receive(); m != nil; m = worker::receive())
+    for (local m = worker::receive(); m != nil; m = worker::receive()) {
         worker::send([id, m * m]);
+    }
     return "worker " + str(id) + " done";
 }
 
@@ -2997,13 +3202,17 @@ stops early closes them, and so what they walk.
 ```
 use iter;
 
-square(x) { return x * x; }
+square(x) {
+    return x * x;
+}
 
 main() {
     println(iter::collect(iter::range(5)), iter::collect(iter::range(10, 0, -3)));
     println(iter::collect(iter::take(iter::map(square, iter::count(1)), 4)));
 
-    for (local p in iter::zip(["a", "b", "c"], iter::count(1))) print(p, "");
+    for (local p in iter::zip(["a", "b", "c"], iter::count(1))) {
+        print(p, "");
+    }
     println();
     println(iter::reduce(fn(a, b) { return a + b; }, iter::range(1, 101)));
     println(iter::first(iter::filter(fn(x) { return x % 7 == 0; }, iter::count(50))));

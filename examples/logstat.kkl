@@ -23,7 +23,9 @@ use strings;
 use time;
 
 // entryRE matches the start of an entry; its named groups are the fields.
-global entryRE = re::compile("^(?P<time>\\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d) +(?P<level>[A-Za-z]+) +(?P<message>.*)$");
+global entryRE = re::compile(
+    "^(?P<time>\\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d) +(?P<level>[A-Za-z]+) +(?P<message>.*)$",
+);
 
 usage(why) {
     eprintln("logstat:", why);
@@ -42,23 +44,35 @@ main(args) {
             continue;
         }
 
-        if (opt != "-since" && opt != "-last") return usage("unknown option " + opt);
+        if (opt != "-since" && opt != "-last") {
+            return usage("unknown option " + opt);
+        }
 
-        if (i + 1 == len(args)) return usage(opt + " needs a value");
+        if (i + 1 == len(args)) {
+            return usage(opt + " needs a value");
+        }
         i++;
 
         if (opt == "-since") {
             since = parsetime(args[i]);
 
-            if (since == nil) return usage("-since: cannot read the time " + args[i]);
+            if (since == nil) {
+                return usage("-since: cannot read the time " + args[i]);
+            }
         } else {
             last = duration(args[i]);
 
-            if (last == nil) return usage("-last: cannot read the duration " + args[i] + " (such as 90s, 45m, 2h, 1d; at most 36500d)");
+            if (last == nil) {
+                return usage(
+                    "-last: cannot read the duration " + args[i] + " (such as 90s, 45m, 2h, 1d; at most 36500d)",
+                );
+            }
         }
     }
 
-    if (since != nil && last != nil) return usage("give -since or -last, not both");
+    if (since != nil && last != nil) {
+        return usage("give -since or -last, not both");
+    }
     // A line that starts no entry belongs to the entry before it (its
     // "more" lines), or, at the start of a file, to none: other lines.
     local entries = [], other = 0, code = 0;
@@ -86,11 +100,17 @@ main(args) {
         }
     }
 
-    if (last != nil && len(entries) > 0) since = newest(entries)->add(-last);
+    if (last != nil && len(entries) > 0) {
+        since = newest(entries)->add(-last);
+    }
 
-    if (since != nil) entries = keep(entries, since);
+    if (since != nil) {
+        entries = keep(entries, since);
+    }
 
-    for (local e in entries) other += e["more"];
+    for (local e in entries) {
+        other += e["more"];
+    }
     local s = stats(entries, other);
     print(asJSON ? json::encode(s, "  ") + "\n" : report(s));
     return code;
@@ -104,7 +124,9 @@ inputs(files) {
     if (len(files) == 0) {
         local b = new strings::Builder();
 
-        for (local line = readline(); line != nil; line = readline()) b->add(line, "\n");
+        for (local line = readline(); line != nil; line = readline()) {
+            b->add(line, "\n");
+        }
         return [b->str()];
     }
 
@@ -124,10 +146,14 @@ inputs(files) {
 entry(line) {
     local g = entryRE->groups(line);
 
-    if (g == nil) return nil;
+    if (g == nil) {
+        return nil;
+    }
     local e = {}, names = entryRE->names();
 
-    for (local k = 0; k < len(names); k++) e[names[k]] = g[k + 1];         // g[0]: the whole match
+    for (local k = 0; k < len(names); k++) {
+        e[names[k]] = g[k + 1];         // g[0]: the whole match
+    }
     e["level"] = upper(e["level"]);
     e["more"] = 0;
 
@@ -154,7 +180,9 @@ parsetime(text) {
 duration(text) {
     local g = re::compile("^(\\d{1,9})([smhd])$")->groups(text);
 
-    if (g == nil) return nil;
+    if (g == nil) {
+        return nil;
+    }
     local seconds = int(g[1]) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[g[2]];
 
     return seconds <= 36500 * 86400 ? seconds : nil;
@@ -163,7 +191,11 @@ duration(text) {
 newest(entries) {
     local t = entries[0]["time"];
 
-    for (local e in entries) if (e["time"]->after(t)) t = e["time"];
+    for (local e in entries) {
+        if (e["time"]->after(t)) {
+            t = e["time"];
+        }
+    }
     return t;
 }
 
@@ -171,27 +203,41 @@ newest(entries) {
 keep(entries, since) {
     local out = [];
 
-    for (local e in entries) if (!e["time"]->before(since)) push(out, e);
+    for (local e in entries) {
+        if (!e["time"]->before(since)) {
+            push(out, e);
+        }
+    }
     return out;
 }
 
 // stats counts the entries: a map that -json prints as it is.
 stats(entries, other) {
-    local s = {"entries": len(entries), "other": other, "from": nil, "to": nil, "seconds": 0, "levels": {}, "hours": {}, "errors": []};
+    local s = {"entries": len(
+        entries,
+    ), "other": other, "from": nil, "to": nil, "seconds": 0, "levels": {}, "hours": {}, "errors": []};
 
-    if (len(entries) == 0) return s;
+    if (len(entries) == 0) {
+        return s;
+    }
     local first = entries[0]["time"], last = first;
 
     for (local e in entries) {
         local t = e["time"], hour = t->format("%Y-%m-%d %H:00");
 
-        if (t->before(first)) first = t;
+        if (t->before(first)) {
+            first = t;
+        }
 
-        if (t->after(last)) last = t;
+        if (t->after(last)) {
+            last = t;
+        }
         count(s["levels"], e["level"]);
         count(s["hours"], hour);
 
-        if (e["level"] == "ERROR") push(s["errors"], {"time": t->format("%Y-%m-%d %H:%M:%S"), "message": e["message"]});
+        if (e["level"] == "ERROR") {
+            push(s["errors"], {"time": t->format("%Y-%m-%d %H:%M:%S"), "message": e["message"]});
+        }
     }
     s["from"] = first->format("%Y-%m-%d %H:%M:%S");
     s["to"] = last->format("%Y-%m-%d %H:%M:%S");
@@ -203,12 +249,16 @@ stats(entries, other) {
         return na > nb || na == nb && a < b;
     });
 
-    for (local l in levels) byCount[l] = s["levels"][l];
+    for (local l in levels) {
+        byCount[l] = s["levels"][l];
+    }
     s["levels"] = byCount;
     local hours = keys(s["hours"]), inOrder = {};
     sort(hours);
 
-    for (local h in hours) inOrder[h] = s["hours"][h];
+    for (local h in hours) {
+        inOrder[h] = s["hours"][h];
+    }
     s["hours"] = inOrder;
     return s;
 }
@@ -223,28 +273,68 @@ report(s) {
     local b = new strings::Builder();
     b->add("entries  ", s["entries"]);
 
-    if (s["other"] > 0) b->add(" (and ", s["other"], " other ", s["other"] == 1 ? "line" : "lines", ")");
+    if (s["other"] > 0) {
+        b->add(
+            " (and ",
+            s["other"],
+            " other ",
+            s["other"] == 1 ? "line" : "lines",
+            ")",
+        );
+    }
     b->add("\n");
 
-    if (s["entries"] == 0) return b->str();
+    if (s["entries"] == 0) {
+        return b->str();
+    }
     b->add("from     ", s["from"], "\n");
-    b->add("to       ", s["to"], "  (", span(s["seconds"]), ")\n");
+    b->add(
+        "to       ",
+        s["to"],
+        "  (",
+        span(s["seconds"]),
+        ")\n",
+    );
     b->add("levels\n");
 
-    for (local l in keys(s["levels"])) b->add("  ", pad(l, 8), right(s["levels"][l], 4), "\n");
+    for (local l in keys(s["levels"])) {
+        b->add(
+            "  ",
+            pad(l, 8),
+            right(s["levels"][l], 4),
+            "\n",
+        );
+    }
     b->add("hours\n");
 
     for (local h in keys(s["hours"])) {
         local n = s["hours"][h];
-        b->add("  ", h, right(n, 4), "  ");
+        b->add(
+            "  ",
+            h,
+            right(n, 4),
+            "  ",
+        );
 
-        for (local k = 0; k < n; k++) b->add("#");
+        for (local k = 0; k < n; k++) {
+            b->add("#");
+        }
         b->add("\n");
     }
 
-    if (len(s["errors"]) > 0) b->add("errors\n");
+    if (len(s["errors"]) > 0) {
+        b->add("errors\n");
+    }
 
-    for (local e in s["errors"]) b->add("  ", e["time"], "  ", e["message"], "\n");
+    for (local e in s["errors"]) {
+        b->add(
+            "  ",
+            e["time"],
+            "  ",
+            e["message"],
+            "\n",
+        );
+    }
     return b->str();
 }
 
@@ -252,23 +342,33 @@ report(s) {
 span(n) {
     local parts = [];
 
-    if (n >= 86400) push(parts, str(n / 86400) + "d");
+    if (n >= 86400) {
+        push(parts, str(n / 86400) + "d");
+    }
 
-    if (n >= 3600) push(parts, str(n % 86400 / 3600) + "h");
+    if (n >= 3600) {
+        push(parts, str(n % 86400 / 3600) + "h");
+    }
 
-    if (n >= 60) push(parts, str(n % 3600 / 60) + "m");
+    if (n >= 60) {
+        push(parts, str(n % 3600 / 60) + "m");
+    }
     push(parts, str(n % 60) + "s");
     return join(parts, " ");
 }
 
 pad(s, n) {
-    while (len(s) < n) s += " ";
+    while (len(s) < n) {
+        s += " ";
+    }
     return s;
 }
 
 right(x, n) {
     local s = str(x);
 
-    while (len(s) < n) s = " " + s;
+    while (len(s) < n) {
+        s = " " + s;
+    }
     return s;
 }

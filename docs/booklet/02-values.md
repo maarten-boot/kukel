@@ -73,11 +73,7 @@ main() {
         'A',
     );
     println(9223372036854775807 + 1);
-    println(
-        1 / 0.0,
-        -1 / 0.0,
-        0 / 0.0,
-    );
+    println(1 / 0.0, -1 / 0.0, 0 / 0.0);
 }
 ```
 
@@ -144,24 +140,12 @@ main() {
 
     for (local x in [nil, false, 0, 0.0, "", [], {}, "no", 1]) {
         if (x) {
-            push(
-                verdicts,
-                "true",
-            );
-        }
-        else {
-            push(
-                verdicts,
-                "false",
-            );
+            push(verdicts, "true");
+        } else {
+            push(verdicts, "false");
         }
     }
-    println(
-        join(
-            verdicts,
-            " ",
-        ),
-    );
+    println(join(verdicts, " "));
 }
 ```
 
@@ -197,29 +181,12 @@ does not copy it: both see the same one.
 main() {
     local a = [1, 2];
     local b = a;               // the same vector
-    push(
-        b,
-        3,
-    );
-    println(
-        a,
-        b,
-        a == b,
-    );
+    push(b, 3);
+    println(a, b, a == b);
 
-    local c = slice(
-        a,
-        0,
-    );     // a copy
-    push(
-        c,
-        4,
-    );
-    println(
-        a,
-        c,
-        a == c,
-    );
+    local c = slice(a, 0);     // a copy
+    push(c, 4);
+    println(a, c, a == c);
 }
 ```
 

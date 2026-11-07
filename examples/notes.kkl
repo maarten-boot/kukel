@@ -43,7 +43,9 @@ main(args) {
     status->pack({"fill": "x"});
     window->onclose(asksave);   // false keeps the window open
 
-    if (len(args) > 0) load(args[0]);
+    if (len(args) > 0) {
+        load(args[0]);
+    }
     show();
     events::run();
 }
@@ -52,7 +54,9 @@ main(args) {
 show() {
     local s = text->text(), changed = s != saved;
     window->settitle((changed ? "*" : "") + (path == nil ? "(new)" : path) + " - notes");
-    status->settext(count(len(split(s, "\n")), "line") + ", " + count(len(s), "character") + (changed ? ", not saved" : ""));
+    status->settext(
+        count(len(split(s, "\n")), "line") + ", " + count(len(s), "character") + (changed ? ", not saved" : ""),
+    );
 }
 
 // count gives "1 line", "2 lines".
@@ -80,15 +84,24 @@ load(file) {
 // asksave asks what to do with changes: true to go on (saved, or not
 // wanted), false to stay.
 asksave() {
-    if (text->text() == saved) return true;
-    local answer = tk::messagebox("Save the changes?", {"title": "notes", "icon": "question", "buttons": "yesnocancel", "parent": window});
+    if (text->text() == saved) {
+        return true;
+    }
+    local answer = tk::messagebox(
+        "Save the changes?",
+        {"title": "notes", "icon": "question", "buttons": "yesnocancel", "parent": window},
+    );
 
-    if (answer == "yes") return savenote();
+    if (answer == "yes") {
+        return savenote();
+    }
     return answer == "no";
 }
 
 newnote() {
-    if (!asksave()) return;
+    if (!asksave()) {
+        return;
+    }
     text->settext("");
     saved = "";
     path = nil;
@@ -96,15 +109,21 @@ newnote() {
 }
 
 opennote() {
-    if (!asksave()) return;
+    if (!asksave()) {
+        return;
+    }
     local file = tk::openfile({"parent": window, "types": [["Text", ".txt", ".md", ".kkl"], ["All files", "*"]]});
 
-    if (file != nil) load(file);
+    if (file != nil) {
+        load(file);
+    }
 }
 
 // savenote and saveas give whether the text was saved.
 savenote() {
-    if (path == nil) return saveas();
+    if (path == nil) {
+        return saveas();
+    }
     return write(path);
 }
 
@@ -127,5 +146,7 @@ write(file) {
 }
 
 quit() {
-    if (asksave()) window->close();
+    if (asksave()) {
+        window->close();
+    }
 }

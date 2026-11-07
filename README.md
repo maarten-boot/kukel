@@ -9,22 +9,38 @@ machine written in Go.
 ```
 // shapes.kkl
 class Shape { name; Shape(name); area(); describe(); }
-Shape::Shape(name) { this->name = name; }
-Shape::describe() { return name + ": " + str(area()); }
+Shape::Shape(name) {
+    this->name = name;
+}
+Shape::describe() {
+    return name + ": " + str(area());
+}
 
 class Circle : Shape { r; Circle(r); area(); }
-Circle::Circle(r) { Shape::Shape("circle"); this->r = r; }
-Circle::area() { return 3.14159 * r * r; }
+Circle::Circle(r) {
+    Shape::Shape("circle");
+    this->r = r;
+}
+Circle::area() {
+    return 3.14159 * r * r;
+}
 
 class Square : Shape { side; Square(side); area(); }
-Square::Square(side) { Shape::Shape("square"); this->side = side; }
-Square::area() { return side * side; }
+Square::Square(side) {
+    Shape::Shape("square");
+    this->side = side;
+}
+Square::area() {
+    return side * side;
+}
 
 main(args) {
     local shapes = [new Circle(1), new Square(3), new Circle(2)];
     sort(shapes, fn(a, b) { return a->area() < b->area(); });
 
-    for (local s in shapes) println(s->describe());
+    for (local s in shapes) {
+        println(s->describe());
+    }
 
     try {
         println(shapes[5]);

@@ -15,7 +15,7 @@ func TestStrict(t *testing.T) {
 		// comments stay: after a statement, between a header and its
 		// statement (the "{" goes before them), before a statement
 		{"f(a) {\n    if (a) b(); // why\n    while (a) // loop\n        a--;\n    /* c */ if (a) /* x */ b(); /* y */ else if (a) c(); else d();\n}\n",
-			"f(a) {\n    if (a) {\n        b();\n    } // why\n\n    while (a) { // loop\n        a--;\n    }\n    /* c */ if (a) {\n        /* x */ b();\n    } /* y */ else if (a) {\n        c();\n    } else {\n        d();\n    }\n}\n"},
+			"f(a) {\n    if (a) {\n        b(); // why\n    }\n\n    while (a) { // loop\n        a--;\n    }\n    /* c */ if (a) {\n        /* x */ b(); /* y */\n    } else if (a) {\n        c();\n    } else {\n        d();\n    }\n}\n"},
 		// nested headers, a statement that starts with "(", do, with, a
 		// label, an empty statement
 		{"f(v) { for (local x in v) if (x) (x)->g(); do x++; while (x < 3); with (local z = nil) z; outer: for (;;) break outer; if (v) ; }\n",
@@ -35,6 +35,11 @@ func TestStrict(t *testing.T) {
 		// yield from a literal keeps its space (it is not an index or call)
 		{"h(from) { yield from [1,2]; yield from (from); yield from {1:2}; local a = from[0]; yield (from)(1); }\n",
 			"h(from) {\n    yield from [1, 2];\n    yield from (from);\n    yield from {1: 2};\n    local a = from[0];\n    yield (from)(1);\n}\n"},
+		// an else on the line after the "}" of its if goes up to it (not
+		// over a comment); the comment at the end of a block on one line
+		// goes to the line of its "{" (not when code follows it)
+		{"f(a) {\n    if (a) {\n        b();\n    }\n    else c();\n    if (a) { b(); }\n    // keep\n    else c();\n}\ng() { return 1; } // one\nh() { return 2; } /* two */ \n",
+			"f(a) {\n    if (a) {\n        b();\n    } else {\n        c();\n    }\n\n    if (a) {\n        b();\n    }\n    // keep\n    else {\n        c();\n    }\n}\ng() { // one\n    return 1;\n}\nh() { /* two */\n    return 2;\n}\n"},
 		// a statement of several lines, a function literal inside it
 		{"f(a) {\n    if (a) g(1,\n        fn() { return 2; });\n}\n",
 			"f(a) {\n    if (a) {\n        g(1,\n            fn() { return 2; });\n    }\n}\n"},

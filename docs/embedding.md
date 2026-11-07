@@ -159,7 +159,9 @@ prog, err := kukel.CompileFiles(files, kukel.CompileOptions{Modules: []*kukel.Mo
 ```
 // in Kukel
 use app;
-main() { app::notify("started " + app::version); }
+main() {
+    app::notify("started " + app::version);
+}
 ```
 
 - A function gets the calling interpreter and the arguments; it checks the
@@ -216,8 +218,12 @@ app := kukel.NewModule("app").Class(counterClass)
 use app;
 
 class Loud : app::Counter { Loud(); changed(n); }
-Loud::Loud() { app::Counter::Counter(); }        // sets up the Go state
-Loud::changed(n) { println("now", n); }
+Loud::Loud() { // sets up the Go state
+    app::Counter::Counter();
+}
+Loud::changed(n) {
+    println("now", n);
+}
 
 main() {
     local c = new app::Counter();

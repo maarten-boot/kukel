@@ -72,18 +72,18 @@ reads commands:
 
 ```
 $ kukel debug shop.kkl
-main at shop.kkl:12
-   12      local cart = new Cart();
+main at shop.kkl:21
+   21      local cart = new Cart();
 (kdb) b Cart::add
-breakpoint 1 at shop.kkl:6
+breakpoint 1 at shop.kkl:8
 (kdb) c
-breakpoint 1, Cart::add at shop.kkl:6
-    6      items[name] = price;
+breakpoint 1, Cart::add at shop.kkl:8
+    8      items[name] = price;
 (kdb) p name
 "pen"
 (kdb) bt
-*0 Cart::add (shop.kkl:6)
- 1 main (shop.kkl:13)
+*0 Cart::add (shop.kkl:8)
+ 1 main (shop.kkl:22)
 (kdb) c
 1.5
 the program ended (exit code 0)
@@ -116,16 +116,16 @@ function and by line:
 ```
 $ kukel profile primes.kkl
 17984 primes
-0.430 s in 313 samples, one every 1.38 ms on average (wall time, with waiting).
+0.343 s in 231 samples, one every 1.48 ms on average (wall time, with waiting).
 ...
 Functions, by their own time (total: with the functions they call):
         own      %      total      %       calls  function
-    0.313 s  72.7%    0.313 s  72.7%      200000  isPrime (primes.kkl:4)
-    0.118 s  27.3%    0.430 s 100.0%           1  main (primes.kkl:10)
+    0.228 s  66.6%    0.228 s  66.6%      200000  isPrime (primes.kkl:4)
+    0.115 s  33.4%    0.343 s 100.0%           1  main (primes.kkl:13)
 
 Lines, by their own time (the 4 slowest):
         own      %  line
-    0.313 s  72.7%  primes.kkl:5  for (local d = 2; d * d <= n; d++)
+    0.228 s  66.6%  primes.kkl:5  for (local d = 2; d * d <= n; d++) {
 ...
 ```
 

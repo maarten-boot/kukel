@@ -27,12 +27,14 @@ tree(stop, dir) {
     t->file("/hits", fn() { hits++; return str(hits) + "\n"; });
     t->file("/notes", fn() { return join(notes); }, fn(data) { push(notes, data + "\n"); });
     t->file("/ctl", "", fn(data) {
-        if (trim(data) != "stop") throw new Error("unknown command: " + data);
+        if (trim(data) != "stop") { throw new Error("unknown command: " + data); }
         stop();
     });
     t->dir("/empty");
 
-    if (dir != nil) t->mount("/files", p9::disk(dir));
+    if (dir != nil) {
+        t->mount("/files", p9::disk(dir));
+    }
     return t;
 }
 
@@ -45,8 +47,9 @@ serve(address, dir) {
 }
 
 ls(c, path) {
-    for (local e in c->readdir(path))
+    for (local e in c->readdir(path)) {
         println(e["mode"], e["size"], e["name"] + (e["dir"] ? "/" : ""));
+    }
 }
 
 demo(dir) {
@@ -94,18 +97,26 @@ demo(dir) {
 
 usage(why) {
     eprintln("ninep:", why);
-    eprintln("usage: ninep serve address [directory] | ls address [path] | cat address path | put address path text | demo [directory]");
+    eprintln(
+        "usage: ninep serve address [directory] | ls address [path] | cat address path | put address path text | demo [directory]",
+    );
     return 2;
 }
 
 main(args) {
-    if (len(args) == 0) return usage("no command");
+    if (len(args) == 0) {
+        return usage("no command");
+    }
     local cmd = args[0];
     local want = {"demo": [1, 2], "serve": [2, 3], "ls": [2, 3], "cat": [3, 3], "put": [4, 4]};
 
-    if (!haskey(want, cmd)) return usage("unknown command " + cmd);
+    if (!haskey(want, cmd)) {
+        return usage("unknown command " + cmd);
+    }
 
-    if (len(args) < want[cmd][0] || len(args) > want[cmd][1]) return usage("wrong number of arguments for " + cmd);
+    if (len(args) < want[cmd][0] || len(args) > want[cmd][1]) {
+        return usage("wrong number of arguments for " + cmd);
+    }
 
     if (cmd == "demo") {
         try {

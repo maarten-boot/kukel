@@ -44,9 +44,9 @@ parse(text) {
     return new Amount(round(f));
 }
 
-_two(n) {
+_two(n) { // private to the module
     return n < 10 ? "0" + str(n) : str(n);
-}   // private to the module
+}
 ```
 
 and a program next to it that uses it:
@@ -60,11 +60,7 @@ main() {
     for (local text in ["12.50", "0.99", "3.005"]) {
         total = total->add(money::parse(text));
     }
-    println(
-        total->show(),
-        money::CURRENCY,
-        money::rounding,
-    );
+    println(total->show(), money::CURRENCY, money::rounding);
     println(total);
 }
 ```
@@ -123,23 +119,10 @@ generator functions (`_range`, `_map`, ...) that do the work.
 use iter;
 
 main() {
-    for (local pair in iter::enumerate(
-        ["one", "two", "three"],
-        1,
-    )) {
-        println(
-            pair[0],
-            pair[1],
-        );
+    for (local pair in iter::enumerate(["one", "two", "three"], 1)) {
+        println(pair[0], pair[1]);
     }
-    println(
-        iter::first(
-            iter::filter(
-                fn(n) { return n * n > 50; },
-                iter::count(),
-            ),
-        ),
-    );
+    println(iter::first(iter::filter(fn(n) { return n * n > 50; }, iter::count())));
 }
 ```
 

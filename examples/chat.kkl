@@ -25,7 +25,9 @@ use zmq;
 
 usage(why) {
     eprintln("chat:", why);
-    eprintln("usage: chat server [-beat S] endpoint pub-endpoint | client endpoint name [message ...] | status endpoint | stop endpoint | demo");
+    eprintln(
+        "usage: chat server [-beat S] endpoint pub-endpoint | client endpoint name [message ...] | status endpoint | stop endpoint | demo",
+    );
     return 2;
 }
 
@@ -43,15 +45,30 @@ main(args) {
                     beat = nil;
                 }
 
-                if (beat == nil || !(beat >= 0.01 && beat <= 3600)) return usage("-beat takes 0.01 to 3600 seconds");
+                if (beat == nil || !(beat >= 0.01 && beat <= 3600)) {
+                    return usage("-beat takes 0.01 to 3600 seconds");
+                }
                 args = slice(args, 2);
                 n -= 2;
             }
 
-            if (n != 3) return usage("server needs an endpoint and a pub-endpoint");
-            println("stopped after", serve(args[1], args[2], beat, println), "broadcasts");
+            if (n != 3) {
+                return usage("server needs an endpoint and a pub-endpoint");
+            }
+            println(
+                "stopped after",
+                serve(
+                    args[1],
+                    args[2],
+                    beat,
+                    println,
+                ),
+                "broadcasts",
+            );
         } else if (cmd == "client") {
-            if (n < 3) return usage("client needs an endpoint and a name");
+            if (n < 3) {
+                return usage("client needs an endpoint and a name");
+            }
             return client(args[1], args[2], slice(args, 3));
         } else if ((cmd == "status" || cmd == "stop") && n == 2) {
             local r = request(args[1], {"op": cmd});
@@ -91,22 +108,22 @@ serve(endpoint, pubEndpoint, beat, log) {
     local answer = fn(r) {
         local op = r["op"], name = r["name"];
 
-        if (op == "hello") return {"pub": pub->endpoint(), "beat": beat};
+        if (op == "hello") { return {"pub": pub->endpoint(), "beat": beat}; }
 
-        if (op == "status") return {"users": users, "said": said};
+        if (op == "status") { return {"users": users, "said": said}; }
 
         if (op == "stop") {
             stopping = true;
             return {};
         }
 
-        if (typeof(name) != "string" || name == "") throw new Error(op + " needs a name");
+        if (typeof(name) != "string" || name == "") { throw new Error(op + " needs a name"); }
         local i = 0;
 
-        while (i < len(users) && users[i] != name) i++;
+        while (i < len(users) && users[i] != name) { i++; }
 
         if (op == "join") {
-            if (i < len(users)) throw new Error(name + " is already here");
+            if (i < len(users)) { throw new Error(name + " is already here"); }
             push(users, name);
         } else if (i == len(users)) {
             throw new Error(name + " has not joined");
@@ -143,7 +160,9 @@ serve(endpoint, pubEndpoint, beat, log) {
 
 // line is a broadcast as a client shows it.
 line(m) {
-    if (m["type"] == "say") return m["name"] + ": " + m["text"];
+    if (m["type"] == "say") {
+        return m["name"] + ": " + m["text"];
+    }
     return "* " + m["name"] + (m["type"] == "join" ? " joined" : " left");
 }
 
@@ -184,12 +203,13 @@ Client::Client(endpoint, name, onevent) {
     sub->subscribe("");
     watch = events::after(gone, fn() { silent(); });
     sub->onmessage(fn(text) {
-        if (sub->closed()) return;             // it came before close()
+        if (sub->closed()) { return;             // it came before close()
+        }
         local m = json::decode(text);
         watch->cancel();
         watch = events::after(gone, fn() { silent(); });
 
-        if (m["type"] == "beat") beats++;
+        if (m["type"] == "beat") { beats++; }
         onevent(this, m);
     });
 }
@@ -204,9 +224,13 @@ Client::ask(r) {
     req->send(json::encode(r));
     local text = req->receive(2), reply = text == nil ? nil : json::decode(text);
 
-    if (reply == nil) throw new Error("no answer from the server in 2 seconds", "NetError");
+    if (reply == nil) {
+        throw new Error("no answer from the server in 2 seconds", "NetError");
+    }
 
-    if (haskey(reply, "error")) throw new Error(reply["error"]);
+    if (haskey(reply, "error")) {
+        throw new Error(reply["error"]);
+    }
     return reply;
 }
 
@@ -222,16 +246,22 @@ Client::close() {
 reach(pub, via) {
     local p = hostport(pub), v = hostport(via);
 
-    if (p == nil || v == nil || p[0] != "*" && p[0] != "[::]" && p[0] != "0.0.0.0") return pub;
+    if (p == nil || v == nil || p[0] != "*" && p[0] != "[::]" && p[0] != "0.0.0.0") {
+        return pub;
+    }
     return "tcp://" + v[0] + ":" + p[1];
 }
 
 // hostport gives [host, port] of a tcp:// endpoint, or nil.
 hostport(endpoint) {
-    if (find(endpoint, "tcp://") != 0) return nil;
+    if (find(endpoint, "tcp://") != 0) {
+        return nil;
+    }
     local i = len(endpoint) - 1;
 
-    while (i > 6 && endpoint[i] != ':') i--;
+    while (i > 6 && endpoint[i] != ':') {
+        i--;
+    }
     return [slice(endpoint, 6, i), slice(endpoint, i + 1)];
 }
 
@@ -245,7 +275,9 @@ client(endpoint, name, messages) {
     });
     c->ask({"op": "join", "name": name});
 
-    for (local text in messages) c->ask({"op": "say", "name": name, "text": text});
+    for (local text in messages) {
+        c->ask({"op": "say", "name": name, "text": text});
+    }
     events::run();                             // until the server is gone
     return 0;
 }
@@ -253,7 +285,12 @@ client(endpoint, name, messages) {
 // demoServer runs in the demo's worker: the server, whose log goes to the
 // parent.
 demoServer() {
-    return serve("inproc://chat", "inproc://chat-pub", 0.1, worker::send);
+    return serve(
+        "inproc://chat",
+        "inproc://chat-pub",
+        0.1,
+        worker::send,
+    );
 }
 
 // demo runs a server and clients ann and bob, step by step: each step
@@ -262,7 +299,9 @@ demoServer() {
 demo() {
     local w = worker::start(demoServer), log = [w->receive(5)];
 
-    if (log[0] == nil) throw new Error("the server did not start");
+    if (log[0] == nil) {
+        throw new Error("the server did not start");
+    }
     local here = [], heard = {}, steps, k = 0, await = nil, next;
     local guard = events::after(10, fn() {
         eprintln("chat: the demo is stuck");
@@ -277,7 +316,7 @@ demo() {
         }
     };
     next = fn() {
-        if (k == len(steps)) return guard->cancel();
+        if (k == len(steps)) { return guard->cancel(); }
         await = steps[k++]();
 
         if (await == nil) {
@@ -301,7 +340,7 @@ demo() {
             local names = [];
 
             for (local c in here) {
-                if (len(heard[c->name]) < seq) return false;
+                if (len(heard[c->name]) < seq) { return false; }
                 push(names, c->name);
             }
             println("[" + join(names, ", ") + "]", line(heard[names[0]][seq - 1]));
@@ -323,7 +362,7 @@ demo() {
         }
         // A subscription takes a moment: the heartbeat says it is there.
         return fn() {
-            for (local c in here) if (c->beats == 0) return false;
+            for (local c in here) { if (c->beats == 0) { return false; } }
             println("ann and bob hear the heartbeat");
             return true;
         };
@@ -346,13 +385,37 @@ demo() {
         println("stop: the server stops");
         return fn() { return len(here) == 0; };    // ann hears no heartbeat
     };
-    steps = [connect, asks(0, {"op": "join", "name": "ann"}, 1), asks(1, {"op": "join", "name": "bob"}, 2), asks(0, {"op": "say", "name": "ann", "text": "hi bob"}, 3), asks(1, {"op": "say", "name": "bob", "text": "hi ann, the disk is full again"}, 4), mistakes, asks(1, {"op": "leave", "name": "bob"}, 5), stop];
+    steps = [connect, asks(
+        0,
+        {"op": "join", "name": "ann"},
+        1,
+    ), asks(
+        1,
+        {"op": "join", "name": "bob"},
+        2,
+    ), asks(
+        0,
+        {"op": "say", "name": "ann", "text": "hi bob"},
+        3,
+    ), asks(
+        1,
+        {"op": "say", "name": "bob", "text": "hi ann, the disk is full again"},
+        4,
+    ), mistakes, asks(
+        1,
+        {"op": "leave", "name": "bob"},
+        5,
+    ), stop];
     events::post(next);
     events::run();
     println("the server's log, until it stopped after", w->wait(), "broadcasts:");
 
-    for (local m = w->receive(); m != nil; m = w->receive()) push(log, m);
+    for (local m = w->receive(); m != nil; m = w->receive()) {
+        push(log, m);
+    }
 
-    for (local m in log) println("  " + m);
+    for (local m in log) {
+        println("  " + m);
+    }
     return 0;
 }

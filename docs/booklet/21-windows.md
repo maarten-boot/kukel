@@ -20,15 +20,8 @@ use events;
 
 main() {
     local w = new tk::Window("Counter"), n = 0;
-    local label = new tk::Label(
-        w,
-        "clicked 0 times",
-        {"width": 20},
-    );
-    local button = new tk::Button(
-        w,
-        "Click me",
-    );
+    local label = new tk::Label(w, "clicked 0 times", {"width": 20});
+    local button = new tk::Button(w, "Click me");
     button->onclick(fn() {
         n++;
         label->settext("clicked " + str(n) + " times");
@@ -60,53 +53,25 @@ use events;
 
 main() {
     local w = new tk::Window("Sign up");
-    local f = new tk::Frame(
-        w,
-        {"padding": 10},
-    );
+    local f = new tk::Frame(w, {"padding": 10});
     f->pack({"fill": "both", "expand": true});
-    new tk::Label(
-        f,
-        "Name:",
-    )->grid({"row": 0, "column": 0, "sticky": "w"});
-    local name = new tk::Entry(
-        f,
-        {"width": 24},
-    );
+    new tk::Label(f, "Name:")->grid({"row": 0, "column": 0, "sticky": "w"});
+    local name = new tk::Entry(f, {"width": 24});
     name->grid({"row": 0, "column": 1, "sticky": "ew"});
-    new tk::Label(
-        f,
-        "E-mail:",
-    )->grid({"row": 1, "column": 0, "sticky": "w"});
+    new tk::Label(f, "E-mail:")->grid({"row": 1, "column": 0, "sticky": "w"});
     local mail = new tk::Entry(f);
     mail->grid({"row": 1, "column": 1, "sticky": "ew"});
-    local news = new tk::Checkbutton(
-        f,
-        "Send me news",
-    );
+    local news = new tk::Checkbutton(f, "Send me news");
     news->grid({"row": 2, "column": 1, "sticky": "w"});
-    f->columnconfigure(
-        1,
-        {"weight": 1},
-    );        // column 1 grows with the window
-    local ok = new tk::Button(
-        f,
-        "Sign up",
-    );
+    f->columnconfigure(1, {"weight": 1});        // column 1 grows with the window
+    local ok = new tk::Button(f, "Sign up");
     ok->grid({"row": 3, "column": 1, "sticky": "e", "pady": 5});
     ok->onclick(fn() {
         if (trim(name->text()) == "") {
-            tk::messagebox(
-                "Please fill in your name.",
-                {"icon": "warning", "parent": w},
-            );
+            tk::messagebox("Please fill in your name.", {"icon": "warning", "parent": w});
             return;
         }
-        println(
-            name->text(),
-            mail->text(),
-            news->checked(),
-        );
+        println(name->text(), mail->text(), news->checked());
         w->close();
     });
     name->focus();
@@ -128,33 +93,17 @@ use events;
 
 main() {
     local w = new tk::Window("Notes");
-    local text = new tk::Text(
-        w,
-        {"width": 60, "height": 20, "scroll": "y"},
-    );
+    local text = new tk::Text(w, {"width": 60, "height": 20, "scroll": "y"});
     text->pack({"fill": "both", "expand": true});
     local file = new tk::Menu(w)->submenu("File");
-    file->item(
-        "Save as...",
-        fn() {
-            local path = tk::savefile({"ext": ".txt", "parent": w});
+    file->item("Save as...", fn() {
+        local path = tk::savefile({"ext": ".txt", "parent": w});
 
-            if (path != nil) { writefile(
-                path,
-                text->text(),
-            ); }
-        },
-        {"accelerator": "Ctrl+S"},
-    );
+        if (path != nil) { writefile(path, text->text()); }
+    }, {"accelerator": "Ctrl+S"});
     file->separator();
-    file->item(
-        "Quit",
-        fn() { w->close(); },
-    );
-    w->bind(
-        "<Control-Key-s>",
-        fn(e) { file->invoke("Save as..."); },
-    );
+    file->item("Quit", fn() { w->close(); });
+    w->bind("<Control-Key-s>", fn(e) { file->invoke("Save as..."); });
     events::run();
 }
 ```
@@ -180,10 +129,7 @@ use events;
 
 main() {
     local w = new tk::Window("Drag the ball");
-    local c = new tk::Canvas(
-        w,
-        {"width": 300, "height": 200, "background": "white"},
-    );
+    local c = new tk::Canvas(w, {"width": 300, "height": 200, "background": "white"});
     c->pack();
     c->text(
         150,
@@ -199,23 +145,11 @@ main() {
         {"fill": "#1a5fb4", "outline": "black"},
     );
     local last = nil;
-    c->binditem(
-        ball,
-        "<Button-1>",
-        fn(e) { last = [e["x"], e["y"]]; },
-    );
-    c->binditem(
-        ball,
-        "<B1-Motion>",
-        fn(e) {
-            c->move(
-                ball,
-                e["x"] - last[0],
-                e["y"] - last[1],
-            );
-            last = [e["x"], e["y"]];
-        },
-    );
+    c->binditem(ball, "<Button-1>", fn(e) { last = [e["x"], e["y"]]; });
+    c->binditem(ball, "<B1-Motion>", fn(e) {
+        c->move(ball, e["x"] - last[0], e["y"] - last[1]);
+        last = [e["x"], e["y"]];
+    });
     events::run();
 }
 ```

@@ -25,10 +25,7 @@ main() {
         (2 + 3) * 4,
     );
     println(
-        pow(
-            2,
-            10,
-        ),
+        pow(2, 10),
         sqrt(16),
         abs(-3),
         round(2.5),
@@ -70,11 +67,7 @@ main() {
         "apple" < "banana",
         "Z" < "a",
     );
-    println(
-        nil == false,
-        [1] == [1],
-        "1" == 1,
-    );
+    println(nil == false, [1] == [1], "1" == 1);
 }
 ```
 
@@ -96,16 +89,9 @@ main() {
     local v = [3, 0];
 
     for (local i = 0; i < 3; i++) {
-        println(
-            i,
-            i < len(v) && v[i] > 0,
-            !(i < len(v)),
-        );
+        println(i, i < len(v) && v[i] > 0, !(i < len(v)));
     }
-    println(
-        nil || "default",
-        0 || 1,
-    );
+    println(nil || "default", 0 || 1);
 }
 ```
 
@@ -129,10 +115,7 @@ computed:
 ```
 main() {
     for (local n in [1, 2, 3]) {
-        println(
-            n,
-            n % 2 == 0 ? "even" : "odd",
-        );
+        println(n, n % 2 == 0 ? "even" : "odd");
     }
 }
 ```
@@ -164,10 +147,7 @@ main() {
         x,
     );
     local a = y = 4;
-    println(
-        a,
-        y,
-    );
+    println(a, y);
 
     local m = {"n": 1};
     m["n"] += 10;

@@ -17,10 +17,7 @@ class Item {
     label();
 }
 
-Item::Item(
-    name,
-    price,
-) {
+Item::Item(name, price) {
     this->name = name;
     this->price = price;
 }
@@ -33,20 +30,10 @@ Item::label() {
 }
 
 main() {
-    local pen = new Item(
-        "pen",
-        1.5,
-    );
-    println(
-        pen->label(),
-        pen->total(4),
-    );
+    local pen = new Item("pen", 1.5);
+    println(pen->label(), pen->total(4));
     pen->price = 2;
-    println(
-        pen->name,
-        pen->price,
-        pen,
-    );
+    println(pen->name, pen->price, pen);
 }
 ```
 
@@ -86,10 +73,7 @@ class Item {
     label();
 }
 
-Item::Item(
-    name,
-    price,
-) {
+Item::Item(name, price) {
     this->name = name;
     this->price = price;
 }
@@ -108,15 +92,8 @@ class Sale : Item {
     label();
 }
 
-Sale::Sale(
-    name,
-    price,
-    percent,
-) {
-    Item::Item(
-        name,
-        price,
-    );          // the base class's constructor
+Sale::Sale(name, price, percent) {
+    Item::Item(name, price);          // the base class's constructor
     this->percent = percent;
 }
 
@@ -128,30 +105,12 @@ Sale::label() {
 }
 
 main() {
-    local cart = [new Item(
-        "pen",
-        2,
-    ), new Sale(
-        "ink",
-        10,
-        25,
-    )];
+    local cart = [new Item("pen", 2), new Sale("ink", 10, 25)];
 
     for (local item in cart) {
-        println(
-            item->label(),
-            "x3:",
-            item->total(3),
-        );
+        println(item->label(), "x3:", item->total(3));
     }
-    println(
-        instanceof(
-            cart[1],
-            Item,
-        ),
-        classof(cart[1]) == Sale,
-        classof(cart[0]),
-    );
+    println(instanceof(cart[1], Item), classof(cart[1]) == Sale, classof(cart[0]));
 }
 ```
 

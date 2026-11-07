@@ -16,14 +16,11 @@ chains several choices:
 grade(score) {
     if (score >= 90) {
         return "A";
-    }
-    else if (score >= 75) {
+    } else if (score >= 75) {
         return "B";
-    }
-    else if (score >= 50) {
+    } else if (score >= 50) {
         return "C";
-    }
-    else {
+    } else {
         return "F";
     }
 }
@@ -74,10 +71,7 @@ main() {
     println(n);
 
     for (local i = 0, j = 10; i < j; i += 3, j -= 3) {
-        println(
-            i,
-            j,
-        );
+        println(i, j);
     }
 
     for (;;) {                      // no test: until break
@@ -120,27 +114,18 @@ main() {
     }
 
     for (local i, c in colours) {
-        println(
-            i,
-            c,
-        );
+        println(i, c);
     }
 
     for (local item, n in stock) {
         if (n == 0) {
             continue;
         }
-        println(
-            item,
-            n,
-        );
+        println(item, n);
     }
 
     for (local b in "hi") {
-        println(
-            b,
-            char(b),
-        );
+        println(b, char(b));
     }
 }
 ```
@@ -188,11 +173,7 @@ describe(c) {
 
 main() {
     for (local c in ["e", "k", " ", "q"]) {
-        println(
-            c,
-            "is",
-            describe(c),
-        );
+        println(c, "is", describe(c));
     }
 }
 ```
@@ -224,11 +205,7 @@ main() {
     search: for (local r = 0; r < len(grid); r++) {
         for (local c = 0; c < len(grid[r]); c++) {
             if (grid[r][c] < 0) {
-                println(
-                    "negative at",
-                    r,
-                    c,
-                );
+                println("negative at", r, c);
                 break search;
             }
         }
@@ -258,23 +235,14 @@ class Resource {
 
 Resource::Resource(name) {
     this->name = name;
-    println(
-        "open",
-        name,
-    );
+    println("open", name);
 }
 
 Resource::work() {
-    println(
-        "work with",
-        name,
-    );
+    println("work with", name);
 }
 Resource::close() {
-    println(
-        "close",
-        name,
-    );
+    println("close", name);
 }
 
 main() {

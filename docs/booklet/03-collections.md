@@ -20,46 +20,17 @@ main() {
         len(s),
         s[0],
         char(s[0]),
-        slice(
-            s,
-            7,
-        ),
-        slice(
-            s,
-            0,
-            5,
-        ),
+        slice(s, 7),
+        slice(s, 0, 5),
     );
     println(
         upper(s),
         lower(s),
-        find(
-            s,
-            "World",
-        ),
-        find(
-            s,
-            "x",
-        ),
+        find(s, "World"),
+        find(s, "x"),
     );
-    println(
-        split(
-            "a,b,,c",
-            ",",
-        ),
-        join(
-            ["x", "y", "z"],
-            "-",
-        ),
-    );
-    println(
-        replace(
-            s,
-            "World",
-            "Kukel",
-        ),
-        "[" + trim("  padded \n") + "]",
-    );
+    println(split("a,b,,c", ","), join(["x", "y", "z"], "-"));
+    println(replace(s, "World", "Kukel"), "[" + trim("  padded \n") + "]");
     println("tab\tthen a quote: \" and a backslash: \\");
 }
 ```
@@ -97,54 +68,24 @@ shrinks:
 ```
 main() {
     local v = [3, 1, 2];
-    push(
-        v,
-        10,
-        20,
-    );            // at the end
+    push(v, 10, 20);            // at the end
     println(
         v,
         len(v),
         v[0],
         v[len(v) - 1],
     );
-    println(
-        pop(v),
-        v,
-    );         // from the end
-    insert(
-        v,
-        0,
-        99,
-    );           // at index 0
+    println(pop(v), v);         // from the end
+    insert(v, 0, 99);           // at index 0
     println(v);
-    println(
-        remove(
-            v,
-            1,
-        ),
-        v,
-    );   // the element at index 1
+    println(remove(v, 1), v);   // the element at index 1
     v[0] = "first";
-    println(
-        v,
-        slice(
-            v,
-            1,
-            3,
-        ),
-    );
-    sort(
-        v,
-        fn(a, b) { return str(a) < str(b); },
-    );
+    println(v, slice(v, 1, 3));
+    sort(v, fn(a, b) { return str(a) < str(b); });
     println(v);
 
     local grid = [[1, 2], [3, 4]];
-    println(
-        grid[1][0],
-        len(grid),
-    );
+    println(grid[1][0], len(grid));
 }
 ```
 
@@ -186,28 +127,12 @@ main() {
         ages["Bo"],
         ages["nobody"],
     );
-    println(
-        haskey(
-            ages,
-            "Cy",
-        ),
-        delete(
-            ages,
-            "Bo",
-        ),
-        ages,
-    );
-    println(
-        keys(ages),
-        values(ages),
-    );
+    println(haskey(ages, "Cy"), delete(ages, "Bo"), ages);
+    println(keys(ages), values(ages));
 
     local point = {"x": 1, "y": 2};
     local x = "y";
-    println(
-        {x: 5},
-        point[x],
-    );
+    println({x: 5}, point[x]);
 }
 ```
 
@@ -235,45 +160,27 @@ index (or, for a map, the key and the value):
 
 ```
 main() {
-    local words = split(
-        "the cat saw the dog",
-        " ",
-    );
+    local words = split("the cat saw the dog", " ");
     local counts = {};
 
     for (local w in words) {
-        if (haskey(
-            counts,
-            w,
-        )) {
+        if (haskey(counts, w)) {
             counts[w]++;
-        }
-        else {
+        } else {
             counts[w] = 1;
         }
     }
 
     for (local word, n in counts) {
-        println(
-            word,
-            n,
-        );
+        println(word, n);
     }
 
     local numbered = [];
 
     for (local i, w in words) {
-        push(
-            numbered,
-            str(i) + ":" + w,
-        );
+        push(numbered, str(i) + ":" + w);
     }
-    println(
-        join(
-            numbered,
-            " ",
-        ),
-    );
+    println(join(numbered, " "));
 }
 ```
 
@@ -298,13 +205,7 @@ in a call it passes them as separate arguments.
 main() {
     local a = [1, 2], b = [3];
     println([0, a.., b.., 4]);
-    println(
-        max(
-            a..,
-            b..,
-        ),
-        min([5, 3, 9]..),
-    );
+    println(max(a.., b..), min([5, 3, 9]..));
 }
 ```
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/maarten-boot/kukel/internal/ast"
 	"github.com/maarten-boot/kukel/internal/parser"
@@ -67,6 +68,13 @@ func SourceWith(file string, src []byte, opt Options) ([]byte, error) {
 		in = insertBraces(bare, toks, src)
 		braced, err := parser.ParseFile(file, in)
 		if err != nil {
+			return nil, changed
+		}
+		if toks, err = tokens(file, in); err != nil {
+			return nil, changed
+		}
+		in = tidy(braced, toks, in)
+		if braced, err = parser.ParseFile(file, in); err != nil {
 			return nil, changed
 		}
 		if toks, err = tokens(file, in); err != nil {
@@ -152,7 +160,8 @@ func unbraced(tree *ast.File) []*ast.Stmt {
 
 // insertBraces gives src with " {" right after the header of each of the
 // statements (its ")", else or do; before comments between the header and
-// the statement: while (a) { // why) and " }" after the statement.
+// the statement: while (a) { // why) and " }" after the statement and the
+// comments at the end of its line (a line comment: "}" on the next line).
 func insertBraces(bare []*ast.Stmt, toks []token.Token, src []byte) []byte {
 	type insert struct {
 		at   int
@@ -164,8 +173,20 @@ func insertBraces(bare []*ast.Stmt, toks []token.Token, src []byte) []byte {
 		for start > 0 && toks[start-1].Kind == token.COMMENT {
 			start--
 		}
-		header, end := toks[start-1], toks[stmtEnd(toks, *p)] // (a statement of a header has its header before it)
-		ins = append(ins, insert{header.Pos.Offset + len(header.Text), " {"}, insert{end.Pos.Offset + len(end.Text), " }"})
+		e := stmtEnd(toks, *p)
+		header, end := toks[start-1], toks[e] // (a statement of a header has its header before it)
+		// The "}" goes after the comments at the end of the statement's last
+		// line, so that they stay with it: on a line of its own after a
+		// line comment.
+		closer := " }"
+		for e+1 < len(toks) && toks[e+1].Kind == token.COMMENT && toks[e+1].Pos.Line == endLine(toks[e]) {
+			e++
+			if end = toks[e]; strings.HasPrefix(end.Text, "//") || strings.HasPrefix(end.Text, "#") {
+				closer = "\n}"
+				break
+			}
+		}
+		ins = append(ins, insert{header.Pos.Offset + len(header.Text), " {"}, insert{end.Pos.Offset + len(end.Text), closer})
 	}
 	sort.SliceStable(ins, func(i, j int) bool { return ins[i].at < ins[j].at })
 	var b bytes.Buffer
@@ -174,6 +195,67 @@ func insertBraces(bare []*ast.Stmt, toks []token.Token, src []byte) []byte {
 		b.Write(src[last:in.at])
 		b.WriteString(in.text)
 		last = in.at
+	}
+	b.Write(src[last:])
+	return b.Bytes()
+}
+
+// tidy prepares src (with its braces) for expand: an else on the line
+// after the "}" of its if's block, with nothing between, goes up to it
+// ("} else"); and a block on one line whose "}" ends with a comment ends
+// the line, in a function definition (the blocks expand puts on several
+// lines), gives the comment to the line of its "{" ("f() { return 1; }
+// // why" becomes "f() { // why" and the block): it stays with the line it
+// was written on, not with the "}" alone. Comments are not in the tree,
+// so the program does not change.
+func tidy(tree *ast.File, toks []token.Token, src []byte) []byte {
+	type edit struct {
+		from, to int // the bytes src[from:to] are replaced
+		text     string
+	}
+	var edits []edit
+	for _, d := range tree.Decls {
+		fd, ok := d.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.FuncLit:
+				return false
+			case *ast.IfStmt:
+				if b, ok := n.Then.(*ast.Block); ok && n.Else != nil {
+					rb := tokenAt(toks, b.Rbrace)
+					if e := rb + 1; e < len(toks) && toks[e].Kind == token.ELSE && toks[e].Pos.Line > endLine(toks[rb]) {
+						edits = append(edits, edit{toks[rb].Pos.Offset + 1, toks[e].Pos.Offset, " "})
+					}
+				}
+			case *ast.Block:
+				lb, rb := tokenAt(toks, n.Lbrace), tokenAt(toks, n.Rbrace)
+				c := rb + 1
+				if len(n.Stmts) == 0 || toks[lb].Pos.Line != toks[rb].Pos.Line || c >= len(toks) ||
+					toks[c].Kind != token.COMMENT || toks[c].Pos.Line != toks[rb].Pos.Line ||
+					c+1 < len(toks) && toks[c+1].Pos.Line == endLine(toks[c]) {
+					return true
+				}
+				comment := strings.TrimRight(toks[c].Text, " \t\r")
+				edits = append(edits,
+					edit{toks[lb].Pos.Offset + 1, toks[lb].Pos.Offset + 1, " " + comment + "\n"},
+					edit{toks[rb].Pos.Offset + 1, toks[c].Pos.Offset + len(toks[c].Text), ""})
+			}
+			return true
+		})
+	}
+	sort.SliceStable(edits, func(i, j int) bool { return edits[i].from < edits[j].from })
+	var b bytes.Buffer
+	last := 0
+	for _, e := range edits {
+		if e.from < last {
+			continue // (two edits of one place: not expected)
+		}
+		b.Write(src[last:e.from])
+		b.WriteString(e.text)
+		last = e.to
 	}
 	b.Write(src[last:])
 	return b.Bytes()

@@ -33,10 +33,7 @@ server() {
 
         with (local conn = listener->accept()) {
             for (local line in conn) {
-                conn->println(
-                    len(line),
-                    line,
-                );
+                conn->println(len(line), line);
             }
         }
     }
@@ -45,10 +42,7 @@ server() {
 main() {
     local w = worker::start(server);
 
-    with (local c = net::connect(
-        w->receive(),
-        5,
-    )) {
+    with (local c = net::connect(w->receive(), 5)) {
         c->timeout(5);
 
         for (local word in ["hello", "networked", "world"]) {
@@ -108,11 +102,7 @@ main() {
     a->closewrite();                         // "I am done sending"
     b->closewrite();
     events::run();                           // until the server is closed
-    println(
-        a->readall(),
-        "/",
-        b->readall(),
-    );
+    println(a->readall(), "/", b->readall());
 }
 ```
 
@@ -133,23 +123,11 @@ use net;
 
 main() {
     with (local server = net::udp("udp://127.0.0.1:0"), client = net::udp("udp://127.0.0.1:0")) {
-        client->sendto(
-            "what time is it?",
-            server->endpoint(),
-        );
+        client->sendto("what time is it?", server->endpoint());
         local p = server->receive(5);         // [data, from], or nil after 5 seconds
-        println(
-            "server got:",
-            p[0],
-        );
-        server->sendto(
-            "tea time",
-            p[1],
-        );     // answer where it came from
-        println(
-            "client got:",
-            client->receive(5)[0],
-        );
+        println("server got:", p[0]);
+        server->sendto("tea time", p[1]);     // answer where it came from
+        println("client got:", client->receive(5)[0]);
     }
 }
 ```
@@ -179,10 +157,7 @@ calculator() {
         worker::send(rep->endpoint());
 
         for (local q = rep->receive(); q != "stop"; q = rep->receive()) {
-            local parts = split(
-                q,
-                " ",
-            );
+            local parts = split(q, " ");
             rep->send(str(int(parts[0]) + int(parts[1])));
         }
         rep->send("stopped");
@@ -197,11 +172,7 @@ main() {
 
         for (local q in ["1 2", "40 2", "stop"]) {
             req->send(q);
-            println(
-                q,
-                "->",
-                req->receive(5),
-            );
+            println(q, "->", req->receive(5));
         }
     }
     w->wait();
@@ -233,46 +204,21 @@ use p9;
 
 main() {
     local t = new p9::Tree(), reads = 0, notes = [];
-    t->file(
-        "/motd",
-        "hello\n",
-    );
-    t->file(
-        "/stats/reads",
-        fn() {
-            reads++;
-            return str(reads);
-        },
-    );
-    t->file(
-        "/notes",
-        "",
-        fn(data) { push(
-            notes,
-            data,
-        ); },
-    );
-    local s = p9::serve(
-        t,
-        "tcp://127.0.0.1:0",
-    );
+    t->file("/motd", "hello\n");
+    t->file("/stats/reads", fn() {
+        reads++;
+        return str(reads);
+    });
+    t->file("/notes", "", fn(data) { push(notes, data); });
+    local s = p9::serve(t, "tcp://127.0.0.1:0");
 
     with (local c = p9::dial(s->endpoint())) {   // could be another program, or Linux itself
         print(c->read("/motd"));
-        println(
-            c->read("/stats/reads"),
-            c->read("/stats/reads"),
-        );
-        c->write(
-            "/notes",
-            "remember the milk",
-        );
+        println(c->read("/stats/reads"), c->read("/stats/reads"));
+        c->write("/notes", "remember the milk");
 
         for (local e in c->readdir("/")) {
-            println(
-                e["name"],
-                e["dir"] ? "(directory)" : e["size"],
-            );
+            println(e["name"], e["dir"] ? "(directory)" : e["size"]);
         }
     }
     println(notes);
@@ -303,15 +249,9 @@ use net;
 
 main() {
     try {
-        net::connect(
-            "tcp://127.0.0.1:1",
-            2,
-        );
+        net::connect("tcp://127.0.0.1:1", 2);
     } catch (e) {
-        println(
-            e->kind,
-            e->message,
-        );
+        println(e->kind, e->message);
     }
 }
 ```

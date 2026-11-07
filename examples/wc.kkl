@@ -36,7 +36,9 @@ main(args) {
         if (args[i] == "-json") {
             asJSON = true;
         } else if (args[i] == "-j") {
-            if (++i == len(args)) return usage("-j needs a number");
+            if (++i == len(args)) {
+                return usage("-j needs a number");
+            }
 
             try {
                 workers = int(args[i]);
@@ -44,16 +46,22 @@ main(args) {
                 return usage("-j needs a number, not " + args[i]);
             }
 
-            if (workers < 1) return usage("-j needs at least 1 worker");
+            if (workers < 1) {
+                return usage("-j needs at least 1 worker");
+            }
         } else {
             return usage("unknown option " + args[i]);
         }
     }
 
-    if (i == len(args)) return usage("no files");
+    if (i == len(args)) {
+        return usage("no files");
+    }
     local files = below(slice(args, i)), counts = [];
 
-    for (local f in files) push(counts, nil);
+    for (local f in files) {
+        push(counts, nil);
+    }
     // Each worker gets a file; with its counts back, the next, until none
     // is left: then stop(), and the worker's count() returns.
     local next = 0;
@@ -91,11 +99,15 @@ count() {
             local text = readfile(m[1]), lines = 0, words = 0, inword = false;
 
             for (local c in text) {
-                if (c == '\n') lines++;
+                if (c == '\n') {
+                    lines++;
+                }
                 // white space as for the system's wc: also \v and \f
                 local space = c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\x0B' || c == '\x0C';
 
-                if (!space && !inword) words++;
+                if (!space && !inword) {
+                    words++;
+                }
                 inword = !space;
             }
             worker::send([m[0], lines, words, len(text)]);
@@ -118,16 +130,32 @@ report(files, counts, asJSON) {
             continue;
         }
 
-        for (local k = 0; k < 3; k++) total[k] += c[1 + k];
+        for (local k = 0; k < 3; k++) {
+            total[k] += c[1 + k];
+        }
         push(out, {"path": files[n], "lines": c[1], "words": c[2], "bytes": c[3]});
     }
 
     if (asJSON) {
         println(json::encode({"files": out, "total": {"lines": total[0], "words": total[1], "bytes": total[2]}}, "  "));
     } else {
-        for (local f in out) println(column(f["lines"]), column(f["words"]), column(f["bytes"]), f["path"]);
+        for (local f in out) {
+            println(
+                column(f["lines"]),
+                column(f["words"]),
+                column(f["bytes"]),
+                f["path"],
+            );
+        }
 
-        if (len(out) > 1) println(column(total[0]), column(total[1]), column(total[2]), "total");
+        if (len(out) > 1) {
+            println(
+                column(total[0]),
+                column(total[1]),
+                column(total[2]),
+                "total",
+            );
+        }
     }
     return failed ? 1 : 0;
 }
@@ -136,7 +164,9 @@ report(files, counts, asJSON) {
 column(n) {
     local s = str(n);
 
-    while (len(s) < 7) s = " " + s;
+    while (len(s) < 7) {
+        s = " " + s;
+    }
     return s;
 }
 
@@ -150,7 +180,7 @@ below(paths) {
         try {
             if (fs::exists(p) && fs::stat(p)["dir"]) {
                 fs::walk(p, fn(path, e) {
-                    if (!e["dir"] && !e["link"]) push(out, path);
+                    if (!e["dir"] && !e["link"]) { push(out, path); }
                 });
             } else {
                 push(out, p);
