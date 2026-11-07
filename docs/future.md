@@ -16,6 +16,7 @@ Contents:
 6. [Files: a module fs and 9P](#6-files-a-module-fs-and-9p)
 7. [Smaller items](#7-smaller-items)
 8. [Suggested order](#8-suggested-order)
+9. [Named arguments](#9-named-arguments) (a proposal, 2026-11-07)
 
 ---
 
@@ -772,3 +773,117 @@ Steps 4, 5, 7 and 8 are independent of each other once 1 and 3 exist. A
 
 The open questions **F-1** to **F-27** are best answered just before the
 step that needs them.
+
+---
+
+## 9. Named arguments
+
+*A proposal (TODO.md Q107), to be checked with the user before it is
+built.* An argument may be given by the name of its parameter instead of
+by its place:
+
+```
+area(w, h = w) { return w * h; }
+box(width, height, depth = 1, label = "box") { ... }
+
+main() {
+    println(area(h: 4, w: 3));                 // 12
+    box(10, 20, label: "crate");               // depth keeps its default
+    local p = new Point(y: 2, x: 1);
+}
+```
+
+**Why, and why not anonymous objects.** A map already passes options by
+name (`{"width": 10}`, as `tk` does), and an anonymous object would add
+little to it. What maps cannot give is checking: a misspelt key is ignored
+in silence, and every function repeats its defaults by hand. Named
+arguments are checked when compiling, use the defaults the function
+already has, and need nothing on the side of the function. Maps stay the
+way for open-ended options (a set of options that grows, or is passed on).
+
+### 9.1 The rules
+
+- **Form**: an argument `name: expression`, where `name` is an
+  identifier. In an argument list, positional arguments come first, then
+  named ones: `f(1, 2, z: 3)`; a positional argument after a named one is
+  a compile error ("a positional argument after a named one"). `name =
+  expression` is not possible: it is an assignment, an expression of its
+  own.
+- **Matching**: positional arguments fill the parameters from the first
+  on, as now; each named argument fills the parameter of that name. It is
+  a compile error to name a parameter that does not exist ("area has no
+  parameter hh; its parameters are w and h"), to name one twice, or to
+  name one that a positional argument filled already ("w is given twice:
+  by place and by name").
+- **Required parameters** must all be filled, by place or by name;
+  "area: argument h is missing" otherwise.
+- **Optional parameters** may be left out anywhere, also between ones
+  that are given (`box(10, 20, label: "crate")` skips `depth`): their
+  defaults run as now, in the function, in the order of the parameters,
+  and see the parameters before them, given or computed.
+- **A rest parameter** cannot be named, and gets nothing in a call with
+  named arguments: positional arguments may not reach it then (a compile
+  error that says so). `v..` (spread) cannot be combined with named
+  arguments, since the compiler would not know which parameters it fills.
+- **Order of evaluation**: the arguments are evaluated as they are
+  written, left to right, whatever the order of the parameters (side
+  effects keep their order); then they are put in place.
+- **Which calls**, in the first step: the calls whose function the
+  compiler knows: functions of the program and of modules written in Kukel
+  (`f(...)`, `m::f(...)`), static member functions (`C::f(...)`),
+  `Base::m(...)`, and constructors (`new C(...)`, `new m::C(...)`, also
+  the base class's constructor that a class without its own uses). Other
+  calls with named arguments are a compile error that says why: member
+  function calls (`p->m(...)`, and `m(...)` meaning `this->m(...)`, which
+  are virtual: an override may have other parameters), calls of function
+  values and closures, built-in functions and functions of modules
+  written in Go (which have no parameter names in Kukel).
+
+### 9.2 How it would work
+
+- The parser accepts `name: expression` in argument lists (the "?:" and
+  labels do not clash: a label stands only at the start of a statement,
+  and ":" of ?: follows a "?"). Syntax version 11; syntax.ebnf and
+  syntax.lark get the form.
+- The compiler, which knows the function's parameters for these calls
+  (it checks their number today), turns the named arguments into
+  positional ones. Arguments written in another order are evaluated into
+  hidden slots first, then pushed in the order of the parameters.
+- Skipping an optional parameter needs a way to say "missing" for a place
+  before the last one given: today a default runs when fewer arguments
+  came (`JUMP_IF_ARG n`: n < argc). A new instruction pushes an internal
+  *absent* marker, and `JUMP_IF_ARG` also runs the default when the slot
+  holds it. The marker never reaches Kukel code: the compiler only passes
+  it for parameters that have a default, and the default replaces it.
+  That is a new instruction: bytecode format 12 (`.kkc` files are built
+  again). `JUMP_IF_ARG` gets one comparison more; its cost is to be
+  measured (GOMAXPROCS=1, best of 9 alternating runs) before the change
+  is kept.
+- `kukel fmt` writes `name: value` (no space before the ":"); the
+  debugger, the profiler and the `.kkc` format need nothing else.
+
+### 9.3 Later: member function calls
+
+`p->m(name: x)` needs the names when the call runs, since the class of
+`p` is known only then. The functions in a `.kkc` file keep their slot
+names (`SlotNames`, the parameters first), so a call instruction with a
+table of names (`CALL_METHOD_NAMED`) can match them at run time, with an
+`ArgumentError` for a name the member function does not have. The
+methods of classes written in Go have no parameter names and keep
+refusing named arguments. This is a second step, with its own design.
+
+### 9.4 Open questions
+
+- **F-28** Is the first step (calls the compiler knows, constructors
+  included) useful enough on its own, or should member function calls
+  come at once?
+- **F-29** Should a call be allowed to name a required parameter that
+  comes before a positional one it skips (`f(b: 2, 1)`)? This proposal
+  says no: positional first, as in Python.
+- **F-30** Should Go functions of host modules (`kukel.NewModule(...).Func`)
+  be able to declare parameter names, so that `app::notify(level:
+  "warn")` works? It would need an addition to the Go API.
+- **F-31** `kukel fmt -vertical` puts named arguments one per line like
+  the others; should a call with only named arguments always be split,
+  whatever their number?
+
