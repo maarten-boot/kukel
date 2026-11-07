@@ -9,17 +9,38 @@ written at the top of a file: its name, its parameters, and its body.
 ## Defining and calling
 
 ```
-area(w, h) {
+area(
+    w,
+    h,
+) {
     return w * h;
 }
 
-describe(w, h) {
-    println(w, "by", h, "is", area(w, h));
+describe(
+    w,
+    h,
+) {
+    println(
+        w,
+        "by",
+        h,
+        "is",
+        area(
+            w,
+            h,
+        ),
+    );
 }
 
 main() {
-    describe(3, 4);
-    local r = describe(1, 1);       // describe returns nothing: nil
+    describe(
+        3,
+        4,
+    );
+    local r = describe(
+        1,
+        1,
+    );       // describe returns nothing: nil
     println(r);
 }
 ```
@@ -48,23 +69,52 @@ After the defaults, one last parameter written `name..` collects the
 remaining arguments in a vector:
 
 ```
-greet(name, greeting = "hello", mark = greeting == "hello" ? "." : "!") {
+greet(
+    name,
+    greeting = "hello",
+    mark = greeting == "hello" ? "." : "!",
+) {
     return greeting + ", " + name + mark;
 }
 
-total(first, rest..) {
+total(
+    first,
+    rest..,
+) {
     local sum = first;
 
-    for (local x in rest) sum += x;
+    for (local x in rest) {
+        sum += x;
+    }
     return sum;
 }
 
 main() {
-    println(greet("Ann"), greet("Bo", "welcome"));
-    println(total(1), total(1, 2, 3));
+    println(
+        greet("Ann"),
+        greet(
+            "Bo",
+            "welcome",
+        ),
+    );
+    println(
+        total(1),
+        total(
+            1,
+            2,
+            3,
+        ),
+    );
 
     local numbers = [4, 5, 6];
-    println(total(numbers..), total(0, numbers.., 10));
+    println(
+        total(numbers..),
+        total(
+            0,
+            numbers..,
+            10,
+        ),
+    );
 }
 ```
 
@@ -91,16 +141,38 @@ factorial(n) {
 }
 
 // The ways to climb n stairs taking 1 or 2 at a time.
-ways(n, memo = {}) {
-    if (n <= 1) return 1;
+ways(
+    n,
+    memo = {},
+) {
+    if (n <= 1) {
+        return 1;
+    }
 
-    if (!haskey(memo, n)) memo[n] = ways(n - 1, memo) + ways(n - 2, memo);
+    if (!haskey(
+        memo,
+        n,
+    )) {
+        memo[n] = ways(
+            n - 1,
+            memo,
+        ) + ways(
+            n - 2,
+            memo,
+        );
+    }
     return memo[n];
 }
 
 main() {
-    println(factorial(5), factorial(20));
-    println(ways(10), ways(80));
+    println(
+        factorial(5),
+        factorial(20),
+    );
+    println(
+        ways(10),
+        ways(80),
+    );
 }
 ```
 
@@ -131,7 +203,10 @@ main(args) {
         eprintln("usage: count words...");
         return 2;
     }
-    println(len(args), "words");
+    println(
+        len(args),
+        "words",
+    );
 }
 ```
 

@@ -48,7 +48,10 @@ Put this in a file `hello.kkl`:
 // hello.kkl: greets whoever is named on the command line.
 main(args) {
     local name = len(args) > 0 ? args[0] : "world";
-    println("hello,", name);
+    println(
+        "hello,",
+        name,
+    );
 }
 ```
 

@@ -9,9 +9,32 @@ operators are those of C, with a few differences noted below.
 
 ```
 main() {
-    println(7 + 2, 7 - 2, 7 * 2, 7 / 2, 7 % 2, -7 / 2, -7 % 2);
-    println(7.0 / 2, 7.5 % 2, 2 + 3 * 4, (2 + 3) * 4);
-    println(pow(2, 10), sqrt(16), abs(-3), round(2.5), floor(2.7), ceil(2.1));
+    println(
+        7 + 2,
+        7 - 2,
+        7 * 2,
+        7 / 2,
+        7 % 2,
+        -7 / 2,
+        -7 % 2,
+    );
+    println(
+        7.0 / 2,
+        7.5 % 2,
+        2 + 3 * 4,
+        (2 + 3) * 4,
+    );
+    println(
+        pow(
+            2,
+            10,
+        ),
+        sqrt(16),
+        abs(-3),
+        round(2.5),
+        floor(2.7),
+        ceil(2.1),
+    );
     println("ab" + "cd");
 }
 ```
@@ -40,8 +63,18 @@ compare numbers with numbers and strings with strings (by their bytes);
 
 ```
 main() {
-    println(1 < 2, 2 <= 2, 1 == 1.0, "apple" < "banana", "Z" < "a");
-    println(nil == false, [1] == [1], "1" == 1);
+    println(
+        1 < 2,
+        2 <= 2,
+        1 == 1.0,
+        "apple" < "banana",
+        "Z" < "a",
+    );
+    println(
+        nil == false,
+        [1] == [1],
+        "1" == 1,
+    );
 }
 ```
 
@@ -62,8 +95,17 @@ false false false
 main() {
     local v = [3, 0];
 
-    for (local i = 0; i < 3; i++) println(i, i < len(v) && v[i] > 0, !(i < len(v)));
-    println(nil || "default", 0 || 1);
+    for (local i = 0; i < 3; i++) {
+        println(
+            i,
+            i < len(v) && v[i] > 0,
+            !(i < len(v)),
+        );
+    }
+    println(
+        nil || "default",
+        0 || 1,
+    );
 }
 ```
 
@@ -86,7 +128,12 @@ computed:
 
 ```
 main() {
-    for (local n in [1, 2, 3]) println(n, n % 2 == 0 ? "even" : "odd");
+    for (local n in [1, 2, 3]) {
+        println(
+            n,
+            n % 2 == 0 ? "even" : "odd",
+        );
+    }
 }
 ```
 
@@ -110,9 +157,17 @@ main() {
     x += 5;
     x *= 2;
     println(x);
-    println(x++, x, ++x, x);
+    println(
+        x++,
+        x,
+        ++x,
+        x,
+    );
     local a = y = 4;
-    println(a, y);
+    println(
+        a,
+        y,
+    );
 
     local m = {"n": 1};
     m["n"] += 10;
@@ -138,7 +193,15 @@ For ints there are the bitwise operators of C: `&` (and), `|` (or), `^`
 
 ```
 main() {
-    println(5 & 3, 5 | 3, 5 ^ 3, ~5, 1 << 4, -16 >> 2, 0xFF & 0x0F);
+    println(
+        5 & 3,
+        5 | 3,
+        5 ^ 3,
+        ~5,
+        1 << 4,
+        -16 >> 2,
+        0xFF & 0x0F,
+    );
 }
 ```
 

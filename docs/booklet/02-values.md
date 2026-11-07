@@ -11,8 +11,20 @@ false, and what `==` compares.
 
 ```
 main() {
-    println(typeof(nil), typeof(true), typeof(42), typeof(4.2), typeof("hi"));
-    println(typeof([1, 2]), typeof({"a": 1}), typeof(main), typeof(Error), typeof(new Error("x")));
+    println(
+        typeof(nil),
+        typeof(true),
+        typeof(42),
+        typeof(4.2),
+        typeof("hi"),
+    );
+    println(
+        typeof([1, 2]),
+        typeof({"a": 1}),
+        typeof(main),
+        typeof(Error),
+        typeof(new Error("x")),
+    );
 }
 ```
 
@@ -44,10 +56,28 @@ where it matters:
 
 ```
 main() {
-    println(7 / 2, 7 % 2, -7 / 2, 7.0 / 2, 1 / 3.0);
-    println(2.0 * 3, 1e6, 0.00001, 0xFF, 0b1010, 1_000_000, 'A');
+    println(
+        7 / 2,
+        7 % 2,
+        -7 / 2,
+        7.0 / 2,
+        1 / 3.0,
+    );
+    println(
+        2.0 * 3,
+        1e6,
+        0.00001,
+        0xFF,
+        0b1010,
+        1_000_000,
+        'A',
+    );
     println(9223372036854775807 + 1);
-    println(1 / 0.0, -1 / 0.0, 0 / 0.0);
+    println(
+        1 / 0.0,
+        -1 / 0.0,
+        0 / 0.0,
+    );
 }
 ```
 
@@ -80,7 +110,14 @@ inf -inf nan
 main() {
     local n = 7;
     println("total " + str(n));
-    println(int("42") + 1, int(3.9), int(-3.9), int("0x10"), float(2), float("2.5"));
+    println(
+        int("42") + 1,
+        int(3.9),
+        int(-3.9),
+        int("0x10"),
+        float(2),
+        float("2.5"),
+    );
 }
 ```
 
@@ -106,10 +143,25 @@ main() {
     local verdicts = [];
 
     for (local x in [nil, false, 0, 0.0, "", [], {}, "no", 1]) {
-        if (x) push(verdicts, "true");
-        else push(verdicts, "false");
+        if (x) {
+            push(
+                verdicts,
+                "true",
+            );
+        }
+        else {
+            push(
+                verdicts,
+                "false",
+            );
+        }
     }
-    println(join(verdicts, " "));
+    println(
+        join(
+            verdicts,
+            " ",
+        ),
+    );
 }
 ```
 
@@ -145,12 +197,29 @@ does not copy it: both see the same one.
 main() {
     local a = [1, 2];
     local b = a;               // the same vector
-    push(b, 3);
-    println(a, b, a == b);
+    push(
+        b,
+        3,
+    );
+    println(
+        a,
+        b,
+        a == b,
+    );
 
-    local c = slice(a, 0);     // a copy
-    push(c, 4);
-    println(a, c, a == c);
+    local c = slice(
+        a,
+        0,
+    );     // a copy
+    push(
+        c,
+        4,
+    );
+    println(
+        a,
+        c,
+        a == c,
+    );
 }
 ```
 

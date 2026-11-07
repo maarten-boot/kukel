@@ -14,14 +14,24 @@ chains several choices:
 
 ```
 grade(score) {
-    if (score >= 90) return "A";
-    else if (score >= 75) return "B";
-    else if (score >= 50) return "C";
-    else return "F";
+    if (score >= 90) {
+        return "A";
+    }
+    else if (score >= 75) {
+        return "B";
+    }
+    else if (score >= 50) {
+        return "C";
+    }
+    else {
+        return "F";
+    }
 }
 
 main() {
-    for (local s in [95, 80, 51, 12]) print(grade(s));
+    for (local s in [95, 80, 51, 12]) {
+        print(grade(s));
+    }
     println();
 
     local temperature = 31;
@@ -53,7 +63,9 @@ first and tests after; `for` has room for a start, a test and a step:
 main() {
     local n = 1;
 
-    while (n < 100) n *= 3;
+    while (n < 100) {
+        n *= 3;
+    }
     println(n);
 
     do {
@@ -61,12 +73,19 @@ main() {
     } while (n > 0);
     println(n);
 
-    for (local i = 0, j = 10; i < j; i += 3, j -= 3) println(i, j);
+    for (local i = 0, j = 10; i < j; i += 3, j -= 3) {
+        println(
+            i,
+            j,
+        );
+    }
 
     for (;;) {                      // no test: until break
         n++;
 
-        if (n == 3) break;
+        if (n == 3) {
+            break;
+        }
     }
     println(n);
 }
@@ -96,16 +115,33 @@ main() {
     local colours = ["red", "green", "blue"];
     local stock = {"pens": 12, "ink": 0};
 
-    for (local c in colours) println(c);
-
-    for (local i, c in colours) println(i, c);
-
-    for (local item, n in stock) {
-        if (n == 0) continue;
-        println(item, n);
+    for (local c in colours) {
+        println(c);
     }
 
-    for (local b in "hi") println(b, char(b));
+    for (local i, c in colours) {
+        println(
+            i,
+            c,
+        );
+    }
+
+    for (local item, n in stock) {
+        if (n == 0) {
+            continue;
+        }
+        println(
+            item,
+            n,
+        );
+    }
+
+    for (local b in "hi") {
+        println(
+            b,
+            char(b),
+        );
+    }
 }
 ```
 
@@ -141,16 +177,23 @@ describe(c) {
             return "the end";
         case " ":
             break;
-        default: {
-            local code = ord(c);
-            return "a consonant, code " + str(code);
-        }
+        default:
+            {
+                local code = ord(c);
+                return "a consonant, code " + str(code);
+            }
     }
     return "a space";
 }
 
 main() {
-    for (local c in ["e", "k", " ", "q"]) println(c, "is", describe(c));
+    for (local c in ["e", "k", " ", "q"]) {
+        println(
+            c,
+            "is",
+            describe(c),
+        );
+    }
 }
 ```
 
@@ -181,7 +224,11 @@ main() {
     search: for (local r = 0; r < len(grid); r++) {
         for (local c = 0; c < len(grid[r]); c++) {
             if (grid[r][c] < 0) {
-                println("negative at", r, c);
+                println(
+                    "negative at",
+                    r,
+                    c,
+                );
                 break search;
             }
         }
@@ -211,11 +258,24 @@ class Resource {
 
 Resource::Resource(name) {
     this->name = name;
-    println("open", name);
+    println(
+        "open",
+        name,
+    );
 }
 
-Resource::work() { println("work with", name); }
-Resource::close() { println("close", name); }
+Resource::work() {
+    println(
+        "work with",
+        name,
+    );
+}
+Resource::close() {
+    println(
+        "close",
+        name,
+    );
+}
 
 main() {
     with (local a = new Resource("a"), b = new Resource("b")) {

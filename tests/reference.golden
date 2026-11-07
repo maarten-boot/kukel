@@ -18,10 +18,10 @@
   "ad79dde19934": "ParseError unexpected '}' 12\ncleanup\n",
   "bbcee7a34bba": "[1, 49]\nworker 1 done\n",
   "c83f418849fa": "15 15\n",
+  "c8b6f4395aa8": "a terminal: false\narrows move, q quits\r\nended at 0 0\n",
   "c8fdb0282a82": "{\"n\": 0}\n",
   "ce0beaf6dc77": "10000 50 0 nil Point{x: 1, y: 2}\n",
   "d5e3e8d9e03f": "true true\np9::Client::write: /files/new.txt: read-only file system\n",
-  "d8e8f7bddcdd": "a terminal: false\narrows move, q quits\r\nended at 0 0\n",
   "e11a39fcf4c9": "info: 9 10 6\n",
   "f1bf969439b3": "[80, 24]\n\u001b[2J\u001b[H",
   "fc37b7c5dcf4": "0;1;2; 6\n"

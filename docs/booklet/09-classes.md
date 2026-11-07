@@ -17,19 +17,36 @@ class Item {
     label();
 }
 
-Item::Item(name, price) {
+Item::Item(
+    name,
+    price,
+) {
     this->name = name;
     this->price = price;
 }
 
-Item::total(count) { return price * count; }
-Item::label() { return name + " (" + str(price) + ")"; }
+Item::total(count) {
+    return price * count;
+}
+Item::label() {
+    return name + " (" + str(price) + ")";
+}
 
 main() {
-    local pen = new Item("pen", 1.5);
-    println(pen->label(), pen->total(4));
+    local pen = new Item(
+        "pen",
+        1.5,
+    );
+    println(
+        pen->label(),
+        pen->total(4),
+    );
     pen->price = 2;
-    println(pen->name, pen->price, pen);
+    println(
+        pen->name,
+        pen->price,
+        pen,
+    );
 }
 ```
 
@@ -69,13 +86,20 @@ class Item {
     label();
 }
 
-Item::Item(name, price) {
+Item::Item(
+    name,
+    price,
+) {
     this->name = name;
     this->price = price;
 }
 
-Item::total(count) { return price * count; }
-Item::label() { return name + " (" + str(price) + ")"; }
+Item::total(count) {
+    return price * count;
+}
+Item::label() {
+    return name + " (" + str(price) + ")";
+}
 
 class Sale : Item {
     percent;
@@ -84,19 +108,50 @@ class Sale : Item {
     label();
 }
 
-Sale::Sale(name, price, percent) {
-    Item::Item(name, price);          // the base class's constructor
+Sale::Sale(
+    name,
+    price,
+    percent,
+) {
+    Item::Item(
+        name,
+        price,
+    );          // the base class's constructor
     this->percent = percent;
 }
 
-Sale::total(count) { return Item::total(count) * (100 - percent) / 100.0; }
-Sale::label() { return Item::label() + ", " + str(percent) + "% off"; }
+Sale::total(count) {
+    return Item::total(count) * (100 - percent) / 100.0;
+}
+Sale::label() {
+    return Item::label() + ", " + str(percent) + "% off";
+}
 
 main() {
-    local cart = [new Item("pen", 2), new Sale("ink", 10, 25)];
+    local cart = [new Item(
+        "pen",
+        2,
+    ), new Sale(
+        "ink",
+        10,
+        25,
+    )];
 
-    for (local item in cart) println(item->label(), "x3:", item->total(3));
-    println(instanceof(cart[1], Item), classof(cart[1]) == Sale, classof(cart[0]));
+    for (local item in cart) {
+        println(
+            item->label(),
+            "x3:",
+            item->total(3),
+        );
+    }
+    println(
+        instanceof(
+            cart[1],
+            Item,
+        ),
+        classof(cart[1]) == Sale,
+        classof(cart[0]),
+    );
 }
 ```
 
@@ -138,11 +193,18 @@ Ticket::Ticket() {
     number = issued;
 }
 
-Ticket::count() { return issued; }
+Ticket::count() {
+    return issued;
+}
 
 main() {
     local a = new Ticket(), b = new Ticket();
-    println(a->number, b->number, Ticket::count(), Ticket::issued);
+    println(
+        a->number,
+        b->number,
+        Ticket::count(),
+        Ticket::issued,
+    );
 }
 ```
 
@@ -167,7 +229,9 @@ class Shape {
     describe();
 }
 
-Shape::describe() { return "a shape of area " + str(area()); }
+Shape::describe() {
+    return "a shape of area " + str(area());
+}
 
 class Square : Shape {
     side;
@@ -175,10 +239,16 @@ class Square : Shape {
     area();
 }
 
-Square::Square(side) { this->side = side; }
-Square::area() { return side * side; }
+Square::Square(side) {
+    this->side = side;
+}
+Square::area() {
+    return side * side;
+}
 
-main() { println(new Square(3)->describe()); }
+main() {
+    println(new Square(3)->describe());
+}
 ```
 
 ```

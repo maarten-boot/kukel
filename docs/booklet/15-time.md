@@ -15,10 +15,20 @@ use time;
 
 main() {
     local start = time::now();
-    println("it is", start->format("%H:%M on %A %e %B %Y"));
+    println(
+        "it is",
+        start->format("%H:%M on %A %e %B %Y"),
+    );
     time::sleep(0.2);                              // seconds
-    println("that took", time::now()->sub(start), "seconds");
-    println(time(), clock());                      // built-ins: seconds since 1970, since the start
+    println(
+        "that took",
+        time::now()->sub(start),
+        "seconds",
+    );
+    println(
+        time(),
+        clock(),
+    );                      // built-ins: seconds since 1970, since the start
 }
 ```
 
@@ -42,12 +52,37 @@ A `time::Time` is an instant together with a time zone:
 use time;
 
 main() {
-    local t = new time::Time(2026, 10, 14, 9, 30, 0, "Europe/Amsterdam");
+    local t = new time::Time(
+        2026,
+        10,
+        14,
+        9,
+        30,
+        0,
+        "Europe/Amsterdam",
+    );
     println(t);
-    println(t->year(), t->month(), t->day(), t->hour(), t->weekday(), t->yearday());
-    println(t->format("%d.%m.%Y %H:%M %Z"), "/", t->format("%A %e %B, %I:%M %p"));
-    println(t->inzone("Asia/Tokyo"), t->utc());
-    println(t->add(3600)->format("%H:%M"), t->add(-86400 * 14)->format("%d %b"));
+    println(
+        t->year(),
+        t->month(),
+        t->day(),
+        t->hour(),
+        t->weekday(),
+        t->yearday(),
+    );
+    println(
+        t->format("%d.%m.%Y %H:%M %Z"),
+        "/",
+        t->format("%A %e %B, %I:%M %p"),
+    );
+    println(
+        t->inzone("Asia/Tokyo"),
+        t->utc(),
+    );
+    println(
+        t->add(3600)->format("%H:%M"),
+        t->add(-86400 * 14)->format("%d %b"),
+    );
 }
 ```
 
@@ -80,15 +115,31 @@ time::Time(2026-10-14T16:30:00+09:00) time::Time(2026-10-14T07:30:00Z)
 use time;
 
 main() {
-    local due = time::Time::parse("30.11.2026", "%d.%m.%Y");
+    local due = time::Time::parse(
+        "30.11.2026",
+        "%d.%m.%Y",
+    );
     local sent = time::Time::parse("2026-11-06T15:30:00+01:00");
-    println(due, sent);
-    println(floor(due->sub(sent) / 86400), "days to go", due->after(sent));
+    println(
+        due,
+        sent,
+    );
+    println(
+        floor(due->sub(sent) / 86400),
+        "days to go",
+        due->after(sent),
+    );
 
     try {
-        time::Time::parse("31.11.2026", "%d.%m.%Y");
+        time::Time::parse(
+            "31.11.2026",
+            "%d.%m.%Y",
+        );
     } catch (e) {
-        println(e->kind, e->message);
+        println(
+            e->kind,
+            e->message,
+        );
     }
 }
 ```
@@ -115,9 +166,26 @@ use uuid;
 
 main() {
     local id = uuid::v7();                         // new each time
-    println(len(id), uuid::valid(id), uuid::valid("not a uuid"));
-    println(uuid::v5(uuid::DNS, "example.com"));   // always the same
-    println(uuid::v5(uuid::URL, "https://example.com/ann") == uuid::v5(uuid::URL, "https://example.com/ann"));
+    println(
+        len(id),
+        uuid::valid(id),
+        uuid::valid("not a uuid"),
+    );
+    println(
+        uuid::v5(
+            uuid::DNS,
+            "example.com",
+        ),
+    );   // always the same
+    println(
+        uuid::v5(
+            uuid::URL,
+            "https://example.com/ann",
+        ) == uuid::v5(
+            uuid::URL,
+            "https://example.com/ann",
+        ),
+    );
 }
 ```
 

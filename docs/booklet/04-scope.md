@@ -15,7 +15,10 @@ The name can be used from its declaration to the end of that block:
 ```
 main() {
     local x = 1, y;                 // y is nil
-    println(x, y);
+    println(
+        x,
+        y,
+    );
 
     {
         local x = 2;                // another x, in this block only
@@ -23,7 +26,9 @@ main() {
     }
     println(x);                     // the first x again
 
-    for (local i = 0; i < 3; i++) print(i);
+    for (local i = 0; i < 3; i++) {
+        print(i);
+    }
     println();                      // i is gone here
 }
 ```
@@ -56,13 +61,19 @@ global calls = 0, history = [];
 
 record(what) {
     calls++;
-    push(history, what);
+    push(
+        history,
+        what,
+    );
 }
 
 main() {
     record("start");
     record("stop");
-    println(calls, history);
+    println(
+        calls,
+        history,
+    );
 }
 ```
 
@@ -97,7 +108,11 @@ const WIDTH = 80, HALF = WIDTH / 2;
 const GREETING = "hello";
 
 main() {
-    println(WIDTH, HALF, GREETING + "!");
+    println(
+        WIDTH,
+        HALF,
+        GREETING + "!",
+    );
 }
 ```
 

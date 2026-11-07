@@ -12,17 +12,28 @@ a vector of everything first.
 
 ```
 countdown(n) {
-    for (local i = n; i > 0; i--) yield i;
+    for (local i = n; i > 0; i--) {
+        yield i;
+    }
     println("liftoff");
 }
 
 main() {
-    for (local x in countdown(3)) println(x);
+    for (local x in countdown(3)) {
+        println(x);
+    }
 
     local g = countdown(2);
     println(g);
-    println(g->next(), g->next(), g->done());
-    println(g->next(), g->done());
+    println(
+        g->next(),
+        g->next(),
+        g->done(),
+    );
+    println(
+        g->next(),
+        g->done(),
+    );
 }
 ```
 
@@ -69,8 +80,13 @@ main() {
     local first = [];
 
     for (local i, f in fibonacci()) {
-        if (i == 10) break;
-        push(first, f);
+        if (i == 10) {
+            break;
+        }
+        push(
+            first,
+            f,
+        );
     }
     println(first);
 }
@@ -96,25 +112,49 @@ class Tree {
     iter();
 }
 
-Tree::Tree(left, value, right) {
+Tree::Tree(
+    left,
+    value,
+    right,
+) {
     this->left = left;
     this->value = value;
     this->right = right;
 }
 
 Tree::iter() {                          // in order: left, value, right
-    if (left != nil) yield from left;
+    if (left != nil) {
+        yield from left;
+    }
     yield value;
 
-    if (right != nil) yield from right;
+    if (right != nil) {
+        yield from right;
+    }
 }
 
-leaf(v) { return new Tree(nil, v, nil); }
+leaf(v) {
+    return new Tree(
+        nil,
+        v,
+        nil,
+    );
+}
 
 main() {
-    local t = new Tree(new Tree(leaf(1), 2, leaf(3)), 4, leaf(5));
+    local t = new Tree(
+        new Tree(
+            leaf(1),
+            2,
+            leaf(3),
+        ),
+        4,
+        leaf(5),
+    );
 
-    for (local x in t) print(x);
+    for (local x in t) {
+        print(x);
+    }
     println();
 }
 ```
@@ -145,7 +185,11 @@ average() {
 main() {
     local avg = average();
     avg->next();                         // run to the first yield
-    println(avg->send(10), avg->send(20), avg->send(60));
+    println(
+        avg->send(10),
+        avg->send(20),
+        avg->send(60),
+    );
 }
 ```
 
@@ -167,7 +211,9 @@ file closes it, also when the loop stops early:
 ```
 numbers() {
     try {
-        for (local i = 1;; i++) yield i;
+        for (local i = 1;; i++) {
+            yield i;
+        }
     } finally {
         println("closed");
     }
@@ -175,7 +221,9 @@ numbers() {
 
 main() {
     for (local n in numbers()) {
-        if (n > 2) break;
+        if (n > 2) {
+            break;
+        }
         println(n);
     }
     println("after the loop");
@@ -201,11 +249,39 @@ make, change and combine sequences, and functions that use them up:
 use iter;
 
 main() {
-    local squares = iter::map(fn(x) { return x * x; }, iter::count(1));
-    local even = iter::filter(fn(x) { return x % 2 == 0; }, squares);
-    println(iter::collect(iter::take(even, 4)));
-    println(iter::reduce(fn(a, b) { return a + b; }, iter::range(1, 101)));
-    println(iter::collect(iter::zip(["a", "b", "c"], iter::count())));
+    local squares = iter::map(
+        fn(x) { return x * x; },
+        iter::count(1),
+    );
+    local even = iter::filter(
+        fn(x) { return x % 2 == 0; },
+        squares,
+    );
+    println(
+        iter::collect(
+            iter::take(
+                even,
+                4,
+            ),
+        ),
+    );
+    println(
+        iter::reduce(
+            fn(a, b) { return a + b; },
+            iter::range(
+                1,
+                101,
+            ),
+        ),
+    );
+    println(
+        iter::collect(
+            iter::zip(
+                ["a", "b", "c"],
+                iter::count(),
+            ),
+        ),
+    );
 }
 ```
 

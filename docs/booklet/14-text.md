@@ -19,11 +19,38 @@ use utf8;
 
 main() {
     local s = "Grüße aus Köln";
-    println(len(s), utf8::len(s));
-    println(upper(s), "/", utf8::upper(s));
-    println(slice(s, 0, 4), "/", utf8::slice(s, 0, 4));
-    println(utf8::chars("añ€"), utf8::codes("añ€"), utf8::char(0x263A));
-    println(utf8::valid(s), utf8::valid("\xff"), utf8::fix("bad \xff byte"));
+    println(
+        len(s),
+        utf8::len(s),
+    );
+    println(
+        upper(s),
+        "/",
+        utf8::upper(s),
+    );
+    println(
+        slice(
+            s,
+            0,
+            4,
+        ),
+        "/",
+        utf8::slice(
+            s,
+            0,
+            4,
+        ),
+    );
+    println(
+        utf8::chars("añ€"),
+        utf8::codes("añ€"),
+        utf8::char(0x263A),
+    );
+    println(
+        utf8::valid(s),
+        utf8::valid("\xff"),
+        utf8::fix("bad \xff byte"),
+    );
 }
 ```
 
@@ -59,14 +86,36 @@ use re;
 main() {
     local date = re::compile("(\\d{4})-(\\d{2})-(\\d{2})");
     local text = "Due 2026-11-30, paid 2026-12-02.";
-    println(date->match(text), date->find(text));
+    println(
+        date->match(text),
+        date->find(text),
+    );
     println(date->findall(text));
     println(date->groups(text));
-    println(date->replace(text, "$3/$2/$1"));
+    println(
+        date->replace(
+            text,
+            "$3/$2/$1",
+        ),
+    );
     println(re::compile("[,;]\\s*")->split("a, b;c ,d"));
 
     local word = re::compile("\\w+");
-    println(word->replace("the quick brown fox", fn(m) { return upper(slice(m, 0, 1)) + slice(m, 1); }));
+    println(
+        word->replace(
+            "the quick brown fox",
+            fn(m) { return upper(
+                slice(
+                    m,
+                    0,
+                    1,
+                ),
+            ) + slice(
+                m,
+                1,
+            ); },
+        ),
+    );
 }
 ```
 
@@ -108,17 +157,34 @@ use json;
 main() {
     local text = "{\"name\": \"Ann\", \"age\": 41, \"langs\": [\"Go\", \"Kukel\"], \"admin\": false, \"boss\": null}";
     local person = json::decode(text);
-    println(person["name"], person["age"] + 1, person["langs"][1], person["admin"], person["boss"]);
+    println(
+        person["name"],
+        person["age"] + 1,
+        person["langs"][1],
+        person["admin"],
+        person["boss"],
+    );
 
     person["age"] = 42;
-    push(person["langs"], "C");
+    push(
+        person["langs"],
+        "C",
+    );
     println(json::encode(person));
-    println(json::encode({"ok": true, "items": [1, 2.5]}, "  "));
+    println(
+        json::encode(
+            {"ok": true, "items": [1, 2.5]},
+            "  ",
+        ),
+    );
 
     try {
         json::decode("{\"name\": }");
     } catch (e) {
-        println(e->kind, e->message);
+        println(
+            e->kind,
+            e->message,
+        );
     }
 }
 ```
@@ -158,7 +224,16 @@ use strings;
 table(rows) {
     local b = new strings::Builder();
 
-    for (local r in rows) b->add("| ", join(r, " | "), " |\n");
+    for (local r in rows) {
+        b->add(
+            "| ",
+            join(
+                r,
+                " | ",
+            ),
+            " |\n",
+        );
+    }
     return b->str();
 }
 

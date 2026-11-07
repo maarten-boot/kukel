@@ -22,6 +22,8 @@ From v1.0.0 on, what keeps working is in
   characters (`-linelength n` sets another length), with a `,` after the
   last one and the `)` on a line of its own; `kukel fmt -vertical` does
   that for every call and definition with 2 or more items. Q106.
+- The booklet's programs are laid out by `kukel fmt -vertical` (so is its
+  PDF). Q106.
 - The booklet's PDF: code without a background (in its box), and line
   numbers in the programs. Q105.
 

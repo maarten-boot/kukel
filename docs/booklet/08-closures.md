@@ -11,23 +11,62 @@ makes this easy, and it remembers the variables around it: it is a
 ## Functions as values
 
 ```
-double(x) { return 2 * x; }
+double(x) {
+    return 2 * x;
+}
 
-apply(f, v) {
+apply(
+    f,
+    v,
+) {
     local result = [];
 
-    for (local x in v) push(result, f(x));
+    for (local x in v) {
+        push(
+            result,
+            f(x),
+        );
+    }
     return result;
 }
 
 main() {
     local f = double;                    // no (): the function itself
-    println(f(21), apply(double, [1, 2, 3]));
-    println(apply(fn(x) { return x * x; }, [1, 2, 3]));
-    println(apply(str, [1, 2.5, nil]), apply(len, ["a", "bcd"]));
+    println(
+        f(21),
+        apply(
+            double,
+            [1, 2, 3],
+        ),
+    );
+    println(
+        apply(
+            fn(x) { return x * x; },
+            [1, 2, 3],
+        ),
+    );
+    println(
+        apply(
+            str,
+            [1, 2.5, nil],
+        ),
+        apply(
+            len,
+            ["a", "bcd"],
+        ),
+    );
 
     local ops = {"+": fn(a, b) { return a + b; }, "-": fn(a, b) { return a - b; }};
-    println(ops["+"](2, 3), ops["-"](2, 3));
+    println(
+        ops["+"](
+            2,
+            3,
+        ),
+        ops["-"](
+            2,
+            3,
+        ),
+    );
 }
 ```
 
@@ -62,7 +101,13 @@ counter(start) {
 
 main() {
     local a = counter(1), b = counter(100);
-    println(a(), a(), a(), b(), a());
+    println(
+        a(),
+        a(),
+        a(),
+        b(),
+        a(),
+    );
 }
 ```
 
@@ -100,9 +145,16 @@ loop each remember their own:
 main() {
     local buttons = [];
 
-    for (local i = 1; i <= 3; i++) push(buttons, fn() { return "button " + str(i); });
+    for (local i = 1; i <= 3; i++) {
+        push(
+            buttons,
+            fn() { return "button " + str(i); },
+        );
+    }
 
-    for (local b in buttons) println(b());
+    for (local b in buttons) {
+        println(b());
+    }
 }
 ```
 
@@ -120,7 +172,10 @@ button 3
 A function can take functions and give back a new one:
 
 ```
-compose(f, g) {
+compose(
+    f,
+    g,
+) {
     return fn(x) { return f(g(x)); };
 }
 
@@ -130,8 +185,14 @@ adder(n) {
 
 main() {
     local addTen = adder(10);
-    local twiceThenTen = compose(addTen, fn(x) { return 2 * x; });
-    println(addTen(1), twiceThenTen(5));
+    local twiceThenTen = compose(
+        addTen,
+        fn(x) { return 2 * x; },
+    );
+    println(
+        addTen(1),
+        twiceThenTen(5),
+    );
 }
 ```
 
@@ -156,14 +217,23 @@ class Greeter {
     greet(name);
 }
 
-Greeter::Greeter(greeting) { this->greeting = greeting; }
-Greeter::greet(name) { return greeting + ", " + name; }
+Greeter::Greeter(greeting) {
+    this->greeting = greeting;
+}
+Greeter::greet(name) {
+    return greeting + ", " + name;
+}
 
 main() {
     local hi = new Greeter("hi");
     local f = hi->greet;               // no (): bound to hi
     println(f("Ann"));
-    println(join([hi->greet("Bo"), f("Cy")], " / "));
+    println(
+        join(
+            [hi->greet("Bo"), f("Cy")],
+            " / ",
+        ),
+    );
 }
 ```
 

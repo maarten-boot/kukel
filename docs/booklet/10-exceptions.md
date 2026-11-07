@@ -14,7 +14,11 @@ parse(text) {
     try {
         return int(text);
     } catch (e) {
-        println("not a number:", text, "(" + e->kind + ": " + e->message + ")");
+        println(
+            "not a number:",
+            text,
+            "(" + e->kind + ": " + e->message + ")",
+        );
         return 0;
     }
 }
@@ -27,7 +31,10 @@ main() {
         println(v[10]);
         println("never printed");
     } catch (e) {
-        println("caught a", e->kind);
+        println(
+            "caught a",
+            e->kind,
+        );
     }
 }
 ```
@@ -58,7 +65,9 @@ work(fail) {
     try {
         println("working");
 
-        if (fail) throw new Error("it broke");
+        if (fail) {
+            throw new Error("it broke");
+        }
         return "done";
     } finally {
         println("cleaning up");
@@ -71,7 +80,10 @@ main() {
     try {
         work(true);
     } catch (e) {
-        println("caught:", e->message);
+        println(
+            "caught:",
+            e->message,
+        );
     }
 }
 ```
@@ -101,7 +113,10 @@ class InputError : Error {
     InputError(message, line);
 }
 
-InputError::InputError(message, line) {
+InputError::InputError(
+    message,
+    line,
+) {
     Error::Error(message);
     this->line = line;
 }
@@ -111,9 +126,15 @@ readNumbers(lines) {
 
     for (local i, text in lines) {
         try {
-            push(numbers, int(text));
+            push(
+                numbers,
+                int(text),
+            );
         } catch (e) {
-            throw new InputError("not a number: " + text, i + 1);
+            throw new InputError(
+                "not a number: " + text,
+                i + 1,
+            );
         }
     }
     return numbers;
@@ -125,14 +146,30 @@ main() {
     try {
         readNumbers(["3", "four"]);
     } catch (e) {
-        if (!instanceof(e, InputError)) throw e;      // not ours: on it goes
-        println(e->kind, "on line", str(e->line) + ":", e->message);
+        if (!instanceof(
+            e,
+            InputError,
+        )) {
+            throw e;
+        }      // not ours: on it goes
+        println(
+            e->kind,
+            "on line",
+            str(e->line) + ":",
+            e->message,
+        );
     }
 
     try {
-        throw new Error("the disk is full", "IOError");
+        throw new Error(
+            "the disk is full",
+            "IOError",
+        );
     } catch (e) {
-        println(e->kind, e->message);
+        println(
+            e->kind,
+            e->message,
+        );
     }
 }
 ```
@@ -159,7 +196,9 @@ of an empty vector:
 average(v) {
     local sum = 0;
 
-    for (local x in v) sum += x;
+    for (local x in v) {
+        sum += x;
+    }
     return sum / len(v);
 }
 ```

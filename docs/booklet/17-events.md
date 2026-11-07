@@ -16,14 +16,26 @@ use events;
 
 main() {
     local n = 0, tick;
-    tick = events::every(0.1, fn() {
-        n++;
-        println("tick", n);
+    tick = events::every(
+        0.1,
+        fn() {
+            n++;
+            println(
+                "tick",
+                n,
+            );
 
-        if (n == 3) tick->cancel();
-    });
-    events::after(0.25, fn() { println("a quarter second"); });
-    events::post(println, "as soon as the loop runs");
+            if (n == 3) { tick->cancel(); }
+        },
+    );
+    events::after(
+        0.25,
+        fn() { println("a quarter second"); },
+    );
+    events::post(
+        println,
+        "as soon as the loop runs",
+    );
     println("start");
     events::run();
     println("nothing left to wait for");
@@ -69,9 +81,18 @@ loop goes on:
 use events;
 
 main() {
-    events::onerror(fn(e) { println("handled:", e->message); });
-    events::after(0.01, fn() { throw new Error("first one fails"); });
-    events::after(0.02, fn() { println("the loop goes on"); });
+    events::onerror(fn(e) { println(
+        "handled:",
+        e->message,
+    ); });
+    events::after(
+        0.01,
+        fn() { throw new Error("first one fails"); },
+    );
+    events::after(
+        0.02,
+        fn() { println("the loop goes on"); },
+    );
     events::run();
 }
 ```
@@ -91,10 +112,16 @@ thread of its own, at the same time as the rest of the program.
 ```
 use worker;
 
-primes(from, to) {
+primes(
+    from,
+    to,
+) {
     local count = 0;
 
-    for (local n = max(from, 2); n < to; n++) {
+    for (local n = max(
+        from,
+        2,
+    ); n < to; n++) {
         local prime = true;
 
         for (local d = 2; d * d <= n; d++) {
@@ -104,7 +131,9 @@ primes(from, to) {
             }
         }
 
-        if (prime) count++;
+        if (prime) {
+            count++;
+        }
     }
     return count;
 }
@@ -112,11 +141,25 @@ primes(from, to) {
 main() {
     local workers = [];
 
-    for (local i = 0; i < 4; i++) push(workers, worker::start(primes, i * 50000, (i + 1) * 50000));
+    for (local i = 0; i < 4; i++) {
+        push(
+            workers,
+            worker::start(
+                primes,
+                i * 50000,
+                (i + 1) * 50000,
+            ),
+        );
+    }
     local total = 0;
 
-    for (local w in workers) total += w->wait();
-    println("primes below 200000:", total);
+    for (local w in workers) {
+        total += w->wait();
+    }
+    println(
+        "primes below 200000:",
+        total,
+    );
 }
 ```
 
@@ -143,16 +186,22 @@ with messages:
 use worker;
 
 squarer() {                                       // runs in the worker
-    for (local m = worker::receive(); m != nil; m = worker::receive()) worker::send(m * m);
+    for (local m = worker::receive(); m != nil; m = worker::receive()) {
+        worker::send(m * m);
+    }
     return "done";
 }
 
 main() {
     local w = worker::start(squarer);
 
-    for (local i = 1; i <= 3; i++) w->send(i);
+    for (local i = 1; i <= 3; i++) {
+        w->send(i);
+    }
 
-    for (local i = 1; i <= 3; i++) println(w->receive());
+    for (local i = 1; i <= 3; i++) {
+        println(w->receive());
+    }
     w->stop();                                    // the worker's receive() now gives nil
     println(w->wait());
 }

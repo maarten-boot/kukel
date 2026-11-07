@@ -20,16 +20,36 @@ main() {
     with (local conn = db::open("sqlite::memory:")) {
         conn->exec("CREATE TABLE books (title TEXT, author TEXT, year INTEGER)");
 
-        for (local b in [["Dune", "Herbert", 1965], ["Emma", "Austen", 1815], ["Ubik", "Dick", 1969]])
-            conn->exec("INSERT INTO books VALUES (?, ?, ?)", b..);
+        for (local b in [["Dune", "Herbert", 1965], ["Emma", "Austen", 1815], ["Ubik", "Dick", 1969]]) {
+            conn->exec(
+                "INSERT INTO books VALUES (?, ?, ?)",
+                b..,
+            );
+        }
 
-        for (local row in conn->query("SELECT title, year FROM books WHERE year > ? ORDER BY year", 1900))
-            println(row["title"], row["year"]);
+        for (local row in conn->query(
+            "SELECT title, year FROM books WHERE year > ? ORDER BY year",
+            1900,
+        )) {
+            println(
+                row["title"],
+                row["year"],
+            );
+        }
 
         local oldest = conn->first("SELECT * FROM books ORDER BY year");
         println(oldest);
-        println(conn->first("SELECT count(*) AS n FROM books")["n"], "books");
-        println(conn->exec("UPDATE books SET year = year + 1 WHERE author = ?", "Dick"), "changed");
+        println(
+            conn->first("SELECT count(*) AS n FROM books")["n"],
+            "books",
+        );
+        println(
+            conn->exec(
+                "UPDATE books SET year = year + 1 WHERE author = ?",
+                "Dick",
+            ),
+            "changed",
+        );
     }
 }
 ```
@@ -68,7 +88,15 @@ main() {
         conn->exec("INSERT INTO users VALUES ('ann'), ('bo')");
 
         local evil = "x' OR '1'='1";
-        println(len(conn->query("SELECT * FROM users WHERE name = ?", evil)), "users found");
+        println(
+            len(
+                conn->query(
+                    "SELECT * FROM users WHERE name = ?",
+                    evil,
+                ),
+            ),
+            "users found",
+        );
     }
 }
 ```
@@ -90,19 +118,39 @@ Several changes that must happen all together, or not at all, go in a
 ```
 use db;
 
-transfer(conn, from, to, amount) {
+transfer(
+    conn,
+    from,
+    to,
+    amount,
+) {
     conn->begin();
 
     try {
-        conn->exec("UPDATE accounts SET balance = balance - ? WHERE name = ?", amount, from);
+        conn->exec(
+            "UPDATE accounts SET balance = balance - ? WHERE name = ?",
+            amount,
+            from,
+        );
 
-        if (conn->first("SELECT balance FROM accounts WHERE name = ?", from)["balance"] < 0)
+        if (conn->first(
+            "SELECT balance FROM accounts WHERE name = ?",
+            from,
+        )["balance"] < 0) {
             throw new Error("not enough money in " + from);
-        conn->exec("UPDATE accounts SET balance = balance + ? WHERE name = ?", amount, to);
+        }
+        conn->exec(
+            "UPDATE accounts SET balance = balance + ? WHERE name = ?",
+            amount,
+            to,
+        );
         conn->commit();
     } catch (e) {
         conn->rollback();
-        println("cancelled:", e->message);
+        println(
+            "cancelled:",
+            e->message,
+        );
     }
 }
 
@@ -110,8 +158,18 @@ main() {
     with (local conn = db::open("sqlite::memory:")) {
         conn->exec("CREATE TABLE accounts (name TEXT, balance INTEGER)");
         conn->exec("INSERT INTO accounts VALUES ('ann', 100), ('bo', 20)");
-        transfer(conn, "ann", "bo", 30);
-        transfer(conn, "bo", "ann", 500);
+        transfer(
+            conn,
+            "ann",
+            "bo",
+            30,
+        );
+        transfer(
+            conn,
+            "bo",
+            "ann",
+            500,
+        );
         println(conn->query("SELECT * FROM accounts"));
     }
 }
@@ -141,9 +199,14 @@ class Book {
     static columns();
 }
 
-Book::columns() { return {"title": "TEXT NOT NULL", "year": "INTEGER", "read": "BOOLEAN"}; }
+Book::columns() {
+    return {"title": "TEXT NOT NULL", "year": "INTEGER", "read": "BOOLEAN"};
+}
 
-book(title, year) {
+book(
+    title,
+    year,
+) {
     local b = new Book();
     b->title = title;
     b->year = year;
@@ -154,17 +217,47 @@ book(title, year) {
 main() {
     with (local conn = db::open("sqlite::memory:")) {
         conn->migrate(Book);                   // makes the table
-        local dune = conn->save(book("Dune", 1965));
-        conn->save(book("Ubik", 1969));
-        conn->save(book("Emma", 1815));
+        local dune = conn->save(
+            book(
+                "Dune",
+                1965,
+            ),
+        );
+        conn->save(
+            book(
+                "Ubik",
+                1969,
+            ),
+        );
+        conn->save(
+            book(
+                "Emma",
+                1815,
+            ),
+        );
         println(dune->id);
 
         dune->read = true;
         conn->save(dune);                      // an update: it has an id
 
-        for (local b in conn->find(Book)->where("year > ?", 1900)->orderby("title")->all())
-            println(b->id, b->title, b->year, b->read);
-        println(conn->get(Book, 3)->title, conn->find(Book)->count());
+        for (local b in conn->find(Book)->where(
+            "year > ?",
+            1900,
+        )->orderby("title")->all()) {
+            println(
+                b->id,
+                b->title,
+                b->year,
+                b->read,
+            );
+        }
+        println(
+            conn->get(
+                Book,
+                3,
+            )->title,
+            conn->find(Book)->count(),
+        );
         conn->delete(dune);
         println(conn->find(Book)->count());
     }
@@ -205,12 +298,21 @@ use db;
 main() {
     with (local conn = db::open("sqlite::memory:")) {
         conn->exec("CREATE TABLE tags (name TEXT UNIQUE)");
-        conn->exec("INSERT INTO tags VALUES (?)", "red");
+        conn->exec(
+            "INSERT INTO tags VALUES (?)",
+            "red",
+        );
 
         try {
-            conn->exec("INSERT INTO tags VALUES (?)", "red");
+            conn->exec(
+                "INSERT INTO tags VALUES (?)",
+                "red",
+            );
         } catch (e) {
-            println(e->kind, e->message);
+            println(
+                e->kind,
+                e->message,
+            );
         }
     }
 }

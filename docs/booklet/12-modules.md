@@ -25,18 +25,28 @@ class Amount {
     show();
 }
 
-Amount::Amount(cents) { this->cents = cents; }
-Amount::add(other) { return new Amount(cents + other->cents); }
-Amount::show() { return str(cents / 100) + "." + _two(cents % 100) + " " + CURRENCY; }
+Amount::Amount(cents) {
+    this->cents = cents;
+}
+Amount::add(other) {
+    return new Amount(cents + other->cents);
+}
+Amount::show() {
+    return str(cents / 100) + "." + _two(cents % 100) + " " + CURRENCY;
+}
 
 parse(text) {
     local f = float(text) * 100;
 
-    if (f != round(f)) rounding++;
+    if (f != round(f)) {
+        rounding++;
+    }
     return new Amount(round(f));
 }
 
-_two(n) { return n < 10 ? "0" + str(n) : str(n); }   // private to the module
+_two(n) {
+    return n < 10 ? "0" + str(n) : str(n);
+}   // private to the module
 ```
 
 and a program next to it that uses it:
@@ -47,8 +57,14 @@ use money;
 main() {
     local total = new money::Amount(0);
 
-    for (local text in ["12.50", "0.99", "3.005"]) total = total->add(money::parse(text));
-    println(total->show(), money::CURRENCY, money::rounding);
+    for (local text in ["12.50", "0.99", "3.005"]) {
+        total = total->add(money::parse(text));
+    }
+    println(
+        total->show(),
+        money::CURRENCY,
+        money::rounding,
+    );
     println(total);
 }
 ```
@@ -107,8 +123,23 @@ generator functions (`_range`, `_map`, ...) that do the work.
 use iter;
 
 main() {
-    for (local pair in iter::enumerate(["one", "two", "three"], 1)) println(pair[0], pair[1]);
-    println(iter::first(iter::filter(fn(n) { return n * n > 50; }, iter::count())));
+    for (local pair in iter::enumerate(
+        ["one", "two", "three"],
+        1,
+    )) {
+        println(
+            pair[0],
+            pair[1],
+        );
+    }
+    println(
+        iter::first(
+            iter::filter(
+                fn(n) { return n * n > 50; },
+                iter::count(),
+            ),
+        ),
+    );
 }
 ```
 
