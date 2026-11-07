@@ -15,6 +15,13 @@ Two kinds of change need care when you upgrade:
 From v1.0.0 on, what keeps working is in
 [docs/compatibility.md](docs/compatibility.md).
 
+## Unreleased
+
+- Booklet chapter 1: the `kukel version` sample is that of the v1.4.0
+  release (go1.27.3, Unicode 17.0.0), and says what each part of its
+  first line means and that the Go and Unicode versions depend on the Go
+  that built kukel.
+
 ## v1.4.0 (2026-11-07)
 
 Syntax version 11 and bytecode format 12: programs of version 10 work

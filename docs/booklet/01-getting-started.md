@@ -31,10 +31,16 @@ Check what you have:
 
 ```
 $ kukel version
-kukel v1.4.0, go1.26.8, bytecode format 12, Unicode 15.0.0
+kukel v1.4.0 (2b9169674f2c), go1.27.3, bytecode format 12, Unicode 17.0.0
 modules written in Go: db (SQLite, PostgreSQL, MySQL), events, fs, json, net, p9, re, strings, term, time, utf8, uuid, worker, zmq
 modules written in Kukel: iter
 ```
+
+The first line gives the version, the commit it was built from, the Go
+that built it, the bytecode format (`.kkc` files of another format must
+be built again) and the version of Unicode that the module `utf8` knows.
+The Go and Unicode versions depend on the Go that built your kukel, so
+yours may differ from these.
 
 The modules listed are the ones this kukel has; Part II describes them.
 If you have more than one kukel (an old `go install` and a new archive),
