@@ -26,6 +26,27 @@ From v1.0.0 on, what keeps working is in
   (`tools/release-notes.sh`); before, GitHub's generated notes had only
   the link, as they list merged pull requests. A tag without a section
   here is not released.
+- The booklet's PDF shows `|` in tables again, not `\|` (`||`, `|`, `|=`
+  in chapter 5 and appendix D).
+- Booklet corrections, from a comparison with the reference:
+  - **Appendix C:** a nil `StandardModules` (the default) allows every
+    standard module; only `[]string{}` allows none.
+  - **Chapter 10:** the trace of the example names the right lines.
+  - **Chapter 4:** globals and other top-level names are shared by the
+    whole program, not one file.
+  - **Chapter 7:** only an int from `main` is the exit code.
+  - **Chapter 16:** `save` of an object with an id inserts it when its row
+    is not there.
+  - **Appendix D:** `|`, `^` and `&` are three precedence levels; the
+    error kinds as the reference has them, with `InternalError`; named
+    arguments among the statements.
+  - **More complete:**
+    - equality of classes and bound member functions (chapter 2);
+    - `for` over an object with `iter()` (chapter 6);
+    - `fs::walk` also reports its start, and never follows symbolic
+      links (chapter 13);
+    - the `re` flags `s` and `U` (chapter 14);
+    - `vi.kkl`'s size (chapter 19).
 
 ## v1.4.0 (2026-11-07)
 

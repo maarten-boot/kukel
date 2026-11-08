@@ -226,9 +226,10 @@ false
   symbolic link?), `mode` (the permissions, as `ls -l` shows them:
   `"-rw-r--r--"`) and `time` (when it last changed). `fs::stat(path)`
   gives the entry of one path.
-- `fs::walk(dir, f)` calls `f(path, entry)` for everything below `dir`,
-  depth first. When `f` returns `false` for a directory, `walk` skips
-  what is in it (say, `.git`).
+- `fs::walk(dir, f)` calls `f(path, entry)` for `dir` itself and
+  everything below it, depth first. When `f` returns `false` for a
+  directory, `walk` skips what is in it (say, `.git`). Symbolic links are
+  reported, never followed.
 - `fs::mkdir` makes a directory, `fs::mkdirall` also the ones above it;
   `fs::remove` removes a file or an empty directory, `fs::removeall`
   everything below a path. `fs::rename` renames or moves.

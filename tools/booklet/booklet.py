@@ -123,6 +123,9 @@ def convert(text, chapter, names, version, source_dir):
     md = markdown.Markdown(extensions=["fenced_code", "tables", "toc"],
                            extension_configs={"toc": {"slugify": slugify}})
     body = md.convert(text)
+    # In a table "\|" is a "|" that does not end the cell; python-markdown
+    # keeps the backslash inside a code span (`\|\|`), GitHub drops it.
+    body = re.sub(r"<table>.*?</table>", lambda m: m.group(0).replace("\\|", "|"), body, flags=re.S)
 
     def link(m):
         href = html.unescape(m.group(1))

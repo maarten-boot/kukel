@@ -82,7 +82,8 @@ The Quick Brown Fox
 
 - `re::compile(pattern)` turns a pattern into a `re::Regexp` once, to be
   used many times. A second argument gives flags: `"i"` ignores case,
-  `"m"` lets `^` and `$` match at every line.
+  `"m"` lets `^` and `$` match at every line, `"s"` lets `.` match a new
+  line, `"U"` makes repetition lazy.
 - `match` says whether it occurs; `find` gives the first match,
   `findall` all of them; `groups` gives the first match with the parts in
   parentheses.

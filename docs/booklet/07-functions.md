@@ -173,7 +173,7 @@ ends with a `StackOverflowError` instead of running out of memory.
 
 A program starts at `main`. It has no parameters, or one: the vector of
 the program's arguments (chapter 1). What `main` returns becomes the
-program's exit code when it is a number, which tells a shell script
+program's exit code when it is an int (anything else gives 0), which tells a shell script
 whether the program succeeded (0) or not:
 
 ```

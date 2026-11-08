@@ -50,8 +50,8 @@ Parameters are locals too, of the whole function body.
 ## Globals
 
 `global` declares variables at the top of a file, outside any function.
-Every function of the file can use them, also functions above the
-declaration:
+Every function of the program can use them, in any of its files, and also
+the functions above the declaration:
 
 ```
 global calls = 0, history = [];
@@ -141,7 +141,7 @@ When kukel meets a name, it looks for it in this order:
 2. the variables of the functions around it, for a function written inside
    another (chapter 8);
 3. inside a member function, the members of the object (chapter 9);
-4. the top-level names of the file, and the built-ins.
+4. the top-level names of the program, and the built-ins.
 
 Modules have their own top-level names: a name of a module is written
 with the module in front, as `stats::mean` (chapter 12).

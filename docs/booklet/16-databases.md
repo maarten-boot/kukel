@@ -204,8 +204,9 @@ Emma 3
 - `conn->migrate(Book)` makes the table if it is not there, and adds
   columns for new data members. `columns()`, a static member function,
   gives the columns their SQL types.
-- `conn->save(b)` inserts an object without an id (and sets its `id`), or
-  updates the row of one that has an id.
+- `conn->save(b)` inserts an object without an id (and sets its `id`); an
+  object with an id updates the row with that id, or is inserted with it
+  when there is none.
 - `conn->get(Book, id)` loads one object; `conn->find(Book)` starts a
   query, refined with `where`, `orderby` and `limit`, and run with
   `all()`, `first()` or `count()`.

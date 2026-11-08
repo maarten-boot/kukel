@@ -161,8 +161,8 @@ error.
 
 An exception that no `try` catches ends the program, with exit code 1. It
 prints the kind, the message and the calls that led to it, the innermost
-first. A file `average.kkl` whose `main` (on line 9) asks for the average
-of an empty vector:
+first. A file `average.kkl` that starts with this function, and whose
+`main` asks on line 11 for the average of an empty vector:
 
 ```
 average(v) {
@@ -178,8 +178,8 @@ average(v) {
 ```
 $ kukel run average.kkl
 ZeroDivisionError: integer division by zero
-  at average (average.kkl:5)
-  at main (average.kkl:9)
+  at average (average.kkl:7)
+  at main (average.kkl:11)
 ```
 
 That is often the right thing: better to stop than to go on with wrong

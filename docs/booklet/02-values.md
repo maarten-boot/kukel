@@ -164,9 +164,11 @@ counts as.
 - numbers by value, also an int with a float: `1 == 1.0` is true;
 - strings by their text: `"a" == "a"`;
 - `nil`, `true` and `false` by value;
-- vectors, maps, objects and functions by *identity*: two of them are
-  equal only when they are the same one. `[1] == [1]` is false: those are
-  two vectors that happen to hold the same.
+- vectors, maps, objects, classes and functions by *identity*: two of
+  them are equal only when they are the same one. `[1] == [1]` is false:
+  those are two vectors that happen to hold the same. A member function
+  taken from an object (`p->m`, chapter 8) equals the same member
+  function taken from the same object.
 
 Values of different types are never equal (but for ints and floats):
 `nil == false` and `0 == "0"` are false.

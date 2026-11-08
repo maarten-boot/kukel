@@ -40,7 +40,7 @@ text=$(awk '
 	/^```/ { flush(); code = !code; print; next }
 	code { print; next }
 	/^[ \t]*$/ { flush(); print ""; next }
-	/^- / || /^#/ { flush(); cur = $0; next }
+	/^[ \t]*- / || /^#/ { flush(); cur = $0; next } # an item, also a nested one (its indent kept)
 	{ sub(/^[ \t]+/, ""); cur = (cur == "" ? $0 : cur " " $0) }
 	END { flush() }' <<<"$text")
 

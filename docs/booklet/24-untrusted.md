@@ -10,7 +10,7 @@ program four controls:
 | Control | Stops |
 |---|---|
 | `CompileOptions.DenyBuiltins` | built-in functions: `kukel.SystemBuiltins` are those that reach files, the environment, standard input and `exit` |
-| `CompileOptions.StandardModules` | standard modules: only those listed may be used (`fs`, `db`, `net`, `zmq`, `p9`, `worker`, ... left out) |
+| `CompileOptions.StandardModules` | standard modules: only those listed may be used (`fs`, `db`, `net`, `zmq`, `p9`, `worker`, ... left out); `[]string{}` allows none, but nil, the default, allows **all** |
 | `CompileOptions.NoFileModules` | program files: `use` finds only standard modules, no `.kkl` files from disk |
 | `Options.StepLimit`, `in.CallContext(ctx, ...)` | running too long: after a number of steps, or when a context ends |
 
@@ -126,7 +126,8 @@ returns.
 
 1. Compile with `DenyBuiltins: kukel.SystemBuiltins`, `NoFileModules:
    true`, and `StandardModules` listing only what scripts need (often
-   none: `[]string{}`).
+   none: `[]string{}`). Leaving `StandardModules` out, or nil, allows
+   every standard module, `fs` and `net` among them.
 2. Give scripts what they may do through a host module of your own
    (appendix B), with functions that check their arguments.
 3. Run every call with a `StepLimit` and through `CallContext`, with a

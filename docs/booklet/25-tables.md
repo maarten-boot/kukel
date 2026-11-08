@@ -26,9 +26,11 @@ From the loosest to the tightest:
 | `c ? a : b` | choosing, right to left |
 | `\|\|` | or (gives `true` or `false`) |
 | `&&` | and (gives `true` or `false`) |
-| `\|` `^` `&` | bitwise or, exclusive or, and (ints) |
+| `\|` | bitwise or (ints) |
+| `^` | bitwise exclusive or (ints) |
+| `&` | bitwise and (ints) |
 | `==` `!=` | equal: numbers by value, strings by text, the rest by identity |
-| `<` `<=` `>` `>=` | numbers with numbers, strings with strings |
+| `<` `<=` `>` `>=` | numbers with numbers, strings with strings (byte order) |
 | `<<` `>>` | shifts (ints) |
 | `+` `-` | adding; `+` joins two strings |
 | `*` `/` `%` | multiplying; `/` of two ints drops the fraction |
@@ -46,6 +48,7 @@ while (c) s;      do s; while (c);      for (local i = 0; i < n; i++) s;
 for (local x in v) s;               for (local i, x in v) s;
 switch (x) { case 1: case 2: s; break; default: t; }
 name: for (...) { ... break name; ... continue name; }
+f(1, 2);          f(1, size: 2);      new Point(y: 2, x: 1);
 return x;         throw new Error("message", "Kind");
 try { ... } catch (e) { ... } finally { ... }
 with (local f = open(...)) { ... }  // f->close() at the end
@@ -78,11 +81,11 @@ yield x;          local y = yield x;          yield from g;
 | Kind | When |
 |---|---|
 | `TypeError` | a value of the wrong type: `1 + "a"`, calling a number |
-| `ValueError` | a value a function cannot work with: `int("x")`, invalid JSON |
-| `RangeError` | an index, or a number, out of range |
-| `ZeroDivisionError` | an int divided by the int 0 |
-| `ArgumentError` | a wrong number of arguments, found while running |
-| `MemberError` | a member an object does not have |
+| `ValueError` | a value a function cannot work with: `int("x")`, invalid JSON; or a call not possible now: `send` to a stopped worker |
+| `RangeError` | an index, or a number, out of range: `v[10]`, `char(300)`, `pop([])` |
+| `ZeroDivisionError` | an int divided by the int 0, with `/` or `%` |
+| `ArgumentError` | a wrong number of arguments, found while running; an argument a built-in cannot work with: `min()` of no values |
+| `MemberError` | a member an object does not have, or one declared but not defined |
 | `IOError` | a file that cannot be read or written |
 | `NetError` | a network problem (`net`, `zmq`, `p9`) |
 | `DBError` | an error the database reports |
@@ -91,6 +94,7 @@ yield x;          local y = yield x;          yield from g;
 | `StackOverflowError` | more than 10000 nested calls |
 | `HostError` | a Go function of the embedding program failed |
 | `StepLimitError`, `CancelledError` | the embedding program's limits (cannot be caught) |
+| `InternalError` | a damaged `.kkc` file (should not happen) |
 
 ## The standard modules
 

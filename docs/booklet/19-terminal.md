@@ -75,7 +75,7 @@ with the Esc character, `"\x1b"`, and that every terminal understands:
 | `"\x1b[7m"`, `"\x1b[1m"`, `"\x1b[0m"` | reversed, bold, normal text |
 | `"\x1b[?25l"`, `"\x1b[?25h"` | hides and shows the cursor |
 
-[examples/vi.kkl](../../examples/vi.kkl) is a small vi in about 700 lines
+[examples/vi.kkl](../../examples/vi.kkl) is a small vi in about 900 lines
 of Kukel built on just these: a good program to read.
 
 ## Testing with keys from a file

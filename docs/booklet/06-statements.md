@@ -101,8 +101,10 @@ part: `i += 3, j -= 3`.
 ## Walking a collection
 
 `for (local x in c)` takes the values of `c` one at a time: the elements
-of a vector, the keys of a map, the bytes of a string, or the values of a
-generator (chapter 11). With two names it gives the position too:
+of a vector, the keys of a map, the bytes of a string, the values of a
+generator (chapter 11), or those of an object whose member function
+`iter()` gives a generator, such as an open file (its lines, chapter 13).
+Anything else is a `TypeError`. With two names it gives the position too:
 
 ```
 main() {
