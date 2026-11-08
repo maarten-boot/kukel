@@ -260,10 +260,13 @@ when a full cross-check is due) is in [docs/checks.md](docs/checks.md).
 
 **Releases**: pushing a tag `v1.2.3` runs `.github/workflows/release.yml`,
 which first runs the whole CI (`ci.yml`); when that passes, the archives
-of `make dist` and the booklet's PDF are published as the GitHub release of the tag, with notes
-made from the commits since the previous tag. A release that already
-exists (made by hand) gets the archives added, replacing files of the same
-name. At the same time the Docker image is built for linux/amd64 and
+of `make dist` and the booklet's PDF are published as the GitHub release of the tag. Its
+notes are the tag's section of `CHANGELOG.md` (`## v1.2.3 (date)`) and a
+link to the commits since the previous tag (`tools/release-notes.sh TAG`
+prints them; a tag with a `-` takes its version's section, or
+"Unreleased"); a tag without a section is not released. A release that
+already exists (made by hand) gets the archives added, replacing files of
+the same name, and keeps its notes. At the same time the Docker image is built for linux/amd64 and
 linux/arm64 and pushed to `ghcr.io` as `:v1.2.3`, and as `:latest` when the
 tag is the newest release (a tag with a `-`, such as `v1.3.0-rc1`, never
 is). The base images and BuildKit are pinned to digests; Dependabot

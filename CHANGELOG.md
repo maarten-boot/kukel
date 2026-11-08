@@ -21,6 +21,11 @@ From v1.0.0 on, what keeps working is in
   release (go1.27.3, Unicode 17.0.0), and says what each part of its
   first line means and that the Go and Unicode versions depend on the Go
   that built kukel.
+- Releases: the notes of a GitHub release are the tag's section of this
+  file, with a link to the commits since the previous tag
+  (`tools/release-notes.sh`); before, GitHub's generated notes had only
+  the link, as they list merged pull requests. A tag without a section
+  here is not released.
 
 ## v1.4.0 (2026-11-07)
 

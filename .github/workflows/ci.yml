@@ -68,6 +68,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           fetch-depth: 0           # tags, for the version on its title page
+      - name: Release notes of the newest tag (tools/release-notes.sh, as release.yml runs it)
+        run: tools/release-notes.sh "$(git describe --tags --abbrev=0)" "${{ github.repository }}"
       - name: Build the booklet
         run: |
           sudo apt-get update

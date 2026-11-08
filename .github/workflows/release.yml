@@ -2,9 +2,11 @@ name: Release
 
 # A tag v1.2.3 runs the whole CI (ci.yml); only when it passes are the
 # archives built (make dist), and the booklet as a PDF (make booklet), and
-# published as the GitHub release of the tag, with the logo above notes
-# generated from the commits since the previous tag. A release that already
-# exists (made by hand) gets the files added. The Docker image (Dockerfile)
+# published as the GitHub release of the tag, with the logo above the
+# tag's section of CHANGELOG.md and a link to the commits since the
+# previous tag (tools/release-notes.sh; a tag without a section is not
+# released). A release that already exists (made by hand) gets the files
+# added, and keeps its notes. The Docker image (Dockerfile)
 # is built for linux/amd64 and linux/arm64 and pushed to ghcr.io as :v1.2.3, and as :latest when the tag is the newest
 # release (not one with a "-", such as v1.3.0-rc1).
 
@@ -28,6 +30,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           fetch-depth: 0
+      - name: Make the notes (the tag's section of CHANGELOG.md; none stops the release)
+        run: tools/release-notes.sh "${{ github.ref_name }}" "${{ github.repository }}" > "$RUNNER_TEMP/notes.md"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e   # v7.0.0
         with:
           go-version: stable
@@ -47,9 +51,7 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
           else
-            # The logo above the notes GitHub generates (gh prepends --notes).
-            logo="<p align=\"center\"><img src=\"https://raw.githubusercontent.com/$REPO/$TAG/docs/Kukel-text-small.png\" alt=\"The Kukel logo\" width=\"120\"></p>"
-            gh release create "$TAG" dist/* --title "kukel $TAG" --notes "$logo" --generate-notes --verify-tag
+            gh release create "$TAG" dist/* --title "kukel $TAG" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
           fi
 
   image:
