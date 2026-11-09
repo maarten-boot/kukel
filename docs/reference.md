@@ -475,6 +475,12 @@ main(args) {
   is defined once, and the built-in names cannot be redefined or assigned.
   A local, parameter or member may reuse a built-in's name; it hides the
   built-in where it is visible.
+- A name is looked up in this order, and the first one found is used: the
+  locals and parameters of the function, innermost block first; the
+  variables of the functions around it, for a function literal (section
+  7); in a member function, or a function literal inside one, the members
+  of the object (section 8); the top-level names of the program (of the
+  module, in a module), and the built-ins.
 - Using a name that is not defined anywhere is a compile error. Assigning to
   a constant, function, class, built-in or member function is a compile
   error (assigning to `p->m` where `m` is a member function is a
@@ -737,7 +743,7 @@ Operators, from lowest to highest precedence:
 |---|---|---|
 | `,` | left | only in the first and last part of a `for` loop: evaluates both, gives the right one |
 | `= += -= *= /= %= &= \|= ^= <<= >>=` | right | the value of an assignment is the assigned value |
-| `c ? a : b` | right | |
+| `c ? a : b` | right | evaluates `c`, then only the side it chooses |
 | `\|\|` | left | gives `true` or `false`; stops when the left side is true |
 | `&&` | left | gives `true` or `false`; stops when the left side is false |
 | `\|` | left | bitwise or, ints only |
@@ -748,8 +754,8 @@ Operators, from lowest to highest precedence:
 | `<<` `>>` | left | ints; the count must be 0..63; `>>` keeps the sign |
 | `+` `-` | left | `+` also joins two strings |
 | `*` `/` `%` | left | |
-| `-x` `!x` `~x` `++x` `--x` | right | |
-| `f(x)` `v[i]` `p->x` `p->m(x)` `x++` `x--` | left | |
+| `-x` `!x` `~x` `++x` `--x` | right | `!x` gives `true` or `false`, the opposite of the truth of `x` (`!!x` is its truth); `~x` is the bitwise not of an int (`~5` is `-6`); `++x` and `--x` give the new value |
+| `f(x)` `v[i]` `p->x` `p->m(x)` `x++` `x--` | left | `x++` and `x--` give the old value |
 | `new C(...)`, `fn (...) { ... }`, `C::x`, `m::x`, literals, `(e)` | | primary expressions: they bind tightest (`new C()->m()` is `(new C())->m()`) |
 
 **Numbers**: ints wrap around on overflow. An int with a float gives a
@@ -1873,7 +1879,8 @@ Directories and files of the local file system: open files to read and
 write a piece at a time (and to lock), the program's standard streams,
 temporary files and directories, directories, entries, permissions and
 paths. Paths are strings, as for `readfile`; relative ones
-start at the current directory.
+start at the current directory, and absolute ones at the root
+(`/home/ann/todo.txt`, or `C:\...` on Windows).
 
 ```
 use fs;
@@ -2409,7 +2416,10 @@ main() {
 
 The terminal a key at a time, for programs that draw the screen
 themselves with ANSI escape codes (`"\x1b[2J"` clears it, `"\x1b[5;10H"`
-puts the cursor on row 5, column 10, `"\x1b[7m"` shows text reversed):
+puts the cursor on row 5, column 10 and `"\x1b[H"` at the top left,
+`"\x1b[K"` clears to the end of the line, `"\x1b[7m"` shows text reversed,
+`"\x1b[1m"` bold and `"\x1b[0m"` normal again, `"\x1b[?25l"` and
+`"\x1b[?25h"` hide and show the cursor):
 a menu, a game, [examples/vi.kkl](../examples/vi.kkl). On Windows the
 console is switched to understand those codes while the terminal is raw.
 
