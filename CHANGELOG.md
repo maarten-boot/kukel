@@ -51,9 +51,12 @@ From v1.0.0 on, what keeps working is in
   `++x` give, that `?:` evaluates only the side it chooses, what `!x` and
   `~x` give (§6), the order in which a name is looked up (§4), absolute
   paths on Windows (`fs`) and more ANSI codes (`term`). Q109.
-- Booklet chapter 13 explains what its examples use and leaves the full
-  list of `fs` to the reference, with a link, instead of repeating it.
-  Q109.
+- Booklet: chapters 10, 12, 13 and 20 explain what their examples use and
+  link to the reference (and appendix D) for the full lists and rules,
+  instead of repeating them: the kinds of errors, the rest of `fs`,
+  `fmt`'s rules, the debugger's other commands, the remaining rules of
+  modules. Chapter 12 also says that a compiled `name.kkc` is found as
+  `name.kkl` is. Q109.
 
 ## v1.4.0 (2026-11-07)
 

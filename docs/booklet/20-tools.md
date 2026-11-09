@@ -59,14 +59,11 @@ report(v, title) {
 
 Each argument starts a line of its own, one level in; the last one gets a
 comma too, so that adding or moving a line never touches another; the `)`
-lines up with the start of the statement. A call (or a vector or map
-literal) that holds such a list among its items is split as well (the
-first `println` has four arguments; the second holds `frame(...)`, a
-function of the program).
-`kukel fmt -vertical` does the same for every call, definition and vector
-or map literal with two or more items, `report(v, title)` and `join(v,
-", ")` included. A vector or map literal on a line that is too long is
-split in the same way, one element per line.
+lines up with the start of the statement. The first `println` has four
+arguments; the second is split because it holds `frame(...)`, which has
+four. `kukel fmt -vertical` splits every list of two or more items, so
+`report(v, title)` and `join(v, ", ")` too. The
+[reference](../reference.md#1-running-programs) has all of `fmt`'s rules.
 
 ## Finding bugs: `kukel debug`
 
@@ -101,8 +98,10 @@ the program ended (exit code 0)
 | `locals`, `bt`, `frame n`, `l` | the variables; the calls; look at another call; the source around |
 | `q` | quit |
 
-An exception that nothing catches stops the program where it is thrown,
-so you can look around before it ends.
+These are the commands you need most; `h` lists them all, and the
+[reference](../reference.md#the-debugger) explains each. An exception
+that nothing catches stops the program where it is thrown, so you can
+look around before it ends.
 
 **In an editor.** `kukel dap` is the same debugger for editors, through
 the Debug Adapter Protocol: Visual Studio Code (with the extension in

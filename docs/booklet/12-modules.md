@@ -85,6 +85,9 @@ money::Amount{cents: 1650}
 - A module is loaded once, however many files use it. Its globals get
   their values before those of the files that use it.
 
+The [reference](../reference.md#modules) has the remaining rules: modules
+that use each other in a cycle, and the names a module may not take.
+
 ## Where modules are found
 
 For `use name;`, kukel looks for:
@@ -94,6 +97,9 @@ For `use name;`, kukel looks for:
 2. the file `name.kkl` in the directory of the file with the `use`;
 3. `name.kkl` in each directory of the environment variable
    `KUKEL_PATH` (separated by `:`, or `;` on Windows), in order.
+
+In each directory a compiled `name.kkc` (below) counts too, when there is
+no `name.kkl`.
 
 So a library of your own modules can live in one directory: set
 `KUKEL_PATH` to it, and every program can use them. When a module is not

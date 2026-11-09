@@ -187,22 +187,13 @@ data. Catch an exception where the program knows what to do about it.
 
 ## The kinds
 
-The errors of the language and the modules come with these kinds, among
-others:
-
-| Kind | When |
-|---|---|
-| `TypeError` | an operation on a value of the wrong type: `1 + "a"`, calling a number |
-| `ValueError` | a value a function cannot work with: `int("x")`, invalid JSON |
-| `RangeError` | an index out of range, a number out of what a function takes |
-| `ZeroDivisionError` | an int divided by the int 0 |
-| `ArgumentError` | a wrong number of arguments, where kukel can only see it when it runs |
-| `MemberError` | a member an object does not have |
-| `IOError` | a file that cannot be read or written |
-| `NetError` | a network problem (Part II) |
-| `StackOverflowError` | calls nested too deep |
-
-The [reference](../reference.md#9-exceptions) has all of them. Two things
+Each error of the language and the modules has a kind that says what
+went wrong, so that a `catch` can tell them apart. Those met most are
+`TypeError` (a value of the wrong type: `1 + "a"`), `ValueError` (a value
+a function cannot work with: `int("x")`), `RangeError` (an index out of
+range), `ZeroDivisionError`, and in Part II `IOError` and `NetError`.
+[Appendix D](25-tables.md) lists them all, and the
+[reference](../reference.md#9-exceptions) says when each comes. Two things
 are not exceptions and cannot be caught: `exit(code)`, which ends the
 program at once, and being stopped from outside (by a Go program that
 runs Kukel, Appendix).
