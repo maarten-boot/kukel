@@ -15,6 +15,12 @@ Two kinds of change need care when you upgrade:
 From v1.0.0 on, what keeps working is in
 [docs/compatibility.md](docs/compatibility.md).
 
+## Unreleased
+
+- docs/future.md §10: a design for Kukel-MVC, applications built on the
+  schemas of the designer (a data dictionary tool), with its open
+  questions F-32 to F-38. Not built. Q111.
+
 ## v1.4.1 (2026-11-09)
 
 Syntax version 11 and bytecode format 12, as in v1.4: programs and `.kkc`

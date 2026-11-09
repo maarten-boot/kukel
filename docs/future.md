@@ -17,6 +17,7 @@ Contents:
 7. [Smaller items](#7-smaller-items)
 8. [Suggested order](#8-suggested-order)
 9. [Named arguments](#9-named-arguments) (the first step done, 2026-11-07)
+10. [Kukel-MVC: applications from the designer's schemas](#10-kukel-mvc-applications-from-the-designers-schemas) (a proposal, 2026-11-09)
 
 ---
 
@@ -797,9 +798,9 @@ Each step is usable on its own and prepares the next:
 Steps 4, 5, 7 and 8 are independent of each other once 1 and 3 exist. A
 `ffi` module (1.6) can come at any point after step 1.
 
-The open questions **F-1** to **F-31** are best answered just before the
+The open questions **F-1** to **F-38** are best answered just before the
 step that needs them; F-28 to F-31 are those of the named arguments
-(section 9).
+(section 9), F-32 to F-38 those of Kukel-MVC (section 10).
 
 ---
 
@@ -965,3 +966,198 @@ default of 120. Nested literals (a vector of maps) are split from the
 outermost on, as calls are, and a literal that holds a split list is
 split too.
 
+
+---
+
+## 10. Kukel-MVC: applications from the designer's schemas
+
+*A proposal (2026-11-09, TODO.md Q111); not built. The open questions are
+10.9.* The user's data dictionary tool, the
+[designer](https://github.com/maarten-boot/designer), describes a
+database: its types, fields, tables and schemas, the rules a value must
+keep, and how a value is shown to a person and read back. Kukel-MVC would
+build applications on such a description: the database as the *model*, a
+window (`tk`) or a terminal (`term`) as the *view*, and a *controller*
+between them. Neither side would know the other, nor the concrete
+database or toolkit: the model would see a store, the view a description
+of a screen, so that another database or another toolkit means one new
+part, not a new application.
+
+It would be a project of its own, `kukel-mvc`, written in Kukel, not part
+of kukel: a framework changes a lot while it is young, and kukel promises
+to stay the same (docs/compatibility.md). Kukel itself would need one
+thing it lacks, decimals (10.7). Strictly, a view that knows nothing of
+the model is *MVP* (model, view, presenter: a "passive view"); the name
+keeps the better-known MVC.
+
+### 10.1 What the designer gives
+
+The designer exports a schema for generators
+(`designer-schema-export`, `format_version` 1; its
+`examples/sales_schema.export.json`). Kukel-MVC would read only that, never
+the designer's own model file: the export is resolved (inherited
+definitions written out, names instead of references) and versioned, so
+it is the contract between the two. A table has its columns, primary key,
+foreign keys, indexes and default order; a column has its base type
+(`string`, `integer`, `decimal` with precision and scale, `real`, `date`,
+`time`, `datetime`, `boolean`), whether it may be empty, its default, and
+three kinds of rule, which are the three layers:
+
+| In the export | What it is | Kept by |
+|---|---|---|
+| `check` | rules the database can enforce itself (`value >= 0`) | the database; the model checks them first, for a message a person can read |
+| `application` | rules the database cannot keep: they span tables (`order.ship_to_country == order.customer.country_code`) or are not deterministic (`in_past`) | the model, before a save |
+| `interface` | how a value is shown and read back: a picture (`#,##0.00`, `dd-MM-yyyy`), the separators, leniency | the view's edge: parse on the way in, present on the way out |
+
+So what "the database may already do" is marked rule by rule, by the
+designer, and not guessed by the framework. The rules are expressions in
+the designer's language (`designer-1`: `regex_full_match(value, ...)`,
+paths such as `order.customer.country_code`).
+
+### 10.2 The parts
+
+```text
+   view (tk, term, ...)          controller                  model
+  ┌──────────────────┐  events  ┌──────────────┐  store   ┌─────────────────┐
+  │ draws a screen   │ ───────▶ │ parse        │ ───────▶ │ store interface │
+  │ description;     │          │ validate     │          │  ├─ db (SQL)    │
+  │ sends "changed", │ ◀─────── │ ask, save    │ ◀─────── │  └─ memory      │
+  │ "chosen"         │  screen  │ report       │  records │ rules: check,   │
+  └──────────────────┘  state   └──────────────┘          │ application     │
+                                                          └─────────────────┘
+```
+
+- The **model** knows the tables and their rules, keeps the data in a
+  store, and refuses what breaks a rule, with the designer's message.
+- The **view** draws a screen from a description and reports what the
+  person does. It holds no data of its own beyond what it shows.
+- The **controller** turns what the person does into requests to the
+  model, and what the model answers into what the view shows.
+
+All three run in Kukel's event loop (`events`), which already drives `tk`
+and `term`.
+
+### 10.3 The model: a store, not a database
+
+The controller would ask a *store*, never SQL:
+
+```
+// the store's member functions, as they could look
+get(table, key)                 // one record, or nil
+find(table, criteria, order)    // records, a page at a time
+save(record)                    // insert or update; the rules first
+remove(record)
+transaction(f)                  // f() all or nothing
+```
+
+Two stores at first: one over the module `db` (SQLite, PostgreSQL,
+MySQL; its ORM already makes tables, saves, finds and follows relations,
+and has `begin`, `commit` and `rollback`), and one in memory, for tests
+and for screens that need no database. A store would say what it can do
+itself (*capabilities*: "keeps check rules", "makes keys"), and the model
+would do the rest. That is the one place where the database shows
+through, on purpose and by name, instead of everywhere.
+
+Before a save the model would run the `check` rules (the database keeps
+them too, but its errors are not meant for people) and the `application`
+rules, which may follow paths to other tables through the store
+(`order.customer.country_code`).
+
+### 10.4 The view: screens, not widgets
+
+A layer that maps every widget of every toolkit onto one set ends with
+what all of them have in common, which is little. The view would instead
+get a *screen description*: fields (label, picture, required, read-only,
+the current value and error), lists of records, groups, and actions. A
+*renderer* draws it in its own way: `tk` with entry fields and a table,
+`term` with a form drawn in ANSI codes. A new toolkit is a new renderer.
+
+```
+// a screen description, as it could look
+{
+    "title": "Customer",
+    "table": "Customer",
+    "fields": [
+        {"column": "name", "label": "Name", "required": true},
+        {"column": "country_code", "label": "Country"},
+        {"column": "credit_limit", "label": "Credit limit"}
+    ],
+    "actions": ["save", "cancel", "delete"]
+}
+```
+
+The view sends only events: "field `name` changed to this text", "action
+`save` chosen". It never parses or checks a value; it shows the error the
+controller gives it.
+
+### 10.5 The controller
+
+When a field changes, the controller parses the text with the column's
+interface (the picture and separators): text that cannot be read is an
+error at once ("not a number"). The value it reads is a *candidate*,
+which the column's rules then check. On `save` it asks the model, which
+runs the rules across fields and tables and the store. Every error goes
+back to the view with the field it belongs to. Values on their way out
+are shown with the same interface. The interface never refuses a value
+for its size or range: that is a rule's work (the designer's
+docs/designer-interfaces.md, §1).
+
+### 10.6 The rules: generated, not interpreted
+
+The `designer-1` expressions could be read while the application runs
+(an interpreter written in Kukel) or turned into Kukel code once, from the
+export, by a generator: a function per rule, compiled with the
+application (`kukel build`). Generating is the proposal: the Kukel
+compiler then checks the rules, they run at Kukel's speed, and the
+generated code can be read and debugged with Kukel's tools. Its cost is a
+build step after each change of the schema (F-33).
+
+### 10.7 What Kukel needs: decimals
+
+Prices and amounts are `decimal` in the designer (precision 12, scale 2),
+and Kukel has only `int` and `float`; money in floats is wrong
+(`0.1 + 0.2`). The ways open:
+
+- a type `decimal` in Kukel: literals (`12.50d`?), arithmetic with the
+  operators, exact; a syntax version and a bytecode format, and the most
+  work;
+- a standard module `decimal` with a class, written in Go: `new
+  decimal::Decimal("12.50")`, `a->add(b)`: no change to the language,
+  clumsier to write;
+- a convention: amounts as ints of the smallest unit (cents), the scale
+  from the export: no change to Kukel, but every calculation has to keep
+  it.
+
+`db` would read and write such values as the database's `NUMERIC` /
+`DECIMAL` columns, and `json` as numbers or strings (F-32).
+
+### 10.8 The first step
+
+One thin slice, from beginning to end, before anything general: the table
+`Customer` of `sales_schema.export.json`, as a list and an edit form, in
+`term` and in `tk` from one screen description, with parsing, the rules,
+saving to SQLite, and the errors shown at their fields. If both renderers
+work from one description, the split holds; if not, it shows early, while
+it is cheap to change.
+
+### 10.9 Open questions
+
+- **F-32** Decimals (10.7): a type in the language, a standard module, or
+  ints of the smallest unit?
+- **F-33** The rules (10.6): generated into Kukel code from the export
+  (proposed), or interpreted while the application runs?
+- **F-34** Screens (10.4): where do screen descriptions come from? A new
+  kind of item in the designer (with the fields, their order and groups,
+  and the tables they show); files of the application; or screens made
+  from the tables by default (every column, in order) that an
+  application changes where it needs to?
+- **F-35** Two people changing one record: does a save check that the
+  record did not change since it was read (a version column, *optimistic
+  locking*), and is each action of the person one transaction?
+- **F-36** The view's contract: plain calls between controller and view,
+  or messages only (as events), which would also let a view run in
+  another process or on another machine later (a browser, over `zmq`)?
+- **F-37** The project: a repository of its own (`kukel-mvc`, modules
+  such as `mvc`, `store` and `forms`), and from which kukel version on?
+- **F-38** The export's version: Kukel-MVC reads `format_version` 1; does
+  a newer export refuse to load, or load what it knows?
