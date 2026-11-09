@@ -17,6 +17,11 @@ From v1.0.0 on, what keeps working is in
 
 ## Unreleased
 
+- A module `toml`: `toml::decode(s)` reads TOML 1.1 (and 1.0) into a map,
+  its tables in the order of the text; `toml::encode(m)` writes a map as
+  TOML. An offset datetime is a `time::Time`; a local date, time or
+  datetime a string. Arrays and tables nest at most 32 deep. Reading uses
+  [BurntSushi/toml](https://github.com/BurntSushi/toml). Q112.
 - docs/future.md §10: a design for Kukel-MVC, applications built on the
   schemas of the designer (a data dictionary tool), with its open
   questions F-32 to F-38. Not built. Q111.

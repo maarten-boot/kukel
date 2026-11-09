@@ -50,7 +50,7 @@ takes them one by one.
 13. [Files and directories](13-files.md): whole files, open files,
     directories, paths (`fs`)
 14. [Text and data](14-text.md): characters (`utf8`), patterns (`re`),
-    JSON (`json`), building text (`strings`)
+    JSON (`json`), configuration files (`toml`), building text (`strings`)
 15. [Time and identifiers](15-time.md): dates, times and time zones
     (`time`), UUIDs (`uuid`)
 16. [Databases](16-databases.md): SQLite, PostgreSQL and MySQL, and

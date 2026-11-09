@@ -33,6 +33,7 @@ import (
 	_ "github.com/maarten-boot/kukel/internal/modules/termmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/timemod"
 	_ "github.com/maarten-boot/kukel/internal/modules/tkmod"
+	_ "github.com/maarten-boot/kukel/internal/modules/tomlmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/utf8mod"
 	_ "github.com/maarten-boot/kukel/internal/modules/uuidmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/workermod"

@@ -34,7 +34,7 @@ hello, Kukel
 8. [Classes and objects](#8-classes-and-objects)
 9. [Exceptions](#9-exceptions)
 10. [Built-in functions](#10-built-in-functions)
-11. [Modules written in Go](#11-modules-written-in-go): db, events, fs, json, net, p9, re, strings, term, time, tk (with the build tag tk), utf8, uuid, worker, zmq
+11. [Modules written in Go](#11-modules-written-in-go): db, events, fs, json, net, p9, re, strings, term, time, tk (with the build tag tk), toml, utf8, uuid, worker, zmq
 12. [Modules written in Kukel](#12-modules-written-in-kukel): iter
 
 ---
@@ -3019,6 +3019,36 @@ main() {
 
 An id the canvas does not have is a `ValueError`. A canvas prints as
 `tk::Canvas(2 items)` (`1 item`).
+
+### toml
+
+[TOML](https://toml.io) is a format for configuration files: keys and
+values, grouped in `[tables]`.
+
+```
+use toml;
+
+main() {
+    writefile("app.toml", "[server]\nport = 8080\n");
+    local cfg = toml::decode(readfile("app.toml"));
+    println(cfg["server"]["port"]);         // 8080
+    cfg["server"]["port"] = 8081;
+    writefile("app.toml", toml::encode(cfg));
+    print(readfile("app.toml"));            // [server] and port = 8081, on two lines
+}
+```
+
+| Function | Description |
+|---|---|
+| `toml::decode(s)` | The map TOML text `s` stands for (TOML 1.1, which includes 1.0): tables (`[server]`, `a.b = 1`, `{x = 1}`) become maps with their keys in the order of the text, arrays and arrays of tables (`[[user]]`) vectors, integers ints, floats floats (also `inf` and `nan`). An offset datetime (`1979-05-27T07:32:00Z`) becomes a [`time::Time`](#time); a local datetime, local date or local time (`1979-05-27T07:32:00`, `1979-05-27`, `07:32:00`) a string in that form. Invalid TOML is a `ValueError` naming the line and column (in characters, from 1): `invalid TOML at line 2, column 1: Key 'a' has already been defined`. Arrays and tables nested more than 32 deep, counting each part of a dotted key and, to be safe, each dot on a line, are a `ValueError` too ("arrays and tables nested more than 32 deep") |
+| `toml::encode(m)` | The map `m` as TOML text. Keys and values come in the map's order, except that the maps (written as `[table]`) and the vectors of maps (`[[array of tables]]`) of a table follow its other keys, as TOML requires; a map inside a vector that also holds other values is an inline table `{ k = v }`. Keys that are not letters, digits, `_` and `-` are quoted; number keys become their text. A `time::Time` is an offset datetime; floats keep a `.0`. `m` not a map, and a `nil`, function, class or object other than a `time::Time`, is a `TypeError`; a string that is not UTF-8, a value that contains itself, keys `1` and `"1"` in one map, a time beyond the year 9999, or vectors and maps nested more than 32 deep is a `ValueError` |
+
+A local date read and written again comes back as a quoted string
+(`day = "2026-11-09"`), since it is a string in Kukel. Comments and the
+layout of the text are not kept. Reading uses the Go library
+[BurntSushi/toml](https://github.com/BurntSushi/toml); deeply dotted keys
+cost it more, so a text of plain keys reads at roughly 5 MB a second and
+one made of 30-deep dotted keys at about half a MB.
 
 ### utf8
 

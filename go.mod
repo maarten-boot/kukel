@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	9fans.net/go v0.0.7
+	github.com/BurntSushi/toml v1.6.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/go-zeromq/zmq4 v0.17.0
 	github.com/google/go-dap v0.12.0

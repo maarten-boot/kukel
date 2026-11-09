@@ -49,7 +49,7 @@ places, not a full review.
 
 | Changed | Check as well |
 |---|---|
-| a module | its reference.md section and `tests/run/native_*`; the modules that import it (`timemod`: db, fs, p9; `eventsmod`: net, zmq, p9, worker, tk; `fsmod`: p9) |
+| a module | its reference.md section and `tests/run/native_*`; the modules that import it (`timemod`: db, fs, p9, toml; `eventsmod`: net, zmq, p9, worker, tk; `fsmod`: p9) |
 | `native` | look at every module for the convention that changed (section 3) |
 | `value` or `builtins` | the VM; reference.md §3 and §10; look at the modules that build or read the changed kind of value |
 | `vm` | the debugger and the profiler (the hooks), `workermod`, the Go API; vm.md §4; speed (section 3) |

@@ -1,0 +1,23 @@
+{"title": "Kukel", "ratio": 2.0, "born": time::Time(2026-11-09T10:00:00+01:00), "day": "2026-11-09", "server": {"port": 8080, "hosts": ["a", "b"]}, "user": [{"name": "ann"}, {"name": "bob", "admin": true}]}
+object 10 string
+bob 2
+name = "app"
+when = 2026-11-09T12:00:00Z
+mixed = [1, { a = "b" }]
+"odd key" = inf
+
+[db]
+file = "x.db"
+
+[[jobs]]
+id = 1
+
+[[jobs]]
+id = 2
+ValueError: toml::decode: invalid TOML at line 2, column 1: Key 'a' has already been defined
+ValueError: toml::decode: invalid TOML at line 1, column 4: unexpected EOF; expected value
+ValueError: toml::decode: invalid TOML at line 1, column 3: expected '.' or ']' to end table name, but got '\n' instead
+TypeError: toml::encode: a TOML document is a map, not vector
+TypeError: toml::encode: cannot encode nil as TOML
+ValueError: toml::encode: the map has the key "1" twice (as a number and as a string)
+TypeError: toml::encode: cannot encode Error as TOML

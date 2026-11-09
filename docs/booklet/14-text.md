@@ -2,10 +2,10 @@
 
 [The booklet](README.md) · previous: [13. Files and directories](13-files.md) · next: [15. Time and identifiers](15-time.md)
 
-Much of programming is turning text into data and back. Four modules help:
+Much of programming is turning text into data and back. Five modules help:
 `utf8` counts and changes text by character, `re` finds patterns, `json`
-reads and writes the format most web services speak, and `strings`
-builds long texts from many parts.
+reads and writes the format most web services speak, `toml` that of many
+configuration files, and `strings` builds long texts from many parts.
 
 ## Characters: `utf8`
 
@@ -154,6 +154,63 @@ ValueError json::decode: invalid JSON at byte 10: invalid character '}' where a 
 With `readfile` and `writefile` (chapter 13) that makes a configuration
 file of a few lines of code:
 `local config = json::decode(readfile("config.json"));`.
+
+## Configuration: `toml`
+
+TOML is a format made for configuration files: keys and values, grouped
+in `[tables]`, and `[[arrays of tables]]` for lists of them.
+`toml::decode` and `toml::encode` work as their `json` namesakes, with a
+map for the whole file:
+
+```
+use toml;
+
+main() {
+    local text = "name = \"shop\"\n[server]\nport = 8080\nhosts = [\"a\", \"b\"]\n[[user]]\nname = \"Ann\"\n[[user]]\nname = \"Bob\"\nadmin = true\n";
+    local cfg = toml::decode(text);
+    println(cfg["server"]["port"], cfg["user"][1]["name"], len(cfg["user"]));
+
+    cfg["server"]["port"] = 8081;
+    push(cfg["user"], {"name": "Cy"});
+    print(toml::encode(cfg));
+
+    try {
+        toml::decode("name = \"shop\"\nname = \"other\"\n");
+    } catch (e) {
+        println(e->kind, e->message);
+    }
+}
+```
+
+```
+$ kukel run config.kkl
+8080 Bob 2
+name = "shop"
+
+[server]
+port = 8081
+hosts = ["a", "b"]
+
+[[user]]
+name = "Ann"
+
+[[user]]
+name = "Bob"
+admin = true
+
+[[user]]
+name = "Cy"
+ValueError toml::decode: invalid TOML at line 2, column 1: Key 'name' has already been defined
+```
+
+- Tables become maps, in the order of the text; arrays become vectors.
+- A date and time with an offset (`2026-11-09T10:00:00+01:00`) becomes a
+  `time::Time` (chapter 15); one without an offset, a date alone or a time
+  alone stays a string (`"2026-11-09"`).
+- `toml::encode` writes the maps of a table after its other keys, as
+  `[table]` or `[[array of tables]]`; TOML needs that order.
+- TOML has no `nil`: a map holding one cannot be encoded. Comments in the
+  file are not kept.
 
 ## Building text: `strings`
 

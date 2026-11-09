@@ -101,7 +101,7 @@ yield x;          local y = yield x;          yield from g;
 | Module | For | Chapter |
 |---|---|---|
 | `fs` | files and directories | 13 |
-| `utf8`, `re`, `json`, `strings` | characters, patterns, JSON, building text | 14 |
+| `utf8`, `re`, `json`, `toml`, `strings` | characters, patterns, JSON, TOML, building text | 14 |
 | `time`, `uuid` | dates and times, identifiers | 15 |
 | `db` | SQLite, PostgreSQL, MySQL | 16 |
 | `events`, `worker` | the event loop, work in parallel | 17 |

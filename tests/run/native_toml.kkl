@@ -1,0 +1,40 @@
+// Native module toml: decode and encode TOML (keys keep their order).
+use toml;
+use time;
+
+main() {
+    local text = "title = \"Kukel\"\n"
+        + "ratio = 2.0\n"
+        + "born = 2026-11-09T10:00:00+01:00\n"
+        + "day = 2026-11-09\n"
+        + "[server]\n"
+        + "port = 8080\n"
+        + "hosts = [\"a\", \"b\"]\n"
+        + "[[user]]\n"
+        + "name = \"ann\"\n"
+        + "[[user]]\n"
+        + "name = \"bob\"\n"
+        + "admin = true\n";
+    local cfg = toml::decode(text);
+    println(cfg);
+    println(typeof(cfg["born"]), cfg["born"]->hour(), typeof(cfg["day"]));
+    println(cfg["user"][1]["name"], len(cfg["user"]));
+
+    // Tables come after the other keys of their table, as TOML wants.
+    print(toml::encode({"db": {"file": "x.db"}, "name": "app",
+                        "when": new time::Time(2026, 11, 9, 12, 0, 0),
+                        "jobs": [{"id": 1}, {"id": 2}], "mixed": [1, {"a": "b"}],
+                        "odd key": float("inf")}));
+
+    local wrong = ["a = 1\na = 2", "a = ", "[x\n"];
+
+    for (local w in wrong)
+        try { toml::decode(w); } catch (e) { println(e->kind + ":", e->message); }
+    local m = {"x": nil};
+    forEachBad([[1], m, {1: 1, "1": 2}, {"e": new Error("x")}]);
+}
+
+forEachBad(values) {
+    for (local v in values)
+        try { toml::encode(v); } catch (e) { println(e->kind + ":", e->message); }
+}
