@@ -25,10 +25,10 @@ From v1.0.0 on, what keeps working is in
   file, with a link to the commits since the previous tag
   (`tools/release-notes.sh`); before, GitHub's generated notes had only
   the link, as they list merged pull requests. A tag without a section
-  here is not released.
+  here is not released. Q108.
 - The booklet's PDF shows `|` in tables again, not `\|` (`||`, `|`, `|=`
-  in chapter 5 and appendix D).
-- Booklet corrections, from a comparison with the reference:
+  in chapter 5 and appendix D). Q109.
+- Booklet corrections, from a comparison with the reference (Q109):
   - **Appendix C:** a nil `StandardModules` (the default) allows every
     standard module; only `[]string{}` allows none.
   - **Chapter 10:** the trace of the example names the right lines.
@@ -57,6 +57,11 @@ From v1.0.0 on, what keeps working is in
   `fmt`'s rules, the debugger's other commands, the remaining rules of
   modules. Chapter 12 also says that a compiled `name.kkc` is found as
   `name.kkl` is. Q109.
+- On GitHub, the reference showed everything from the middle of `db` on
+  wrongly, code as text and text as code, since v1.2.0: a code block in
+  a list item had lost its indent. The links to its sections of modules
+  (`#fs`, `#time`, ...) work again, and a test checks the code blocks of
+  every document. Q110.
 
 ## v1.4.0 (2026-11-07)
 

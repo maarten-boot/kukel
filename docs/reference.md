@@ -1701,14 +1701,14 @@ main() {
   to such objects are declared `"UUID"` too:
 
   ```
-class Doc { id, title, parentid, parent; static columns(); static relations(); }
-Doc::columns() {
-    return {"id": "UUID", "title": "VARCHAR(40)", "parentid": "UUID"};
-}
-Doc::relations() {
-    return {"parent": db::one(Doc, "parentid")};
-}
-```
+  class Doc { id, title, parentid, parent; static columns(); static relations(); }
+  Doc::columns() {
+      return {"id": "UUID", "title": "VARCHAR(40)", "parentid": "UUID"};
+  }
+  Doc::relations() {
+      return {"parent": db::one(Doc, "parentid")};
+  }
+  ```
 
 - The database fills in `id` when its type (from `columns()`, else the
   default above) is the default, or has `AUTO_INCREMENT`, `IDENTITY` or
