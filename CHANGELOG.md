@@ -51,6 +51,9 @@ From v1.0.0 on, what keeps working is in
   `++x` give, that `?:` evaluates only the side it chooses, what `!x` and
   `~x` give (§6), the order in which a name is looked up (§4), absolute
   paths on Windows (`fs`) and more ANSI codes (`term`). Q109.
+- Booklet chapter 13 explains what its examples use and leaves the full
+  list of `fs` to the reference, with a link, instead of repeating it.
+  Q109.
 
 ## v1.4.0 (2026-11-07)
 

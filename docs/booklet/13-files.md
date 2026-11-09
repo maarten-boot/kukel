@@ -83,18 +83,16 @@ $ kukel run scores.kkl
 best: Cy 40
 ```
 
-- The second argument of `fs::open` is the *mode*, as in C: `"r"` reads
-  (the default), `"w"` writes and empties the file first, `"a"` appends,
-  `"x"` makes a new file and fails if there is one. With a `+` the file
-  is open both ways.
-- `out->println(...)` and `out->print(...)` write as the built-ins do;
-  `out->write(s, ...)` writes strings exactly as they are.
-- `for (local line in f)` walks the lines, without their line ends. With
-  two names it counts them, from 0. `f->readline()` reads one line, `nil`
-  at the end.
-- Writing is buffered, so writing many small pieces is fast; `close`
-  (which `with` calls) writes out what is left. `f->flush()` does it
-  earlier, for a log someone is watching.
+The second argument of `fs::open` is the *mode*, as in C: `"w"` writes
+and empties the file first, `"a"` appends, and without one the file is
+read. `out->println(...)` writes as the built-in does, `out->write(...)`
+strings exactly as they are. `for (local i, line in f)` walks the lines,
+without their line ends, and counts them from 0.
+
+Writing is buffered, so writing many small pieces is fast; `close`, which
+`with` calls, writes out what is left, and `f->flush()` does it earlier,
+for a log someone is watching. The other modes and all that a file can do
+are in the [reference](../reference.md#fs).
 
 ## Pieces and positions
 
@@ -221,29 +219,27 @@ false 9
 false
 ```
 
-- `fs::readdir(dir)` gives the *entries* of a directory, by name. An
-  entry is a map: `name`, `size`, `dir` (a directory?), `link` (a
-  symbolic link?), `mode` (the permissions, as `ls -l` shows them:
-  `"-rw-r--r--"`) and `time` (when it last changed). `fs::stat(path)`
-  gives the entry of one path.
-- `fs::walk(dir, f)` calls `f(path, entry)` for `dir` itself and
-  everything below it, depth first. When `f` returns `false` for a
-  directory, `walk` skips what is in it (say, `.git`). Symbolic links are
-  reported, never followed.
-- `fs::mkdir` makes a directory, `fs::mkdirall` also the ones above it;
-  `fs::remove` removes a file or an empty directory, `fs::removeall`
-  everything below a path. `fs::rename` renames or moves.
-- `fs::join` puts paths together with the right separator for the system
-  (`/`, or `\` on Windows); `fs::base`, `fs::dir` and `fs::ext` take them
-  apart.
-- `fs::tempdir` and `fs::temp` make a new directory or file with a name no
-  one else has.
+An *entry*, from `fs::readdir` (each one in a directory, by name) or
+`fs::stat` (one path), is a map: its `name`, its `size`, whether it is a
+directory (`dir`), and more. `fs::walk` visits a directory and everything
+below it; when its function returns `false` for a directory, `walk` stays
+out of it (say, `.git`). Build paths with `fs::join`, which uses the
+system's separator (`/`, or `\` on Windows), and take them apart with
+`fs::base`, `fs::dir` and `fs::ext`: then the program works on every
+system. `fs::tempdir` makes a directory with a name no one else has,
+`fs::mkdirall` a directory and the ones above it, `fs::rename` renames or
+moves, and `fs::removeall` removes a path and everything below it.
+
+The [reference](../reference.md#fs) lists all of `fs`: the other fields of
+an entry, making and removing directories, permissions, symbolic links,
+and what each function does when something is in the way.
 
 ## Replacing a file safely
 
 A program that is killed halfway through writing a file leaves half a
-file. Write the new version to a temporary file next to the old one,
-close it, and rename it over the old one: someone reading the file sees
+file. Write the new version to a temporary file next to the old one
+(`fs::temp` makes one, with a name no one else has, in the directory
+given), close it, and rename it over the old one: someone reading the file sees
 the old version or the new one, never half of it.
 
 ```
