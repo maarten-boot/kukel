@@ -15,7 +15,13 @@ Two kinds of change need care when you upgrade:
 From v1.0.0 on, what keeps working is in
 [docs/compatibility.md](docs/compatibility.md).
 
-## Unreleased
+## v1.4.1 (2026-11-09)
+
+Syntax version 11 and bytecode format 12, as in v1.4: programs and `.kkc`
+files work unchanged. Documentation and releases only: the reference
+shows correctly on GitHub again (it did not from v1.2.0 on), the booklet
+is corrected after a comparison with the reference, and a release's notes
+are its section of this file.
 
 - Booklet chapter 1: the `kukel version` sample is that of the v1.4.0
   release (go1.27.3, Unicode 17.0.0), and says what each part of its
