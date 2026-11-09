@@ -972,7 +972,9 @@ split too.
 ## 10. Kukel-MVC: applications from the designer's schemas
 
 *A proposal (2026-11-09, TODO.md Q111); not built. The open questions are
-10.9.* The user's data dictionary tool, the
+10.9; F-32 and F-34 are answered. The project is
+[kukel-mvc](https://github.com/maarten-boot/kukel-mvc), with its
+specification, plan and tests in docs/planning.* The user's data dictionary tool, the
 [designer](https://github.com/maarten-boot/designer), describes a
 database: its types, fields, tables and schemas, the rules a value must
 keep, and how a value is shown to a person and read back. Kukel-MVC would
@@ -1078,9 +1080,9 @@ the current value and error), lists of records, groups, and actions. A
     "title": "Customer",
     "table": "Customer",
     "fields": [
+        {"column": "id", "label": "Id", "readonly": true},
         {"column": "name", "label": "Name", "required": true},
-        {"column": "country_code", "label": "Country"},
-        {"column": "credit_limit", "label": "Credit limit"}
+        {"column": "country_code", "label": "Country", "required": true}
     ],
     "actions": ["save", "cancel", "delete"]
 }
@@ -1143,14 +1145,16 @@ it is cheap to change.
 ### 10.9 Open questions
 
 - **F-32** Decimals (10.7): a type in the language, a standard module, or
-  ints of the smallest unit?
+  ints of the smallest unit? *Answered (2026-11-09): a decimal type in
+  the language, added to kukel; its own design and questions come first.*
 - **F-33** The rules (10.6): generated into Kukel code from the export
   (proposed), or interpreted while the application runs?
 - **F-34** Screens (10.4): where do screen descriptions come from? A new
   kind of item in the designer (with the fields, their order and groups,
   and the tables they show); files of the application; or screens made
   from the tables by default (every column, in order) that an
-  application changes where it needs to?
+  application changes where it needs to? *Answered (2026-11-09): default
+  screens from the tables first; ways to change them later.*
 - **F-35** Two people changing one record: does a save check that the
   record did not change since it was read (a version column, *optimistic
   locking*), and is each action of the person one transaction?
