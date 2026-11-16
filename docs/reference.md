@@ -34,7 +34,7 @@ hello, Kukel
 8. [Classes and objects](#8-classes-and-objects)
 9. [Exceptions](#9-exceptions)
 10. [Built-in functions](#10-built-in-functions)
-11. [Modules written in Go](#11-modules-written-in-go): db, events, fs, json, net, p9, re, strings, term, time, tk (with the build tag tk), toml, utf8, uuid, worker, zmq
+11. [Modules written in Go](#11-modules-written-in-go): db, encoding, events, fs, json, net, p9, re, strings, term, time, tk (with the build tag tk), toml, utf8, uuid, worker, zmq
 12. [Modules written in Kukel](#12-modules-written-in-kukel): iter
 
 ---
@@ -1820,6 +1820,31 @@ main() {
 - `db::many` and `db::one` give a `db::Relation`, which prints as
   `db::many(Line, "orderid")`.
 
+### encoding
+
+Bytes as text and back: base64 (for mail attachments, data in JSON, keys
+in PEM files) and hexadecimal (for checksums and bytes in logs).
+
+```
+use encoding;
+
+main() {
+    println(encoding::base64("Kukel"));                 // S3VrZWw=
+    println(encoding::unbase64("S3VrZWw="));            // Kukel
+    println(encoding::hex("\x01\xff"));                 // 01ff
+    println(encoding::unhex("4B756B656C"));             // Kukel
+}
+```
+
+| Function | Description |
+|---|---|
+| `encoding::base64(s [, width])` | The bytes of `s` in base64 (RFC 4648: the standard alphabet `A`-`Z`, `a`-`z`, `0`-`9`, `+`, `/`, with `=` padding). With `width` (1 or more; `nil`: none) broken into lines of that many characters, joined by `"\n"` (MIME uses 76, PEM 64) |
+| `encoding::unbase64(s)` | The bytes base64 text `s` stands for. Spaces, tabs and line breaks are skipped and the `=` padding may be left out, so text from mail or a PEM file reads as it is. Anything else is a `ValueError` that names the byte (counted from 1): `invalid base64 at byte 4: the character '*'`, or `invalid base64: the text ends in the middle of a byte` |
+| `encoding::hex(s)` | The bytes of `s` as hexadecimal digits, two a byte, in lower case |
+| `encoding::unhex(s)` | The bytes hexadecimal text `s` stands for, in upper or lower case. Another character (`invalid hexadecimal at byte 2: the character 'g'`) or an odd number of digits is a `ValueError` |
+
+Base64 of the URL alphabet (`-` and `_`) is not there yet.
+
 ### events
 
 An event loop: it calls Kukel functions when timers expire, when calls are
@@ -2132,6 +2157,7 @@ a free port, which `endpoint()` then shows. To listen, host `*` or nothing
 | `net::listen(address [, options])` | Listens on a `tcp://`, `unix://` or `tls://` address and gives a `net::Listener`; a `tls://` one needs the options `cert` and `key` (below). An address in use or not allowed is a `NetError` (`address already in use`, also for a socket file that is there already). A Unix socket file is removed when the listener is closed |
 | `net::udp(address)` | A `net::UDP` that sends and receives packets from the `udp://` address it is bound to (`"udp://127.0.0.1:0"`, or `"udp://*:5000"` to receive from every interface) |
 | `net::lookup(host)` | The addresses of a host name, as strings (`["192.0.2.10", "2001:db8::10"]`); a name that is not found is a `NetError`, `""` a `ValueError` |
+| `net::hostname()` | The name of this machine, as the system has it (`"mail"` or `"mail.example.com"`; what follows the first dot depends on the system), for instance for SMTP's `EHLO` |
 
 A `net::Conn` is one connection, both ways. Its reads and writes wait
 until they are done; `timeout` bounds them, `ondata` hands what comes to

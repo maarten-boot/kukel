@@ -1,0 +1,12 @@
+S3VrZWw=  AP8=
+Kukel Kukel
+YSBsaW5lIG9mIHRleHQg
+dGhhdCBpcyBsb25nIGVu
+b3VnaCB0byBiZSBicm9r
+ZW4=
+4b756b656c01 Kukel
+ValueError: encoding::unbase64: invalid base64 at byte 4: the character '*'
+ValueError: encoding::unbase64: invalid base64: the text ends in the middle of a byte
+ValueError: encoding::unbase64: invalid base64 at byte 5: the character 'Q'
+ValueError: encoding::unhex: invalid hexadecimal: an odd number of digits (3)
+ValueError: encoding::base64: a line width of 0 (1 or more)

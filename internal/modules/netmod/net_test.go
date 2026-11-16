@@ -332,3 +332,14 @@ main() {}`, kukel.CompileOptions{})
 		}
 	}
 }
+
+// net::hostname gives the name of this machine, as Go's os.Hostname.
+func TestHostname(t *testing.T) {
+	want, err := os.Hostname()
+	if err != nil {
+		t.Skip(err)
+	}
+	if got := run(t, `use net; main() { println(net::hostname()); }`); got != want+"\n" {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

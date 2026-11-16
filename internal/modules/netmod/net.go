@@ -143,6 +143,17 @@ func init() {
 			"listen":  listen,
 			"udp":     newUDP,
 			"lookup":  lookup,
+			"hostname": func(env value.Env, args []value.Value) (value.Value, error) {
+				a, err := native.Check("net::hostname", args, 0, 0)
+				if err != nil {
+					return value.NilValue, err
+				}
+				name, err := os.Hostname()
+				if err != nil {
+					return value.NilValue, a.Errorf(NetError, "%s", native.NetMessage(err))
+				}
+				return value.MakeString(name), nil
+			},
 		},
 		Classes: []*native.Class{Conn, Listener, UDP},
 	})

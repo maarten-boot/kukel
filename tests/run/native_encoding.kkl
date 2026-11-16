@@ -1,0 +1,16 @@
+// Native module encoding: base64 and hexadecimal, and back.
+use encoding;
+
+main() {
+    println(encoding::base64("Kukel"), encoding::base64(""), encoding::base64("\x00\xff"));
+    println(encoding::unbase64("S3VrZWw="), encoding::unbase64("S3Vr\r\nZWw"));
+    println(encoding::base64("a line of text that is long enough to be broken", 20));
+    println(encoding::hex("Kukel\x01"), encoding::unhex("4B756B656C"));
+
+    local wrong = ["S3V*ZWw=", "S3VrZ", "QQ==QQ=="];
+
+    for (local w in wrong)
+        try { encoding::unbase64(w); } catch (e) { println(e->kind + ":", e->message); }
+    try { encoding::unhex("4B7"); } catch (e) { println(e->kind + ":", e->message); }
+    try { encoding::base64("x", 0); } catch (e) { println(e->kind + ":", e->message); }
+}

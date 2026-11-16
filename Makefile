@@ -63,6 +63,7 @@ fuzz:
 	$(GO) test -run '^$$' -fuzz '^FuzzCompile$$' -fuzztime $(FUZZTIME) ./internal/compiler
 	$(GO) test -run '^$$' -fuzz '^FuzzDecode$$' -fuzztime $(FUZZTIME) ./internal/bytecode
 	$(GO) test -run '^$$' -fuzz '^FuzzVerifyCode$$' -fuzztime $(FUZZTIME) ./internal/bytecode
+	$(GO) test -run '^$$' -fuzz '^FuzzBase64$$' -fuzztime $(FUZZTIME) ./internal/modules/encodingmod
 	$(GO) test -run '^$$' -fuzz '^FuzzJSON$$' -fuzztime $(FUZZTIME) ./internal/modules/jsonmod
 	$(GO) test -run '^$$' -fuzz '^FuzzTOML$$' -fuzztime $(FUZZTIME) ./internal/modules/tomlmod
 	$(GO) test -run '^$$' -fuzz '^FuzzFormat$$' -fuzztime $(FUZZTIME) ./internal/format

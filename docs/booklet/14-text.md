@@ -2,10 +2,11 @@
 
 [The booklet](README.md) · previous: [13. Files and directories](13-files.md) · next: [15. Time and identifiers](15-time.md)
 
-Much of programming is turning text into data and back. Five modules help:
+Much of programming is turning text into data and back. Six modules help:
 `utf8` counts and changes text by character, `re` finds patterns, `json`
 reads and writes the format most web services speak, `toml` that of many
-configuration files, and `strings` builds long texts from many parts.
+configuration files, `encoding` turns any bytes into plain text, and
+`strings` builds long texts from many parts.
 
 ## Characters: `utf8`
 
@@ -211,6 +212,37 @@ ValueError toml::decode: invalid TOML at line 2, column 1: Key 'name' has alread
   `[table]` or `[[array of tables]]`; TOML needs that order.
 - TOML has no `nil`: a map holding one cannot be encoded. Comments in the
   file are not kept.
+
+## Bytes as text: `encoding`
+
+Some places take only plain text: a mail, a JSON document, a line in a
+log. `encoding::base64` writes any bytes, a picture for instance, as
+letters, digits, `+` and `/`, and `encoding::unbase64` gives the bytes
+back; `encoding::hex` writes each byte as two hexadecimal digits:
+
+```
+use encoding;
+
+main() {
+    local photo = "\x89PNG\r\n\x1a\n";             // the first bytes of a PNG file
+    local text = encoding::base64(photo);
+    println(text, len(photo), len(text));
+    println(encoding::unbase64(text) == photo);
+    println(encoding::hex(photo));
+}
+```
+
+```
+$ kukel run bytes.kkl
+iVBORw0KGgo= 8 12
+true
+89504e470d0a1a0a
+```
+
+Base64 takes a third more room than the bytes. A second argument breaks
+it into lines (`encoding::base64(data, 76)`, as mail wants); `unbase64`
+skips line breaks and spaces, and `encoding::unhex` reads hexadecimal
+back.
 
 ## Building text: `strings`
 

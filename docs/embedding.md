@@ -84,7 +84,7 @@ and write output, after it returns. Call `Close` when the interpreter is no
 longer needed.
 
 `Builtins()` and `StandardModules()` list the names of the built-in
-functions and of the standard modules (`db`, `events`, `fs`, `json`, `net`, `p9`,
+functions and of the standard modules (`db`, `encoding`, `events`, `fs`, `json`, `net`, `p9`,
 `re`, `strings`, `term`, `time`, `toml`, `utf8`, `uuid`, `worker`, `zmq`, and `tk` in a program
 built with `-tags tk`). `term` reads keys from the standard input of
 `Options`, but never makes a terminal raw: an interpreter has no terminal
@@ -305,7 +305,7 @@ more does not compile, so it never runs half-way):
 ```go
 opts := kukel.CompileOptions{
     DenyBuiltins:    kukel.SystemBuiltins,          // readfile, writefile, appendfile, readline, getenv, exit
-    StandardModules: []string{"json", "strings"},   // no db, fs, net, p9, zmq, events, worker, re, term, time, toml, utf8, uuid
+    StandardModules: []string{"json", "strings"},   // no db, encoding, fs, net, p9, zmq, events, worker, re, term, time, toml, utf8, uuid
     NoFileModules:   true,                          // no program files: "use" finds only standard modules, no worker::startfile
 }
 ```

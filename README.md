@@ -71,7 +71,7 @@ caught RangeError: index 5 out of range for vector of length 3
 - `switch` with fall-through, labelled `break`/`continue`
 - modules: `use geometry;` loads `geometry.kkl`, reached as `geometry::name`;
   modules written in Go: `db` (SQL with SQLite, PostgreSQL and MySQL, and
-  objects in tables), `events` (an event loop with timers), `fs`
+  objects in tables), `encoding` (base64 and hexadecimal), `events` (an event loop with timers), `fs`
   (open files read and written a line or a piece at a time, the standard
   streams, temporary files, locks, directories), `json`, `net` (TCP
   connections, Unix sockets, TLS and UDP packets), `p9` (the 9P file protocol: a client,
@@ -221,7 +221,7 @@ source ──lexer──▶ tokens ──parser──▶ syntax tree ──compi
 | `internal/token`, `internal/diag` | token kinds and source positions; the error type all stages share |
 | `internal/lexer`, `internal/parser`, `internal/ast` | source to syntax tree |
 | `internal/loader` | finds and reads the modules a program uses |
-| `internal/native`, `internal/modules/...` | modules written in Go (`db`, `events`, `fs`, `json`, `net`, `p9`, `re`, `strings`, `term`, `time`, `tk`, `toml`, `utf8`, `uuid`, `worker`, `zmq`) and native classes |
+| `internal/native`, `internal/modules/...` | modules written in Go (`db`, `encoding`, `events`, `fs`, `json`, `net`, `p9`, `re`, `strings`, `term`, `time`, `tk`, `toml`, `utf8`, `uuid`, `worker`, `zmq`) and native classes |
 | `internal/compiler` | name resolution, the language's rules, code generation |
 | `internal/bytecode` | instruction set, `.kkc` files, the verifier that checks loaded files |
 | `internal/vm` | the stack machine: calls, objects, closures, generators, exceptions (specified in [docs/vm.md](docs/vm.md)) |
@@ -249,7 +249,7 @@ when a full cross-check is due) is in [docs/checks.md](docs/checks.md).
 | `make test-all` | everything: vet, the tests of the full, the smallest and the `tk` build, and the tests with the race detector |
 | `make small`, `make test-small` | build `bin/kukel-small`, or run the tests, without the optional parts (`TAGS=...` picks other tags for `small`; `make vet` also vets the smallest build) |
 | `make tk`, `make test-tk` | build `bin/kukel-tk`, or run the tests, with the module `tk` (`make vet` also vets it). Its tests need a display or Xvfb (else they skip), and click, type and drag with xdotool when it is there |
-| `make fuzz FUZZTIME=1m` | fuzz the lexer, parser, compiler, bytecode loader and verifier (what they accept runs in the VM with a step limit), `json::decode`, `toml::decode`, time parsing and `kukel fmt` (each for 30s by default) |
+| `make fuzz FUZZTIME=1m` | fuzz the lexer, parser, compiler, bytecode loader and verifier (what they accept runs in the VM with a step limit), `json::decode`, `toml::decode`, base64, time parsing and `kukel fmt` (each for 30s by default) |
 | `make bench` | benchmarks |
 | `make golden` | rewrite the expected outputs in `tests/` after an intended change |
 | `make vscode` | the Visual Studio Code extension (`editors/vscode`) as `dist/kukel-vscode-<version>.vsix`; needs Node.js (npx fetches vsce) |

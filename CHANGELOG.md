@@ -17,6 +17,10 @@ From v1.0.0 on, what keeps working is in
 
 ## Unreleased
 
+- A module `encoding`: `encoding::base64(s [, width])` and
+  `encoding::unbase64(s)` (which skips line breaks and takes text without
+  padding), `encoding::hex(s)` and `encoding::unhex(s)`; and
+  `net::hostname()`. Q113.
 - TLS in `net`: `net::connect("tls://host:port" [, timeout [, options]])`
   is encrypted from the start, `c->starttls(servername [, options])`
   encrypts an open connection, `net::listen("tls://...", {"cert": ...,
