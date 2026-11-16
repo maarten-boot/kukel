@@ -2082,8 +2082,9 @@ main() {
 
 ### net
 
-TCP connections, connections over Unix sockets, and UDP packets: to talk
-with other programs and machines in their own protocols (a web server, a
+TCP connections, connections over Unix sockets, TLS (encryption) on
+them, and UDP packets: to talk with other programs and machines in their
+own protocols (a web server, a
 mail server, a game, a device). For messages between Kukel programs `zmq`
 is often simpler; for files over the network `p9`.
 
@@ -2119,15 +2120,16 @@ main() {
 
 Addresses are `"tcp://host:port"` (`"tcp://[::1]:80"` for IPv6),
 `"unix:///path"` (a Unix socket file; `"unix://name"` is a path relative
-to the current directory) and, for UDP, `"udp://host:port"`. Port 0 picks
+to the current directory), `"tls://host:port"` (TCP, encrypted from the
+start: below) and, for UDP, `"udp://host:port"`. Port 0 picks
 a free port, which `endpoint()` then shows. To listen, host `*` or nothing
 (`"tcp://*:8080"`, `"tcp://:8080"`) is every interface. Data is strings
 (bytes): text, or anything else such as the bytes of a binary protocol.
 
 | Function | Description |
 |---|---|
-| `net::connect(address [, timeout])` | Connects to a `tcp://` or `unix://` address and gives a `net::Conn`; with `timeout`, waits at most that many seconds (without it, until the system gives up, often after a minute or more). A server that cannot be reached is a `NetError` (`net::connect: tcp://127.0.0.1:1: connection refused`, `host x not found`, `no connection within 5 seconds`); a wrong address (also a port beyond 65535, or a socket path longer than the system takes, 107 bytes on Linux) a `ValueError` |
-| `net::listen(address)` | Listens on a `tcp://` or `unix://` address and gives a `net::Listener`. An address in use or not allowed is a `NetError` (`address already in use`, also for a socket file that is there already). A Unix socket file is removed when the listener is closed |
+| `net::connect(address [, timeout [, options]])` | Connects to a `tcp://`, `unix://` or `tls://` address and gives a `net::Conn`; with `timeout` (`nil`: none), waits at most that many seconds, for a `tls://` address the TLS handshake included (without it, until the system gives up, often after a minute or more). A server that cannot be reached is a `NetError` (`net::connect: tcp://127.0.0.1:1: connection refused`, `host x not found`, `no connection within 5 seconds`); a wrong address (also a port beyond 65535, or a socket path longer than the system takes, 107 bytes on Linux) a `ValueError` |
+| `net::listen(address [, options])` | Listens on a `tcp://`, `unix://` or `tls://` address and gives a `net::Listener`; a `tls://` one needs the options `cert` and `key` (below). An address in use or not allowed is a `NetError` (`address already in use`, also for a socket file that is there already). A Unix socket file is removed when the listener is closed |
 | `net::udp(address)` | A `net::UDP` that sends and receives packets from the `udp://` address it is bound to (`"udp://127.0.0.1:0"`, or `"udp://*:5000"` to receive from every interface) |
 | `net::lookup(host)` | The addresses of a host name, as strings (`["192.0.2.10", "2001:db8::10"]`); a name that is not found is a `NetError`, `""` a `ValueError` |
 
@@ -2145,6 +2147,8 @@ the event loop instead.
 | `c->print([x, ...])`, `c->println([x, ...])` | Send as the built-ins `print` and `println` write |
 | `c->timeout(seconds)` | From now on each `read`, `readline`, `readall` and `write` that waits longer than `seconds` is a `NetError` (`no data within 5 seconds`; for `write`: `the data could not be sent within 5 seconds (part of it may have been)`); what came before the time ran out is kept for the next read. `nil` takes the limit away (the default). Gives `c`, so that `net::connect(a)->timeout(10)` works |
 | `c->closewrite()` | Tells the other side that nothing more comes (its reads end), while this side can still read the answer. Many protocols need it: the other side answers once it has everything |
+| `c->starttls(servername [, options])` | The TLS handshake on an open plain connection (STARTTLS, below); from then on it is encrypted. Gives `c`. The server's certificate must hold `servername`. Data that has come but was not read is a `NetError` and closes the connection: it can only have been sent before the encryption, perhaps by someone in between, to be read as if it came after. A failed handshake closes it too. On an encrypted connection, or one whose data goes to `ondata`, a `ValueError` |
+| `c->tls()` | `nil` for a plain connection; else a map: `version` (`"TLS 1.3"`), `cipher`, `servername`, and of the other side's certificate, when it sent one, `subject` (`"CN=smtp.example.com"`), `issuer`, `expires` (a `time::Time`) and `verified` (`false` with the option `insecure`) |
 | `c->ondata(f)` | The event loop (`events`) calls `f(data)` with what comes, and `f(nil)` once at the end; `events::run()` keeps going until then or until the connection is closed. Afterwards `read`, `readline`, `readall` and a second `ondata` are a `ValueError`. A connection that breaks is a `NetError` of the event loop (as for `zmq::Socket::onmessage`). `timeout` does not apply |
 | `c->endpoint()`, `c->peer()` | The addresses of this side and the other side (`"tcp://127.0.0.1:43127"`; for a Unix socket, the one of the side that listens, and `""` for the other) |
 | `c->close()`, `c->closed()` | Closes the connection (closing again has no effect); whether it is closed. Using a closed connection is a `ValueError`, except `close`, `closed`, `endpoint` and `peer` |
@@ -2187,11 +2191,52 @@ listeners as `net::Listener(tcp://127.0.0.1:8080)` and UDP sockets as
 `net::UDP(udp://127.0.0.1:5000)`, with `, closed` once closed. What a
 program leaves open is closed when it ends, and `with` closes them too.
 A program waiting in `connect`, `accept`, a read, a write or `receive` can
-be stopped by the Go program that runs it, as other waits can. There is no
-TLS (encryption) yet: use `net` on a trusted network, or through an
-encrypted tunnel. A Go program that embeds Kukel keeps the network away
-from a program by leaving `net` (and `zmq` and `p9`) out of
-`StandardModules`.
+be stopped by the Go program that runs it, as other waits can. A Go
+program that embeds Kukel keeps the network away from a program by
+leaving `net` (and `zmq` and `p9`) out of `StandardModules`.
+
+**TLS.** An encrypted connection is a `net::Conn` like any other: the
+same reads, writes, timeouts and `ondata`. There are two ways to one:
+
+```
+// TLS from the first byte (SMTPS on port 465, IMAPS on 993, HTTPS on 443):
+local c = net::connect("tls://smtp.example.com:465", 10);
+
+// STARTTLS: plain first, then encrypted on the same connection (SMTP on 587):
+local d = net::connect("tcp://smtp.example.com:587", 10)->timeout(10);
+d->readline();                                  // 220 the greeting
+d->write("EHLO me.example.com\r\n");          // ... its 250 lines ...
+d->write("STARTTLS\r\n");
+d->readline();                                  // 220 go ahead
+d->starttls("smtp.example.com");
+```
+
+The other side's certificate is checked against the system's root
+certificates and the server's name: the host of the address for
+`net::connect`, the `servername` for `starttls`. What fails is a
+`NetError` that says why: `TLS handshake failed: certificate signed by
+unknown authority`, `certificate is valid for mail.example.org, not
+smtp.example.com`, `certificate has expired or is not yet valid`, `the
+other side does not speak TLS`. TLS 1.2 is the oldest version accepted.
+
+The options (a map; another key is a `ValueError`):
+
+| Option | For | Meaning |
+|---|---|---|
+| `"ca"` | `connect`, `starttls` | a file of root certificates (PEM) to check the server's against, instead of the system's: for an own CA or a test server |
+| `"servername"` | `connect` | the name the certificate must hold, when it is not the host of the address (an address by IP number, say) |
+| `"cert"`, `"key"` | all | a certificate and its private key (PEM files): the client's, for a server that asks for one; for `net::listen`, the listener's (required) |
+| `"insecure"` | `connect`, `starttls` | `true`: the certificate is not checked. Anyone in between can then read and change the data; only for tests |
+
+A `tls://` listener does the handshake of each connection as it comes,
+before `accept` or `onconnect` hands it out, so a program can connect to
+its own listener; a client whose handshake fails, or does not finish
+within 10 seconds, is dropped without notice. It does not ask clients
+for certificates. An encrypted connection prints as
+`net::Conn(tcp://127.0.0.1:8080, TLS)`; `endpoint()` and `peer()` stay
+`tcp://` addresses, the listener's endpoint is its `tls://` address.
+STARTTLS on the side that listens (for a server of such a protocol) is
+not there yet.
 
 ### p9
 

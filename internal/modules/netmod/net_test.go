@@ -241,11 +241,11 @@ main() {
     l->close(); c->close();
 }`)
 	want := `NetError net::connect: tcp://127.0.0.1:1: connection refused
-ValueError net::connect: "localhost:80" is not an address such as "tcp://host:port" or "unix:///path"
+ValueError net::connect: "localhost:80" is not an address such as "tcp://host:port" or "unix:///path" or "tls://host:port"
 ValueError net::connect: "tcp://localhost" is not an address such as "tcp://host:port" (a host and a port)
 ValueError net::connect: "tcp://localhost:70000": the port must be a number from 0 to 65535
 ValueError net::connect: "unix://" has no socket path
-ValueError net::connect: "udp://localhost:1" is not an address such as "tcp://host:port" or "unix:///path"
+ValueError net::connect: "udp://localhost:1" is not an address such as "tcp://host:port" or "unix:///path" or "tls://host:port"
 ValueError net::connect: -1 seconds is not a usable timeout
 ValueError net::listen: "tcp://*:x": the port must be a number from 0 to 65535
 ValueError net::lookup: no host name

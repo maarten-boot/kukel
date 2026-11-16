@@ -1,5 +1,6 @@
 // Package netmod is the native module "net": TCP connections (and
-// connections over Unix sockets) and UDP packets (TODO.md Q103).
+// connections over Unix sockets), TLS on them, and UDP packets (TODO.md
+// Q103; TLS Q113).
 //
 //	use net;
 //	local c = net::connect("tcp://example.com:80", 5);
@@ -7,8 +8,8 @@
 //	println(c->readline());
 //	c->close();
 //
-// Addresses are "tcp://host:port", "unix:///path" and "udp://host:port",
-// as for zmq and p9. Data is strings (bytes). Calls that wait (connect,
+// Addresses are "tcp://host:port", "unix:///path", "tls://host:port" (TCP
+// encrypted from the start) and "udp://host:port", as for zmq and p9. Data is strings (bytes). Calls that wait (connect,
 // accept, read, write, receive) can be cancelled by the Go program that
 // runs the interpreter; ondata, onconnect and onmessage hand what comes to
 // the event loop (events) instead. What a program leaves open is closed
@@ -18,6 +19,7 @@ package netmod
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"io"
 	"net"
@@ -60,6 +62,8 @@ func init() {
 		"timeout":    connMethod("timeout", 1, 1, setTimeout),
 		"closewrite": connMethod("closewrite", 0, 0, closeWrite),
 		"ondata":     connMethod("ondata", 1, 1, ondata),
+		"starttls":   connMethod("starttls", 1, 2, starttls),
+		"tls":        connMethod("tls", 0, 0, tlsInfo),
 		"endpoint": connMethod("endpoint", 0, 0, func(a native.Args, env value.Env, c *conn) (value.Value, error) {
 			return value.MakeString(c.local), nil
 		}),
@@ -79,6 +83,9 @@ func init() {
 		name := c.remote
 		if name == "" { // the server's side of a Unix socket
 			name = c.local
+		}
+		if _, ok := c.c.(*tls.Conn); ok {
+			name += ", TLS"
 		}
 		if c.closed {
 			return "net::Conn(" + name + ", closed)"
@@ -130,7 +137,7 @@ func init() {
 	}
 	native.Register(&native.Module{
 		Name: "net",
-		Doc:  "TCP connections, Unix sockets and UDP packets",
+		Doc:  "TCP connections, Unix sockets, TLS and UDP packets",
 		Funcs: map[string]native.Func{
 			"connect": connect,
 			"listen":  listen,
@@ -189,7 +196,7 @@ func address(a native.Args, i int, listen bool, schemes ...string) (network, add
 		ok = ok || found && sc == scheme
 	}
 	if !ok {
-		examples := map[string]string{"tcp": `"tcp://host:port"`, "unix": `"unix:///path"`, "udp": `"udp://host:port"`}
+		examples := map[string]string{"tcp": `"tcp://host:port"`, "unix": `"unix:///path"`, "tls": `"tls://host:port"`, "udp": `"udp://host:port"`}
 		var ex []string
 		for _, sc := range schemes {
 			ex = append(ex, examples[sc])
@@ -280,26 +287,51 @@ func timedOut(err error) bool {
 
 // --- net::connect, net::listen, net::lookup ---
 
-// net::connect(address [, timeout]): a net::Conn.
+// net::connect(address [, timeout [, options]]): a net::Conn; for a
+// "tls://" address encrypted, after the handshake (within the timeout).
 func connect(env value.Env, args []value.Value) (value.Value, error) {
-	a, err := native.Check("net::connect", args, 1, 2)
+	a, err := native.Check("net::connect", args, 1, 3)
 	if err != nil {
 		return value.NilValue, err
 	}
-	network, addr, err := address(a, 0, false, "tcp", "unix")
+	network, addr, err := address(a, 0, false, "tcp", "unix", "tls")
 	if err != nil {
 		return value.NilValue, err
 	}
 	var d net.Dialer
-	if a.Has(1) {
+	if a.Has(1) && !a.V[1].IsNil() {
 		if d.Timeout, err = a.Seconds(1, "a usable timeout"); err != nil {
+			return value.NilValue, err
+		}
+	}
+	var o tlsOptions
+	if a.Has(2) {
+		if network != "tls" {
+			return value.NilValue, a.Errorf(value.ValueError, "options are for \"tls://\" addresses")
+		}
+		if o, err = readTLSOptions(a, 2, "ca", "cert", "key", "servername", "insecure"); err != nil {
+			return value.NilValue, err
+		}
+	}
+	var cfg *tls.Config
+	if network == "tls" {
+		servername := o.servername
+		if servername == "" {
+			servername, _, _ = net.SplitHostPort(addr)
+		}
+		if cfg, err = o.config(a, servername, false); err != nil {
 			return value.NilValue, err
 		}
 	}
 	ctx, stop := contextOf(env)
 	defer stop()
 	w := native.Wait(env)
-	c, err := d.DialContext(ctx, network, addr)
+	var c net.Conn
+	if cfg != nil {
+		c, err = (&tls.Dialer{NetDialer: &d, Config: cfg}).DialContext(ctx, "tcp", addr)
+	} else {
+		c, err = d.DialContext(ctx, network, addr)
+	}
 	w.Done()
 	if err != nil {
 		if env.Err() != nil {
@@ -308,26 +340,52 @@ func connect(env value.Env, args []value.Value) (value.Value, error) {
 		if timedOut(err) {
 			return value.NilValue, a.Errorf(NetError, "%s: no connection within %s seconds", a.V[0].AsString(), seconds(d.Timeout))
 		}
-		return value.NilValue, a.Errorf(NetError, "%s: %s", a.V[0].AsString(), native.NetMessage(err))
+		return value.NilValue, handshakeError(a, a.V[0].AsString()+": ", err)
 	}
-	return newConn(env, c), nil
+	v := newConn(env, c)
+	if cfg != nil {
+		v.AsObject().State.(*conn).servername = cfg.ServerName
+	}
+	return v, nil
 }
 
-// net::listen(address): a net::Listener.
+// net::listen(address [, options]): a net::Listener; for a "tls://"
+// address its connections are encrypted (the options cert and key name
+// the listener's certificate).
 func listen(env value.Env, args []value.Value) (value.Value, error) {
-	a, err := native.Check("net::listen", args, 1, 1)
+	a, err := native.Check("net::listen", args, 1, 2)
 	if err != nil {
 		return value.NilValue, err
 	}
-	network, addr, err := address(a, 0, true, "tcp", "unix")
+	network, addr, err := address(a, 0, true, "tcp", "unix", "tls")
 	if err != nil {
 		return value.NilValue, err
+	}
+	var cfg *tls.Config
+	if network == "tls" {
+		var o tlsOptions
+		if a.Has(1) {
+			if o, err = readTLSOptions(a, 1, "cert", "key"); err != nil {
+				return value.NilValue, err
+			}
+		}
+		if cfg, err = o.config(a, "", true); err != nil {
+			return value.NilValue, err
+		}
+		network = "tcp"
+	} else if a.Has(1) {
+		return value.NilValue, a.Errorf(value.ValueError, "options are for \"tls://\" addresses")
 	}
 	ln, err := net.Listen(network, addr)
 	if err != nil {
 		return value.NilValue, a.Errorf(NetError, "%s: %s", a.V[0].AsString(), native.NetMessage(err))
 	}
-	l := &listener{l: ln, endpoint: endpoint(ln.Addr()), open: opened(env)}
+	l := &listener{l: ln, endpoint: endpoint(ln.Addr()), open: opened(env), stop: make(chan struct{})}
+	if cfg != nil {
+		l.endpoint = "tls://" + strings.TrimPrefix(l.endpoint, "tcp://")
+		l.queue = make(chan accepted)
+		go l.handshakes(cfg)
+	}
 	l.open.items[l] = struct{}{}
 	return Listener.Object(l), nil
 }
@@ -378,6 +436,7 @@ type conn struct {
 	release       func() // of the event loop's hold, for ondata
 	open          *openThings
 	self          value.Value
+	servername    string // TLS, client side: the name the server's certificate was checked for
 }
 
 func newConn(env value.Env, c net.Conn) value.Value {
@@ -711,6 +770,8 @@ type listener struct {
 	handled  bool // onconnect takes the connections
 	release  func()
 	open     *openThings
+	stop     chan struct{} // closed when the listener is
+	queue    chan accepted // TLS: the connections whose handshake is done
 }
 
 func listenerMethod(name string, min, max int, fn func(a native.Args, env value.Env, l *listener) (value.Value, error)) value.NativeMethod {
@@ -733,6 +794,9 @@ func listenerMethod(name string, min, max int, fn func(a native.Args, env value.
 }
 
 func (l *listener) startAccept() chan accepted {
+	if l.queue != nil {
+		return l.queue
+	}
 	if l.pending == nil {
 		ch := make(chan accepted, 1)
 		l.pending = ch
@@ -751,6 +815,7 @@ func (l *listener) shut() {
 	}
 	l.closed = true
 	delete(l.open.items, l)
+	close(l.stop)
 	l.l.Close()
 	if p := l.pending; p != nil { // a connection that came but was not taken
 		go func() {
@@ -805,10 +870,15 @@ func onconnect(a native.Args, env value.Env, l *listener) (value.Value, error) {
 	l.release = loop.Hold()
 	first := l.startAccept()
 	l.pending = nil
-	ln := l.l
+	ln, queue, closed := l.l, l.queue, l.stop
 	go func() {
 		defer l.release()
-		r := <-first
+		var r accepted
+		select {
+		case r = <-first:
+		case <-closed:
+			return
+		}
 		for r.err == nil {
 			c := r.c
 			loop.Post(func() error {
@@ -819,8 +889,16 @@ func onconnect(a native.Args, env value.Env, l *listener) (value.Value, error) {
 				_, err := env.Call(f, []value.Value{newConn(env, c)})
 				return err
 			})
-			nc, err := ln.Accept()
-			r = accepted{nc, err}
+			if queue != nil {
+				select {
+				case r = <-queue:
+				case <-closed:
+					return
+				}
+			} else {
+				nc, err := ln.Accept()
+				r = accepted{nc, err}
+			}
 		}
 		err := r.err
 		loop.Post(func() error {

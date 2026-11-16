@@ -138,8 +138,14 @@ server got: what time is it?
 client got: tea time
 ```
 
-`net::lookup(host)` gives the addresses of a host name. There is no
-encryption (TLS) yet: use `net` on a network you trust.
+`net::lookup(host)` gives the addresses of a host name.
+
+Encrypted connections (TLS) are `net::Conn`s too:
+`net::connect("tls://host:443")` is encrypted from the start, and `c->starttls(servername)` encrypts a
+plain connection once the protocol says so, as SMTP's `STARTTLS`
+command does. The server's certificate is checked; what fails is a
+`NetError` that says why. The [reference](../reference.md#net) has the
+options (an own CA, a client certificate) and `net::listen("tls://...")`.
 
 ## Messages: `zmq`
 

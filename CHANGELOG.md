@@ -17,6 +17,14 @@ From v1.0.0 on, what keeps working is in
 
 ## Unreleased
 
+- TLS in `net`: `net::connect("tls://host:port" [, timeout [, options]])`
+  is encrypted from the start, `c->starttls(servername [, options])`
+  encrypts an open connection, `net::listen("tls://...", {"cert": ...,
+  "key": ...})` hands out encrypted connections, and `c->tls()` tells
+  what was agreed. Certificates are checked against the system's roots
+  (options: `ca`, `servername`, `cert` and `key`, `insecure`); data that
+  came before a STARTTLS handshake is refused (STARTTLS command
+  injection). Q113.
 - docs/future.md §11: a design for email: TLS in `net` (`tls://`,
   `starttls`), a small module `encoding` (base64), and a module `mail`
   written in Kukel (messages, MIME, SMTP), after Symfony Mailer, with its

@@ -796,7 +796,7 @@ Each step is usable on its own and prepares the next:
 | 7 | Tk GUI (after a proof of concept for the threading) | 1, 3 | done (Q67): the module `tk` (build tag `tk`), on the main thread only |
 | 8 | Files: the module `fs` (6.1) | 1 | done (Q61) |
 | 9 | 9P client and server (6.2) | 3, 8 | done (Q62, Q63): trees built in Kukel and disk directories; TLS later |
-| 10 | TLS in `net`: `tls://` and `starttls` (11.2) | — | proposed (Q113) |
+| 10 | TLS in `net`: `tls://` and `starttls` (11.2) | — | done (Q113): client, `starttls`, and `tls://` listeners |
 | 11 | `encoding` (base64) and `net::hostname()` (11.3) | — | proposed (Q113) |
 | 12 | Email: the module `mail`, written in Kukel (11.4, 11.5) | 10, 11 | proposed (Q113) |
 | 13 | `unixgram://` in `net` (12.4) | — | proposed (Q114) |
@@ -1176,8 +1176,8 @@ it is cheap to change.
 
 ## 11. Email: TLS in `net`, and a module `mail` written in Kukel
 
-*A proposal (2026-11-16, TODO.md Q113); not built. The open questions are
-11.7.* Programs that send mail: a report at night, a password reset, a
+*A proposal (2026-11-16, TODO.md Q113); TLS in `net` (11.2) is built,
+the rest not. The open questions are 11.7; F-43 is answered.* Programs that send mail: a report at night, a password reset, a
 notice from a Kukel-MVC application. The model is
 [Symfony Mailer](https://github.com/symfony/mailer): a message, an
 envelope and a transport kept apart, and transports named by a DSN
@@ -1243,6 +1243,12 @@ main() {
   mail.example.org, not smtp.example.com`).
 - `net::listen("tls://...", options)` with `"cert"` and `"key"`: a server
   side, for tests now and servers later. (F-43)
+
+*Built (2026-11-16): as above, with F-43 answered: `tls://` listeners
+in the first step, STARTTLS on the listening side later. A listener does
+each handshake as the connection comes, so that a program can connect to
+its own listener; a refused STARTTLS (data before the handshake) closes
+the connection too. See the reference, `net`.*
 
 ### 11.3 `encoding`
 
@@ -1363,6 +1369,8 @@ Steps: 1. TLS in `net` (useful on its own); 2. `encoding` and
   `strings`?
 - **F-43** A TLS server side (`net::listen("tls://...")`) in the first
   step, or only the client, with the test server written in Go?
+  *Answered (2026-11-16): `tls://` listeners in the first step;
+  STARTTLS on the listening side later.*
 - **F-44** DKIM signing: left out (proposed), or planned in Go as
   `mail`'s one native helper?
 - **F-45** Addresses: checked only for what would break the message

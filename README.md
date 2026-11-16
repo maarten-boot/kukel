@@ -74,7 +74,7 @@ caught RangeError: index 5 out of range for vector of length 3
   objects in tables), `events` (an event loop with timers), `fs`
   (open files read and written a line or a piece at a time, the standard
   streams, temporary files, locks, directories), `json`, `net` (TCP
-  connections, Unix sockets and UDP packets), `p9` (the 9P file protocol: a client,
+  connections, Unix sockets, TLS and UDP packets), `p9` (the 9P file protocol: a client,
   and a server of trees the program builds and of disk directories), `re`
   (regular expressions), `strings` (a string builder), `time`, `tk`
   (desktop windows with widgets, menus, dialogs and a canvas; in a kukel
