@@ -18,6 +18,7 @@ Contents:
 8. [Suggested order](#8-suggested-order)
 9. [Named arguments](#9-named-arguments) (the first step done, 2026-11-07)
 10. [Kukel-MVC: applications from the designer's schemas](#10-kukel-mvc-applications-from-the-designers-schemas) (a proposal, 2026-11-09)
+11. [Email: TLS in `net`, and a module `mail` written in Kukel](#11-email-tls-in-net-and-a-module-mail-written-in-kukel) (a proposal, 2026-11-16)
 
 ---
 
@@ -794,13 +795,17 @@ Each step is usable on its own and prepares the next:
 | 7 | Tk GUI (after a proof of concept for the threading) | 1, 3 | done (Q67): the module `tk` (build tag `tk`), on the main thread only |
 | 8 | Files: the module `fs` (6.1) | 1 | done (Q61) |
 | 9 | 9P client and server (6.2) | 3, 8 | done (Q62, Q63): trees built in Kukel and disk directories; TLS later |
+| 10 | TLS in `net`: `tls://` and `starttls` (11.2) | — | proposed (Q113) |
+| 11 | `encoding` (base64) and `net::hostname()` (11.3) | — | proposed (Q113) |
+| 12 | Email: the module `mail`, written in Kukel (11.4, 11.5) | 10, 11 | proposed (Q113) |
 
 Steps 4, 5, 7 and 8 are independent of each other once 1 and 3 exist. A
 `ffi` module (1.6) can come at any point after step 1.
 
-The open questions **F-1** to **F-38** are best answered just before the
+The open questions **F-1** to **F-46** are best answered just before the
 step that needs them; F-28 to F-31 are those of the named arguments
-(section 9), F-32 to F-38 those of Kukel-MVC (section 10).
+(section 9), F-32 to F-38 those of Kukel-MVC (section 10), F-39 to F-46
+those of email (section 11).
 
 ---
 
@@ -1165,3 +1170,202 @@ it is cheap to change.
   such as `mvc`, `store` and `forms`), and from which kukel version on?
 - **F-38** The export's version: Kukel-MVC reads `format_version` 1; does
   a newer export refuse to load, or load what it knows?
+
+## 11. Email: TLS in `net`, and a module `mail` written in Kukel
+
+*A proposal (2026-11-16, TODO.md Q113); not built. The open questions are
+11.7.* Programs that send mail: a report at night, a password reset, a
+notice from a Kukel-MVC application. The model is
+[Symfony Mailer](https://github.com/symfony/mailer): a message, an
+envelope and a transport kept apart, and transports named by a DSN
+string. The bulk of it, the messages, MIME and the SMTP conversation,
+would be a standard module written in Kukel, as `iter` is; Go would give
+only what Kukel should not do itself: encryption, and work on large
+amounts of bytes.
+
+### 11.1 The split between Go and Kukel
+
+| Part | Where | Why |
+|---|---|---|
+| TLS: encrypted connections, and STARTTLS on an open one | Go, in `net` | cryptography is never written in Kukel; IMAP, POP3, LDAP and a later HTTP client need it too |
+| base64 | Go, a small module `encoding` | attachments of megabytes, a byte at a time in the VM, would be slow |
+| the host's name | Go, `net::hostname()` | SMTP's `EHLO` names the sending host |
+| messages, MIME, header encoding, quoted-printable | Kukel, `mail` | well specified text work; readable for those who use it |
+| the SMTP conversation, transports | Kukel, `mail` | a protocol of lines over a `net::Conn` |
+
+`mail` would show whether Kukel carries a real library: it is the
+largest standard module written in Kukel so far. If a part turns out too
+slow in Kukel (quoted-printable of a long body, say), that part moves to
+Go, not the module.
+
+### 11.2 TLS in `net`
+
+```
+use net;
+
+main() {
+    local c = net::connect("tls://smtp.example.com:465", 10);   // TLS from the start (SMTPS)
+    println(c->readline());
+
+    local d = net::connect("tcp://smtp.example.com:587", 10);   // plain, then STARTTLS
+    // ... EHLO, STARTTLS, the server's 220 ...
+    d->starttls("smtp.example.com");                            // from here on encrypted
+}
+```
+
+- `net::connect("tls://host:port" [, timeout [, options]])`: TLS from the
+  first byte (*implicit TLS*; SMTPS on 465, IMAPS on 993).
+  [RFC 8314](https://www.rfc-editor.org/rfc/rfc8314) prefers it to
+  STARTTLS for mail.
+- `c->starttls(servername [, options])`: the handshake on an open plain
+  connection; reads and writes after it are encrypted. Two refusals keep
+  it safe:
+  - data that has come but has not been read when `starttls` is called is
+    a `NetError`, not something to keep. It could only have been sent
+    before the encryption, by someone in between, to be read as if it
+    came after (the STARTTLS command injection of 2011, CVE-2011-0411 and
+    its kind);
+  - a connection handed to the event loop (`ondata`) cannot start TLS.
+- The server's certificate is checked against the system's roots and the
+  name (`servername`, or the host of the address). `options` (a map) can
+  name `"ca"` (a file of root certificates, for an own CA or a test
+  server), `"cert"` and `"key"` (a client certificate), and
+  `"insecure": true`, which skips the check and says so in its name. TLS
+  1.2 is the oldest version accepted.
+- `c->tls()`: `nil` for a plain connection, else a map: `version`,
+  `cipher`, `servername`, the certificate's `subject`, `issuer` and
+  `expires` (a `time::Time`).
+- A failed handshake or check is a `NetError` that says what failed
+  (`certificate signed by unknown authority`, `certificate is for
+  mail.example.org, not smtp.example.com`).
+- `net::listen("tls://...", options)` with `"cert"` and `"key"`: a server
+  side, for tests now and servers later. (F-43)
+
+### 11.3 `encoding`
+
+`encoding::base64(s [, width])` and `encoding::unbase64(s)`, with `width`
+breaking the text into lines (76 for MIME); later perhaps `hex` and
+`unhex`. A tiny module of its own rather than more functions in
+`strings`, so that a Go program that embeds Kukel can allow it apart
+(F-42).
+
+### 11.4 Messages
+
+```
+use mail;
+
+main() {
+    local m = new mail::Message();
+    m->from("Shop <shop@example.com>")
+     ->to("ann@example.org", "Bob <bob@example.org>")
+     ->bcc("archive@example.com")
+     ->subject("Your order 1042")
+     ->text("Thank you for your order.\n")
+     ->html("<p>Thank you for your <b>order</b>.</p>")
+     ->attach("invoice-1042.pdf", readfile("invoice-1042.pdf"), "application/pdf");
+
+    local t = mail::transport("smtp://shop:secret@smtp.example.com:587");
+    t->send(m);
+}
+```
+
+- A `mail::Message` holds the addresses (from, to, cc, bcc, reply-to,
+  sender), the subject, other headers, a text body, an HTML body,
+  attachments, and inline parts that the HTML shows (`cid:`). Each
+  setter gives the message, so that calls chain.
+- `m->text()` without arguments gives the text; `m->bytes()` the whole
+  message as it is sent (RFC 5322 and MIME), for a file, a test, or a
+  transport of one's own.
+- The structure follows from what the message holds: `text/plain` alone;
+  `multipart/alternative` for text and HTML; `multipart/related` around
+  HTML with inline parts; `multipart/mixed` around all that with
+  attachments. Boundaries come from `uuid`, `Date` from `time`,
+  `Message-ID` from `uuid` and the sender's domain.
+- Headers that are not ASCII are encoded words (RFC 2047, `=?UTF-8?B?...?=`),
+  bodies quoted-printable (text) or base64 (other), lines at most 78
+  characters where the rules allow.
+- **Header injection is refused.** A CR or LF in a subject, an address, a
+  name or any header value is a `ValueError` when it is set, not later:
+  otherwise one field of a web form adds headers or recipients to the
+  mail. This is the oldest bug of mail libraries.
+- **Line endings are normalized.** Every line ending of a body, `\n`,
+  `\r\n` or a bare `\r`, is sent as CRLF, and a line that starts with `.`
+  gets another (dot-stuffing): a bare `\n.\r\n` or `\r.\r` in a body
+  could otherwise end the data early on some servers (SMTP smuggling,
+  2023).
+- `bcc` is never a header: it is part of the envelope only.
+
+### 11.5 Envelopes and transports
+
+- The *envelope* is what the transport tells the server: one sender
+  (`MAIL FROM`) and the recipients (`RCPT TO`). By default it comes from
+  the message (sender or from; to, cc and bcc); `t->send(m, envelope)`
+  can give another, for bounces to another address, say.
+- `mail::transport(dsn)` makes a transport from a DSN, as Symfony's:
+
+| DSN | Transport |
+|---|---|
+| `smtp://user:pass@host:587` | SMTP; STARTTLS when the server offers it (F-40) |
+| `smtps://user:pass@host:465` | SMTP over TLS from the start |
+| `smtp://localhost:25?verify=0` | a local relay; options after `?` |
+| `memory://` | keeps the messages, `t->sent()` gives them: for tests |
+| `null://` | sends nothing |
+
+  Later perhaps `failover(a b)` and `roundrobin(a b)` of other DSNs, as
+  Symfony has. A transport of one's own is a class with `send(m,
+  envelope)`.
+- The SMTP conversation: the greeting, `EHLO` (with `net::hostname()`),
+  `STARTTLS` and `EHLO` again, `AUTH PLAIN` or `AUTH LOGIN` (only over
+  TLS, unless the DSN says otherwise), `MAIL FROM`, one `RCPT TO` per
+  recipient, `DATA`, `QUIT`; replies over several lines (`250-...`), and
+  `SMTPUTF8` and `8BITMIME` when offered. A refusal is a `mail::MailError`
+  with the server's code and text (`550 5.1.1 <x@example.org>: no such
+  user`), and for `RCPT TO` which recipients were refused; a connection
+  that fails is the `NetError` of `net`.
+- A transport can send several messages over one connection (`RSET`
+  between them) and closes it with `t->close()` or `with`.
+
+### 11.6 What it leaves out
+
+- The HTTP APIs of mail services (SendGrid, Mailgun, ...): they need an
+  HTTP client, which kukel does not have. SMTP reaches all of them.
+- A queue for sending later, events around a send, templates: an
+  application builds them on `send` if it needs them.
+- DKIM and S/MIME signatures: cryptography, and so Go, if ever (F-44).
+- A `sendmail` transport: Kukel cannot start another program.
+- Receiving mail (IMAP, POP3): a later module, on the same TLS.
+
+How it would be tested: the MIME that `mail` writes is read back by Go's
+own `net/mail` and `mime/multipart` in the tests, an independent check;
+the SMTP conversation runs against a small SMTP server in the Go tests
+(on `localhost`, with STARTTLS and a test certificate), which also sends
+the replies that must fail; the cases of 11.4 (CR and LF in headers,
+bare line endings, lines that start with a dot) each get a test.
+
+Steps: 1. TLS in `net` (useful on its own); 2. `encoding` and
+`net::hostname()`; 3. `mail`: messages and MIME, then SMTP.
+
+### 11.7 Open questions
+
+- **F-39** Names: `mail` with `mail::Message`, `mail::transport`,
+  `mail::MailError` (proposed), or `mailer` as Symfony's?
+- **F-40** `smtp://` without TLS: when the server does not offer
+  STARTTLS, does sending stop (safe; `?tls=0` to allow plain), or go on
+  in plain text (as Symfony does by default)? Proposed: stop, unless the
+  host is `localhost`.
+- **F-41** A message with bcc recipients: sent once with all of them in
+  the envelope (proposed; the server does not show them), or once per
+  bcc recipient?
+- **F-42** `encoding` as a module of its own (proposed), or base64 in
+  `strings`?
+- **F-43** A TLS server side (`net::listen("tls://...")`) in the first
+  step, or only the client, with the test server written in Go?
+- **F-44** DKIM signing: left out (proposed), or planned in Go as
+  `mail`'s one native helper?
+- **F-45** Addresses: checked only for what would break the message
+  (CR, LF, no `@`, a malformed `Name <addr>`; proposed), or by the full
+  grammar of RFC 5322?
+- **F-46** The DSN carries the password (`smtp://user:pass@...`): also a
+  map form (`{"host": ..., "password": ...}`) so that it can come from a
+  file or the environment without building a string, and never shown
+  when a transport prints?

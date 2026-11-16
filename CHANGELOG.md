@@ -17,6 +17,10 @@ From v1.0.0 on, what keeps working is in
 
 ## Unreleased
 
+- docs/future.md §11: a design for email: TLS in `net` (`tls://`,
+  `starttls`), a small module `encoding` (base64), and a module `mail`
+  written in Kukel (messages, MIME, SMTP), after Symfony Mailer, with its
+  open questions F-39 to F-46. Not built. Q113.
 - A module `toml`: `toml::decode(s)` reads TOML 1.1 (and 1.0) into a map,
   its tables in the order of the text; `toml::encode(m)` writes a map as
   TOML. An offset datetime is a `time::Time`; a local date, time or
