@@ -20,6 +20,7 @@ Contents:
 10. [Kukel-MVC: applications from the designer's schemas](#10-kukel-mvc-applications-from-the-designers-schemas) (a proposal, 2026-11-09)
 11. [Email: TLS in `net`, and a module `mail` written in Kukel](#11-email-tls-in-net-and-a-module-mail-written-in-kukel) (a proposal, 2026-11-16)
 12. [Structured logging and syslog: a module `logging` written in Kukel](#12-structured-logging-and-syslog-a-module-logging-written-in-kukel) (a proposal, 2026-11-16)
+13. [A GUI for LMW-Synth over 9P](#13-a-gui-for-lmw-synth-over-9p) (a proposal, 2026-11-16)
 
 ---
 
@@ -801,14 +802,20 @@ Each step is usable on its own and prepares the next:
 | 12 | Email: the module `mail`, written in Kukel (11.4, 11.5) | 10, 11 | proposed (Q113) |
 | 13 | `unixgram://` in `net` (12.4) | — | proposed (Q114) |
 | 14 | Logging: the module `logging`, written in Kukel, with syslog (12) | 11, 13; 10 for syslog over TLS | proposed (Q114) |
+| 15 | `tk::Notebook` (13.3) | 7 | proposed (Q115) |
+| 16 | LMW-Synth GUI: the module `lmw` and a fake synth (13.4) | 9 | proposed (Q115) |
+| 17 | LMW-Synth GUI: Synth and Effects tabs, keeping in step, colours (13.5 to 13.7) | 15, 16; `/info` in the synth | proposed (Q115) |
+| 18 | LMW-Synth GUI: the Matrix tab (13.5) | 17 | proposed (Q115) |
+| 19 | LMW-Synth GUI: Load, Save, Notes, choosing a synth (13.5) | 17 | proposed (Q115) |
 
 Steps 4, 5, 7 and 8 are independent of each other once 1 and 3 exist. A
 `ffi` module (1.6) can come at any point after step 1.
 
-The open questions **F-1** to **F-54** are best answered just before the
+The open questions **F-1** to **F-63** are best answered just before the
 step that needs them; F-28 to F-31 are those of the named arguments
 (section 9), F-32 to F-38 those of Kukel-MVC (section 10), F-39 to F-46
-those of email (section 11), F-47 to F-54 those of logging (section 12).
+those of email (section 11), F-47 to F-54 those of logging (section 12),
+F-55 to F-63 those of the LMW-Synth GUI (section 13).
 
 ---
 
@@ -1572,3 +1579,212 @@ with section 11); 2. `logging` with `Stderr`, `File`, `Memory` and the
   (which might later hold the environment and exit codes)?
 - **F-54** `{name}` placeholders filled from the context (PSR-3,
   proposed), or Kukel's own string formatting?
+
+---
+
+## 13. A GUI for LMW-Synth over 9P
+
+*A proposal (2026-11-16, TODO.md Q115); not built. The open questions are
+13.9.* [LMW-Synth](https://github.com/maarten-boot/software-synth-LMW) is
+a semi-modular polyphonic synthesizer (C++20, JUCE; standalone and VST3)
+whose engine is a 9P2000 server and the single source of truth for its
+state (its Spec S10). Its own JUCE GUI stays; a second GUI, written in
+Kukel with `tk` and `p9`, is planned there as Phase 7 and is to live in
+the Kukel project (its Spec S10.8). The synth is AGPLv3; the Kukel GUI is
+a separate program that only talks 9P to it, so it can be MIT like the
+rest of Kukel.
+
+### 13.1 What the synth serves
+
+| File | | What it is | Use in the GUI |
+|---|---|---|---|
+| `/params/<module>/<name>` | rw | each of the 51 parameters, the dotted id as a path (`vcf1.cutoff` is `params/vcf1/cutoff`); the value as text: floats with 7 significant digits, choices by name, integers. Writing takes the same, a choice also by a prefix (`band`) or an index; a number out of range is clipped; each write applies at once | faders and choice boxes |
+| `/cables` | rw | one line per patched input, `input=out[@level]+out...` (`vcf1.cutoff=env2.out@0.5+lfo1.out`, at most 4 outputs); writing a line sets that input's cables, `input=` removes them, `clear` all | matrix, cable menus |
+| `/ports` | r | the 22 inputs with their normalled source (`input  lfo1.out -> vco1.fm`, `none` for `vcf1.res`), then the 16 outputs | rows and columns of the matrix, sockets: nothing hard-coded |
+| `/patch` | rw | the whole state as an `.lmwpatch` text (parameters, cables, `[schematic]`, `[notes]`, the name); writing loads a patch when the file is closed (an error comes back on the close) | loading and saving files; keeping the GUI in step |
+| `/notes` | rw | the Notes text, replaced on close | the Notes tab |
+| `/source` | r | the repository URL (AGPLv3 §13) | the About box |
+
+Errors are 9P error strings (`bad value`, `unknown input: nope`, a patch
+file error, `busy` when the synth's message thread did not answer within
+5 s). The synth listens on a Unix socket
+`$XDG_RUNTIME_DIR/lmw-synth/<pid>-<n>.sock` (owner only; macOS
+`$TMPDIR/lmw-synth`, Windows `%TEMP%\lmw-synth`), and on TCP only when its
+config file asks for it (`tcp!host!port`). There is no authentication.
+
+**Tried on 2026-11-16** against the synth itself (the standalone under
+Xvfb) with the `p9` client of kukel 1.4:
+`p9::dial("unix:///run/user/1000/lmw-synth/<pid>-1.sock")` connects (the
+synth answers 9P2000; the client falls back to it by itself); parameters
+read and write, choices by prefix, cables with levels and `clear`; the
+synth's errors arrive as an `IOError` with its message
+(`p9::Client::write: /cables: unknown input: nope`), a bad patch on the
+close of `/patch`. A parameter write or read takes about 0.1 ms, a read
+of the whole `/patch` (1.3 KB) 0.15 ms: polling is cheap. Found: a synth
+stopped with SIGTERM leaves its socket file (the next instance removes
+it), so a GUI must pass over sockets it cannot dial.
+
+### 13.2 What is missing, in the synth
+
+1. **No description of the parameters.** Ranges, defaults, units, choice
+   lists and a log scale (the cutoff) are not served. Copying them from
+   the synth's Spec S5a.1 into Kukel would drift from the synth.
+   Proposed: a read-only `/info` in the synth (F-56).
+2. **No notice of changes.** Changes from the synth's own GUI, a DAW or
+   another client are seen only by reading again. Polling `/patch` works
+   now; a `/serial` file (a number that goes up with each change) would
+   make most polls a few bytes (F-57).
+3. **No way to play notes.** An on-screen keyboard needs a `/keys` file
+   (`on 60 100`, `off 60`); until then notes come from MIDI (F-59).
+4. **No meters or scope.** The synth's Spec S10.6 plans telemetry files;
+   there are none yet.
+
+These go to the synth's own project (`../software-synth-LMW`), in a
+session there; the Kukel GUI is built so that each is used once it is
+served (it reads `/` first).
+
+### 13.3 What is missing, in Kukel
+
+5. **Tabs.** `tk` has no notebook and no way to hide a widget. Proposed:
+   `tk::Notebook`, Tk's `ttk::notebook` (F-60):
+   `new tk::Notebook(parent)`, `n->add(frame, title)`,
+   `n->select(i)`, `n->selected()`, `n->onchange(f)`.
+6. **Calls that block.** A `p9` call blocks the event loop until the
+   answer comes, with no timeout after `dial`. Normally 0.1 ms; when the
+   synth's message thread hangs, up to 5 s before `busy`. Proposed: plain
+   calls first, a worker only if that proves a problem (F-61).
+7. **Linear sliders.** `tk::Scale` is linear: a log parameter (the
+   cutoff, 20 Hz to 18 kHz) is a slider from 0 to 1 that the GUI maps,
+   with the value in a label beside it.
+8. **No configuration directory.** The config file's place comes from
+   `getenv` (`XDG_CONFIG_HOME`, `HOME`, `APPDATA`); no change to Kukel.
+
+### 13.4 The parts
+
+```
+examples/lmw/
+    lmw.kkl          the module lmw: no GUI; finding, connecting, the model
+    lmwgui.kkl       the program: windows, tabs, panels
+    fakesynth.kkl    a 9P server in Kukel that behaves as the synth, for tests
+    lmw.tests        tests of lmw.kkl against fakesynth.kkl
+```
+
+The module `lmw` (no `tk`, so it runs and is tested anywhere):
+
+- `lmw::sockets()`: the synth sockets, newest first;
+  `lmw::connect([address])`: the newest one that answers, or the address
+  given (`unix:///...`, `tcp://host:port`, or the synth's own form
+  `tcp!host!port`, which is translated).
+- `lmw::Synth`: `params()` (from `/info`), `get(id)`, `set(id, value)`,
+  `cables()` and `setcables(input, pins)` (pins as a vector of
+  `[output, level]`), `ports()`, `patch()` and `load(text)`, `notes()` and
+  `setnotes(text)`, `changes()` (what differs since the last call: read
+  `/patch`, or `/serial` first when there is one).
+- The text forms of the synth (pins `out@0.5+out`, the patch file) are
+  read and written here, once.
+
+The program `lmwgui` takes `-a address`; without it, the newest synth.
+With several synths running, a menu lists them to switch.
+
+### 13.5 The windows
+
+One window with a header (the patch name, Load, Save, Contrast, the synth
+it is connected to) and tabs, as the synth's own GUI has (its Spec S6):
+
+- **Synth**: the module panels in the synth's three rows (VCO 1-3, NOISE,
+  LFO 1; MIXER, VCF 1, VCF 2; KEYS, ENV 1, ENV 2, LFO 2, VCA, OUT), each a
+  frame with a title in the unit's colour (the synth's S6.9), vertical
+  faders and choice boxes, a value label with its unit under each; a value
+  can be typed (Enter), a double-click resets to the default. Not movable
+  in the first version, and no cables drawn here: they are edited in the
+  matrix.
+- **Effects**: the reverb's four faders.
+- **Matrix**: a canvas with a row per input and a column per output (from
+  `/ports`), as the synth's S6.8: a cell with a cable shows a bar filled
+  to its level and the level in %; the normalled source of an input
+  without cables is marked with a ring. Click toggles 0 and 100 %, dragging
+  up or down sets the level, a double-click asks for it; the keyboard moves
+  a cell cursor (Space toggles, + and - change by 10 %, Delete removes).
+  Gate inputs are on or off. A fifth cable on an input is refused with the
+  synth's message.
+- **Notes**: a `tk::Text`, written to `/notes` when it loses focus or
+  after a pause in typing.
+- **Schematic** (a later step, F-58): the synth's S6.7 drawing on a
+  canvas, with the positions from `[schematic]` in `/patch`.
+
+Load and Save use the file dialogs: Load writes the file to `/patch`
+(the synth checks it and says what is wrong), Save writes what `/patch`
+gives. The status line shows the synth's errors and `busy`.
+
+### 13.6 Keeping in step
+
+- A fader that moves writes its parameter at most once every 20 ms, the
+  last value winning (F-62): a drag gives tens of writes a second, not
+  hundreds.
+- Every 200 ms the GUI reads `/patch` (F-57) and updates what differs;
+  a fader the user holds is left alone until shortly after it is let go,
+  so the poll does not pull it back. What the synth reads back is what
+  the GUI shows: a clipped value jumps to its clipped place.
+- Both GUIs may be open at once; the last write wins, and each sees the
+  other's within a poll.
+- A lost connection (the synth closed) greys the window and offers to
+  connect again; nothing is lost on the synth's side.
+
+### 13.7 Colours
+
+As in the synth's own GUI (its S6.2 and S6.3): a white
+background with black text, every pair at least 4.5:1; presets AA
+(4.5:1), AAA (7:1), Max (21:1) and a custom ratio (4.5 to 21), chosen in
+the header and kept in a TOML file (`lmw-gui.toml` in the user's
+configuration directory, F-63). The unit colours are light tints raised
+to the chosen ratio against the black text, white at Max; the pairs are
+listed in one table that a test checks for every preset (as the synth's
+Theme.h).
+
+### 13.8 How it would be tested
+
+- `lmw.kkl` against `fakesynth.kkl`: a `p9::Tree` with the synth's files,
+  values, error messages and the text forms, served on a Unix socket in
+  the test (a Kukel tree applies a write on close, the synth at once; for
+  the tests that is the same).
+- The fake against the real one: a script (not in CI, since kukel's CI
+  does not build the synth) runs the same tests against a synth under
+  `xvfb-run`.
+- The GUI as `notes.kkl` is tested now: under Xvfb with xdotool in
+  `make test-tk`, against the fake synth.
+- The contrast table for every preset.
+
+Steps (in §8): 15. `tk::Notebook` (13.3); 16. the module `lmw` and the
+fake synth (13.4); 17. the Synth and Effects tabs, keeping in step,
+colours (13.5 to 13.7); 18. the Matrix tab; 19. Load, Save, Notes,
+choosing a synth. In the synth, before step 17: `/info`; later `/serial`,
+`/keys`, telemetry. After them: the schematic, an on-screen keyboard,
+meters.
+
+### 13.9 Open questions
+
+- **F-55** Where it lives: `examples/lmw/` in this repository (proposed),
+  or a repository of its own?
+- **F-56** The parameter description: `/info` in the synth before the
+  GUI's panels are built (proposed; the synth stays the single source of
+  truth), or a table in Kukel for now? Its form: JSON, one object per
+  parameter in the synth's order: `{"id": "vcf1.cutoff", "kind": "float",
+  "min": 20, "max": 18000, "default": 18000, "unit": "Hz", "scale":
+  "log"}`, a choice with `"choices": ["Lowpass", ...]` (proposed; `json`
+  reads it), or lines of text?
+- **F-57** Keeping in step: poll `/patch` every 200 ms (proposed), with
+  `/serial` in the synth later; or a file whose read waits for the next
+  change (one request open per client, harder in the synth)?
+- **F-58** The first version: steps 15 to 19 without the schematic
+  (proposed), or with it?
+- **F-59** Notes: a `/keys` file in the synth and an on-screen keyboard
+  (proposed for later), or MIDI only?
+- **F-60** `tk::Notebook` as in 13.3 (proposed), or tabs made of buttons
+  and frames in the program (which needs a way to hide a frame)?
+- **F-61** 9P calls on the event loop (proposed for the first version),
+  or in a worker so that a `busy` synth does not freeze the window?
+- **F-62** At most one write per parameter every 20 ms while a fader
+  moves, the last value winning (proposed)?
+- **F-63** The GUI's own configuration file, TOML (proposed), or the
+  contrast settings shared with the synth's `config.ini` (one setting for
+  both GUIs, but a file another program writes)?

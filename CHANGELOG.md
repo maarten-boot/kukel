@@ -17,6 +17,10 @@ From v1.0.0 on, what keeps working is in
 
 ## Unreleased
 
+- docs/future.md §13: a design for a GUI for LMW-Synth, written in Kukel
+  with `tk` and `p9` on the synth's 9P files (parameters, cables, ports,
+  patch, notes), with what the synth and Kukel still lack (`/info`,
+  `tk::Notebook`) and its open questions F-55 to F-63. Not built. Q115.
 - A module `encoding`: `encoding::base64(s [, width])` and
   `encoding::unbase64(s)` (which skips line breaks and takes text without
   padding), `encoding::hex(s)` and `encoding::unhex(s)`; and
