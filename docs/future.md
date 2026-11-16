@@ -19,6 +19,7 @@ Contents:
 9. [Named arguments](#9-named-arguments) (the first step done, 2026-11-07)
 10. [Kukel-MVC: applications from the designer's schemas](#10-kukel-mvc-applications-from-the-designers-schemas) (a proposal, 2026-11-09)
 11. [Email: TLS in `net`, and a module `mail` written in Kukel](#11-email-tls-in-net-and-a-module-mail-written-in-kukel) (a proposal, 2026-11-16)
+12. [Structured logging and syslog: a module `logging` written in Kukel](#12-structured-logging-and-syslog-a-module-logging-written-in-kukel) (a proposal, 2026-11-16)
 
 ---
 
@@ -798,14 +799,16 @@ Each step is usable on its own and prepares the next:
 | 10 | TLS in `net`: `tls://` and `starttls` (11.2) | — | proposed (Q113) |
 | 11 | `encoding` (base64) and `net::hostname()` (11.3) | — | proposed (Q113) |
 | 12 | Email: the module `mail`, written in Kukel (11.4, 11.5) | 10, 11 | proposed (Q113) |
+| 13 | `unixgram://` in `net` (12.4) | — | proposed (Q114) |
+| 14 | Logging: the module `logging`, written in Kukel, with syslog (12) | 11, 13; 10 for syslog over TLS | proposed (Q114) |
 
 Steps 4, 5, 7 and 8 are independent of each other once 1 and 3 exist. A
 `ffi` module (1.6) can come at any point after step 1.
 
-The open questions **F-1** to **F-46** are best answered just before the
+The open questions **F-1** to **F-54** are best answered just before the
 step that needs them; F-28 to F-31 are those of the named arguments
 (section 9), F-32 to F-38 those of Kukel-MVC (section 10), F-39 to F-46
-those of email (section 11).
+those of email (section 11), F-47 to F-54 those of logging (section 12).
 
 ---
 
@@ -1369,3 +1372,193 @@ Steps: 1. TLS in `net` (useful on its own); 2. `encoding` and
   map form (`{"host": ..., "password": ...}`) so that it can come from a
   file or the environment without building a string, and never shown
   when a transport prints?
+
+## 12. Structured logging and syslog: a module `logging` written in Kukel
+
+*A proposal (2026-11-16, TODO.md Q114); not built. The open questions are
+12.7.* Programs that run unattended (a server, a nightly job, a
+Kukel-MVC application) need to say what they did, in a form both people
+and log systems can read: a level, a message, and the facts around it as
+named values, sent to standard error, a file, or the system's log. The
+model is PHP's [Monolog](https://github.com/Seldaek/monolog) rather than
+Python's `logging`; as with email (section 11), the module is written in
+Kukel and Go gives only the transport underneath. The name is `logging`,
+since `log(x)` is the built-in logarithm.
+
+### 12.1 Monolog, not Python's logging
+
+- **Monolog's model is small**: a logger per *channel* (`"shop"`,
+  `"db"`), a stack of *handlers* (where a record goes), *processors* (add
+  facts to every record: the host, a request id), *formatters* (a line,
+  JSON, syslog). Each call is `log(level, message, context)`, with the
+  context a map: the structure is there from the start, not added later.
+- **Its levels are syslog's**: the eight severities of RFC 5424, debug to
+  emergency. Python has five levels of its own, mapped to syslog in its
+  handler.
+- **Python's tree of named loggers** (`a.b.c` passing records up to
+  `a.b` and `a`, each with handlers and levels) is powerful but hard to
+  predict: a record shows twice, or not at all, because of a logger
+  further up. Here a channel is only a name; one configuration says
+  which handlers a channel uses (12.5). What is taken from Python: a
+  logger for a channel is made once and found again by name
+  (`logging::get("shop")`).
+
+### 12.2 Records, levels, messages
+
+```
+use logging;
+
+main() {
+    local log = logging::get("shop");
+    log->info("order {id} paid by {user}", {"id": 1042, "user": "ann", "total": 99.5});
+    log->warning("stock low", {"item": "pen", "left": 3});
+    try {
+        pay(1043);
+    } catch (e) {
+        log->error("payment failed", {"order": 1043, "error": e});
+    }
+}
+```
+
+- The levels, with syslog's numbers: `emergency` (0), `alert` (1),
+  `critical` (2), `error` (3), `warning` (4), `notice` (5), `info` (6),
+  `debug` (7); a member function for each, and `log->log(level, message,
+  context)`.
+- A *record* is a map: `time` (a `time::Time`), `channel`, `level`,
+  `message`, `context`, and `extra` (what processors add). Handlers and
+  formatters see records, so a handler of one's own is a small class.
+- `{name}` in the message is filled from the context when the record is
+  formatted (as PSR-3, PHP's logging interface); the context keeps the
+  values themselves, for formats that keep structure. An `Error` in the
+  context shows its kind, message and place.
+- **A record below a logger's level costs almost nothing**: the level
+  check comes first, before a record is made or anything formatted. A
+  `debug` call in a loop is then a comparison when debugging is off.
+
+### 12.3 Handlers, processors, formatters
+
+| Handler | Where records go |
+|---|---|
+| `logging::Stderr` | standard error, a line each (the default) |
+| `logging::File(path)` | a file, appended to (`fs`); reopened when it is moved away (for logrotate) |
+| `logging::Syslog(address)` | a syslog server or the local syslog (12.4) |
+| `logging::Memory()` | keeps the records: `h->records()`, for tests |
+| `logging::Null()` | drops them |
+
+- Each handler has its own lowest level, so that `error` and worse can go
+  to syslog while everything goes to a file. A handler can stop a record
+  from going to the handlers after it (Monolog's *bubble*).
+- Processors are functions `fn(record)` that add to `extra`:
+  `logging::host` (`net::hostname()`), `logging::pid` (needs the process
+  id from Go), and one's own, such as a request id.
+- Formatters: `logging::Line` (`2026-11-16T10:00:00.123Z shop.INFO: order
+  1042 paid by ann {"total":99.5}`, with a format of one's own),
+  `logging::JSON` (a JSON object a line, for log systems; via `json`),
+  `logging::RFC5424` and `logging::RFC3164` (12.4).
+- **A message cannot forge a record.** A newline or other control
+  character in a message or a context value is escaped in the line and
+  syslog formats (`\n`), so that text from outside never shows as a log
+  line of its own.
+
+### 12.4 Syslog
+
+- **The format**: RFC 5424 by default:
+  `<14>1 2026-11-16T10:00:00.123Z host shop 4711 - [ctx@32473 id="1042" user="ann"] order 1042 paid by ann`.
+  The priority is facility × 8 + severity (here `user`, 1, and `info`, 6); the facility is `user` unless
+  set (`local0` ... `local7`, `daemon`, ...). The context becomes
+  STRUCTURED-DATA, with `"`, `\` and `]` escaped in values as the RFC
+  says, and names cut to its 32 characters. (32473 is the example
+  enterprise number of the RFC; F-52.) RFC 3164, the older format
+  without structure, for receivers that need it (F-49).
+- **The transports**:
+  - the local syslog: `unixgram:///dev/log` (journald's socket on most
+    Linux systems; rsyslog and syslog-ng read it too). It is a Unix
+    *datagram* socket, which `net` cannot reach yet: `net::udp` would
+    take `unixgram://` addresses as well (Go, the one new piece of
+    `net` here);
+  - UDP (`udp://host:514`): one record a packet, lost without notice
+    when the network drops it;
+  - TCP (`tcp://host:514`) with the octet counting of RFC 6587 (each
+    record preceded by its length), so that a newline in a record cannot
+    split it;
+  - TLS (`tls://host:6514`, RFC 5425), with section 11's TLS.
+- A syslog that cannot be reached does not stop the program: the record
+  goes to standard error with a note, once a while, not once per record
+  (F-51).
+- Windows has no syslog: there `Stderr` and `File`; the Windows event log
+  is left out.
+
+### 12.5 Configuration
+
+```
+use logging;
+use toml;
+
+main() {
+    logging::configure(toml::decode(readfile("logging.toml")));
+    logging::get("shop")->info("started");
+}
+```
+
+```toml
+level = "info"                 # every channel, unless it says otherwise
+handlers = ["stderr"]
+
+[handler.stderr]
+type = "stderr"
+
+[handler.syslog]
+type = "syslog"
+address = "unixgram:///dev/log"
+facility = "local0"
+level = "warning"
+
+[channel.shop]
+level = "debug"
+handlers = ["stderr", "syslog"]
+```
+
+`logging::configure(map)` takes a map, so the configuration can come
+from TOML, JSON or code alike; without it every channel writes `info`
+and worse to standard error. A configuration that names an unknown
+handler or level is a `ValueError` naming the key, when it is read.
+
+### 12.6 What it leaves out, and how it would be tested
+
+- Out: sending records in the background (the event loop or a worker)
+  until it is shown to be needed (F-50); handlers for log services over
+  HTTP (no HTTP client); the Windows event log; reading logs.
+- Tests: the `Memory` handler for the logic; the RFC 5424 and RFC 3164
+  output checked against the RFCs' own examples and read back by a Go
+  parser of the format in the tests; the transports against a Unix
+  datagram socket, a UDP socket and a TCP server of the test; the
+  escaping cases of 12.3 and 12.4 (newlines, `]`, `"` and `\` in values)
+  one test each; the cost of a call below the level measured
+  (GOMAXPROCS=1, best of 9).
+
+Steps: 1. `unixgram://` in `net` and `net::hostname()` (the latter shared
+with section 11); 2. `logging` with `Stderr`, `File`, `Memory` and the
+`Line` and `JSON` formatters; 3. syslog: the formats and the transports
+(TLS after section 11's step 1).
+
+### 12.7 Open questions
+
+- **F-47** The model: Monolog's channels with one configuration
+  (proposed), or Python's tree of named loggers?
+- **F-48** The name: `logging` (proposed; `log` is the logarithm), or
+  `logger`, or `syslog` for the whole?
+- **F-49** RFC 3164 at all, or only RFC 5424 (which current rsyslog,
+  syslog-ng and journald read)?
+- **F-50** Records sent in the background, by the event loop or a
+  worker, so that a slow syslog does not slow the program; or always at
+  once (proposed for the first step)?
+- **F-51** A handler that fails: to standard error now and then
+  (proposed), an exception in the program, or silence?
+- **F-52** The STRUCTURED-DATA id: `ctx@32473` (the RFC's example
+  number, proposed until there is reason for another), a private
+  enterprise number registered for kukel, or set by the configuration?
+- **F-53** The process id for `logging::pid` and the `PROCID` of RFC
+  5424: a built-in `pid()`, or `os::pid()` in a module for the process
+  (which might later hold the environment and exit codes)?
+- **F-54** `{name}` placeholders filled from the context (PSR-3,
+  proposed), or Kukel's own string formatting?

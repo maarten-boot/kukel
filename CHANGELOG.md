@@ -21,6 +21,11 @@ From v1.0.0 on, what keeps working is in
   `starttls`), a small module `encoding` (base64), and a module `mail`
   written in Kukel (messages, MIME, SMTP), after Symfony Mailer, with its
   open questions F-39 to F-46. Not built. Q113.
+- docs/future.md §12: a design for structured logging, a module `logging`
+  written in Kukel after Monolog (channels, handlers, processors,
+  formatters, syslog in RFC 5424 over `unixgram://`, UDP, TCP and TLS,
+  configuration from a map such as a TOML file), with its open questions
+  F-47 to F-54. Not built. Q114.
 - A module `toml`: `toml::decode(s)` reads TOML 1.1 (and 1.0) into a map,
   its tables in the order of the text; `toml::encode(m)` writes a map as
   TOML. An offset datetime is a `time::Time`; a local date, time or
