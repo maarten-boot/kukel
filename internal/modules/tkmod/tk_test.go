@@ -586,7 +586,7 @@ nil 1 [puts hi] {x} $y \ end
 ValueError: tk::Label::pack: option side: "middle" is not one of top, bottom, left, right
 ValueError: tk::Label::pack: unknown option "colour" (the options are side, fill, expand, padx and pady)
 ValueError: tk::Label::pack: option padx must be a number of pixels (0 to 10000), not -1
-TypeError: tk::Label::Label: argument 1 must be a tk::Window or tk::Frame, not int
+TypeError: tk::Label::Label: argument 1 must be a tk::Window, tk::Frame or tk::Notebook, not int
 TypeError: tk::Button::onclick: argument 1 must be a function or nil, not int
 TypeError: tk::Window::Window: argument 1 must be a string, not int
 tk::Window("Second!") Second!
@@ -606,7 +606,7 @@ ValueError: tk::Frame::rowconfigure: option uniform must be a name of letters, d
 ValueError: tk::Label::bind: "Key" is not an event sequence such as "<Key>", "<Button-1>" or "<Control-Key-s>"
 ValueError: tk::Label::bind: "<Nonsense>" is not an event sequence Tk knows (bad event type or keysym "Nonsense")
 TypeError: tk::Label::bind: argument 2 must be a function or nil, not int
-TypeError: tk::Label::Label: argument 1 must be a tk::Window or tk::Frame, not tk::Label
+TypeError: tk::Label::Label: argument 1 must be a tk::Window, tk::Frame or tk::Notebook, not tk::Label
 TypeError: tk::Frame::Frame: argument 2 must be a map of options, not string
 ValueError: tk::Entry::Entry: unknown option "colour" (the options are width, font, justify, show and state)
 ValueError: tk::Frame::grid: the window is closed

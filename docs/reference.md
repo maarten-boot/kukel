@@ -2790,12 +2790,37 @@ out when it opens.
 | `w->bind(sequence, f)`, `w->rowconfigure(i, options)`, `w->columnconfigure(i, options)` | See above |
 | `new tk::Frame(parent [, options])` | A container for widgets in a window or frame. Options: `width`, `height`, `padding` (pixels inside the edge: one number, or `[x, y]`, or `[left, top, right, bottom]`), `relief` (`"flat"`, `"raised"`, `"sunken"`, `"groove"`, `"ridge"`, `"solid"`), `borderwidth` |
 | `f->configure(options)`, `f->pack(...)`, `f->grid(...)`, `f->bind(...)`, `f->rowconfigure(...)`, `f->columnconfigure(...)` | See above |
+| `new tk::Notebook(parent [, options])` | Pages, one shown at a time, chosen by a row of tabs. Its pages are frames made in it (`new tk::Frame(notebook)`); other widgets go in those frames (making one in the notebook itself is a `ValueError`). Options: `width`, `height` (of the pages), `padding` (around them). It has `configure`, `pack`, `grid` and `bind` |
+| `n->add(frame, title)` | Makes `frame` the last page, with `title` on its tab; the first page added is shown. A frame made elsewhere, or a page already, is a `ValueError` |
+| `n->select(i)`, `n->select(frame)` | Shows page `i` (from 0), or that page; a page it does not have is a `ValueError`. It calls no handler |
+| `n->selected()` | The index of the page shown; nil while there are none (also after the window closed) |
+| `n->onchange(f)` | `f(i)` is called when the user picks the tab of page `i` (with the mouse, or with the arrow keys once the tabs have the focus) |
 
 A window prints as `tk::Window("title")` (and `tk::Window("title",
-closed)`), a frame as `tk::Frame`.
+closed)`), a frame as `tk::Frame`, a notebook as `tk::Notebook(3 pages)`.
+
+```
+use tk;
+use events;
+
+main() {
+    local w = new tk::Window("Settings");
+    local tabs = new tk::Notebook(w, {"padding": 8});
+    tabs->pack({"fill": "both", "expand": true});
+    local general = new tk::Frame(tabs), colours = new tk::Frame(tabs);
+    new tk::Checkbutton(general, "Start at login")->pack({"fill": "x"});
+    new tk::Label(colours, "Contrast:")->pack({"side": "left"});
+    new tk::Combobox(colours, ["AA", "AAA", "Max"], {"state": "readonly"})->pack({"side": "left"});
+    tabs->add(general, "General")->add(colours, "Colours");
+    tabs->onchange(fn(i) { println("page", i); });
+    tabs->select(colours);
+    events::run();
+}
+```
 
 **Widgets.** All widgets have `configure(options)`, `pack`, `grid` and
-`bind`; the parent is a window or a frame.
+`bind`; the parent is a window or a frame (a frame's may also be a
+notebook).
 
 | Constructor or member function | Description |
 |---|---|

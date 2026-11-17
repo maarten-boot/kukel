@@ -523,6 +523,6 @@ func register() {
 		Name:    "tk",
 		Doc:     "desktop windows with Tk widgets (frames, labels, buttons, entries, texts, list boxes, check and radio buttons, sliders, drop-down lists, canvases, images), menus and dialogs, pack and grid, and Kukel handlers",
 		Funcs:   funcs,
-		Classes: []*native.Class{Window, Frame, Label, Button, Entry, Text, Listbox, Checkbutton, Radiobutton, Radiogroup, Menu, Canvas, Scale, Combobox, Image},
+		Classes: []*native.Class{Window, Frame, Label, Button, Entry, Text, Listbox, Checkbutton, Radiobutton, Radiogroup, Menu, Canvas, Scale, Combobox, Image, Notebook},
 	})
 }

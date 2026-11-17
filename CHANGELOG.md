@@ -17,6 +17,9 @@ From v1.0.0 on, what keeps working is in
 
 ## Unreleased
 
+- `tk::Notebook`: pages with tabs. Its pages are frames made in it,
+  added with `n->add(frame, title)`; `n->select(i)` (or a frame),
+  `n->selected()`, and `n->onchange(f)` when the user picks a tab. Q115.
 - docs/future.md §13: a design for a GUI for LMW-Synth, written in Kukel
   with `tk` and `p9` on the synth's 9P files (parameters, cables, ports,
   patch, notes), with what the synth and Kukel still lack (`/info`,

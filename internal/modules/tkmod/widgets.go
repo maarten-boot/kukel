@@ -35,8 +35,10 @@ type widget struct {
 	group    *radiogroup // Radiobutton
 	value    string      // Radiobutton
 
-	canvas *canvas // Canvas
-	slider *slider // Scale
+	canvas *canvas   // Canvas
+	slider *slider   // Scale
+	book   *notebook // Notebook
+	in     *node     // the window or frame (or notebook) it was made in
 }
 
 // A widgetSpec is how a widget class is made: the arguments between the
@@ -68,10 +70,10 @@ func parentArg(a native.Args) (*node, error) {
 	switch {
 	case Window.Is(a.V[0]):
 		return &a.V[0].AsObject().State.(*window).node, nil
-	case Frame.Is(a.V[0]):
+	case Frame.Is(a.V[0]), Notebook.Is(a.V[0]):
 		return &a.V[0].AsObject().State.(*widget).node, nil
 	}
-	return nil, a.TypeError(0, "a tk::Window or tk::Frame")
+	return nil, a.TypeError(0, "a tk::Window, tk::Frame or tk::Notebook")
 }
 
 // stringArg reads argument i of the constructor's middle arguments (args),
@@ -97,6 +99,9 @@ func newWidget(class string) value.NativeMethod {
 		parent, err := parentArg(a)
 		if err != nil {
 			return value.NilValue, err
+		}
+		if Notebook.Is(a.V[0]) && class != "Frame" {
+			return value.NilValue, a.Errorf(value.ValueError, "a tk::Notebook holds only tk::Frame pages: make the %s in a frame", class)
 		}
 		mid := a.V[1:]
 		var values []optionValue
@@ -128,7 +133,7 @@ func newWidget(class string) value.NativeMethod {
 			return value.NilValue, a.Errorf(value.ValueError, "the window is closed")
 		}
 		opts := makeOpts(values) // after start: a font is made in Tk
-		wd := &widget{class: class}
+		wd := &widget{class: class, in: parent}
 		wd.win = parent.win
 		if err := spec.make(a, mid, parent, wd, opts, scroll); err != nil {
 			return value.NilValue, err
@@ -340,4 +345,5 @@ func registerWidgets() {
 	registerCanvas()
 	registerInputs()
 	registerImages()
+	registerNotebook()
 }

@@ -368,6 +368,11 @@ var (
 	optJustify    = option{"justify", oneOf("left", "center", "right"), func(x any) tk.Opt { return tk.Justify(x) }}
 	optState      = option{"state", oneOf("normal", "disabled"), func(x any) tk.Opt { return tk.State(x) }}
 	configOptions = map[string][]option{
+		"Notebook": {
+			{"width", pixels, func(x any) tk.Opt { return tk.Width(x) }},
+			{"height", pixels, func(x any) tk.Opt { return tk.Height(x) }},
+			optPadding,
+		},
 		"Frame": {
 			{"width", pixels, func(x any) tk.Opt { return tk.Width(x) }},
 			{"height", pixels, func(x any) tk.Opt { return tk.Height(x) }},

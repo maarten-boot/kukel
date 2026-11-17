@@ -802,7 +802,7 @@ Each step is usable on its own and prepares the next:
 | 12 | Email: the module `mail`, written in Kukel (11.4, 11.5) | 10, 11 | proposed (Q113) |
 | 13 | `unixgram://` in `net` (12.4) | — | proposed (Q114) |
 | 14 | Logging: the module `logging`, written in Kukel, with syslog (12) | 11, 13; 10 for syslog over TLS | proposed (Q114) |
-| 15 | `tk::Notebook` (13.3) | 7 | proposed (Q115) |
+| 15 | `tk::Notebook` (13.3) | 7 | done (Q115) |
 | 16 | LMW-Synth GUI: the module `lmw` and a fake synth (13.4) | 9 | proposed (Q115) |
 | 17 | LMW-Synth GUI: Synth and Effects tabs, keeping in step, colours (13.5 to 13.7) | 15, 16; `/info` in the synth | proposed (Q115) |
 | 18 | LMW-Synth GUI: the Matrix tab (13.5) | 17 | proposed (Q115) |
@@ -1584,8 +1584,9 @@ with section 11); 2. `logging` with `Stderr`, `File`, `Memory` and the
 
 ## 13. A GUI for LMW-Synth over 9P
 
-*A proposal (2026-11-16, TODO.md Q115); not built. The open questions are
-13.9.* [LMW-Synth](https://github.com/maarten-boot/software-synth-LMW) is
+*A proposal (2026-11-16, TODO.md Q115); step 15 (`tk::Notebook`) built.
+The open questions are 13.9; all are answered (2026-11-17) as
+proposed.* [LMW-Synth](https://github.com/maarten-boot/software-synth-LMW) is
 a semi-modular polyphonic synthesizer (C++20, JUCE; standalone and VST3)
 whose engine is a 9P2000 server and the single source of truth for its
 state (its Spec S10). Its own JUCE GUI stays; a second GUI, written in
@@ -1649,6 +1650,10 @@ served (it reads `/` first).
    `tk::Notebook`, Tk's `ttk::notebook` (F-60):
    `new tk::Notebook(parent)`, `n->add(frame, title)`,
    `n->select(i)`, `n->selected()`, `n->onchange(f)`.
+   *Built (2026-11-17): as proposed; `select` also takes the page's
+   frame, a notebook holds only frames made in it, and `onchange` is
+   called for the user's choice only (not for `add` or `select`). See the
+   reference, `tk`.*
 6. **Calls that block.** A `p9` call blocks the event loop until the
    answer comes, with no timeout after `dial`. Normally 0.1 ms; when the
    synth's message thread hangs, up to 5 s before `busy`. Proposed: plain
@@ -1765,6 +1770,7 @@ meters.
 
 - **F-55** Where it lives: `examples/lmw/` in this repository (proposed),
   or a repository of its own?
+  *Answered (2026-11-17): `examples/lmw/`.*
 - **F-56** The parameter description: `/info` in the synth before the
   GUI's panels are built (proposed; the synth stays the single source of
   truth), or a table in Kukel for now? Its form: JSON, one object per
@@ -1772,19 +1778,27 @@ meters.
   "min": 20, "max": 18000, "default": 18000, "unit": "Hz", "scale":
   "log"}`, a choice with `"choices": ["Lowpass", ...]` (proposed; `json`
   reads it), or lines of text?
+  *Answered (2026-11-17): `/info` in the synth, as JSON, one object per parameter.*
 - **F-57** Keeping in step: poll `/patch` every 200 ms (proposed), with
   `/serial` in the synth later; or a file whose read waits for the next
   change (one request open per client, harder in the synth)?
+  *Answered (2026-11-17): poll `/patch` every 200 ms; `/serial` later.*
 - **F-58** The first version: steps 15 to 19 without the schematic
   (proposed), or with it?
+  *Answered (2026-11-17): steps 15 to 19 without the schematic.*
 - **F-59** Notes: a `/keys` file in the synth and an on-screen keyboard
   (proposed for later), or MIDI only?
+  *Answered (2026-11-17): `/keys` and an on-screen keyboard later.*
 - **F-60** `tk::Notebook` as in 13.3 (proposed), or tabs made of buttons
   and frames in the program (which needs a way to hide a frame)?
+  *Answered (2026-11-17): `tk::Notebook`; built.*
 - **F-61** 9P calls on the event loop (proposed for the first version),
   or in a worker so that a `busy` synth does not freeze the window?
+  *Answered (2026-11-17): plain calls on the event loop first.*
 - **F-62** At most one write per parameter every 20 ms while a fader
   moves, the last value winning (proposed)?
+  *Answered (2026-11-17): at most one write every 20 ms, the last value winning.*
 - **F-63** The GUI's own configuration file, TOML (proposed), or the
   contrast settings shared with the synth's `config.ini` (one setting for
   both GUIs, but a file another program writes)?
+  *Answered (2026-11-17): the GUI's own TOML file.*
