@@ -39,8 +39,12 @@ jobs:
           make test-tk && make tk && ./bin/kukel-tk version
       - name: Build
         run: make build && ./bin/kukel version
+      # A number of executions, not a time: when a -fuzztime of seconds
+      # runs out, go test can report its own deadline as a failure
+      # ("context deadline exceeded", golang/go#75804; TODO.md Q116).
+      # About 85 s in all: 200000 each, 30000 for the two slow ones.
       - name: Fuzz briefly
-        run: make fuzz FUZZTIME=10s
+        run: make fuzz FUZZTIME=200000x FUZZSLOW=30000x
       # A fuzz test that fails (or whose watchdog stops a program that runs
       # on: internal/bytecode runFuzzed) leaves its input in testdata/fuzz:
       # the new files are printed here and kept as an artifact, to run again

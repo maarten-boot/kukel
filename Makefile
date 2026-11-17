@@ -1,6 +1,7 @@
 GO       ?= go
 BIN      := bin/kukel
 FUZZTIME ?= 30s
+FUZZSLOW ?= $(FUZZTIME)
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo devel)
 LDFLAGS  := -X main.version=$(VERSION)
 # The build tags that leave everything optional out (make small).
@@ -56,7 +57,11 @@ vet:
 fmt:
 	gofmt -w .
 
-# Run each fuzz test for FUZZTIME (make fuzz FUZZTIME=5m).
+# Run each fuzz test for FUZZTIME (make fuzz FUZZTIME=5m), or for a number
+# of executions (FUZZTIME=200000x, as CI does: a time can end in a false
+# "context deadline exceeded", golang/go#75804). FUZZSLOW (FUZZTIME by
+# default) is for FuzzStrict and FuzzUTF8, which run 10 to 60 times fewer
+# inputs a second than the others.
 fuzz:
 	$(GO) test -run '^$$' -fuzz '^FuzzLexer$$' -fuzztime $(FUZZTIME) ./internal/lexer
 	$(GO) test -run '^$$' -fuzz '^FuzzParser$$' -fuzztime $(FUZZTIME) ./internal/parser
@@ -67,9 +72,9 @@ fuzz:
 	$(GO) test -run '^$$' -fuzz '^FuzzJSON$$' -fuzztime $(FUZZTIME) ./internal/modules/jsonmod
 	$(GO) test -run '^$$' -fuzz '^FuzzTOML$$' -fuzztime $(FUZZTIME) ./internal/modules/tomlmod
 	$(GO) test -run '^$$' -fuzz '^FuzzFormat$$' -fuzztime $(FUZZTIME) ./internal/format
-	$(GO) test -run '^$$' -fuzz '^FuzzStrict$$' -fuzztime $(FUZZTIME) ./internal/format
+	$(GO) test -run '^$$' -fuzz '^FuzzStrict$$' -fuzztime $(FUZZSLOW) ./internal/format
 	$(GO) test -run '^$$' -fuzz '^FuzzParseFormat$$' -fuzztime $(FUZZTIME) ./internal/modules/timemod
-	$(GO) test -run '^$$' -fuzz '^FuzzUTF8$$' -fuzztime $(FUZZTIME) ./internal/modules/utf8mod
+	$(GO) test -run '^$$' -fuzz '^FuzzUTF8$$' -fuzztime $(FUZZSLOW) ./internal/modules/utf8mod
 
 bench:
 	$(GO) test -run '^$$' -bench . -benchmem ./...

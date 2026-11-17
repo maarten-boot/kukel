@@ -249,7 +249,7 @@ when a full cross-check is due) is in [docs/checks.md](docs/checks.md).
 | `make test-all` | everything: vet, the tests of the full, the smallest and the `tk` build, and the tests with the race detector |
 | `make small`, `make test-small` | build `bin/kukel-small`, or run the tests, without the optional parts (`TAGS=...` picks other tags for `small`; `make vet` also vets the smallest build) |
 | `make tk`, `make test-tk` | build `bin/kukel-tk`, or run the tests, with the module `tk` (`make vet` also vets it). Its tests need a display or Xvfb (else they skip), and click, type and drag with xdotool when it is there |
-| `make fuzz FUZZTIME=1m` | fuzz the lexer, parser, compiler, bytecode loader and verifier (what they accept runs in the VM with a step limit), `json::decode`, `toml::decode`, base64, time parsing and `kukel fmt` (each for 30s by default) |
+| `make fuzz FUZZTIME=1m` | fuzz the lexer, parser, compiler, bytecode loader and verifier (what they accept runs in the VM with a step limit), `json::decode`, `toml::decode`, base64, time parsing and `kukel fmt` (each for 30s by default; `FUZZTIME=200000x` counts executions instead, and `FUZZSLOW` sets the two slow ones apart, as CI does) |
 | `make bench` | benchmarks |
 | `make golden` | rewrite the expected outputs in `tests/` after an intended change |
 | `make vscode` | the Visual Studio Code extension (`editors/vscode`) as `dist/kukel-vscode-<version>.vsix`; needs Node.js (npx fetches vsce) |
