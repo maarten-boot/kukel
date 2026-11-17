@@ -1,8 +1,10 @@
 package tomlmod
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/maarten-boot/kukel/internal/modules/timemod"
 	"github.com/maarten-boot/kukel/internal/value"
@@ -189,11 +191,24 @@ func TestErrors(t *testing.T) {
 	}
 }
 
+// fuzzWatchdog is how long FuzzTOML lets one input take: far beyond a
+// normal one (microseconds), so that a slow machine does not set it off.
+const fuzzWatchdog = 5 * time.Second
+
 func FuzzTOML(f *testing.F) {
 	for _, s := range []string{"a = 1", "[x]\ny = [1, {z = 2}]", "[[t]]\n[[t]]\nk = 'v'", "d = 1979-05-27T07:32:00Z"} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
+		// A watchdog: an input that takes this long panics, which ends
+		// the fuzzing process, so that go test writes it to
+		// testdata/fuzz and CI keeps it (without it, an input still
+		// running when -fuzztime ends is lost: "context deadline
+		// exceeded").
+		dog := time.AfterFunc(fuzzWatchdog, func() {
+			panic(fmt.Sprintf("toml::decode and encode of a %d-byte input still run after %v: %q", len(s), fuzzWatchdog, s))
+		})
+		defer dog.Stop()
 		v, err := call(decode, value.MakeString(s))
 		if err != nil {
 			return
