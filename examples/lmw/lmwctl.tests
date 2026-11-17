@@ -1,0 +1,271 @@
+# Tests of lmwctl.kkl and so of the modules lmw and fakesynth, run in
+# examples/lmw (see examples/README.md). -fake serves a fake synth in the
+# program itself; the real synth is tried by hand (docs/future.md 13.8).
+
+# Parameters: values as the synth writes them, choices by name, prefix, "dB"-less name or index, numbers clipped to the range and put on the step
+$ -fake get vcf1.cutoff , get voice.count , get vcf1.slope , get vco1.octave , source
+18000.0
+8
+24 dB
+0
+https://github.com/maarten-boot/software-synth-LMW
+
+$ -fake set vcf1.cutoff 800 , get vcf1.cutoff , set vcf1.cutoff 99999 , get vcf1.cutoff , set vcf1.cutoff -3 , get vcf1.cutoff
+800.0
+18000.0
+20.0
+
+$ -fake set vcf1.type band , get vcf1.type , set vcf1.slope 12 , get vcf1.slope , set vco1.octave 1 , get vco1.octave , set lfo1.wave 3 , get lfo1.wave
+Bandpass
+12 dB
++1
+Square
+
+$ -fake set voice.count 7.6 , get voice.count , set vco1.tune 1.234 , get vco1.tune , set env1.attack 1e-3 , get env1.attack
+8
+1.23
+0.001
+
+$ -fake info vcf1.cutoff , info vcf1.type , info voice.count , info vco2.tune , info out.gain
+vcf1.cutoff float 20.0..18000.0 [18000.0] unit Hz centre 600.0
+vcf1.type choice Lowpass|Highpass|Bandpass|Notch [Lowpass]
+voice.count int 1..32 [8]
+vco2.tune float -7.0..7.0 [0.0] unit st step 0.01
+out.gain float 0.0..1.0 [0.8] unit dB
+
+$ -fake params
+voice.count int 1..32 [8]
+vco1.wave choice Sine|Saw|Square|Triangle [Saw]
+vco1.octave choice -2|-1|0|+1|+2 [0]
+vco1.tune float -7.0..7.0 [0.0] unit st step 0.01
+vco1.fm float 0.0..12.0 [0.0] unit st
+mix.vco1 float 0.0..1.0 [1.0] unit %
+vco2.wave choice Sine|Saw|Square|Triangle [Saw]
+vco2.octave choice -2|-1|0|+1|+2 [0]
+vco2.tune float -7.0..7.0 [0.0] unit st step 0.01
+vco2.fm float 0.0..12.0 [0.0] unit st
+mix.vco2 float 0.0..1.0 [0.0] unit %
+vco3.wave choice Sine|Saw|Square|Triangle [Saw]
+vco3.octave choice -2|-1|0|+1|+2 [0]
+vco3.tune float -7.0..7.0 [0.0] unit st step 0.01
+vco3.fm float 0.0..12.0 [0.0] unit st
+mix.vco3 float 0.0..1.0 [0.0] unit %
+mix.noise float 0.0..1.0 [0.0] unit %
+noise.colour choice White|Pink|Brown [White]
+noise.rate float 0.05..50.0 [4.0] unit Hz centre 4.0
+noise.smooth float 0.0..1.0 [0.0] unit %
+vcf1.cutoff float 20.0..18000.0 [18000.0] unit Hz centre 600.0
+vcf1.res float 0.0..1.0 [0.0] unit %
+vcf1.env float -5.0..5.0 [0.0] unit oct
+vcf1.key float 0.0..1.0 [0.0] unit %
+vcf1.slope choice 24 dB|12 dB|6 dB [24 dB]
+vcf1.type choice Lowpass|Highpass|Bandpass|Notch [Lowpass]
+vcf2.cutoff float 20.0..18000.0 [18000.0] unit Hz centre 600.0
+vcf2.res float 0.0..1.0 [0.0] unit %
+vcf2.env float -5.0..5.0 [0.0] unit oct
+vcf2.key float 0.0..1.0 [0.0] unit %
+vcf2.slope choice 24 dB|12 dB|6 dB [24 dB]
+vcf2.type choice Lowpass|Highpass|Bandpass|Notch [Lowpass]
+vca.initial float 0.0..1.0 [0.0] unit %
+vca.tremolo float 0.0..1.0 [0.0] unit %
+env1.attack float 0.0..5.0 [0.01] unit s centre 0.5
+env1.decay float 0.0..5.0 [0.2] unit s centre 0.5
+env1.sustain float 0.0..1.0 [0.7] unit %
+env1.release float 0.0..10.0 [0.3] unit s centre 1.0
+env2.attack float 0.0..5.0 [0.01] unit s centre 0.5
+env2.decay float 0.0..5.0 [0.3] unit s centre 0.5
+env2.sustain float 0.0..1.0 [0.0] unit %
+env2.release float 0.0..10.0 [0.3] unit s centre 1.0
+lfo1.rate float 0.05..20.0 [5.0] unit Hz centre 2.0
+lfo1.wave choice Sine|Triangle|Saw|Square [Sine]
+lfo2.rate float 0.05..20.0 [4.0] unit Hz centre 2.0
+lfo2.wave choice Sine|Triangle|Saw|Square [Sine]
+out.gain float 0.0..1.0 [0.8] unit dB
+reverb.mix float 0.0..1.0 [0.0] unit %
+reverb.size float 0.0..1.0 [0.5] unit %
+reverb.damping float 0.0..1.0 [0.5] unit %
+reverb.width float 0.0..1.0 [1.0] unit %
+
+# A synth without /info (before it has one): the ids from /params, values as the synth's text
+$ -fake -noinfo params
+env1.attack env1.decay env1.release env1.sustain env2.attack env2.decay env2.release env2.sustain lfo1.rate lfo1.wave lfo2.rate lfo2.wave mix.noise mix.vco1 mix.vco2 mix.vco3 noise.colour noise.rate noise.smooth out.gain reverb.damping reverb.mix reverb.size reverb.width vca.initial vca.tremolo vcf1.cutoff vcf1.env vcf1.key vcf1.res vcf1.slope vcf1.type vcf2.cutoff vcf2.env vcf2.key vcf2.res vcf2.slope vcf2.type vco1.fm vco1.octave vco1.tune vco1.wave vco2.fm vco2.octave vco2.tune vco2.wave vco3.fm vco3.octave vco3.tune vco3.wave voice.count
+
+$ -fake -noinfo get vcf1.cutoff , set vco1.octave 1 , get vco1.octave , info vcf1.cutoff
+18000
++1
+! lmwctl: this synth has no /info (it describes the parameters)
+exit 1
+
+# What the synth refuses
+$ -fake set vcf1.cutoff abc
+! lmwctl: vcf1.cutoff: bad value
+exit 1
+
+$ -fake set vcf1.type s
+! lmwctl: vcf1.type: bad value
+exit 1
+
+$ -fake set vcf1.type 9
+! lmwctl: vcf1.type: bad value
+exit 1
+
+$ -fake get vcf1.nope
+! lmwctl: vcf1.nope: file does not exist
+exit 1
+
+$ -fake get cutoff
+! lmwctl: not a parameter id: "cutoff"
+exit 1
+
+$ -fake info vcf1.nope
+! lmwctl: no parameter vcf1.nope
+exit 1
+
+# Cables: set, read, remove, clear
+$ -fake cable vcf1.cutoff env2.out@0.5+lfo1.out@25% , cable vca.mod keys.vel , cables , cable vca.mod , cables , clear , cables
+vcf1.cutoff = env2.out@0.5+lfo1.out@0.25
+vca.mod = keys.vel
+vcf1.cutoff = env2.out@0.5+lfo1.out@0.25
+
+$ -fake cable nope keys.vel
+! lmwctl: nope: unknown input: nope
+exit 1
+
+$ -fake cable vcf1.in nowhere.out
+! lmwctl: vcf1.in: bad cables (unknown output, bad level, output twice or more than 4): nowhere.out
+exit 1
+
+$ -fake cable vcf1.in vco1.out+vco1.out
+! lmwctl: vcf1.in: vco1.out twice in "vco1.out+vco1.out"
+exit 1
+
+$ -fake cable vcf1.in vco1.out+vco2.out+vco3.out+noise.out+mix.out
+! lmwctl: vcf1.in: more than 4 pins in "vco1.out+vco2.out+vco3.out+noise.out+mix.out"
+exit 1
+
+$ -fake cable vcf1.in vco1.out@1.5
+! lmwctl: vcf1.in: bad level in "vco1.out@1.5"
+exit 1
+
+$ -fake ports
+keys.pitch -> vco1.pitch
+lfo1.out -> vco1.fm
+keys.pitch -> vco2.pitch
+lfo1.out -> vco2.fm
+keys.pitch -> vco3.pitch
+lfo1.out -> vco3.fm
+keys.gate -> env1.gate
+keys.gate -> env2.gate
+vco1.out -> mix.in1
+vco2.out -> mix.in2
+vco3.out -> mix.in3
+noise.out -> mix.in4
+mix.out -> vcf1.in
+env2.out -> vcf1.cutoff
+none -> vcf1.res
+vcf1.out -> vcf2.in
+env2.out -> vcf2.cutoff
+none -> vcf2.res
+vcf2.out -> vca.in
+env1.out -> vca.cv
+lfo2.out -> vca.mod
+vca.out -> out.in
+outputs: keys.pitch keys.gate keys.vel vco1.out vco2.out vco3.out noise.out noise.rand lfo1.out lfo2.out env1.out env2.out mix.out vcf1.out vcf2.out vca.out
+
+# Patches: load (comments, unknown sections, an unreadable value: the default), read, refuse
+$ -fake load testdata/bass.lmwpatch , get vco1.wave , get voice.count , cables , notes
+Square
+8
+vcf1.cutoff = env2.out@0.5+lfo1.out@0.25
+vca.mod = keys.vel
+Play it low.
+# this line is part of the notes,
+[and this one too]
+as the synth keeps them.
+
+$ -fake load testdata/badcables.lmwpatch
+! lmwctl: patch: The [cables] section names an unknown socket or one input twice.
+exit 1
+
+$ -fake load testdata/notapatch.txt
+! lmwctl: patch: Not an LMW-Synth patch file (or made by a newer version).
+exit 1
+
+$ -fake setnotes 'two words' , notes
+two words
+
+# Changes: the first call gives everything; then what changed, also removed cables
+$ -fake changes , changes , set vcf1.res 0.5 , cable out.in vcf1.out , changes , cable out.in , set lfo2.wave saw , changes
+param (all 51 of them)
+name: ""
+notes: 0 bytes
+schematic moved: 0
+no changes
+param vcf1.res = 0.5
+cable out.in = vcf1.out
+param lfo2.wave = Saw
+cable out.in = (none)
+
+$ -fake changes , load testdata/bass.lmwpatch , changes
+param (all 51 of them)
+name: ""
+notes: 0 bytes
+schematic moved: 0
+param vco1.wave = Square
+param vco2.octave = -1
+param mix.vco2 = 0.6
+param vcf1.cutoff = 420.0
+param vcf1.res = 0.35
+cable vcf1.cutoff = env2.out@0.5+lfo1.out@0.25
+cable vca.mod = keys.vel
+name: "Fat bass # with a hash"
+notes: 91 bytes
+schematic moved: 1
+
+$ -fake -serial changes , changes , setnotes hi , changes
+param (all 51 of them)
+name: ""
+notes: 0 bytes
+schematic moved: 0
+no changes
+notes: 2 bytes
+
+# Finding a synth: a socket in a directory, as lmw::sockets() finds them
+$ -fakedir sockets , get out.gain
+1234-1.sock
+0.8
+
+# The command line
+$ -fake
+! lmwctl: no command
+! usage: lmwctl [-a address | -fake | -fakedir] [-serial] [-noinfo] command [args] [, command [args]]...
+! commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes
+exit 2
+
+$ -fake nonsense
+! lmwctl: unknown command nonsense; commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes
+exit 1
+
+$ -fake get
+! lmwctl: get: wrong number of arguments
+exit 1
+
+$ -x get vcf1.cutoff
+! lmwctl: unknown option -x
+! usage: lmwctl [-a address | -fake | -fakedir] [-serial] [-noinfo] command [args] [, command [args]]...
+! commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes
+exit 2
+
+$ -a
+! lmwctl: -a needs an address
+! usage: lmwctl [-a address | -fake | -fakedir] [-serial] [-noinfo] command [args] [, command [args]]...
+! commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes
+exit 2
+
+$ -a tcp://127.0.0.1:1 get vcf1.cutoff
+! lmwctl: p9::dial: tcp://127.0.0.1:1: connection refused
+exit 1
+
+$ -a tcp!127.0.0.1!1 get vcf1.cutoff
+! lmwctl: p9::dial: tcp://127.0.0.1:1: connection refused
+exit 1

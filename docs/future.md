@@ -803,7 +803,7 @@ Each step is usable on its own and prepares the next:
 | 13 | `unixgram://` in `net` (12.4) | — | proposed (Q114) |
 | 14 | Logging: the module `logging`, written in Kukel, with syslog (12) | 11, 13; 10 for syslog over TLS | proposed (Q114) |
 | 15 | `tk::Notebook` (13.3) | 7 | done (Q115) |
-| 16 | LMW-Synth GUI: the module `lmw` and a fake synth (13.4) | 9 | proposed (Q115) |
+| 16 | LMW-Synth GUI: the module `lmw` and a fake synth (13.4) | 9 | done (Q115) |
 | 17 | LMW-Synth GUI: Synth and Effects tabs, keeping in step, colours (13.5 to 13.7) | 15, 16; `/info` in the synth | proposed (Q115) |
 | 18 | LMW-Synth GUI: the Matrix tab (13.5) | 17 | proposed (Q115) |
 | 19 | LMW-Synth GUI: Load, Save, Notes, choosing a synth (13.5) | 17 | proposed (Q115) |
@@ -1584,7 +1584,8 @@ with section 11); 2. `logging` with `Stderr`, `File`, `Memory` and the
 
 ## 13. A GUI for LMW-Synth over 9P
 
-*A proposal (2026-11-16, TODO.md Q115); step 15 (`tk::Notebook`) built.
+*A proposal (2026-11-16, TODO.md Q115); steps 15 (`tk::Notebook`) and 16
+(the module `lmw`, a fake synth) built.
 The open questions are 13.9; all are answered (2026-11-17) as
 proposed.* [LMW-Synth](https://github.com/maarten-boot/software-synth-LMW) is
 a semi-modular polyphonic synthesizer (C++20, JUCE; standalone and VST3)
@@ -1631,6 +1632,19 @@ it), so a GUI must pass over sockets it cannot dial.
    lists and a log scale (the cutoff) are not served. Copying them from
    the synth's Spec S5a.1 into Kukel would drift from the synth.
    Proposed: a read-only `/info` in the synth (F-56).
+   *The format (2026-11-17), as `examples/lmw/fakesynth.kkl` serves it
+   for the synth to copy: one JSON array, one object per parameter in the
+   synth's order, with `id`, `name` (the synth's own, "VCF 1 Cutoff"),
+   `kind` (`"float"`, `"int"` or `"choice"`) and `default`; a float and an
+   int also `min` and `max`; a float `unit` (how the value is shown: `"%"`
+   is the value times 100, `"dB"` 20·log10 of it, `"s"`, `"Hz"`, `"oct"`
+   and `"st"` the value itself), and when the synth has them `centre` (the
+   value in the middle of the fader: JUCE's `setSkewForCentre`, a log
+   scale) and `step` (the smallest change, 0.01 for the tune); a choice
+   `choices` (the names) and its `default` by name. For example
+   `{"id": "vcf1.cutoff", "name": "VCF 1 Cutoff", "kind": "float", "min":
+   20.0, "max": 18000.0, "default": 18000.0, "unit": "Hz", "centre":
+   600.0}`.*
 2. **No notice of changes.** Changes from the synth's own GUI, a DAW or
    another client are seen only by reading again. Polling `/patch` works
    now; a `/serial` file (a number that goes up with each change) would
@@ -1671,7 +1685,8 @@ examples/lmw/
     lmw.kkl          the module lmw: no GUI; finding, connecting, the model
     lmwgui.kkl       the program: windows, tabs, panels
     fakesynth.kkl    a 9P server in Kukel that behaves as the synth, for tests
-    lmw.tests        tests of lmw.kkl against fakesynth.kkl
+    lmwctl.kkl       a command-line client, for the tests and by hand
+    lmwctl.tests     its tests, against fakesynth.kkl
 ```
 
 The module `lmw` (no `tk`, so it runs and is tested anywhere):
@@ -1690,6 +1705,23 @@ The module `lmw` (no `tk`, so it runs and is tested anywhere):
 
 The program `lmwgui` takes `-a address`; without it, the newest synth.
 With several synths running, a menu lists them to switch.
+
+*Built (2026-11-17), step 16, as above with these changes: the tests run
+a command-line client, `lmwctl.kkl` (commands `get`, `set`, `info`,
+`params`, `cables`, `cable`, `clear`, `ports`, `patch`, `load`, `save`,
+`notes`, `setnotes`, `changes`, `sockets`, `source`, several in one run
+separated by `,`; `-fake` runs the fake synth in the program, `-fakedir`
+on a Unix socket in a new directory, `-serial` and `-noinfo` change what
+it serves), in `lmwctl.tests`, since a `.tests` file runs a program.
+`s->info()` and `s->param(id)` give `/info`; without `/info`, `params()`
+lists the files in `/params` and values stay the synth's text (`+1` is an
+octave, not a number). `lmw::connect` asks for 9P2000: the synth speaks
+only that, and a Kukel server (the fake) would otherwise answer in
+9P2000.L, whose errors are numbers. Errors are an `IOError` with the
+synth's own message after what was asked (`vcf1.cutoff: bad value`,
+`nope: unknown input: nope`). `lmw::parsepatch` and `lmw::writepatch`
+read and write patch files as the synth's PatchFile.h does (comments,
+unknown sections, a name with `#`, `[notes]` kept as it is).*
 
 ### 13.5 The windows
 
@@ -1755,6 +1787,14 @@ Theme.h).
 - The fake against the real one: a script (not in CI, since kukel's CI
   does not build the synth) runs the same tests against a synth under
   `xvfb-run`.
+  *Done by hand (2026-11-17) with `lmwctl -a` against a synth under
+  `xvfb-run`: values, choices by prefix and index, clipping, step, the
+  error messages, cables, ports, `changes()` and the patch-file errors
+  agree. Found: a synth without `/info` gives `+1` for an octave, which
+  `lmw` first read as the number 1 (now it keeps the text); 800 written
+  reads back as 800.0001 (the synth's float round trip: for the synth);
+  the synth binary at hand was older than its patch-file code (it refused
+  a `[schematic]` section), so the fake follows the source.*
 - The GUI as `notes.kkl` is tested now: under Xvfb with xdotool in
   `make test-tk`, against the fake synth.
 - The contrast table for every preset.

@@ -1,0 +1,645 @@
+// lmw.kkl: the module lmw, a client of LMW-Synth over 9P, without a GUI
+// (docs/future.md §13.4). LMW-Synth (github.com/maarten-boot/software-synth-LMW)
+// serves its state as files: /params/<module>/<name>, /cables, /ports,
+// /patch, /notes, /source, and /info (a description of the parameters).
+//
+//     use lmw;
+//     local synth = lmw::connect();          // the newest synth that answers
+//     synth->set("vcf1.cutoff", 1000);
+//     println(synth->get("vcf1.cutoff"), synth->cables());
+//
+// The text forms of the synth (pins "env2.out@0.5+lfo1.out", patch files)
+// are read and written here, and only here.
+use p9;
+use json;
+use fs;
+
+// The synth speaks 9P2000 (not 9P2000.L).
+const VERSION = "9P2000";
+
+// socketdirs(): the directories where synths put their sockets: Linux
+// $XDG_RUNTIME_DIR/lmw-synth (else /tmp/lmw-synth-<uid>, found by listing
+// /tmp), macOS $TMPDIR/lmw-synth, Windows %TEMP%\lmw-synth.
+socketdirs() {
+    local dirs = [];
+
+    for (local name in ["XDG_RUNTIME_DIR", "TMPDIR", "TEMP"]) {
+        local d = getenv(name);
+
+        if (d != nil && d != "") {
+            push(dirs, fs::join(d, "lmw-synth"));
+        }
+    }
+
+    if (fs::exists("/tmp")) {
+        try {
+            for (local e in fs::readdir("/tmp")) {
+                if (e["dir"] && find(e["name"], "lmw-synth-") == 0) {
+                    push(dirs, fs::join("/tmp", e["name"]));
+                }
+            }
+        } catch (e) {
+        }
+    }
+    return dirs;
+}
+
+// sockets([dirs]): the addresses of the synth sockets in those directories
+// (by default socketdirs()), newest first. Directories that are not there
+// or cannot be read (another user's) are passed over.
+sockets(dirs = nil) {
+    local found = [];
+
+    for (local d in dirs == nil ? socketdirs() : dirs) {
+        local entries = [];
+
+        try {
+            entries = fs::readdir(d);
+        } catch (e) {
+            continue;
+        }
+
+        for (local e in entries) {
+            if (fs::ext(e["name"]) == ".sock" && !e["dir"]) {
+                push(found, [e["time"]->unix(), "unix://" + fs::join(d, e["name"])]);
+            }
+        }
+    }
+    sort(found, fn(a, b) { return a[0] > b[0]; });
+    local out = [];
+
+    for (local f in found) {
+        push(out, f[1]);
+    }
+    return out;
+}
+
+// address(s): an address as p9::dial takes it, from the synth's own forms
+// too: "unix!/path" and a bare socket path become "unix:///path",
+// "tcp!host!port" becomes "tcp://host:port".
+address(s) {
+    if (find(s, "unix!") == 0) {
+        return "unix://" + slice(s, 5);
+    }
+
+    if (find(s, "tcp!") == 0) {
+        local parts = split(slice(s, 4), "!");
+
+        if (len(parts) != 2) {
+            throw new Error("not an address: " + s, "ValueError");
+        }
+        return "tcp://" + parts[0] + ":" + parts[1];
+    }
+
+    if (find(s, "://") < 0 && fs::ext(s) == ".sock") {
+        return "unix://" + s;
+    }
+    return s;
+}
+
+// connect([address [, timeout]]): a Synth connected to the synth at
+// address, or without one to the newest synth socket that answers. No
+// synth is a NetError that says where it looked.
+connect(addr = nil, timeout = 2) {
+    if (addr != nil) {
+        return new Synth(address(addr), timeout);
+    }
+    local tried = [];
+
+    for (local a in sockets()) {
+        try {
+            return new Synth(a, timeout);
+        } catch (e) {
+            push(tried, a + " (" + e->message + ")");
+        }
+    }
+    local where = len(tried) > 0 ? "tried " + join(tried, ", ") : "no sockets in " + join(socketdirs(), ", ");
+    throw new Error("lmw::connect: no LMW-Synth answers: " + where, "NetError");
+}
+
+// ----------------------------------------------------------------------
+// Values and pins as text
+
+// sig(x, n): x rounded to n significant digits.
+sig(x, n) {
+    if (x == 0) {
+        return 0.0;
+    }
+    local e = floor(log(abs(x)) / log(10) + 1e-9);
+    local scale = pow(10.0, n - 1 - e);
+    return round(x * scale) / scale;
+}
+
+// number(x, n): x as the synth writes numbers: n significant digits (as
+// C's %.ng), without ".0" for a whole number.
+number(x, n) {
+    local r = sig(float(x), n);
+
+    if (r == floor(r) && abs(r) < 1e15) {
+        return str(int(r));
+    }
+    return str(r);
+}
+
+// level(s): a pin level "0.5", ".25", "1" or "50%": more than 0, at most
+// 1; nil when it is not one.
+level(s) {
+    local text = trim(s), percent = false;
+
+    if (len(text) > 0 && slice(text, len(text) - 1) == "%") {
+        percent = true;
+        text = trim(slice(text, 0, len(text) - 1));
+    }
+
+    if (text == "" || text == ".") {
+        return nil;
+    }
+    local dots = 0;
+
+    for (local c in text) {   // bytes, as ints
+        if (c == ord(".")) {
+            dots++;
+        } else if (c < ord("0") || c > ord("9")) {
+            return nil;
+        }
+    }
+
+    if (dots > 1) {
+        return nil;
+    }
+    local v = float(text) / (percent ? 100 : 1);
+    return v > 0 && v <= 1 ? v : nil;
+}
+
+// parsepins(text): the pins of an input, "env2.out@0.5+lfo1.out", as a
+// vector of [output, level] ("" is none). A pin without an output, a bad
+// level, an output twice or more than 4 pins is a ValueError; whether the
+// outputs exist is for the synth to say.
+parsepins(text) {
+    local pins = [], seen = {};
+
+    if (trim(text) == "") {
+        return pins;
+    }
+
+    for (local part in split(text, "+")) {
+        local out = trim(part), l = 1.0, at = find(part, "@");
+
+        if (at >= 0) {
+            out = trim(slice(part, 0, at));
+            l = level(slice(part, at + 1));
+
+            if (l == nil) {
+                throw new Error("bad level in " + value(text), "ValueError");
+            }
+        }
+
+        if (out == "") {
+            throw new Error("a pin without an output in " + value(text), "ValueError");
+        }
+
+        if (haskey(seen, out)) {
+            throw new Error(out + " twice in " + value(text), "ValueError");
+        }
+        seen[out] = true;
+        push(pins, [out, l]);
+    }
+
+    if (len(pins) > 4) {
+        throw new Error("more than 4 pins in " + value(text), "ValueError");
+    }
+    return pins;
+}
+
+// value(s): s in quotes, for a message.
+value(s) {
+    return "\"" + s + "\"";
+}
+
+// formatpins(pins): the text of pins, as the synth writes it: the level
+// with up to 4 significant digits, left out at 100 %.
+formatpins(pins) {
+    local parts = [];
+
+    for (local p in pins) {
+        push(parts, p[1] >= 1 ? p[0] : p[0] + "@" + number(p[1], 4));
+    }
+    return join(parts, "+");
+}
+
+// parsevalue(text [, info]): the value of a parameter from the synth's
+// text, by info's kind: a float, an int, or a choice's name. Without info
+// (a synth without /info) the text as it is: "+1" is a choice of octave,
+// not a number, and only /info can tell.
+parsevalue(text, info = nil) {
+    local t = trim(text);
+    local kind = info == nil ? nil : info["kind"];
+
+    if (kind == "int") {
+        return int(t);
+    }
+
+    if (kind == "float") {
+        return float(t);
+    }
+    return t;
+}
+
+// ----------------------------------------------------------------------
+// Patch files (the synth's PatchFile.h)
+
+// parsepatch(text): a patch file as a map: format, state_version, name,
+// params (id -> value text), cables (input -> pins text), schematic
+// (block -> "x, y") and notes (the text after [notes], as it is). Comments
+// (#) and unknown sections are skipped, as the synth does; a text without
+// a format line, or of a newer format, is a ValueError.
+parsepatch(text) {
+    local p = {"format": 0, "state_version": 0, "name": "", "params": {}, "cables": {}, "schematic": {}, "notes": ""};
+    local section = "header", lines = split(text, "\n");
+
+    for (local i = 0; i < len(lines); i++) {
+        local raw = lines[i];
+
+        if (len(raw) > 0 && slice(raw, len(raw) - 1) == "\r") {
+            raw = slice(raw, 0, len(raw) - 1);
+        }
+        local line = trim(raw);
+
+        if (line == "[notes]") {
+            p["notes"] = join(slice(lines, i + 1), "\n");
+            break;
+        }
+
+        if (len(line) >= 2 && slice(line, 0, 1) == "[" && slice(line, len(line) - 1) == "]") {
+            section = {"[parameters]": "params", "[cables]": "cables", "[schematic]": "schematic"}[line];
+
+            if (section == nil) {
+                section = "unknown";   // of a newer version: skipped
+            }
+            continue;
+        }
+        local content = line, hash = find(line, "#");
+
+        if (hash >= 0) {
+            content = slice(line, 0, hash);
+        }
+        local eq = find(content, "=");
+
+        if (eq < 0) {
+            continue;
+        }
+        local key = trim(slice(content, 0, eq)), val = trim(slice(content, eq + 1));
+
+        if (key == "") {
+            continue;
+        }
+
+        if (section == "header") {
+            if (key == "format" || key == "state_version") {
+                try {
+                    p[key] = int(val);
+                } catch (e) {
+                    p[key] = -1;
+                }
+            } else if (key == "name") {
+                p["name"] = trim(slice(raw, find(raw, "=") + 1));   // a name may hold '#'
+            }
+        } else if (section != "unknown") {
+            p[section][key] = val;
+        }
+    }
+
+    if (p["format"] != 1) {
+        throw new Error("Not an LMW-Synth patch file (or made by a newer version).", "ValueError");
+    }
+    return p;
+}
+
+// writepatch(p): the text of a patch map as parsepatch gives it.
+writepatch(p) {
+    local lines = [
+        "# LMW-Synth patch",
+        "format = 1",
+        "state_version = " + str(p["state_version"]),
+        "name = " + replace(replace(p["name"], "\n", " "), "\r", " "),
+        "",
+        "[parameters]",
+    ];
+
+    for (local id, v in p["params"]) {
+        push(lines, id + " = " + str(v));
+    }
+    push(lines, "", "[cables]");
+
+    for (local input, pins in p["cables"]) {
+        push(lines, input + " = " + pins);
+    }
+
+    if (len(p["schematic"]) > 0) {
+        push(lines, "", "[schematic]");
+
+        for (local block, at in p["schematic"]) {
+            push(lines, block + " = " + at);
+        }
+    }
+    push(lines, "", "[notes]");
+    return join(lines, "\n") + "\n" + p["notes"];
+}
+
+// ----------------------------------------------------------------------
+// A connection to one synth
+
+class Synth {
+    address;   // as dialled
+    client;    // the p9::Client
+    _info;     // /info: a vector of parameter maps, nil until read
+    _byid;     // id -> parameter map
+    _last;     // the patch as changes() saw it last (nil: not yet)
+    _serial;   // /serial as changes() saw it last
+    Synth(address, timeout);
+    info();
+    param(id);
+    params();
+    get(id);
+    set(id, v);
+    cables();
+    setcables(input, pins);
+    clearcables();
+    ports();
+    patch();
+    load(text);
+    notes();
+    setnotes(text);
+    source();
+    changes();
+    close();
+    closed();
+    _read(path, what);
+    _write(path, text, what);
+}
+
+Synth::Synth(address, timeout) {
+    this->address = address;
+    this->client = p9::dial(address, {"version": VERSION, "timeout": timeout});
+}
+
+// s->_read(path [, what]): the file's text; a refusal of the synth is an
+// IOError with the synth's own message, after what ("vcf1.nope: file not
+// found"; by default the path).
+Synth::_read(path, what = nil) {
+    try {
+        return client->read(path);
+    } catch (e) {
+        throw new Error((what == nil ? path : what) + ": " + _reason(e), e->kind);
+    }
+}
+
+// s->_write(path, text, what): writes the file; a refusal is an IOError
+// naming what was written ("vcf1.cutoff: bad value").
+Synth::_write(path, text, what) {
+    try {
+        client->write(path, text);
+    } catch (e) {
+        throw new Error(what + ": " + _reason(e), e->kind);
+    }
+}
+
+// _reason(e): the server's own message in an error of p9's client
+// ("p9::Client::write: /cables: unknown input: x" gives "unknown input: x").
+_reason(e) {
+    local m = e->message, at = find(m, ": /");
+
+    if (at < 0) {
+        return m;
+    }
+    local rest = slice(m, at + 2), colon = find(rest, ": ");
+    return colon < 0 ? m : slice(rest, colon + 2);
+}
+
+// s->info(): the description of the parameters (/info): a vector of maps
+// with id, name, kind ("float", "int", "choice"), min, max, default, and
+// some of step, centre (the value in the middle of a fader: a log scale),
+// unit ("%", "dB", "s", "Hz", "oct", "st") and choices. Read once. nil when
+// the synth has no /info (older versions).
+Synth::info() {
+    if (_info == nil) {
+        local text = nil;
+
+        try {
+            text = client->read("/info");
+        } catch (e) {
+            if (e->kind != "IOError") {
+                throw e;
+            }
+            return nil;
+        }
+        _info = json::decode(text);
+        _byid = {};
+
+        for (local p in _info) {
+            _byid[p["id"]] = p;
+        }
+    }
+    return _info;
+}
+
+// s->param(id): the description of one parameter, or nil.
+Synth::param(id) {
+    if (info() == nil) {
+        return nil;
+    }
+    return _byid[id];
+}
+
+// s->params(): the ids of the parameters: from /info, or the files in
+// /params when there is none.
+Synth::params() {
+    local ids = [];
+
+    if (info() != nil) {
+        for (local p in _info) {
+            push(ids, p["id"]);
+        }
+        return ids;
+    }
+
+    for (local m in client->readdir("/params")) {
+        for (local n in client->readdir("/params/" + m["name"])) {
+            push(ids, m["name"] + "." + n["name"]);
+        }
+    }
+    return ids;
+}
+
+// _path(id): the file of parameter id: "vcf1.cutoff" is
+// /params/vcf1/cutoff.
+_path(id) {
+    if (find(id, "/") >= 0 || find(id, ".") < 0) {
+        throw new Error("not a parameter id: " + value(id), "ValueError");
+    }
+    return "/params/" + replace(id, ".", "/");
+}
+
+// s->get(id): the value of a parameter: a float, an int, or a choice's
+// name (without /info: the synth's text).
+Synth::get(id) {
+    return parsevalue(_read(_path(id), id), param(id));
+}
+
+// s->set(id, v): sets a parameter. The synth clips numbers to the range
+// and takes a choice by name, prefix or index; what it refuses is an
+// IOError ("vcf1.cutoff: bad value").
+Synth::set(id, v) {
+    local text = typeof(v) == "float" ? number(v, 7) : str(v);
+    _write(_path(id), text + "\n", id);
+}
+
+// s->cables(): the patched inputs: a map input -> vector of [output, level].
+Synth::cables() {
+    local out = {};
+
+    for (local line in split(_read("/cables"), "\n")) {
+        local eq = find(line, "=");
+
+        if (eq > 0) {
+            out[trim(slice(line, 0, eq))] = parsepins(slice(line, eq + 1));
+        }
+    }
+    return out;
+}
+
+// s->setcables(input, pins): the cables of an input (a vector of [output,
+// level], or the text form); [] or "" removes them.
+Synth::setcables(input, pins) {
+    local text = "";
+
+    try {
+        text = typeof(pins) == "string" ? formatpins(parsepins(pins)) : formatpins(pins);
+    } catch (e) {
+        throw new Error(input + ": " + e->message, e->kind);
+    }
+    _write("/cables", input + "=" + text + "\n", input);
+}
+
+// s->clearcables(): removes every cable.
+Synth::clearcables() {
+    _write("/cables", "clear\n", "cables");
+}
+
+// s->ports(): {"inputs": [{"name", "normalled"}...], "outputs": [names]},
+// in the synth's order; "normalled" is nil for an input without a
+// normalled source.
+Synth::ports() {
+    local inputs = [], outputs = [];
+
+    for (local line in split(_read("/ports"), "\n")) {
+        local words = [];
+
+        for (local w in split(line, " ")) {
+            if (w != "") {
+                push(words, w);
+            }
+        }
+
+        if (len(words) == 4 && words[0] == "input" && words[2] == "->") {
+            push(inputs, {"name": words[3], "normalled": words[1] == "none" ? nil : words[1]});
+        } else if (len(words) == 2 && words[0] == "output") {
+            push(outputs, words[1]);
+        }
+    }
+    return {"inputs": inputs, "outputs": outputs};
+}
+
+// s->patch(): the whole patch as text (a .lmwpatch file).
+Synth::patch() {
+    return _read("/patch");
+}
+
+// s->load(text): loads a patch (parameters, cables, notes, name); a text
+// the synth refuses is an IOError with its message.
+Synth::load(text) {
+    _write("/patch", text, "patch");
+}
+
+Synth::notes() {
+    return _read("/notes");
+}
+
+Synth::setnotes(text) {
+    _write("/notes", text, "notes");
+}
+
+Synth::source() {
+    return trim(_read("/source"));
+}
+
+// s->changes(): what changed since the last call, as a map with some of
+// params (id -> value), cables (input -> pins; [] for an input whose cables
+// were removed), name, notes and schematic (block -> "x, y"); {} when
+// nothing changed. The first call gives everything. A synth with /serial
+// is asked that first, and its patch is read only when it moved.
+Synth::changes() {
+    try {
+        local serial = client->read("/serial");
+
+        if (_last != nil && serial == _serial) {
+            return {};
+        }
+        _serial = serial;
+    } catch (e) {
+        if (e->kind != "IOError") {
+            throw e;
+        }
+    }
+    local p = parsepatch(patch()), old = _last, out = {};
+    _last = p;
+    local params = {};
+
+    for (local id, v in p["params"]) {
+        if (old == nil || old["params"][id] != v) {
+            params[id] = parsevalue(v, param(id));
+        }
+    }
+    local cables = {};
+
+    for (local input, pins in p["cables"]) {
+        if (old == nil || old["cables"][input] != pins) {
+            cables[input] = parsepins(pins);
+        }
+    }
+
+    if (old != nil) {
+        for (local input, pins in old["cables"]) {
+            if (!haskey(p["cables"], input)) {
+                cables[input] = [];
+            }
+        }
+    }
+
+    if (len(params) > 0) {
+        out["params"] = params;
+    }
+
+    if (len(cables) > 0) {
+        out["cables"] = cables;
+    }
+
+    for (local key in ["name", "notes"]) {
+        if (old == nil || old[key] != p[key]) {
+            out[key] = p[key];
+        }
+    }
+
+    if (old == nil || str(old["schematic"]) != str(p["schematic"])) {
+        out["schematic"] = p["schematic"];
+    }
+    return out;
+}
+
+Synth::close() {
+    client->close();
+}
+
+Synth::closed() {
+    return client->closed();
+}

@@ -1,0 +1,3 @@
+name = no format line
+[parameters]
+vcf1.cutoff = 100

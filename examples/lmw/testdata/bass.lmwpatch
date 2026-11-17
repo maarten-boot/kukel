@@ -1,0 +1,29 @@
+# LMW-Synth patch
+format = 1
+state_version = 4
+name = Fat bass # with a hash
+
+[parameters]
+vco1.wave = square
+vco2.wave = Saw
+vco2.octave = -1
+mix.vco2 = 0.6    # 60 %
+vcf1.cutoff = 420    # 420 Hz
+vcf1.res = 0.35
+voice.count = many   # unreadable: the default
+
+[cables]
+vcf1.cutoff = env2.out@0.5+lfo1.out@25%
+vca.mod = keys.vel
+
+[schematic]
+lfo2 = 110, 56
+
+[newer]
+something = we do not know
+
+[notes]
+Play it low.
+# this line is part of the notes,
+[and this one too]
+as the synth keeps them.

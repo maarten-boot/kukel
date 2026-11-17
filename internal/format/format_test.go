@@ -93,6 +93,8 @@ func TestExamplesIdempotent(t *testing.T) {
 	files, _ := filepath.Glob("../../tests/run/*.kkl")
 	more, _ := filepath.Glob("../../tests/run/lib/*.kkl")
 	examples, _ := filepath.Glob("../../examples/*.kkl")
+	lmw, _ := filepath.Glob("../../examples/lmw/*.kkl")
+	examples = append(examples, lmw...)
 	files = append(files, append(append(more, examples...), "../../tests/ast/all.kkl", "../../tests/tokens/sample.kkl")...)
 	for _, file := range files {
 		src, err := os.ReadFile(file)

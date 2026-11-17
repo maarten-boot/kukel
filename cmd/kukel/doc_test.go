@@ -22,7 +22,7 @@ func TestLarkGrammar(t *testing.T) {
 		t.Skip("needs python3 with lark (pip install lark)")
 	}
 	var files []string
-	for _, pattern := range []string{"../../examples/*.kkl", "../../examples/embed/*.kkl", "../../tests/run/*.kkl", "../../tests/run/lib/*.kkl", "../../tests/ast/*.kkl"} {
+	for _, pattern := range []string{"../../examples/*.kkl", "../../examples/embed/*.kkl", "../../examples/lmw/*.kkl", "../../tests/run/*.kkl", "../../tests/run/lib/*.kkl", "../../tests/ast/*.kkl"} {
 		more, _ := filepath.Glob(pattern)
 		files = append(files, more...)
 	}

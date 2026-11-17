@@ -932,13 +932,21 @@ func TestExamples(t *testing.T) {
 	if len(files) == 0 {
 		t.Fatal("no examples")
 	}
-	for _, file := range files {
+	more, _ := filepath.Glob(filepath.Join(dir, "*", "*.tests")) // examples of several files: lmw/
+	for _, file := range append(files, more...) {
+		dir := filepath.Dir(file)
 		prog := strings.TrimSuffix(filepath.Base(file), ".tests") + ".kkl"
 		text, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
 		}
 		src, _ := os.ReadFile(filepath.Join(dir, prog))
+		if mods, _ := filepath.Glob(filepath.Join(dir, "*.kkl")); filepath.Base(dir) != "examples" {
+			for _, m := range mods { // the modules it uses need what they use
+				more, _ := os.ReadFile(m)
+				src = append(src, more...)
+			}
+		}
 		if why := unavailable(string(src)); why != "" {
 			t.Logf("%s: %s", prog, why)
 			continue
@@ -1059,6 +1067,8 @@ func splitArgs(s string) (args []string, stdin string) {
 // The demo programs are formatted as kukel fmt formats them.
 func TestExamplesFormatted(t *testing.T) {
 	files, _ := filepath.Glob("../../examples/*.kkl")
+	more, _ := filepath.Glob("../../examples/lmw/*.kkl")
+	files = append(files, more...)
 	var out, errOut bytes.Buffer
 	if code := run(append([]string{"fmt", "-l"}, files...), nil, &out, &errOut); code != 0 || out.Len() > 0 {
 		t.Errorf("kukel fmt -l: exit %d, %s%s", code, out.String(), errOut.String())

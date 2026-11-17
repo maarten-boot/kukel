@@ -1,0 +1,467 @@
+// fakesynth.kkl: a 9P server in Kukel that behaves as LMW-Synth, for the
+// tests of lmw (docs/future.md §13.8): the same files, values, text forms
+// and error messages, without sound. Its PARAMS are the synth's 51
+// parameters (its Spec S5a.1) in the synth's order, and they are what the
+// synth's /info is to give: one JSON object per parameter.
+//
+//     local fake = new fakesynth::Synth({"serial": true});
+//     local server = fake->serve("tcp://127.0.0.1:0");
+//
+// Differences from the synth: [schematic] is kept as it is (the synth
+// checks the blocks and positions), a write is applied when the file is closed
+// (the synth applies /params and /cables at each write; for whole-file
+// writes that is the same), floats are stored as given (the synth stores
+// a float, 32 bits), parameter lines in /patch have no unit comments, and
+// /serial is served only when asked for (the synth has none yet).
+// Options: {"serial": true} serves /serial, {"noinfo": true} no /info
+// (as the synth before it has one).
+use p9;
+use json;
+use lmw;
+
+const SOURCE = "https://github.com/maarten-boot/software-synth-LMW";
+
+// The inputs with their normalled source (nil: none), and the outputs
+// (the synth's Patch.h).
+global INPUTS = [
+    ["vco1.pitch", "keys.pitch"], ["vco1.fm", "lfo1.out"],
+    ["vco2.pitch", "keys.pitch"], ["vco2.fm", "lfo1.out"],
+    ["vco3.pitch", "keys.pitch"], ["vco3.fm", "lfo1.out"],
+    ["env1.gate", "keys.gate"], ["env2.gate", "keys.gate"],
+    ["mix.in1", "vco1.out"], ["mix.in2", "vco2.out"], ["mix.in3", "vco3.out"], ["mix.in4", "noise.out"],
+    ["vcf1.in", "mix.out"], ["vcf1.cutoff", "env2.out"], ["vcf1.res", nil],
+    ["vcf2.in", "vcf1.out"], ["vcf2.cutoff", "env2.out"], ["vcf2.res", nil],
+    ["vca.in", "vcf2.out"], ["vca.cv", "env1.out"], ["vca.mod", "lfo2.out"], ["out.in", "vca.out"],
+];
+global OUTPUTS = [
+    "keys.pitch", "keys.gate", "keys.vel", "vco1.out", "vco2.out", "vco3.out", "noise.out", "noise.rand",
+    "lfo1.out", "lfo2.out", "env1.out", "env2.out", "mix.out", "vcf1.out", "vcf2.out", "vca.out",
+];
+
+global PARAMS = _params();
+
+// _float(id, name, min, max, default, unit [, centre [, step]]): the
+// description of a float parameter; centre is the value in the middle of
+// a fader (a log scale), step the smallest change.
+_float(id, name, min, max, def, unit, centre = nil, step = nil) {
+    local p = {"id": id, "name": name, "kind": "float", "min": min, "max": max, "default": def, "unit": unit};
+
+    if (centre != nil) {
+        p["centre"] = centre;
+    }
+
+    if (step != nil) {
+        p["step"] = step;
+    }
+    return p;
+}
+
+_choice(id, name, choices, def) {
+    return {"id": id, "name": name, "kind": "choice", "choices": choices, "default": def};
+}
+
+_params() {
+    local ps = [{"id": "voice.count", "name": "Voices", "kind": "int", "min": 1, "max": 32, "default": 8}];
+
+    for (local n = 1; n <= 3; n++) {
+        local vco = "vco" + str(n), name = "VCO " + str(n);
+        push(
+            ps,
+            _choice(vco + ".wave", name + " Wave", ["Sine", "Saw", "Square", "Triangle"], "Saw"),
+            _choice(vco + ".octave", name + " Octave", ["-2", "-1", "0", "+1", "+2"], "0"),
+            _float(vco + ".tune", name + " Tune", -7.0, 7.0, 0.0, "st", nil, 0.01),
+            _float(vco + ".fm", name + " FM", 0.0, 12.0, 0.0, "st"),
+            _float("mix." + vco, "Mixer " + name, 0.0, 1.0, n == 1 ? 1.0 : 0.0, "%"),
+        );
+    }
+    push(
+        ps,
+        _float("mix.noise", "Mixer Noise", 0.0, 1.0, 0.0, "%"),
+        _choice("noise.colour", "Noise Colour", ["White", "Pink", "Brown"], "White"),
+        _float("noise.rate", "Noise Random Rate", 0.05, 50.0, 4.0, "Hz", 4.0),
+        _float("noise.smooth", "Noise Random Smooth", 0.0, 1.0, 0.0, "%"),
+    );
+
+    for (local n = 1; n <= 2; n++) {
+        local vcf = "vcf" + str(n), name = "VCF " + str(n);
+        push(
+            ps,
+            _float(vcf + ".cutoff", name + " Cutoff", 20.0, 18000.0, 18000.0, "Hz", 600.0),
+            _float(vcf + ".res", name + " Resonance", 0.0, 1.0, 0.0, "%"),
+            _float(vcf + ".env", name + " Env", -5.0, 5.0, 0.0, "oct"),
+            _float(vcf + ".key", name + " Key", 0.0, 1.0, 0.0, "%"),
+            _choice(vcf + ".slope", name + " Slope", ["24 dB", "12 dB", "6 dB"], "24 dB"),
+            _choice(vcf + ".type", name + " Type", ["Lowpass", "Highpass", "Bandpass", "Notch"], "Lowpass"),
+        );
+    }
+    push(ps, _float("vca.initial", "VCA Initial", 0.0, 1.0, 0.0, "%"), _float("vca.tremolo", "VCA Tremolo", 0.0, 1.0, 0.0, "%"));
+
+    for (local e in [["env1", "Env1", 0.01, 0.2, 0.7, 0.3], ["env2", "Env2", 0.01, 0.3, 0.0, 0.3]]) {
+        push(
+            ps,
+            _float(e[0] + ".attack", e[1] + " Attack", 0.0, 5.0, e[2], "s", 0.5),
+            _float(e[0] + ".decay", e[1] + " Decay", 0.0, 5.0, e[3], "s", 0.5),
+            _float(e[0] + ".sustain", e[1] + " Sustain", 0.0, 1.0, e[4], "%"),
+            _float(e[0] + ".release", e[1] + " Release", 0.0, 10.0, e[5], "s", 1.0),
+        );
+    }
+    local waves = ["Sine", "Triangle", "Saw", "Square"];
+    push(
+        ps,
+        _float("lfo1.rate", "LFO 1 Rate", 0.05, 20.0, 5.0, "Hz", 2.0),
+        _choice("lfo1.wave", "LFO 1 Wave", waves, "Sine"),
+        _float("lfo2.rate", "LFO 2 Rate", 0.05, 20.0, 4.0, "Hz", 2.0),
+        _choice("lfo2.wave", "LFO 2 Wave", waves, "Sine"),
+        _float("out.gain", "Volume", 0.0, 1.0, 0.8, "dB"),
+        _float("reverb.mix", "Reverb Mix", 0.0, 1.0, 0.0, "%"),
+        _float("reverb.size", "Reverb Size", 0.0, 1.0, 0.5, "%"),
+        _float("reverb.damping", "Reverb Damping", 0.0, 1.0, 0.5, "%"),
+        _float("reverb.width", "Reverb Width", 0.0, 1.0, 1.0, "%"),
+    );
+    return ps;
+}
+
+// _lower(s): s in lower case without spaces at the ends.
+_lower(s) {
+    return lower(trim(s));
+}
+
+// _plain(s): s in lower case without " dB" or "dB" at the end and "+" at
+// the start, so that "24" matches "24 dB" and "1" matches "+1".
+_plain(s) {
+    local r = _lower(s);
+
+    if (len(r) > 3 && slice(r, len(r) - 3) == " db") {
+        r = slice(r, 0, len(r) - 3);
+    } else if (len(r) > 2 && slice(r, len(r) - 2) == "db") {
+        r = slice(r, 0, len(r) - 2);
+    }
+
+    if (len(r) > 0 && slice(r, 0, 1) == "+") {
+        r = slice(r, 1);
+    }
+    return r;
+}
+
+// match(choices, text): the index of the choice text names, as the synth
+// matches it (ParamText.h): by name in any case, by name without " dB"
+// and a leading "+", by a unique prefix, or finally by index; -1: none.
+match(choices, text) {
+    local t = _lower(text), tp = _plain(text);
+
+    if (t == "") {
+        return -1;
+    }
+
+    for (local i = 0; i < len(choices); i++) {
+        if (_lower(choices[i]) == t) {
+            return i;
+        }
+    }
+
+    for (local i = 0; i < len(choices); i++) {
+        if (_plain(choices[i]) == tp) {
+            return i;
+        }
+    }
+    local found = -1;
+
+    for (local i = 0; i < len(choices); i++) {
+        if (find(_lower(choices[i]), t) == 0) {
+            if (found >= 0) {
+                found = -2;
+                break;
+            }
+            found = i;
+        }
+    }
+
+    if (found >= 0) {
+        return found;
+    }
+
+    if (len(t) < 4) {
+        for (local c in t) {
+            if (c < ord("0") || c > ord("9")) {
+                return -1;
+            }
+        }
+        local i = int(t);
+        return i < len(choices) ? i : -1;
+    }
+    return -1;
+}
+
+// parse(p, text): the value text gives parameter p, as the synth reads it
+// (a number clipped to the range, on the step; a choice's name), or nil.
+parse(p, text) {
+    if (p["kind"] == "choice") {
+        local i = match(p["choices"], text);
+        return i < 0 ? nil : p["choices"][i];
+    }
+    local t = trim(text);
+
+    if (t == "") {
+        return nil;
+    }
+
+    for (local c in t) {
+        if (find("0123456789+-.eE", char(c)) < 0) {
+            return nil;
+        }
+    }
+    local v = 0.0;
+
+    try {
+        v = float(t);
+    } catch (e) {
+        return nil;
+    }
+    v = min(max(v, float(p["min"])), float(p["max"]));
+
+    if (p["kind"] == "int") {
+        return round(v);
+    }
+
+    if (p["step"] != nil) {
+        v = round(v / p["step"]) * p["step"];
+    }
+    return v;
+}
+
+// show(p, v): the text of value v of parameter p, as the synth writes it.
+show(p, v) {
+    return p["kind"] == "float" ? lmw::number(v, 7) : str(v);
+}
+
+class Synth {
+    values;    // id -> value
+    cables;    // input -> vector of [output, level]
+    notes;
+    name;
+    schematic; // block -> "x, y": moved symbols of the Schematic tab
+    serial;    // a number that goes up with each change; nil: no /serial
+    tree;
+    Synth(options);
+    serve(address);
+    changed();
+    patchtext();
+    load(text);
+    setcables(text);
+}
+
+Synth::Synth(options = {}) {
+    values = {};
+
+    for (local p in PARAMS) {
+        values[p["id"]] = p["default"];
+    }
+    cables = {};
+    notes = "";
+    name = "";
+    schematic = {};
+    serial = options["serial"] ? 0 : nil;
+    tree = new p9::Tree();
+    tree->file("/source", SOURCE + "\n");
+
+    if (!options["noinfo"]) {
+        tree->file("/info", json::encode(PARAMS) + "\n");
+    }
+
+    for (local p in PARAMS) {
+        local param = p;   // each closure its own
+        tree->file(
+            "/params/" + replace(p["id"], ".", "/"),
+            fn() { return show(param, values[param["id"]]) + "\n"; },
+            fn(data) {
+                local v = parse(param, data);
+
+                if (v == nil) {
+                    throw new Error("bad value");
+                }
+                values[param["id"]] = v;
+                changed();
+            },
+        );
+    }
+    tree->file(
+        "/cables",
+        fn() {
+            local out = "";
+
+            for (local input in INPUTS) {
+                if (haskey(cables, input[0])) {
+                    out += input[0] + "=" + lmw::formatpins(cables[input[0]]) + "\n";
+                }
+            }
+            return out;
+        },
+        fn(data) { setcables(data); },
+    );
+    tree->file("/patch", fn() { return patchtext(); }, fn(data) { load(data); });
+    tree->file("/notes", fn() { return notes; }, fn(data) {
+        notes = data;
+        changed();
+    });
+    local ports = "";
+
+    for (local input in INPUTS) {
+        ports += "input  " + (input[1] == nil ? "none" : input[1]) + " -> " + input[0] + "\n";
+    }
+
+    for (local out in OUTPUTS) {
+        ports += "output " + out + "\n";
+    }
+    tree->file("/ports", ports);
+
+    if (serial != nil) {
+        tree->file("/serial", fn() { return str(serial) + "\n"; });
+    }
+}
+
+// f->serve(address): serves the files at address; gives the p9::Server.
+Synth::serve(address) {
+    return p9::serve(tree, address);
+}
+
+Synth::changed() {
+    if (serial != nil) {
+        serial++;
+    }
+}
+
+// _has(v, x): whether vector v holds x.
+_has(v, x) {
+    for (local e in v) {
+        if (e == x) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// _input(name): whether name is an input.
+_input(name) {
+    for (local input in INPUTS) {
+        if (input[0] == name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// _pins(text): the pins of text, all of outputs that exist, or nil.
+_pins(text) {
+    local pins = nil;
+
+    try {
+        pins = lmw::parsepins(text);
+    } catch (e) {
+        return nil;
+    }
+
+    for (local p in pins) {
+        if (!_has(OUTPUTS, p[0])) {
+            return nil;
+        }
+    }
+    return pins;
+}
+
+// f->setcables(text): "input=pins" lines, "input=" (no cables) and "clear"
+// (none at all), checked first and then applied, as the synth does.
+Synth::setcables(text) {
+    local changes = [];
+
+    for (local raw in split(text, "\n")) {
+        local line = trim(raw);
+
+        if (line == "") {
+            continue;
+        }
+
+        if (line == "clear") {
+            push(changes, nil);
+            continue;
+        }
+        local eq = find(line, "=");
+
+        if (eq < 0) {
+            throw new Error("bad cable line: " + line);
+        }
+        local input = trim(slice(line, 0, eq)), pinText = trim(slice(line, eq + 1));
+
+        if (!_input(input)) {
+            throw new Error("unknown input: " + input);
+        }
+        local pins = _pins(pinText);
+
+        if (pins == nil) {
+            throw new Error("bad cables (unknown output, bad level, output twice or more than 4): " + pinText);
+        }
+        push(changes, [input, pins]);
+    }
+
+    for (local c in changes) {
+        if (c == nil) {
+            cables = {};
+        } else if (len(c[1]) == 0) {
+            delete(cables, c[0]);
+        } else {
+            cables[c[0]] = c[1];
+        }
+    }
+    changed();
+}
+
+// f->patchtext(): the patch as the synth writes /patch.
+Synth::patchtext() {
+    local p = {"state_version": 4, "name": name, "params": {}, "cables": {}, "schematic": schematic, "notes": notes};
+
+    for (local param in PARAMS) {
+        p["params"][param["id"]] = show(param, values[param["id"]]);
+    }
+
+    for (local input in INPUTS) {
+        if (haskey(cables, input[0])) {
+            p["cables"][input[0]] = lmw::formatpins(cables[input[0]]);
+        }
+    }
+    return lmw::writepatch(p);
+}
+
+// f->load(text): loads a patch as the synth does: everything or nothing;
+// a parameter missing or unreadable gets its default.
+Synth::load(text) {
+    local p = nil;
+
+    try {
+        p = lmw::parsepatch(text);
+    } catch (e) {
+        throw new Error(e->message);
+    }
+    local next = {};
+
+    for (local input, pinText in p["cables"]) {
+        local pins = _pins(pinText);
+
+        if (!_input(input) || pins == nil || len(pins) == 0) {
+            throw new Error("The [cables] section names an unknown socket or one input twice.");
+        }
+        next[input] = pins;
+    }
+
+    for (local param in PARAMS) {
+        local v = nil, text = p["params"][param["id"]];
+
+        if (text != nil) {
+            v = parse(param, text);
+        }
+        values[param["id"]] = v == nil ? param["default"] : v;
+    }
+    cables = next;
+    schematic = p["schematic"];
+    notes = p["notes"];
+    name = p["name"];
+    changed();
+}

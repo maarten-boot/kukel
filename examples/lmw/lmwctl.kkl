@@ -1,0 +1,233 @@
+// lmwctl.kkl: LMW-Synth from the command line, through the module lmw
+// (docs/future.md §13). Commands are separated by "," and run in order on
+// one connection:
+//
+//     kukel run lmwctl.kkl -- set vcf1.cutoff 800 , get vcf1.cutoff
+//     kukel run lmwctl.kkl -- -a tcp!127.0.0.1!5640 cables
+//
+// -a address: the synth (unix:///path, tcp://host:port, unix!path or
+// tcp!host!port); without it, the newest synth socket that answers.
+// -fake: a fake synth in this program (fakesynth.kkl) on a free TCP port;
+// -fakedir: one on a Unix socket in a new directory, found as lmw finds
+// synths; -serial: the fake serves /serial; -noinfo: it serves no /info.
+use lmw;
+use fakesynth;
+use fs;
+
+const USAGE = "usage: lmwctl [-a address | -fake | -fakedir] [-serial] [-noinfo] command [args] [, command [args]]...";
+const COMMANDS = "commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes";
+
+main(args) {
+    local addr = nil, fake = nil, serial = false, noinfo = false, i = 0;
+
+    for (; i < len(args) && find(args[i], "-") == 0; i++) {
+        if (args[i] == "-a") {
+            if (i + 1 >= len(args)) {
+                return usage("-a needs an address");
+            }
+            addr = args[++i];
+        } else if (args[i] == "-fake") {
+            fake = "tcp";
+        } else if (args[i] == "-fakedir") {
+            fake = "dir";
+        } else if (args[i] == "-serial") {
+            serial = true;
+        } else if (args[i] == "-noinfo") {
+            noinfo = true;
+        } else {
+            return usage("unknown option " + args[i]);
+        }
+    }
+    local commands = [[]];
+
+    for (; i < len(args); i++) {
+        if (args[i] == ",") {
+            push(commands, []);
+        } else {
+            push(commands[len(commands) - 1], args[i]);
+        }
+    }
+
+    if (len(commands[0]) == 0) {
+        return usage("no command");
+    }
+
+    local server = nil, dir = nil, synth = nil;
+
+    try {
+        if (fake != nil) {
+            local f = new fakesynth::Synth({"serial": serial, "noinfo": noinfo});
+
+            if (fake == "tcp") {
+                server = f->serve("tcp://127.0.0.1:0");
+                addr = server->endpoint();
+            } else {
+                dir = fs::tempdir("lmwctl-*");
+                server = f->serve("unix://" + fs::join(dir, "1234-1.sock"));
+            }
+        }
+
+        if (dir != nil) {
+            synth = new lmw::Synth(lmw::sockets([dir])[0], 2);
+        } else {
+            synth = lmw::connect(addr);
+        }
+
+        for (local c in commands) {
+            run(synth, c, dir);
+        }
+    } catch (e) {
+        eprintln("lmwctl:", e->message);
+        return 1;
+    } finally {
+        if (synth != nil) {
+            synth->close();
+        }
+
+        if (server != nil) {
+            server->close();
+        }
+
+        if (dir != nil) {
+            fs::removeall(dir);
+        }
+    }
+    return 0;
+}
+
+usage(why) {
+    eprintln("lmwctl:", why);
+    eprintln(USAGE);
+    eprintln(COMMANDS);
+    return 2;
+}
+
+// run(synth, c, dir): one command, c its words.
+run(synth, c, dir) {
+    local name = c[0], want = {
+        "sockets": 0, "source": 0, "params": 0, "info": 1, "get": 1, "set": 2, "cables": 0, "cable": -1, "clear": 0,
+        "ports": 0, "patch": 0, "load": 1, "save": 1, "notes": 0, "setnotes": 1, "changes": 0,
+    }[name];
+
+    if (want == nil) {
+        throw new Error("unknown command " + name + "; " + COMMANDS);
+    }
+
+    if (want >= 0 && len(c) - 1 != want || want < 0 && (len(c) < 2 || len(c) > 3)) {
+        throw new Error(name + ": wrong number of arguments");
+    }
+
+    if (name == "sockets") {
+        // In a fake directory the names only: the directory differs per run.
+        for (local a in lmw::sockets(dir == nil ? nil : [dir])) {
+            println(dir == nil ? a : fs::base(a));
+        }
+    } else if (name == "source") {
+        println(synth->source());
+    } else if (name == "params") {
+        local info = synth->info();
+
+        if (info == nil) {
+            println(join(synth->params(), " "));
+        } else {
+            for (local p in info) {
+                println(describe(p));
+            }
+        }
+    } else if (name == "info") {
+        if (synth->info() == nil) {
+            throw new Error("this synth has no /info (it describes the parameters)");
+        }
+        local p = synth->param(c[1]);
+
+        if (p == nil) {
+            throw new Error("no parameter " + c[1]);
+        }
+        println(describe(p));
+    } else if (name == "get") {
+        println(synth->get(c[1]));
+    } else if (name == "set") {
+        synth->set(c[1], c[2]);
+    } else if (name == "cables") {
+        for (local input, pins in synth->cables()) {
+            println(input, "=", lmw::formatpins(pins));
+        }
+    } else if (name == "cable") {
+        synth->setcables(c[1], len(c) == 3 ? c[2] : "");
+    } else if (name == "clear") {
+        synth->clearcables();
+    } else if (name == "ports") {
+        local ports = synth->ports();
+
+        for (local input in ports["inputs"]) {
+            println(input["normalled"] == nil ? "none" : input["normalled"], "->", input["name"]);
+        }
+        println("outputs:", join(ports["outputs"], " "));
+    } else if (name == "patch") {
+        print(synth->patch());
+    } else if (name == "load") {
+        synth->load(readfile(c[1]));
+    } else if (name == "save") {
+        writefile(c[1], synth->patch());
+    } else if (name == "notes") {
+        local notes = synth->notes();
+        print(notes);
+
+        if (notes != "" && slice(notes, len(notes) - 1) != "\n") {
+            println();   // the end of the line, for the terminal
+        }
+    } else if (name == "setnotes") {
+        synth->setnotes(c[1]);
+    } else if (name == "changes") {
+        showchanges(synth->changes(), len(synth->params()));
+    }
+}
+
+// showchanges(ch, n): what synth->changes() gave, a line each; all n
+// parameters (the first time) as one line.
+showchanges(ch, n) {
+    if (len(ch) == 0) {
+        println("no changes");
+    }
+    local params = ch["params"] == nil ? {} : ch["params"];
+
+    if (len(params) == n) {
+        println("param (all", n, "of them)");
+        params = {};
+    }
+
+    for (local id, v in params) {
+        println("param", id, "=", v);
+    }
+
+    for (local input, pins in ch["cables"] == nil ? {} : ch["cables"]) {
+        println("cable", input, "=", len(pins) == 0 ? "(none)" : lmw::formatpins(pins));
+    }
+
+    if (haskey(ch, "name")) {
+        println("name:", lmw::value(ch["name"]));
+    }
+
+    if (haskey(ch, "notes")) {
+        println("notes:", len(ch["notes"]), "bytes");
+    }
+
+    if (haskey(ch, "schematic")) {
+        println("schematic moved:", len(ch["schematic"]));
+    }
+}
+
+// describe(p): a parameter's description on one line.
+describe(p) {
+    if (p["kind"] == "choice") {
+        return p["id"] + " choice " + join(p["choices"], "|") + " [" + p["default"] + "]";
+    }
+    local s = p["id"] + " " + p["kind"] + " " + str(p["min"]) + ".." + str(p["max"]) + " [" + str(p["default"]) + "]";
+
+    for (local key in ["unit", "centre", "step"]) {
+        if (p[key] != nil) {
+            s += " " + key + " " + str(p[key]);
+        }
+    }
+    return s;
+}

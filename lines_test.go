@@ -52,6 +52,7 @@ func sameLines(t *testing.T, name string, compile func() (*Program, error)) {
 func TestFuseKeepsLines(t *testing.T) {
 	files, _ := filepath.Glob("tests/run/*.kkl")
 	more, _ := filepath.Glob("examples/*.kkl")
+	more = append(more, "examples/lmw/lmwctl.kkl") // its modules are compiled with it
 	for _, file := range append(files, more...) {
 		if err, _ := os.ReadFile(strings.TrimSuffix(file, ".kkl") + ".err"); bytes.HasPrefix(err, []byte(filepath.Base(file)+":")) {
 			continue // a program that does not compile (compile_error.kkl, named_errors.kkl, ...)

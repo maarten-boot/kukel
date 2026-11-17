@@ -17,6 +17,11 @@ From v1.0.0 on, what keeps working is in
 
 ## Unreleased
 
+- `examples/lmw/`: a client of LMW-Synth over 9P: the module `lmw`
+  (connecting, parameters, cables, ports, patch files, changes), a fake
+  synth in Kukel for its tests, and the command-line client `lmwctl`.
+  The example tests also run programs of several files in a directory of
+  their own. Q115.
 - `tk::Notebook`: pages with tabs. Its pages are frames made in it,
   added with `n->add(frame, title)`; `n->select(i)` (or a frame),
   `n->selected()`, and `n->onchange(f)` when the user picks a tab. Q115.

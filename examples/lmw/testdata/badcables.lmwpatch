@@ -1,0 +1,5 @@
+# LMW-Synth patch
+format = 1
+
+[cables]
+vcf1.cutoff = nowhere.out
