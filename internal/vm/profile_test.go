@@ -35,8 +35,8 @@ main() {
 		t.Fatal(err)
 	}
 	p := vm.NewProfiler(time.Millisecond, false)
+	start := time.Now() // before StartProfile: the profile's time starts there
 	m.StartProfile(p, "main")
-	start := time.Now()
 	if _, err := m.Run(nil); err != nil {
 		t.Fatal(err)
 	}
