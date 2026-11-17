@@ -17,6 +17,13 @@ From v1.0.0 on, what keeps working is in
 
 ## Unreleased
 
+- The module `mail`, written in Kukel: messages (`mail::Message`, with
+  text and HTML bodies, attachments and inline parts, MIME and encoded
+  headers made from what it holds) and transports by DSN (`smtp://` with
+  STARTTLS required except on localhost, `smtps://`, `memory://`,
+  `null://`; AUTH PLAIN and LOGIN). Line breaks in headers are refused
+  (header injection), line endings are made CRLF and dots doubled (SMTP
+  smuggling), and a transport never shows its password. Q113.
 - `examples/lmw/`: a client of LMW-Synth over 9P: the module `lmw`
   (connecting, parameters, cables, ports, patch files, changes), a fake
   synth in Kukel for its tests, and the command-line client `lmwctl`.

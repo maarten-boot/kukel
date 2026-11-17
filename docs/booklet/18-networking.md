@@ -11,6 +11,8 @@ or across the world:
 | `zmq` | ZeroMQ messages: whole messages instead of a stream of bytes, with patterns such as request-reply and publish-subscribe |
 | `p9` | the 9P file protocol: serve a tree of files, or read and write another program's |
 
+On top of `net`, the module `mail` (written in Kukel itself) sends mail.
+
 Each listens or connects on an *address*: `"tcp://host:port"`, and for
 some `"unix:///path"` (a socket file, between programs on one computer),
 `"udp://host:port"` or `"ipc://..."`. Port 0 means "any free port", which
@@ -244,6 +246,48 @@ stats (directory)
 
 `p9::disk(dir)` serves a directory of the disk instead, read-only unless
 asked otherwise. The [reference](../reference.md#p9) has the rest.
+
+## Sending mail: `mail`
+
+`mail` builds a message and sends it over SMTP, the protocol of mail
+servers, through `net` and its TLS. A transport is named by a string;
+`memory://` keeps the messages instead of sending them, for trying out
+and for tests:
+
+```
+use mail;
+
+main() {
+    local m = new mail::Message()
+        ->from("Shop <shop@example.com>")
+        ->to("ann@example.org")
+        ->bcc("archive@example.com")
+        ->subject("Your order 1042")
+        ->text("Thank you for your order.\n");
+    local t = mail::transport("memory://");   // or "smtp://user:password@smtp.example.com:587"
+    t->send(m);
+    println(t->sent()[0]["envelope"]);
+
+    try {
+        m->subject("Hi\nBcc: someone@example.org");   // as a web form might send it
+    } catch (e) {
+        println(e->message);
+    }
+}
+```
+
+```
+$ kukel run mail.kkl
+{"from": "shop@example.com", "to": ["ann@example.org", "archive@example.com"]}
+mail: a line break in the subject: "Hi\nBcc: someone@example.org" (it would add headers)
+```
+
+The bcc address is in the envelope, what the server is told, but in no
+header, so Ann does not see it. A line break in a header would let
+whoever typed it add headers or recipients, so it is refused at once.
+`smtp://` insists on encryption (STARTTLS) unless the server is the
+computer itself; the [reference](../reference.md#mail) has attachments,
+HTML, the options and the errors.
 
 ## When the network fails
 

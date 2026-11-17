@@ -1,0 +1,1290 @@
+// mail: messages (RFC 5322 and MIME) and sending them over SMTP (Q113,
+// docs/future.md section 11). After Symfony Mailer: a message, an envelope
+// and a transport are kept apart, and a transport is named by a DSN.
+//
+//     local m = new mail::Message();
+//     m->from("Shop <shop@example.com>")->to("ann@example.org")->subject("Hi")->text("Hello.\n");
+//     mail::transport("smtp://shop:secret@smtp.example.com:587")->send(m);
+//
+// Safe by design: a CR or LF in a header value is a ValueError when it is
+// set (header injection); every line ending of a body is sent as CRLF and
+// lines that start with "." are doubled (SMTP smuggling); smtp:// stops
+// when the server offers no STARTTLS, except on localhost or with ?tls=0;
+// a transport never shows its password.
+use net;
+use encoding;
+use time;
+use uuid;
+use re;
+use utf8;
+
+global _EOL = re::compile("\r\n|\r|\n");
+global _UNSAFE = re::compile("[^\t\n -~]|[ \t]\n|[ \t]$");
+global _DOT = re::compile("(?m)^\\.");
+global _TOKEN = re::compile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$");
+global _TYPE = re::compile("^[!#$&^_.+0-9A-Za-z-]+/[!#$&^_.+0-9A-Za-z-]+$");
+global _HEADERNAME = re::compile("^[!-9;-~]+$");
+global _ATOM = re::compile("^[A-Za-z0-9!#$%&'*+/=?^_`{|}~ -]*$");
+global _DSN = re::compile("^([a-z0-9]+)://(?:([^:@/?]*)(?::([^@/?]*))?@)?(\\[[^\\]/]*\\]|[^:/?]*)(?::([0-9]+))?/?(?:\\?(.*))?$");
+
+// The headers a Message writes itself: header() refuses them.
+global _OWN = [
+    "from", "to", "cc", "bcc", "reply-to", "sender", "subject", "date", "message-id", "mime-version", "content-type",
+    "content-transfer-encoding", "content-disposition", "content-id",
+];
+
+// Content types by file name extension, for attach() and embed() without a type.
+global _TYPES = {
+    "txt": "text/plain", "csv": "text/csv", "html": "text/html", "htm": "text/html", "pdf": "application/pdf",
+    "json": "application/json", "xml": "application/xml", "zip": "application/zip", "gz": "application/gzip",
+    "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "svg": "image/svg+xml",
+    "webp": "image/webp", "ics": "text/calendar",
+};
+
+// A refusal of the SMTP server, or a conversation that went wrong:
+// code is the server's reply code (550; nil when the server did not
+// refuse), reply its text ("550 5.1.1 <x@example.org>: no such user"), and
+// refused, for RCPT TO, the recipients refused: maps with "address" and
+// "reply".
+class MailError : Error {
+    code;
+    reply;
+    refused;
+    MailError(message, code, reply, refused);
+}
+
+MailError::MailError(message, code = nil, reply = nil, refused = nil) {
+    Error::Error(message, "MailError");
+    this->code = code;
+    this->reply = reply;
+    this->refused = refused == nil ? [] : refused;
+}
+
+// address(s): the parts of an address, "ann@example.org" or "Ann Smith
+// <ann@example.org>" (the name may be quoted: "\"Smith, Ann\"
+// <ann@example.org>"), as a map with "name" ("" without one) and
+// "address". A map with those keys is checked and given back. A line
+// break, a control character, no "@", or a malformed form is a ValueError.
+address(s) {
+    if (typeof(s) == "map") {
+        local name = s["name"] == nil ? "" : s["name"];
+        _string("mail: an address's name", name);
+        _string("mail: an address", s["address"]);
+        _nobreak("an address", name);
+        return {"name": name, "address": _addr(s["address"], s["address"])};
+    }
+    _string("mail: an address", s);
+    _nobreak("an address", s);
+    local t = trim(s), lt = find(t, "<");
+
+    if (lt < 0) {
+        return {"name": "", "address": _addr(t, s)};
+    }
+
+    if (slice(t, len(t) - 1) != ">" || find(t, "<", lt + 1) >= 0) {
+        throw new Error("mail: not an address: " + _q(s), "ValueError");
+    }
+    local name = trim(slice(t, 0, lt));
+
+    if (len(name) >= 2 && slice(name, 0, 1) == "\"" && slice(name, len(name) - 1) == "\"") {
+        name = replace(replace(slice(name, 1, len(name) - 1), "\\\"", "\""), "\\\\", "\\");
+    } else if (find(name, "\"") >= 0) {
+        throw new Error("mail: not an address: " + _q(s), "ValueError");
+    }
+    return {"name": name, "address": _addr(slice(t, lt + 1, len(t) - 1), s)};
+}
+
+// _addr(a, s): a, the address itself (local@domain), checked; s is what
+// was given, for the message.
+_addr(a, s) {
+    local at = find(a, "@");
+
+    for (local c in a) {
+        if (c <= 32 || c == 127 || find("<>()[],;:\\\"", char(c)) >= 0) {
+            throw new Error("mail: not an address: " + _q(s), "ValueError");
+        }
+    }
+
+    if (at <= 0 || at == len(a) - 1 || find(a, "@", at + 1) >= 0) {
+        throw new Error("mail: not an address: " + _q(s) + " (it needs one @ between a name and a domain)", "ValueError");
+    }
+    return a;
+}
+
+// _show(a): an address map as a header shows it, before encoding.
+_show(a) {
+    if (a["name"] == "") {
+        return a["address"];
+    }
+    return _phrase(a["name"]) + " <" + a["address"] + ">";
+}
+
+// _display(a): an address map as the getters give it: the name as it is,
+// quoted when it holds specials, so that address() reads it back.
+_display(a) {
+    local name = a["name"];
+
+    if (name == "") {
+        return a["address"];
+    }
+
+    for (local c in name) {
+        if (find("\"(),.:;<>@[\\]", char(c)) >= 0) {
+            return "\"" + replace(replace(name, "\\", "\\\\"), "\"", "\\\"") + "\" <" + a["address"] + ">";
+        }
+    }
+    return name + " <" + a["address"] + ">";
+}
+
+// _phrase(name): a display name: as it is when it is plain words, quoted
+// when it holds specials, encoded words when it is not ASCII.
+_phrase(name) {
+    if (!_ascii(name)) {
+        return _words(name, " ");
+    }
+
+    if (_ATOM->match(name)) {
+        return name;
+    }
+    return "\"" + replace(replace(name, "\\", "\\\\"), "\"", "\\\"") + "\"";
+}
+
+// envelope(m): the envelope a transport uses for message m by default:
+// {"from": the sender's address, or the first from's; "to": the addresses
+// of to, cc and bcc, each once}.
+envelope(m) {
+    if (!instanceof(m, Message)) {
+        throw new Error("mail::envelope: a mail::Message, not " + typeof(m), "TypeError");
+    }
+    local from = m->sender(), to = [], seen = {};
+
+    if (from == nil) {
+        if (len(m->from()) == 0) {
+            throw new Error("mail: the message has no from address", "ValueError");
+        }
+        from = m->from()[0];
+    }
+
+    for (local list in [m->to(), m->cc(), m->bcc()]) {
+        for (local s in list) {
+            local a = address(s)["address"];
+
+            if (!haskey(seen, lower(a))) {
+                seen[lower(a)] = true;
+                push(to, a);
+            }
+        }
+    }
+
+    if (len(to) == 0) {
+        throw new Error("mail: the message has no recipients (to, cc or bcc)", "ValueError");
+    }
+    return {"from": address(from)["address"], "to": to};
+}
+
+// _default(m): envelope(m), for the transports, whose parameter envelope
+// hides the function.
+_default(m) {
+    return envelope(m);
+}
+
+// _envelope(e): an envelope a program gave, checked.
+_envelope(e) {
+    if (typeof(e) != "map" || typeof(e["to"]) != "vector") {
+        throw new Error("mail: an envelope is a map {\"from\": address, \"to\": [address, ...]}", "TypeError");
+    }
+
+    if (len(e["to"]) == 0) {
+        throw new Error("mail: the envelope has no recipients", "ValueError");
+    }
+    local to = [];
+
+    for (local a in e["to"]) {
+        push(to, address(a)["address"]);
+    }
+    return {"from": address(e["from"])["address"], "to": to};
+}
+
+// A message: addresses, a subject, headers, a text and an HTML body,
+// attachments and inline parts. Each setter gives the message, so that
+// calls chain; called without arguments, it gives what it holds.
+class Message {
+    _from;          // address maps
+    _to;
+    _cc;
+    _bcc;
+    _replyto;
+    _sender;        // an address map, or nil
+    _subject;
+    _headers;       // [name, value] pairs
+    _text;
+    _html;
+    _parts;         // attachments and inline parts: maps name, data, type, cid
+    _date;          // a time::Time, or nil: set by bytes()
+    _messageid;     // "<...@...>", or nil: set by bytes()
+    Message();
+    from(a..);
+    to(a..);
+    cc(a..);
+    bcc(a..);
+    replyto(a..);
+    sender(a..);
+    subject(s..);
+    header(name, value..);
+    headers();
+    text(s..);
+    html(s..);
+    attach(name, data, type);
+    embed(name, data, type);
+    attachments();
+    date(t..);
+    messageid(id..);
+    bytes();
+    _body();
+}
+
+Message::Message() {
+    _from = [];
+    _to = [];
+    _cc = [];
+    _bcc = [];
+    _replyto = [];
+    _headers = [];
+    _parts = [];
+}
+
+// _addrs(a): the address maps of what a setter was given.
+_addrs(a) {
+    local list = [];
+
+    for (local x in a) {
+        push(list, address(x));
+    }
+    return list;
+}
+
+// _shown(list): address maps as the getters give them.
+_shown(list) {
+    local shown = [];
+
+    for (local x in list) {
+        push(shown, _display(x));
+    }
+    return shown;
+}
+
+// _single(what, a): the one argument of a getter and setter, or a
+// complaint about more.
+_single(what, a) {
+    if (len(a) > 1) {
+        throw new Error("mail::Message::" + what + ": one argument, not " + str(len(a)), "ArgumentError");
+    }
+    return a[0];
+}
+
+Message::from(a..) {
+    if (len(a) == 0) {
+        return _shown(_from);
+    }
+    _from = _addrs(a);
+    return this;
+}
+
+Message::to(a..) {
+    if (len(a) == 0) {
+        return _shown(_to);
+    }
+    _to = _addrs(a);
+    return this;
+}
+
+Message::cc(a..) {
+    if (len(a) == 0) {
+        return _shown(_cc);
+    }
+    _cc = _addrs(a);
+    return this;
+}
+
+// bcc: in the envelope only, never a header.
+Message::bcc(a..) {
+    if (len(a) == 0) {
+        return _shown(_bcc);
+    }
+    _bcc = _addrs(a);
+    return this;
+}
+
+Message::replyto(a..) {
+    if (len(a) == 0) {
+        return _shown(_replyto);
+    }
+    _replyto = _addrs(a);
+    return this;
+}
+
+Message::sender(a..) {
+    if (len(a) == 0) {
+        return _sender == nil ? nil : _display(_sender);
+    }
+    _sender = address(_single("sender", a));
+    return this;
+}
+
+Message::subject(s..) {
+    if (len(s) == 0) {
+        return _subject;
+    }
+    local v = _single("subject", s);
+    _string("mail::Message::subject", v);
+    _nobreak("the subject", v);
+    _subject = v;
+    return this;
+}
+
+// m->header(name, value): adds a header of the program's own
+// ("X-Mailer", "List-Unsubscribe"); m->header(name): its first value, or
+// nil. The headers the message writes itself (From, Subject,
+// Content-Type, ...) are a ValueError: they have their own functions.
+Message::header(name, value..) {
+    _string("mail::Message::header", name);
+
+    if (!_HEADERNAME->match(name)) {
+        throw new Error("mail: not a header name: " + _q(name), "ValueError");
+    }
+
+    if (len(value) == 0) {
+        for (local h in _headers) {
+            if (lower(h[0]) == lower(name)) {
+                return h[1];
+            }
+        }
+        return nil;
+    }
+
+    if (len(value) > 1) {
+        throw new Error("mail::Message::header: two arguments, not " + str(len(value) + 1), "ArgumentError");
+    }
+
+    for (local own in _OWN) {
+        if (lower(name) == own) {
+            throw new Error("mail: the header " + name + " is the message's own; use its function", "ValueError");
+        }
+    }
+    _string("mail::Message::header", value[0]);
+    _nobreak("the header " + name, value[0]);
+    push(_headers, [name, value[0]]);
+    return this;
+}
+
+// m->headers(): the program's own headers, as [name, value] pairs.
+Message::headers() {
+    local copy = [];
+
+    for (local h in _headers) {
+        push(copy, [h[0], h[1]]);
+    }
+    return copy;
+}
+
+Message::text(s..) {
+    if (len(s) == 0) {
+        return _text;
+    }
+    _text = _single("text", s);
+    _string("mail::Message::text", _text);
+    return this;
+}
+
+Message::html(s..) {
+    if (len(s) == 0) {
+        return _html;
+    }
+    _html = _single("html", s);
+    _string("mail::Message::html", _html);
+    return this;
+}
+
+// m->attach(name, data [, type]): an attachment, the file name the
+// recipient sees, its bytes and content type (by the name's extension
+// without one: "invoice.pdf" is application/pdf).
+Message::attach(name, data, type = nil) {
+    push(_parts, _part("attach", name, data, type, nil));
+    return this;
+}
+
+// m->embed(name, data [, type]): an inline part that the HTML body shows
+// as "cid:name" (<img src="cid:logo.png">).
+Message::embed(name, data, type = nil) {
+    _string("mail::Message::embed", name);
+
+    for (local c in name) {
+        if (c <= 32 || c >= 127 || c == '<' || c == '>' || c == '"') {
+            throw new Error("mail::Message::embed: the name is its Content-ID, so printable ASCII without spaces, < > or \": " + _q(name), "ValueError");
+        }
+    }
+    push(_parts, _part("embed", name, data, type, name));
+    return this;
+}
+
+// m->attachments(): the attachments and inline parts, as maps with "name",
+// "type", "size" and "inline".
+Message::attachments() {
+    local list = [];
+
+    for (local p in _parts) {
+        push(list, {"name": p["name"], "type": p["type"], "size": len(p["data"]), "inline": p["cid"] != nil});
+    }
+    return list;
+}
+
+// m->date([t]): the Date header, a time::Time; the first bytes() sets it
+// to now when it is not set.
+Message::date(t..) {
+    if (len(t) == 0) {
+        return _date;
+    }
+    local v = _single("date", t);
+
+    if (!instanceof(v, time::Time)) {
+        throw new Error("mail::Message::date: a time::Time, not " + typeof(v), "TypeError");
+    }
+    _date = v;
+    return this;
+}
+
+// m->messageid([id]): the Message-ID, "<...@...>" (the brackets are added
+// when missing); the first bytes() makes one from a UUID and the from
+// address's domain when it is not set.
+Message::messageid(id..) {
+    if (len(id) == 0) {
+        return _messageid;
+    }
+    local v = _single("messageid", id);
+    _string("mail::Message::messageid", v);
+
+    if (slice(v, 0, 1) == "<" && slice(v, len(v) - 1) == ">") {
+        v = slice(v, 1, len(v) - 1);
+    }
+
+    try {
+        _addr(v, v);
+    } catch (e) {
+        throw new Error("mail: not a Message-ID: " + _q(id[0]) + " (it is <left@right>)", "ValueError");
+    }
+    _messageid = "<" + v + ">";
+    return this;
+}
+
+// m->bytes(): the whole message as it is sent, with CRLF line endings.
+// It needs a from address; the first call sets the date and the
+// Message-ID when they are not set.
+Message::bytes() {
+    if (len(_from) == 0) {
+        throw new Error("mail: the message has no from address", "ValueError");
+    }
+
+    if (_date == nil) {
+        _date = time::now();
+    }
+
+    if (_messageid == nil) {
+        local a = _from[0]["address"];
+        _messageid = "<" + uuid::v4() + slice(a, find(a, "@")) + ">";
+    }
+    local out = [];
+    push(out, _header("Date", _date->format("%a, %d %b %Y %H:%M:%S %z")));
+    push(out, _addresses("From", _from));
+
+    if (_sender != nil) {
+        push(out, _addresses("Sender", [_sender]));
+    }
+
+    if (len(_replyto) > 0) {
+        push(out, _addresses("Reply-To", _replyto));
+    }
+
+    if (len(_to) > 0) {
+        push(out, _addresses("To", _to));
+    }
+
+    if (len(_cc) > 0) {
+        push(out, _addresses("Cc", _cc));
+    }
+
+    if (_subject != nil) {
+        push(out, _header("Subject", _subject));
+    }
+    push(out, "Message-ID: " + _messageid + "\r\n");
+
+    for (local h in _headers) {
+        push(out, _header(h[0], h[1]));
+    }
+    push(out, "MIME-Version: 1.0\r\n");
+    push(out, _render(_body()));
+    return join(out);
+}
+
+// m->_body(): the MIME structure of the body, from what the message holds.
+Message::_body() {
+    local text = nil, body = nil, attached = [], inline = [];
+
+    if (_text != nil || _html == nil) {
+        text = _textpart("plain", _text == nil ? "" : _text);
+    }
+
+    for (local p in _parts) {
+        if (p["cid"] != nil && _html != nil) {
+            push(inline, _binary(p));
+        } else {
+            push(attached, _binary(p));
+        }
+    }
+
+    if (_html != nil) {
+        local html = _textpart("html", _html);
+
+        if (len(inline) > 0) {
+            html = _multipart("related", [html, inline..]);
+        }
+        body = text == nil ? html : _multipart("alternative", [text, html]);
+    } else {
+        body = text;
+    }
+
+    if (len(attached) > 0) {
+        body = _multipart("mixed", [body, attached..]);
+    }
+    return body;
+}
+
+// _part(how, name, data, type, cid): an attachment or inline part, checked.
+_part(how, name, data, type, cid) {
+    _string("mail::Message::" + how, name);
+    _string("mail::Message::" + how, data);
+    _nobreak("a file name", name);
+
+    if (type == nil) {
+        local dot = -1;
+
+        for (local i = 0; i < len(name); i++) {
+            if (slice(name, i, i + 1) == ".") {
+                dot = i;
+            }
+        }
+        type = dot < 0 ? nil : _TYPES[lower(slice(name, dot + 1))];
+
+        if (type == nil) {
+            type = "application/octet-stream";
+        }
+    }
+    _string("mail::Message::" + how, type);
+
+    if (!_TYPE->match(type)) {
+        throw new Error("mail: not a content type: " + _q(type) + " (it is type/subtype)", "ValueError");
+    }
+    return {"name": name, "data": data, "type": lower(type), "cid": cid};
+}
+
+// A part of the body is a map: "headers" (lines, each with its CRLF) and
+// "body" (with CRLF line endings), or "boundary" and "parts".
+_textpart(subtype, s) {
+    local lines = split(_EOL->replace(s, "\n"), "\n"), cte = "7bit";
+
+    if (len(lines) > 1 && lines[len(lines) - 1] == "") {
+        pop(lines);
+    }
+
+    for (local l in lines) {
+        if (len(l) > 76 || _UNSAFE->match(l)) {
+            cte = "quoted-printable";
+            break;
+        }
+    }
+
+    if (cte == "quoted-printable") {
+        local enc = [];
+
+        for (local l in lines) {
+            push(enc, _qp(l));
+        }
+        lines = enc;
+    }
+    return {
+        "headers": ["Content-Type: text/" + subtype + "; charset=utf-8\r\n", "Content-Transfer-Encoding: " + cte + "\r\n"],
+        "body": join(lines, "\r\n") + "\r\n",
+    };
+}
+
+_binary(p) {
+    local h = [], ascii = _ascii(p["name"]) && find(p["name"], "\"") < 0 && find(p["name"], "\\") < 0;
+    local fname = ascii ? "filename=\"" + p["name"] + "\"" : "filename*=utf-8''" + _pct(p["name"]);
+    push(h, "Content-Type: " + p["type"] + (ascii ? "; name=\"" + p["name"] + "\"" : "") + "\r\n");
+    push(h, "Content-Transfer-Encoding: base64\r\n");
+
+    if (p["cid"] != nil) {
+        push(h, "Content-ID: <" + p["cid"] + ">\r\n");
+        push(h, "Content-Disposition: inline; " + fname + "\r\n");
+    } else {
+        push(h, "Content-Disposition: attachment; " + fname + "\r\n");
+    }
+    local b = encoding::base64(p["data"], 76);
+    return {"headers": h, "body": replace(b, "\n", "\r\n") + (b == "" ? "" : "\r\n")};
+}
+
+_multipart(subtype, parts) {
+    local boundary = "=_" + replace(uuid::v4(), "-", "");
+    return {
+        "headers": ["Content-Type: multipart/" + subtype + ";\r\n boundary=\"" + boundary + "\"\r\n"], "boundary": boundary,
+        "parts": parts,
+    };
+}
+
+// _render(p): a part as text: its headers, a blank line, its body.
+_render(p) {
+    local out = [join(p["headers"]), "\r\n"];
+
+    if (p["parts"] == nil) {
+        push(out, p["body"]);
+    } else {
+        for (local sub in p["parts"]) {
+            // The CRLF before a delimiter belongs to it (RFC 2046), so the
+            // part's own last line ending stays the part's.
+            push(out, "--" + p["boundary"] + "\r\n", _render(sub), "\r\n");
+        }
+        push(out, "--" + p["boundary"] + "--\r\n");
+    }
+    return join(out);
+}
+
+// _qp(line): one line in quoted-printable (RFC 2045), soft line breaks
+// keeping each line at most 76 characters.
+_qp(line) {
+    local out = [], n = 0, last = len(line) - 1;
+
+    for (local i = 0; i < len(line); i++) {
+        local c = ord(line, i), t = nil;
+
+        if (c == '=' || c > 126 || c < 32 && c != '\t' || (c == ' ' || c == '\t') && i == last) {
+            t = "=" + upper(encoding::hex(char(c)));
+        } else {
+            t = char(c);
+        }
+
+        if (n + len(t) > 75 && !(i == last && n + len(t) <= 76)) {
+            push(out, "=\r\n");
+            n = 0;
+        }
+        push(out, t);
+        n += len(t);
+    }
+    return join(out);
+}
+
+// _header(name, value): a header line, folded at spaces to about 78
+// characters; a value that is not ASCII as encoded words (RFC 2047).
+_header(name, value) {
+    if (!_ascii(value)) {
+        return name + ": " + _words(value, "\r\n ") + "\r\n";
+    }
+    local out = name + ":", n = len(out);
+
+    for (local w in split(value, " ")) {
+        if (n + 1 + len(w) > 78 && n > len(name) + 1) {
+            out += "\r\n";
+            n = 0;
+        }
+        out += " " + w;
+        n += 1 + len(w);
+    }
+    return out + "\r\n";
+}
+
+// _addresses(name, list): an address header, folded between addresses.
+_addresses(name, list) {
+    local out = name + ":", n = len(out);
+
+    for (local i = 0; i < len(list); i++) {
+        local a = list[i], shown = _show(a) + (i < len(list) - 1 ? "," : "");
+        local first = find(shown, "\r\n"), width = first < 0 ? len(shown) : first;
+
+        if (n + 1 + width > 78 && i > 0) {
+            out += "\r\n";
+            n = 0;
+        }
+        out += " " + shown;
+        local lastbreak = -1;
+
+        for (local j = find(shown, "\r\n"); j >= 0; j = find(shown, "\r\n", j + 1)) {
+            lastbreak = j;
+        }
+        n = lastbreak < 0 ? n + 1 + len(shown) : len(shown) - lastbreak - 2;
+    }
+    return out + "\r\n";
+}
+
+// _words(s, sep): s as RFC 2047 encoded words, each of at most 39 bytes of
+// s (64 characters), cut between characters, joined by sep.
+_words(s, sep) {
+    if (!utf8::valid(s)) {
+        throw new Error("mail: a header value that is not ASCII must be UTF-8", "ValueError");
+    }
+    local words = [], start = 0;
+
+    while (start < len(s)) {
+        local end = min(start + 39, len(s));
+
+        while (end < len(s) && (ord(s, end) & 0xC0) == 0x80) {
+            end--;
+        }
+        push(words, "=?utf-8?B?" + encoding::base64(slice(s, start, end)) + "?=");
+        start = end;
+    }
+    return join(words, sep);
+}
+
+// _pct(s): s for an RFC 2231 parameter value: %XX for all but attr-chars.
+_pct(s) {
+    local out = [];
+
+    for (local c in s) {
+        if (c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || find("!#$&+-.^_`|~", char(c)) >= 0) {
+            push(out, char(c));
+        } else {
+            push(out, "%" + upper(encoding::hex(char(c))));
+        }
+    }
+    return join(out);
+}
+
+_ascii(s) {
+    for (local c in s) {
+        if (c > 126 || c < 32 && c != '\t') {
+            return false;
+        }
+    }
+    return true;
+}
+
+// _8bit(s): whether s has a byte that is not 7-bit ASCII.
+_8bit(s) {
+    for (local c in s) {
+        if (c > 127) {
+            return true;
+        }
+    }
+    return false;
+}
+
+_string(what, s) {
+    if (typeof(s) != "string") {
+        throw new Error(what + ": a string, not " + typeof(s), "TypeError");
+    }
+}
+
+// _nobreak(what, s): refuses a CR or LF (header injection) and other
+// control characters in what goes into a header.
+_nobreak(what, s) {
+    for (local c in s) {
+        if (c == '\r' || c == '\n') {
+            throw new Error("mail: a line break in " + what + ": " + _q(s) + " (it would add headers)", "ValueError");
+        }
+
+        if (c < 32 && c != '\t' || c == 127) {
+            throw new Error("mail: a control character in " + what + ": " + _q(s), "ValueError");
+        }
+    }
+}
+
+// _q(s): s quoted for a message, at most 60 bytes of it.
+_q(s) {
+    local v = str([len(s) > 60 ? slice(s, 0, 60) + "..." : s]);
+    return slice(v, 1, len(v) - 1);
+}
+
+// transport(dsn): a transport for a DSN string or map:
+//
+//     smtp://user:pass@host:587    SMTP, STARTTLS required (except on localhost)
+//     smtps://user:pass@host:465   SMTP over TLS from the start
+//     memory://                    keeps the messages: t->sent()
+//     null://                      sends nothing
+//
+// Options after "?": tls=0 (smtp: plain text, no STARTTLS), verify=0 (the
+// server's certificate is not checked), ca=file (root certificates to
+// check it against), timeout=seconds (30), helo=name (the name EHLO gives:
+// net::hostname()). A user name or password with "@", ":", "/" or "?"
+// writes it as %40, %3A, %2F, %3F. The map form has the keys "scheme",
+// "host", "port", "user", "password" and the options, and needs no
+// escaping: {"scheme": "smtp", "host": "mail.example.com", "password":
+// readfile(".secret")}.
+transport(dsn) {
+    local c = _dsn(dsn);
+
+    if (c["scheme"] == "memory") {
+        return new MemoryTransport();
+    }
+
+    if (c["scheme"] == "null") {
+        return new NullTransport();
+    }
+    return new SmtpTransport(c);
+}
+
+// _dsn(dsn): the parts of a DSN, checked: a map with scheme, host, port,
+// user, password, tls, verify, ca, timeout, helo.
+_dsn(dsn) {
+    local c = {};
+
+    if (typeof(dsn) == "map") {
+        for (local k, v in dsn) {
+            c[k] = v;
+        }
+    } else if (typeof(dsn) == "string") {
+        local g = _DSN->groups(dsn);
+
+        if (g == nil) {
+            throw new Error("mail::transport: not a DSN: " + _q(_mask(dsn)) + " (scheme://user:password@host:port?options)", "ValueError");
+        }
+        c["scheme"] = g[1];
+
+        if (g[2] != nil && g[2] != "") {
+            c["user"] = _unpct(g[2]);
+        }
+
+        if (g[3] != nil) {
+            c["password"] = _unpct(g[3]);
+        }
+
+        if (g[4] != "") {
+            c["host"] = g[4];
+        }
+
+        if (g[5] != nil) {
+            c["port"] = int(g[5]);
+        }
+
+        if (g[6] != nil && g[6] != "") {
+            for (local o in split(g[6], "&")) {
+                local eq = find(o, "=");
+
+                if (eq < 0) {
+                    throw new Error("mail::transport: an option without a value: " + _q(o), "ValueError");
+                }
+                local k = slice(o, 0, eq), v = _unpct(slice(o, eq + 1));
+
+                if (k == "tls" || k == "verify") {
+                    if (v != "0" && v != "1") {
+                        throw new Error("mail::transport: " + k + " is 0 or 1, not " + _q(v), "ValueError");
+                    }
+                    v = v == "1";
+                } else if (k == "timeout") {
+                    v = float(v);
+                } else if (k != "ca" && k != "helo") {
+                    throw new Error("mail::transport: an unknown option " + _q(k) + " (tls, verify, ca, timeout, helo)", "ValueError");
+                }
+                c[k] = v;
+            }
+        }
+    } else {
+        throw new Error("mail::transport: a DSN string or map, not " + typeof(dsn), "TypeError");
+    }
+    local types = {
+        "scheme": "string", "host": "string", "port": "int", "user": "string", "password": "string", "tls": "bool",
+        "verify": "bool", "ca": "string", "timeout": "number", "helo": "string",
+    };
+
+    for (local k, v in c) {
+        local want = types[k];
+
+        if (want == nil) {
+            throw new Error("mail::transport: an unknown key " + _q(k), "ValueError");
+        }
+
+        if (want == "number" ? typeof(v) != "int" && typeof(v) != "float" : typeof(v) != want) {
+            throw new Error("mail::transport: " + k + " is " + (want == "int" ? "an int" : "a " + want) + ", not " + typeof(v), "TypeError");
+        }
+    }
+    local scheme = c["scheme"];
+
+    if (scheme == "memory" || scheme == "null") {
+        if (c["host"] != nil) {
+            throw new Error("mail::transport: " + scheme + ":// takes no host", "ValueError");
+        }
+        return c;
+    }
+
+    if (scheme != "smtp" && scheme != "smtps") {
+        throw new Error("mail::transport: an unknown scheme " + _q(str(scheme)) + " (smtp, smtps, memory, null)", "ValueError");
+    }
+
+    if (c["host"] == nil || c["host"] == "") {
+        throw new Error("mail::transport: " + scheme + ":// needs a host", "ValueError");
+    }
+
+    if (c["port"] == nil) {
+        c["port"] = scheme == "smtps" ? 465 : 25;
+    }
+
+    if (c["port"] < 1 || c["port"] > 65535) {
+        throw new Error("mail::transport: the port " + str(c["port"]) + " is not 1 to 65535", "ValueError");
+    }
+
+    if (c["password"] != nil && c["user"] == nil) {
+        throw new Error("mail::transport: a password without a user", "ValueError");
+    }
+
+    if (c["tls"] == false && scheme == "smtps") {
+        throw new Error("mail::transport: smtps:// is TLS; tls=0 is for smtp://", "ValueError");
+    }
+
+    for (local k in ["user", "password", "helo"]) {
+        if (c[k] != nil) {
+            _nobreak("the " + k, c[k]);
+        }
+    }
+
+    if (c["timeout"] == nil) {
+        c["timeout"] = 30;
+    }
+
+    if (c["timeout"] <= 0) {
+        throw new Error("mail::transport: the timeout must be more than 0 seconds", "ValueError");
+    }
+    return c;
+}
+
+// _unpct(s): %XX decoded.
+_unpct(s) {
+    local out = [];
+
+    for (local i = 0; i < len(s); i++) {
+        if (slice(s, i, i + 1) == "%" && i + 2 < len(s)) {
+            push(out, encoding::unhex(slice(s, i + 1, i + 3)));
+            i += 2;
+        } else {
+            push(out, slice(s, i, i + 1));
+        }
+    }
+    return join(out);
+}
+
+// _mask(dsn): a DSN string with its password as ***.
+_mask(dsn) {
+    local scheme = find(dsn, "://"), at = find(dsn, "@");
+
+    if (scheme < 0 || at < 0) {
+        return dsn;
+    }
+    local colon = find(dsn, ":", scheme + 3);
+
+    if (colon < 0 || colon > at) {
+        return dsn;
+    }
+    return slice(dsn, 0, colon + 1) + "***" + slice(dsn, at);
+}
+
+// Sends over SMTP. The connection is opened by the first send and kept
+// for the next ones (RSET between them) until close().
+class SmtpTransport {
+    dsn;            // as it prints: the password as ***
+    _c;             // the DSN's parts, without the password
+    _password;      // fn() giving the password, so that it never prints
+    _conn;          // the net::Conn, or nil
+    _ext;           // the server's EHLO extensions: name -> its parameters
+    SmtpTransport(c);
+    send(m, envelope);
+    close();
+    _open();
+    _ehlo();
+    _auth();
+    _cmd(line, codes, what);
+    _reply();
+    _drop();
+}
+
+SmtpTransport::SmtpTransport(c) {
+    local password = c["password"];
+    _password = fn() { return password; };
+    _c = {};
+
+    for (local k, v in c) {
+        if (k != "password") {
+            _c[k] = v;
+        }
+    }
+    dsn = c["scheme"] + "://" + (c["user"] == nil ? "" : _pctuser(c["user"]) + (password == nil ? "" : ":***") + "@") + c["host"] + ":" + str(c["port"]);
+}
+
+_pctuser(u) {
+    return replace(replace(replace(replace(replace(u, "%", "%25"), "@", "%40"), ":", "%3A"), "/", "%2F"), "?", "%3F");
+}
+
+// t->send(m [, envelope]): sends message m to the envelope's recipients
+// (by default mail::envelope(m)) and gives {"messageid", "envelope",
+// "reply"}, the reply the server gave for the data ("250 2.0.0 Ok: queued
+// as 4F3A2"). A recipient the server refuses stops the message for all
+// (a MailError whose refused lists them): nothing is sent.
+SmtpTransport::send(m, envelope = nil) {
+    local env = envelope == nil ? _default(m) : _envelope(envelope), data = m->bytes();
+
+    try {
+        if (_conn == nil) {
+            _open();
+        } else {
+            _cmd("RSET", [250], "RSET");
+        }
+        local utf8 = _8bit(env["from"]) || _8bit(slice(data, 0, find(data, "\r\n\r\n")));
+
+        for (local a in env["to"]) {
+            if (_8bit(a)) {
+                utf8 = true;
+            }
+        }
+
+        if (utf8 && !haskey(_ext, "SMTPUTF8")) {
+            throw new MailError("mail: the server does not take SMTPUTF8, which an address that is not ASCII needs");
+        }
+        _cmd("MAIL FROM:<" + env["from"] + ">" + (utf8 ? " SMTPUTF8" : ""), [250], "MAIL FROM");
+        local refused = [];
+
+        for (local a in env["to"]) {
+            local r = _cmd("RCPT TO:<" + a + ">", nil, "RCPT TO");
+
+            if (r["code"] != 250 && r["code"] != 251) {
+                push(refused, {"address": a, "reply": r["text"]});
+            }
+        }
+
+        if (len(refused) > 0) {
+            local shown = [];
+
+            for (local r in refused) {
+                push(shown, r["reply"]);
+            }
+            _cmd("RSET", [250], "RSET");
+            throw new MailError("mail: the server refused " + str(len(refused)) + " of " + str(len(env["to"])) + " recipients, so the message was not sent: " + join(shown, "; "), nil, refused[0]["reply"], refused);
+        }
+        _cmd("DATA", [354], "DATA");
+        _conn->write(_DOT->replace(data, ".."), ".\r\n");
+        local r = _cmd(nil, [250], "the message");
+        return {"messageid": m->messageid(), "envelope": env, "reply": r["text"]};
+    } catch (e) {
+        if (e->kind == "NetError") {
+            _drop();
+        }
+        throw e;
+    }
+}
+
+// t->close(): QUIT, and the connection closed; the next send opens a new one.
+SmtpTransport::close() {
+    if (_conn != nil) {
+        try {
+            _conn->write("QUIT\r\n");
+            _reply();
+        } catch (e) {
+        }
+        _drop();
+    }
+}
+
+SmtpTransport::_drop() {
+    if (_conn != nil) {
+        _conn->close();
+        _conn = nil;
+    }
+}
+
+SmtpTransport::_open() {
+    local host = _c["host"], name = host, opts = {}, timeout = _c["timeout"];
+
+    if (slice(name, 0, 1) == "[") {
+        name = slice(name, 1, len(name) - 1);
+    }
+
+    if (_c["ca"] != nil) {
+        opts["ca"] = _c["ca"];
+    }
+
+    if (_c["verify"] == false) {
+        opts["insecure"] = true;
+    }
+
+    if (_c["scheme"] == "smtps") {
+        _conn = net::connect("tls://" + host + ":" + str(_c["port"]), timeout, opts);
+    } else {
+        _conn = net::connect("tcp://" + host + ":" + str(_c["port"]), timeout);
+    }
+    _conn->timeout(timeout);
+    _cmd(nil, [220], "the greeting");
+    _ehlo();
+    local islocal = name == "localhost" || name == "127.0.0.1" || name == "::1";
+
+    if (_c["scheme"] == "smtp" && _c["tls"] != false) {
+        if (haskey(_ext, "STARTTLS")) {
+            _cmd("STARTTLS", [220], "STARTTLS");
+            _conn->starttls(name, opts);
+            _ehlo();
+        } else if (!islocal) {
+            close();
+            throw new MailError("mail: " + dsn + " does not offer STARTTLS, so the mail would go in plain text; smtps:// or ?tls=0 to allow that");
+        }
+    }
+
+    if (_c["user"] != nil) {
+        _auth();
+    }
+}
+
+SmtpTransport::_ehlo() {
+    local helo = _c["helo"];
+
+    if (helo == nil) {
+        helo = net::hostname();
+    }
+    local r = _cmd("EHLO " + helo, [250], "EHLO");
+    _ext = {};
+
+    for (local i = 1; i < len(r["lines"]); i++) {
+        local words = split(trim(r["lines"][i]), " ");
+        _ext[upper(words[0])] = slice(words, 1);
+    }
+}
+
+// t->_auth(): AUTH PLAIN, or LOGIN when the server offers only that.
+SmtpTransport::_auth() {
+    local mechs = _ext["AUTH"], user = _c["user"], password = _password();
+
+    if (password == nil) {
+        password = "";
+    }
+
+    if (mechs == nil) {
+        throw new MailError("mail: " + dsn + " offers no AUTH, but the DSN has a user");
+    }
+    local has = {};
+
+    for (local m in mechs) {
+        has[upper(m)] = true;
+    }
+
+    if (has["PLAIN"]) {
+        _cmd("AUTH PLAIN " + encoding::base64("\0" + user + "\0" + password), [235], "AUTH");
+    } else if (has["LOGIN"]) {
+        _cmd("AUTH LOGIN", [334], "AUTH");
+        _cmd(encoding::base64(user), [334], "AUTH");
+        _cmd(encoding::base64(password), [235], "AUTH");
+    } else {
+        throw new MailError("mail: " + dsn + " offers AUTH " + join(mechs, " ") + ", but not PLAIN or LOGIN");
+    }
+}
+
+// t->_cmd(line, codes, what): sends line (nil: none) and reads the reply;
+// a code not in codes (nil: any) is a MailError that names what.
+SmtpTransport::_cmd(line, codes, what) {
+    if (line != nil) {
+        _conn->write(line, "\r\n");
+    }
+    local r = _reply();
+
+    if (codes == nil) {
+        return r;
+    }
+
+    for (local c in codes) {
+        if (r["code"] == c) {
+            return r;
+        }
+    }
+
+    if (what == "AUTH") {
+        throw new MailError("mail: " + dsn + ": authentication failed: " + r["text"], r["code"], r["text"]);
+    }
+    throw new MailError("mail: " + dsn + ": " + what + ": " + r["text"], r["code"], r["text"]);
+}
+
+// t->_reply(): the next reply: {"code": 250, "lines": the text of each
+// line, "text": "250 the lines joined by spaces"}.
+SmtpTransport::_reply() {
+    local lines = [], code = nil;
+
+    while (true) {
+        local l = _conn->readline();
+
+        if (l == nil) {
+            _drop();
+            throw new Error("mail: " + dsn + " closed the connection", "NetError");
+        }
+
+        if (len(l) < 3 || len(l) > 3 && slice(l, 3, 4) != " " && slice(l, 3, 4) != "-") {
+            _drop();
+            throw new MailError("mail: " + dsn + " does not speak SMTP: " + _q(l));
+        }
+        local c = 0;
+
+        try {
+            c = int(slice(l, 0, 3));
+        } catch (e) {
+            _drop();
+            throw new MailError("mail: " + dsn + " does not speak SMTP: " + _q(l));
+        }
+
+        if (code != nil && c != code) {
+            _drop();
+            throw new MailError("mail: " + dsn + " does not speak SMTP: a reply of codes " + str(code) + " and " + str(c));
+        }
+        code = c;
+        push(lines, slice(l, 4));
+
+        if (len(l) == 3 || slice(l, 3, 4) == " ") {
+            break;
+        }
+    }
+    return {"code": code, "lines": lines, "text": str(code) + " " + join(lines, " ")};
+}
+
+// Keeps the messages it is given, for tests: t->sent() gives them as maps
+// {"message", "envelope", "bytes", "messageid"}.
+class MemoryTransport {
+    _sent;
+    MemoryTransport();
+    send(m, envelope);
+    sent();
+    close();
+}
+
+MemoryTransport::MemoryTransport() {
+    _sent = [];
+}
+
+MemoryTransport::send(m, envelope = nil) {
+    local env = envelope == nil ? _default(m) : _envelope(envelope), data = m->bytes();
+    push(_sent, {"message": m, "envelope": env, "bytes": data, "messageid": m->messageid()});
+    return {"messageid": m->messageid(), "envelope": env, "reply": "250 kept"};
+}
+
+MemoryTransport::sent() {
+    return _sent;
+}
+
+MemoryTransport::close() {
+}
+
+// Sends nothing, after checking the message as the others do.
+class NullTransport {
+    NullTransport();
+    send(m, envelope);
+    close();
+}
+
+NullTransport::NullTransport() {
+}
+
+NullTransport::send(m, envelope = nil) {
+    local env = envelope == nil ? _default(m) : _envelope(envelope);
+    m->bytes();
+    return {"messageid": m->messageid(), "envelope": env, "reply": "250 dropped"};
+}
+
+NullTransport::close() {
+}

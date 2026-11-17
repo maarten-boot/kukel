@@ -80,8 +80,9 @@ type CompileOptions struct {
 	Modules []*Module
 	// StandardModules lists the standard modules written in Go the program
 	// may use (nil: all of them; an empty, non-nil slice: none). Those
-	// written in Kukel (iter) are always there: they can do nothing the
-	// program's own code could not.
+	// written in Kukel (iter, mail) are always there: they can do nothing
+	// the program's own code could not, and use only the modules allowed
+	// here (mail needs net, encoding, time, uuid, re and utf8).
 	StandardModules []string
 	// DenyBuiltins lists built-in functions the program may not use
 	// (using one is a compile error); see SystemBuiltins.

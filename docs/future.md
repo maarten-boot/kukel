@@ -799,7 +799,7 @@ Each step is usable on its own and prepares the next:
 | 9 | 9P client and server (6.2) | 3, 8 | done (Q62, Q63): trees built in Kukel and disk directories; TLS later |
 | 10 | TLS in `net`: `tls://` and `starttls` (11.2) | — | done (Q113): client, `starttls`, and `tls://` listeners |
 | 11 | `encoding` (base64) and `net::hostname()` (11.3) | — | done (Q113): base64 and hexadecimal |
-| 12 | Email: the module `mail`, written in Kukel (11.4, 11.5) | 10, 11 | proposed (Q113) |
+| 12 | Email: the module `mail`, written in Kukel (11.4, 11.5) | 10, 11 | done (Q113) |
 | 13 | `unixgram://` in `net` (12.4) | — | proposed (Q114) |
 | 14 | Logging: the module `logging`, written in Kukel, with syslog (12) | 11, 13; 10 for syslog over TLS | proposed (Q114) |
 | 15 | `tk::Notebook` (13.3) | 7 | done (Q115) |
@@ -1184,8 +1184,9 @@ it is cheap to change.
 ## 11. Email: TLS in `net`, and a module `mail` written in Kukel
 
 *A proposal (2026-11-16, TODO.md Q113); TLS in `net` (11.2),
-`encoding` and `net::hostname()` (11.3) are built, `mail` not. The open
-questions are 11.7; F-42 and F-43 are answered.* Programs that send mail: a report at night, a password reset, a
+`encoding` and `net::hostname()` (11.3) and `mail` (11.4, 11.5; built
+2026-11-17, reference.md §12) are built. The open questions of 11.7 are
+all answered.* Programs that send mail: a report at night, a password reset, a
 notice from a Kukel-MVC application. The model is
 [Symfony Mailer](https://github.com/symfony/mailer): a message, an
 envelope and a transport kept apart, and transports named by a DSN
@@ -1366,13 +1367,16 @@ Steps: 1. TLS in `net` (useful on its own); 2. `encoding` and
 
 - **F-39** Names: `mail` with `mail::Message`, `mail::transport`,
   `mail::MailError` (proposed), or `mailer` as Symfony's?
+  *Answered (2026-11-17): `mail`, as proposed; built.*
 - **F-40** `smtp://` without TLS: when the server does not offer
   STARTTLS, does sending stop (safe; `?tls=0` to allow plain), or go on
   in plain text (as Symfony does by default)? Proposed: stop, unless the
-  host is `localhost`.
+  host is `localhost`. *Answered (2026-11-17): stop, except on
+  `localhost`, `127.0.0.1` and `::1`; `?tls=0` sends in plain text.*
 - **F-41** A message with bcc recipients: sent once with all of them in
   the envelope (proposed; the server does not show them), or once per
-  bcc recipient?
+  bcc recipient? *Answered (2026-11-17): once, as proposed; a refused
+  recipient stops the message for all.*
 - **F-42** `encoding` as a module of its own (proposed), or base64 in
   `strings`? *Answered (2026-11-16): a module of its own; built, with
   `hex` and `unhex`.*
@@ -1381,14 +1385,17 @@ Steps: 1. TLS in `net` (useful on its own); 2. `encoding` and
   *Answered (2026-11-16): `tls://` listeners in the first step;
   STARTTLS on the listening side later.*
 - **F-44** DKIM signing: left out (proposed), or planned in Go as
-  `mail`'s one native helper?
+  `mail`'s one native helper? *Answered (2026-11-17): left out.*
 - **F-45** Addresses: checked only for what would break the message
   (CR, LF, no `@`, a malformed `Name <addr>`; proposed), or by the full
-  grammar of RFC 5322?
+  grammar of RFC 5322? *Answered (2026-11-17): what would break the
+  message, as proposed.*
 - **F-46** The DSN carries the password (`smtp://user:pass@...`): also a
   map form (`{"host": ..., "password": ...}`) so that it can come from a
   file or the environment without building a string, and never shown
-  when a transport prints?
+  when a transport prints? *Answered (2026-11-17): yes, both; the
+  password is kept in a closure, so even printing the object shows
+  `***`.*
 
 ## 12. Structured logging and syslog: a module `logging` written in Kukel
 

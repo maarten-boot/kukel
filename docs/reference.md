@@ -35,7 +35,7 @@ hello, Kukel
 9. [Exceptions](#9-exceptions)
 10. [Built-in functions](#10-built-in-functions)
 11. [Modules written in Go](#11-modules-written-in-go): db, encoding, events, fs, json, net, p9, re, strings, term, time, tk (with the build tag tk), toml, utf8, uuid, worker, zmq
-12. [Modules written in Kukel](#12-modules-written-in-kukel): iter
+12. [Modules written in Kukel](#12-modules-written-in-kukel): iter, mail
 
 ---
 
@@ -3385,6 +3385,9 @@ them before files on disk. Their code shows in traces and the debugger as
 `<std>/iter.kkl`. They do nothing a program could not do itself, so a Go
 program that embeds Kukel cannot leave them out (`StandardModules` lists
 the modules written in Go), and they are there also without file modules.
+They use only what the program may use: `mail` needs `net`, `encoding`,
+`time`, `uuid`, `re` and `utf8`, and where one of those is left out, `use
+mail;` is a compile error that names it.
 
 ### iter
 
@@ -3448,3 +3451,130 @@ $ kukel run iter.kkl
   more than a loop written out: about 85 ns per value for
   `for (local x in iter::range(n))`, against 25 ns for `for (local i = 0;
   i < n; i++)`.
+
+### mail
+
+Mail: messages (RFC 5322 and MIME) and sending them over SMTP, after
+Symfony Mailer. A message, its envelope (who the server is told it is
+from and for) and a transport (how it goes) are kept apart; a transport
+is named by a DSN string.
+
+```
+use mail;
+
+main() {
+    local m = new mail::Message();
+    m->from("Shop <shop@example.com>")
+        ->to("ann@example.org", "Bob <bob@example.org>")
+        ->bcc("archive@example.com")
+        ->subject("Your order 1042")
+        ->text("Thank you for your order.\n")
+        ->html("<p>Thank you for your <b>order</b>.</p>")
+        ->attach("invoice-1042.pdf", "%PDF-1.4 ...");   // readfile("invoice-1042.pdf")
+
+    // "smtp://shop:secret@smtp.example.com:587" sends it; "memory://" keeps it
+    with (local t = mail::transport("memory://")) {
+        local r = t->send(m);
+        println(r["envelope"]["to"], r["reply"]);
+        println(m->attachments()[0]["type"], len(t->sent()));
+    }
+}
+```
+
+```
+$ kukel run order.kkl
+["ann@example.org", "bob@example.org", "archive@example.com"] 250 kept
+application/pdf 1
+```
+
+| Function | Description |
+|---|---|
+| `new mail::Message()` | An empty message |
+| `mail::transport(dsn)` | A transport for a DSN string or map (below): a `mail::SmtpTransport`, `mail::MemoryTransport` or `mail::NullTransport`. A DSN it cannot use is a `ValueError` that says why, without the password |
+| `mail::envelope(m)` | The envelope a transport uses for message `m` by default: `{"from": address, "to": [address, ...]}`, from the sender (or the first from) and to, cc and bcc, each address once. A message without from or without recipients is a `ValueError` |
+| `mail::address(s)` | The parts of an address, `"ann@example.org"` or `"Ann Smith <ann@example.org>"` (a name with a comma or other specials quoted: `"\"Smith, Ann\" <ann@example.org>"`), as a map `{"name": "Ann Smith", "address": "ann@example.org"}` (`""` without a name); a map of that form is checked and given back. A malformed address is a `ValueError` |
+
+Each member function of a message that sets something gives the message,
+so calls chain; called without arguments, it gives what is set.
+
+| Member function of `mail::Message` | Description |
+|---|---|
+| `m->from(a, ...)`, `m->to(a, ...)`, `m->cc(a, ...)`, `m->replyto(a, ...)` | The addresses (strings as `mail::address` reads them, or its maps); each call replaces the list. Without arguments, the list as strings |
+| `m->bcc(a, ...)` | Recipients that are in the envelope only: never in a header, so the others do not see them |
+| `m->sender(a)` | The Sender header, for mail sent on behalf of the from address; also the envelope's from |
+| `m->subject(s)` | The subject |
+| `m->text(s)`, `m->html(s)` | The plain text body and the HTML body; with both, the recipient's program shows one of them |
+| `m->attach(name, data [, type])` | An attachment: the file name the recipient sees, its bytes and its content type (`"application/pdf"`; without one, from the name's extension: `.pdf`, `.txt`, `.csv`, `.html`, `.json`, `.xml`, `.zip`, `.gz`, `.png`, `.jpg`, `.gif`, `.svg`, `.webp`, `.ics`, else `application/octet-stream`) |
+| `m->embed(name, data [, type])` | An inline part that the HTML shows as `cid:name` (`<img src="cid:logo.png">`); without HTML it is an attachment |
+| `m->attachments()` | The attachments and inline parts, as maps with `name`, `type`, `size` and `inline` |
+| `m->header(name, value)`, `m->header(name)` | Adds a header of the program's own (`X-Mailer`, `List-Unsubscribe`); with only the name, its first value or `nil`. The headers the message writes itself (`From`, `To`, `Cc`, `Bcc`, `Reply-To`, `Sender`, `Subject`, `Date`, `Message-ID`, `MIME-Version`, `Content-*`) are a `ValueError`: they have their own functions |
+| `m->headers()` | The program's own headers, as `[name, value]` pairs |
+| `m->date(t)`, `m->messageid(id)` | The `Date` (a `time::Time`) and the `Message-ID` (`"<left@right>"`, the brackets added when missing). The first `bytes()` (and so the first send) sets those not set: now, and a UUID at the domain of the from address |
+| `m->bytes()` | The message as it is sent, with CRLF line endings: for a file, a test, or a transport of one's own. A message without a from address is a `ValueError` |
+
+- **Header injection is refused.** A CR or LF (or another control
+  character) in an address, the subject, a header value or a file name is
+  a `ValueError` when it is set (`mail: a line break in the subject:
+  "hi\r\nBcc: x@example.org" (it would add headers)`): otherwise one field
+  of a web form could add recipients to the mail.
+- **Line endings are made CRLF.** Every line ending of a body (`\n`,
+  `\r\n`, a bare `\r`) is sent as CRLF, and SMTP's transport doubles a `.`
+  that starts a line, so no text in a body can end the message early
+  (SMTP smuggling).
+- The structure follows from what the message holds: `text/plain` alone,
+  `multipart/alternative` for text and HTML, `multipart/related` around
+  HTML with inline parts, `multipart/mixed` around all that with
+  attachments. Bodies of short ASCII lines go as they are (`7bit`), others
+  in quoted-printable, as UTF-8; attachments in base64. Header values and
+  names that are not ASCII are encoded words (RFC 2047, UTF-8), file names
+  that are not ASCII RFC 2231 parameters. Lines stay within 78 characters where the rules
+  allow (a header word longer than that is not broken).
+- Addresses are checked for what would break the message: one `@` with
+  something on both sides, no spaces or `<>()[],;:\"` in the address, a
+  well-formed `Name <address>`. An address that is not ASCII is sent as it
+  is, and needs a server that offers SMTPUTF8.
+
+**Transports.** `t->send(m [, envelope])` sends a message and gives
+`{"messageid", "envelope", "reply"}`, `reply` being what the server said
+to the data; `envelope` (`{"from": address, "to": [address, ...]}`) sends
+it to others than the message names, a bounce address say. `t->close()`
+ends the connection; `with` closes a transport too.
+
+| DSN | Transport |
+|---|---|
+| `smtp://user:password@host:587` | SMTP (port 25 without one). STARTTLS is required: a server that does not offer it is a `MailError` (`... does not offer STARTTLS, so the mail would go in plain text; smtps:// or ?tls=0 to allow that`), except on `localhost`, `127.0.0.1` and `::1` |
+| `smtps://user:password@host:465` | SMTP over TLS from the first byte (port 465 without one) |
+| `memory://` | Keeps what it is sent: `t->sent()` gives maps with `message`, `envelope`, `bytes` and `messageid`. For tests |
+| `null://` | Checks the message and sends nothing |
+
+Options after `?` (`smtp://host?verify=0&timeout=10`): `tls=0` (plain
+text, no STARTTLS even when offered), `verify=0` (the server's certificate
+is not checked: only for tests), `ca=file` (root certificates to check it
+against, for an own CA), `timeout=seconds` (for connecting and each reply;
+30 by default), `helo=name` (the name `EHLO` gives; `net::hostname()` by
+default). A user name or password with `@`, `:`, `/` or `?` writes it as
+`%40`, `%3A`, `%2F`, `%3F`; or the DSN is a map, which needs no escaping
+and lets the password come from a file or the environment:
+`mail::transport({"scheme": "smtp", "host": "mail.example.com", "port":
+587, "user": "shop", "password": trim(readfile(".mailpass"))})`. The keys
+are `scheme`, `host`, `port`, `user`, `password` and the options (`tls`
+and `verify` as booleans).
+
+- The SMTP transport connects at the first `send` and keeps the
+  connection for the next ones (`RSET` between messages). With a user it
+  logs in with `AUTH PLAIN`, or `AUTH LOGIN` when the server offers only
+  that.
+- A transport prints with its password as `***`
+  (`mail::SmtpTransport{dsn: "smtp://shop:***@smtp.example.com:587", ...}`),
+  and no message shows it.
+- A server that refuses is a `mail::MailError` (kind `MailError`): its
+  `code` (550) and `reply` (`"550 5.1.1 <x@example.org>: no such user"`).
+  When it refuses a recipient, nothing is sent to anyone: `refused` lists
+  the recipients refused, as maps with `address` and `reply`. A connection
+  that fails is the `NetError` of `net` (a certificate that cannot be
+  checked: `net::Conn::starttls: TLS handshake failed: certificate signed
+  by unknown authority`).
+- A transport of one's own is a class with `send(m, envelope)` that uses
+  `m->bytes()`.
+- Not there: the HTTP APIs of mail services, DKIM and S/MIME signatures,
+  a `sendmail` transport, and receiving mail.
