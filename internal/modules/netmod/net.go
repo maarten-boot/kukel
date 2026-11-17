@@ -9,7 +9,9 @@
 //	c->close();
 //
 // Addresses are "tcp://host:port", "unix:///path", "tls://host:port" (TCP
-// encrypted from the start) and "udp://host:port", as for zmq and p9. Data is strings (bytes). Calls that wait (connect,
+// encrypted from the start), "udp://host:port" and "unixgram:///path"
+// (Unix datagram sockets, such as the syslog's /dev/log; Q114), as for zmq
+// and p9. Data is strings (bytes). Calls that wait (connect,
 // accept, read, write, receive) can be cancelled by the Go program that
 // runs the interpreter; ondata, onconnect and onmessage hand what comes to
 // the event loop (events) instead. What a program leaves open is closed
@@ -24,6 +26,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -207,21 +210,23 @@ func address(a native.Args, i int, listen bool, schemes ...string) (network, add
 		ok = ok || found && sc == scheme
 	}
 	if !ok {
-		examples := map[string]string{"tcp": `"tcp://host:port"`, "unix": `"unix:///path"`, "tls": `"tls://host:port"`, "udp": `"udp://host:port"`}
+		examples := map[string]string{"tcp": `"tcp://host:port"`, "unix": `"unix:///path"`, "tls": `"tls://host:port"`, "udp": `"udp://host:port"`, "unixgram": `"unixgram:///path"`}
 		var ex []string
 		for _, sc := range schemes {
 			ex = append(ex, examples[sc])
 		}
 		return "", "", a.Errorf(value.ValueError, "%q is not an address such as %s", s, strings.Join(ex, " or "))
 	}
-	if scheme == "unix" {
+	if scheme == "unix" || scheme == "unixgram" {
 		switch {
 		case rest == "":
 			return "", "", a.Errorf(value.ValueError, "%q has no socket path", s)
 		case len(rest) > native.MaxSocketPath:
 			return "", "", a.Errorf(value.ValueError, "%q: the socket path is longer than %d bytes", s, native.MaxSocketPath)
+		case scheme == "unixgram" && runtime.GOOS == "windows":
+			return "", "", a.Errorf(value.ValueError, "%q: Windows has no Unix datagram sockets", s)
 		}
-		return "unix", rest, nil
+		return scheme, rest, nil
 	}
 	host, port, err := net.SplitHostPort(rest)
 	if err != nil || strings.ContainsAny(rest, "/?#") {
@@ -246,6 +251,8 @@ func endpoint(addr net.Addr) string {
 		return "unix://" + addr.String()
 	case "udp":
 		return "udp://" + addr.String()
+	case "unixgram":
+		return "unixgram://" + addr.String()
 	}
 	return "tcp://" + addr.String()
 }
@@ -934,6 +941,8 @@ type packet struct {
 // running is used by the next receive, so no packet is lost.
 type udp struct {
 	pc       net.PacketConn
+	network  string // "udp" or "unixgram"
+	path     string // the socket file a unixgram socket made, removed by close
 	endpoint string
 	pending  chan packet
 	closed   bool
@@ -942,21 +951,37 @@ type udp struct {
 	open     *openThings
 }
 
-// net::udp(address): a net::UDP bound to address ("udp://127.0.0.1:0").
+// net::udp(address): a net::UDP bound to address ("udp://127.0.0.1:0",
+// "unixgram:///tmp/s.sock"); "unixgram://" is one without a path of its
+// own, to send (on Linux it gets an abstract address, which can be
+// answered).
 func newUDP(env value.Env, args []value.Value) (value.Value, error) {
 	a, err := native.Check("net::udp", args, 1, 1)
 	if err != nil {
 		return value.NilValue, err
 	}
-	_, addr, err := address(a, 0, true, "udp")
-	if err != nil {
+	var network, addr string
+	if s := a.V[0]; s.Kind() == value.String && s.AsString() == "unixgram://" {
+		if runtime.GOOS == "windows" {
+			return value.NilValue, a.Errorf(value.ValueError, "%q: Windows has no Unix datagram sockets", s.AsString())
+		}
+		network = "unixgram"
+	} else if network, addr, err = address(a, 0, true, "udp", "unixgram"); err != nil {
 		return value.NilValue, err
 	}
-	pc, err := net.ListenPacket("udp", addr)
+	var pc net.PacketConn
+	if network == "unixgram" {
+		pc, err = net.ListenUnixgram("unixgram", &net.UnixAddr{Name: addr, Net: "unixgram"})
+	} else {
+		pc, err = net.ListenPacket("udp", addr)
+	}
 	if err != nil {
 		return value.NilValue, a.Errorf(NetError, "%s: %s", a.V[0].AsString(), native.NetMessage(err))
 	}
-	u := &udp{pc: pc, endpoint: endpoint(pc.LocalAddr()), open: opened(env)}
+	u := &udp{pc: pc, network: network, endpoint: endpoint(pc.LocalAddr()), open: opened(env)}
+	if network == "unixgram" && addr != "" && addr[0] != '@' {
+		u.path = addr
+	}
 	u.open.items[u] = struct{}{}
 	return UDP.Object(u), nil
 }
@@ -988,6 +1013,9 @@ func (u *udp) shut() {
 	u.closed = true
 	delete(u.open.items, u)
 	u.pc.Close()
+	if u.path != "" {
+		os.Remove(u.path) // Go leaves a datagram socket's file
+	}
 	if u.release != nil {
 		u.release()
 	}
@@ -1013,9 +1041,15 @@ func sendto(a native.Args, env value.Env, u *udp) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, err
 	}
-	_, addr, err := address(a, 1, false, "udp")
+	_, addr, err := address(a, 1, false, u.network)
 	if err != nil {
 		return value.NilValue, err
+	}
+	if u.network == "unixgram" {
+		if _, err := u.pc.WriteTo([]byte(data), &net.UnixAddr{Name: addr, Net: "unixgram"}); err != nil {
+			return value.NilValue, a.Errorf(NetError, "%s: %s", a.V[1].AsString(), native.NetMessage(err))
+		}
+		return value.NilValue, nil
 	}
 	// The name is looked up on a goroutine of its own, so that a
 	// cancelled program does not wait for it.

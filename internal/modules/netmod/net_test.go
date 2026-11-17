@@ -219,6 +219,73 @@ main(args) {
 	}
 }
 
+// Unix datagram sockets (unixgram://), as the syslog's /dev/log: a socket
+// bound to a file receives, one without a path sends (and, on Linux, has
+// an abstract address that can be answered); the file goes with close.
+func TestUnixgram(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		got := run(t, `use net;
+main() {
+    try { net::udp("unixgram://"); } catch (e) { println(e->kind, e->message); }
+    try { net::udp("unixgram:///tmp/x"); } catch (e) { println(e->kind, e->message); }
+}`)
+		if got != "ValueError net::udp: \"unixgram://\": Windows has no Unix datagram sockets\n"+
+			"ValueError net::udp: \"unixgram:///tmp/x\": Windows has no Unix datagram sockets\n" {
+			t.Errorf("got\n%s", got)
+		}
+		return
+	}
+	dir, err := os.MkdirTemp("", "kukel-net") // short: socket paths are limited
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	got := run(t, `use net; use events;
+main(args) {
+    local log = net::udp("unixgram://" + args[0]), c = net::udp("unixgram://");
+    println(log, log->endpoint() == "unixgram://" + args[0]);
+    c->sendto("<14>1 - - - - - - hello", log->endpoint());
+    local p = log->receive(5);
+    println(p[0]);
+
+    if (p[1] != "") {                       // Linux: an abstract address, to answer
+        log->sendto("ack", p[1]);
+        println(c->receive(5)[0], p[1] == c->endpoint());
+    } else {
+        println("ack true");
+    }
+    log->onmessage(fn(data, from) {
+        println("got", data);
+        log->close();
+    });
+    c->sendto("second", log->endpoint());
+    events::run();
+    try { c->sendto("x", log->endpoint()); } catch (e) { println(e->kind, e->message == "net::UDP::sendto: " + log->endpoint() + ": connection refused" || e->message); }
+    try { c->sendto("x", "udp://127.0.0.1:1"); } catch (e) { println(e->kind, e->message); }
+    try { c->sendto("x", "unixgram://"); } catch (e) { println(e->kind, e->message); }
+    try { net::udp("udp://127.0.0.1:0")->sendto("x", "unixgram:///dev/log"); } catch (e) { println(e->kind, e->message); }
+    local again = net::udp("unixgram://" + args[0]);
+    try { net::udp("unixgram://" + args[0]); } catch (e) { println(e->kind, e->message == "net::udp: unixgram://" + args[0] + ": address already in use" || e->message); }
+    again->close();
+    c->close();
+}`, filepath.Join(dir, "log"))
+	want := "net::UDP(unixgram://" + filepath.Join(dir, "log") + ") true\n" +
+		"<14>1 - - - - - - hello\n" +
+		"ack true\n" +
+		"got second\n" +
+		"NetError true\n" +
+		"ValueError net::UDP::sendto: \"udp://127.0.0.1:1\" is not an address such as \"unixgram:///path\"\n" +
+		"ValueError net::UDP::sendto: \"unixgram://\" has no socket path\n" +
+		"ValueError net::UDP::sendto: \"unixgram:///dev/log\" is not an address such as \"udp://host:port\"\n" +
+		"NetError true\n"
+	if got != want {
+		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "log")); !os.IsNotExist(err) {
+		t.Errorf("the socket file stays after close: %v", err)
+	}
+}
+
 func TestErrors(t *testing.T) {
 	got := run(t, `use net;
 try1(f) { try { f(); } catch (e) { println(e->kind, e->message); } }

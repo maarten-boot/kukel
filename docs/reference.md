@@ -2146,7 +2146,9 @@ main() {
 Addresses are `"tcp://host:port"` (`"tcp://[::1]:80"` for IPv6),
 `"unix:///path"` (a Unix socket file; `"unix://name"` is a path relative
 to the current directory), `"tls://host:port"` (TCP, encrypted from the
-start: below) and, for UDP, `"udp://host:port"`. Port 0 picks
+start: below) and, for UDP, `"udp://host:port"`; Unix datagram sockets
+(the local syslog's `/dev/log`) are `"unixgram:///path"`, and go through
+`net::udp` too. Port 0 picks
 a free port, which `endpoint()` then shows. To listen, host `*` or nothing
 (`"tcp://*:8080"`, `"tcp://:8080"`) is every interface. Data is strings
 (bytes): text, or anything else such as the bytes of a binary protocol.
@@ -2155,7 +2157,7 @@ a free port, which `endpoint()` then shows. To listen, host `*` or nothing
 |---|---|
 | `net::connect(address [, timeout [, options]])` | Connects to a `tcp://`, `unix://` or `tls://` address and gives a `net::Conn`; with `timeout` (`nil`: none), waits at most that many seconds, for a `tls://` address the TLS handshake included (without it, until the system gives up, often after a minute or more). A server that cannot be reached is a `NetError` (`net::connect: tcp://127.0.0.1:1: connection refused`, `host x not found`, `no connection within 5 seconds`); a wrong address (also a port beyond 65535, or a socket path longer than the system takes, 107 bytes on Linux) a `ValueError` |
 | `net::listen(address [, options])` | Listens on a `tcp://`, `unix://` or `tls://` address and gives a `net::Listener`; a `tls://` one needs the options `cert` and `key` (below). An address in use or not allowed is a `NetError` (`address already in use`, also for a socket file that is there already). A Unix socket file is removed when the listener is closed |
-| `net::udp(address)` | A `net::UDP` that sends and receives packets from the `udp://` address it is bound to (`"udp://127.0.0.1:0"`, or `"udp://*:5000"` to receive from every interface) |
+| `net::udp(address)` | A `net::UDP` that sends and receives packets from the `udp://` address it is bound to (`"udp://127.0.0.1:0"`, or `"udp://*:5000"` to receive from every interface); or the same over a Unix datagram socket: `"unixgram:///path"` makes the socket file `path` (an existing one is a `NetError`, `address already in use`; `close` removes it), and `"unixgram://"` a socket without a file of its own, to send, to `"unixgram:///dev/log"` say (on Linux it gets an abstract address, `"unixgram://@a1b2c"`, which the receiver can answer). Windows has no Unix datagram sockets: there `unixgram://` is a `ValueError` |
 | `net::lookup(host)` | The addresses of a host name, as strings (`["192.0.2.10", "2001:db8::10"]`); a name that is not found is a `NetError`, `""` a `ValueError` |
 | `net::hostname()` | The name of this machine, as the system has it (`"mail"` or `"mail.example.com"`; what follows the first dot depends on the system), for instance for SMTP's `EHLO` |
 
@@ -2188,7 +2190,7 @@ the event loop instead.
 
 | Member function of `net::UDP` | Description |
 |---|---|
-| `u->sendto(data, address)` | Sends `data` as one packet to a `udp://` address. Packets may get lost, come twice or in another order: the protocol must allow that. A packet larger than the system takes (about 64 KiB, often less on the way) is a `NetError` |
+| `u->sendto(data, address)` | Sends `data` as one packet to a `udp://` address (a `unixgram://` one from a `unixgram://` socket; another kind is a `ValueError`; a socket file without a reader is a `NetError`, `connection refused`). Packets may get lost, come twice or in another order: the protocol must allow that. A packet larger than the system takes (about 64 KiB, often less on the way) is a `NetError` |
 | `u->receive([timeout])` | The next packet as `[data, from]`, where `from` is the sender's address, which `sendto` takes for the answer; with `timeout`, `nil` after that many seconds. A packet that comes later is kept for the next `receive` |
 | `u->onmessage(f)` | The event loop calls `f(data, from)` for each packet; `events::run()` keeps going until the socket is closed. Afterwards `receive` and a second `onmessage` are a `ValueError` |
 | `u->endpoint()`, `u->close()`, `u->closed()` | The address bound to; closing; whether it is closed |
@@ -2214,7 +2216,7 @@ main() {
 
 Connections print as `net::Conn(tcp://127.0.0.1:8080)` (the other side),
 listeners as `net::Listener(tcp://127.0.0.1:8080)` and UDP sockets as
-`net::UDP(udp://127.0.0.1:5000)`, with `, closed` once closed. What a
+`net::UDP(udp://127.0.0.1:5000)` (`net::UDP(unixgram:///tmp/log.sock)`), with `, closed` once closed. What a
 program leaves open is closed when it ends, and `with` closes them too.
 A program waiting in `connect`, `accept`, a read, a write or `receive` can
 be stopped by the Go program that runs it, as other waits can. A Go

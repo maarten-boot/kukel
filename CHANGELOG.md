@@ -17,6 +17,13 @@ From v1.0.0 on, what keeps working is in
 
 ## Unreleased
 
+- `net::udp` also takes Unix datagram sockets: `"unixgram:///path"`
+  binds one to a socket file (removed by `close`), `"unixgram://"` makes
+  one that sends, to the local syslog's `"unixgram:///dev/log"` say. Not
+  on Windows. Q114.
+- CI fuzzes for a number of executions instead of seconds (`make fuzz
+  FUZZTIME=200000x FUZZSLOW=30000x`), since Go can report the end of a
+  time as a failure (golang/go#75804). Q116.
 - The module `mail`, written in Kukel: messages (`mail::Message`, with
   text and HTML bodies, attachments and inline parts, MIME and encoded
   headers made from what it holds) and transports by DSN (`smtp://` with

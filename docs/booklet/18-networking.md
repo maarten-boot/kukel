@@ -142,6 +142,11 @@ client got: tea time
 
 `net::lookup(host)` gives the addresses of a host name.
 
+On Linux and the other Unix systems, `net::udp` also speaks over Unix
+datagram sockets: `"unixgram:///dev/log"` is where the local syslog takes
+its records, and a socket made with `net::udp("unixgram://")` (no file of
+its own) can send them there.
+
 Encrypted connections (TLS) are `net::Conn`s too:
 `net::connect("tls://host:443")` is encrypted from the start, and `c->starttls(servername)` encrypts a
 plain connection once the protocol says so, as SMTP's `STARTTLS`

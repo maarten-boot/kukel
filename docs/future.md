@@ -800,7 +800,7 @@ Each step is usable on its own and prepares the next:
 | 10 | TLS in `net`: `tls://` and `starttls` (11.2) | — | done (Q113): client, `starttls`, and `tls://` listeners |
 | 11 | `encoding` (base64) and `net::hostname()` (11.3) | — | done (Q113): base64 and hexadecimal |
 | 12 | Email: the module `mail`, written in Kukel (11.4, 11.5) | 10, 11 | done (Q113) |
-| 13 | `unixgram://` in `net` (12.4) | — | proposed (Q114) |
+| 13 | `unixgram://` in `net` (12.4) | — | done (Q114) |
 | 14 | Logging: the module `logging`, written in Kukel, with syslog (12) | 11, 13; 10 for syslog over TLS | proposed (Q114) |
 | 15 | `tk::Notebook` (13.3) | 7 | done (Q115) |
 | 16 | LMW-Synth GUI: the module `lmw` and a fake synth (13.4) | 9 | done (Q115) |
@@ -1497,9 +1497,10 @@ main() {
 - **The transports**:
   - the local syslog: `unixgram:///dev/log` (journald's socket on most
     Linux systems; rsyslog and syslog-ng read it too). It is a Unix
-    *datagram* socket, which `net` cannot reach yet: `net::udp` would
-    take `unixgram://` addresses as well (Go, the one new piece of
-    `net` here);
+    *datagram* socket, which `net` could not reach: `net::udp` takes
+    `unixgram://` addresses as well (Go, the one new piece of `net`
+    here; *built 2026-11-17, step 13: `net::udp("unixgram://")` for a
+    socket that only sends*);
   - UDP (`udp://host:514`): one record a packet, lost without notice
     when the network drops it;
   - TCP (`tcp://host:514`) with the octet counting of RFC 6587 (each
