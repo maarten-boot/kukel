@@ -17,6 +17,15 @@ From v1.0.0 on, what keeps working is in
 
 ## Unreleased
 
+- `examples/lmw/lmwgui.kkl`: the Schematic tab, the synth drawn as its
+  own Schematic tab draws it, live; cables are put in, moved and taken out
+  by dragging between ports, with the keys or with a port's menu. The
+  geometry is the module `lmwschematic` (tested by `schematic.tests`).
+  Q115.
+- `tk`: canvas lines and the outlines of shapes take `dash` (a dash
+  pattern such as `[6, 4]`). Q115.
+- `tk`: `tk::setcolors` also colours menus (menu bars and pop-up menus),
+  which kept Tk's grey before. Q115.
 - `examples/lmw/lmwgui.kkl`: an on-screen keyboard of 88 keys under the
   tabs, played with the mouse (velocity by where a key is clicked) or,
   while it has the focus, with the computer keys. Q115.

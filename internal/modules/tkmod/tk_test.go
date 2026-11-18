@@ -374,7 +374,8 @@ main(args) {
     // A text item's box follows its text.
     println(cv->itemat(130, 75), cv->configureitem(tx, {"text": "a"})->itemat(130, 75), cv->itemat(100, 75));
     println(cv->move(r, 5, 5.5)->coords(r), cv->coords(ln));
-    cv->setcoords(ln, [0, 0, 10, 10])->configureitem(o, {"fill": "pink", "outline": "black"})->raise(r)->lower(tx);
+    cv->setcoords(ln, [0, 0, 10, 10])->configureitem(o, {"fill": "pink", "outline": "black", "dash": [6, 4]})->raise(r)->lower(tx);
+    cv->configureitem(ln, {"dash": [2]})->configureitem(o, {"dash": []});
     println(cv->items(), cv->coords(ln), cv->itemat(20, 20));
     for (local h in [fn() { cv->rect(0, 0, 1, "x"); },
                      fn() { cv->line([1, 2, 3]); },
@@ -387,7 +388,10 @@ main(args) {
                      fn() { cv->rect(0, 0, 2e6, 1); },
                      fn() { cv->oval(0, 0, 1, 1, {"fill": "notacolour"}); },
                      fn() { cv->configureitem(o, {"fill": "notacolour"}); },
-                     fn() { cv->move(r, 1e6, 0); }])
+                     fn() { cv->move(r, 1e6, 0); },
+                     fn() { cv->line([0, 0, 1, 1], {"dash": "-"}); },
+                     fn() { cv->rect(0, 0, 1, 1, {"dash": [4, 0]}); },
+                     fn() { cv->configureitem(ln, {"dash": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]}); }])
         try { h(); } catch (e) { println(e->kind + ":", e->message); }
     println(cv, cv->remove(p)->items(), cv->clear()->items());
     draw->close();
@@ -694,7 +698,7 @@ tk::Canvas(5 items) [1, 2, 3, 4, 5] [1, 2, 3, 4, 5]
 ValueError: tk::Canvas::rect: argument 4 must be a number from -1e6 to 1e6, not "x"
 ValueError: tk::Canvas::line: argument 1 must be a vector of at least 2 points [x1, y1, x2, y2, ...] (numbers from -1e6 to 1e6), not [1, 2, 3]
 ValueError: tk::Canvas::polygon: argument 1 must be a vector of at least 3 points [x1, y1, x2, y2, ...] (numbers from -1e6 to 1e6), not [1, 2, 3, 4]
-ValueError: tk::Canvas::rect: unknown option "color" (the options are fill, outline and width)
+ValueError: tk::Canvas::rect: unknown option "color" (the options are fill, outline, width and dash)
 ValueError: tk::Canvas::oval: option fill must be a colour, such as "red" or "#ff8000" (or "" for none), not "#12"
 ValueError: tk::Canvas::line: option color must be a colour, such as "red" or "#ff8000", not ""
 ValueError: tk::Canvas::move: the canvas has no item 99
@@ -703,6 +707,9 @@ ValueError: tk::Canvas::rect: argument 3 must be a number from -1e6 to 1e6, not 
 TkError: tk::Canvas::oval: unknown color name "notacolour"
 TkError: tk::Canvas::configureitem: unknown color name "notacolour"
 ValueError: tk::Canvas::move: the item would leave the canvas (coordinates from -1e6 to 1e6)
+ValueError: tk::Canvas::line: option dash must be a vector of up to 16 lengths in pixels (1 to 255), drawn and left out in turn, such as [6, 4] ([] is solid), not "-"
+ValueError: tk::Canvas::rect: option dash must be a vector of up to 16 lengths in pixels (1 to 255), drawn and left out in turn, such as [6, 4] ([] is solid), not [4, 0]
+ValueError: tk::Canvas::configureitem: option dash must be a vector of up to 16 lengths in pixels (1 to 255), drawn and left out in turn, such as [6, 4] ([] is solid), not [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
 tk::Canvas(0 items) [5, 2, 3, 1] []
 40 30 20 20
 1 nil 2 3 4 nil
@@ -714,9 +721,9 @@ ValueError: tk::Label::Label: option image must be a tk::Image, not 1
 ValueError: tk::Canvas::arc: option extent must be a number of degrees (-360 to 360), not 400
 ValueError: tk::Canvas::tag: a tag is a name of letters, digits and _ (not starting with a digit), not "9x"
 ValueError: tk::Canvas::configureitem: item 4 (an image) has no option "fill" (its options are anchor and image)
-ValueError: tk::Canvas::configureitem: item 1 (an arc) has no option "text" (its options are fill, outline, width, start, extent and style)
-ValueError: tk::Canvas::configureitem: unknown option "text" (the options are fill, outline, width, start, extent and style)
-ValueError: tk::Canvas::configureitem: unknown option "bogus" (the options are color, width, arrow, smooth, fill, outline, start, extent, style, anchor, justify, font, text and image)
+ValueError: tk::Canvas::configureitem: item 1 (an arc) has no option "text" (its options are fill, outline, width, dash, start, extent and style)
+ValueError: tk::Canvas::configureitem: unknown option "text" (the options are fill, outline, width, dash, start, extent and style)
+ValueError: tk::Canvas::configureitem: unknown option "bogus" (the options are color, width, arrow, smooth, dash, fill, outline, start, extent, style, anchor, justify, font, text and image)
 ValueError: tk::Canvas::move: argument 2 must be a number from -1e6 to 1e6, not "x"
 ValueError: tk::Canvas::binditem: the canvas has no item 99
 ValueError: tk::Canvas::image: argument 3: the image is freed

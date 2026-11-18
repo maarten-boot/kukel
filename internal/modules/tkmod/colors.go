@@ -24,6 +24,10 @@ var palette = map[string]string{}
 // ttk styles do not reach them, so setcolors configures each.
 var classic = map[*widget]bool{}
 
+// menus are the menus made (menu bars, their menus, pop-up menus): Tk's
+// classic menus, configured each as the classic widgets.
+var menus = map[*menu]bool{}
+
 // frameStyles are the ttk styles made for the option background of a
 // frame, by colour.
 var frameStyles = map[string]string{}
@@ -128,6 +132,36 @@ func applyColors() {
 			continue
 		}
 		wd.w.Configure(classicColors(wd.class)...)
+	}
+	for mn := range menus {
+		if mn.win.closed {
+			delete(menus, mn)
+			continue
+		}
+		colorMenu(mn)
+	}
+}
+
+// colorMenu gives a new menu the palette, and keeps it for setcolors: the
+// background and the text, the entry under the mouse in the colour of an
+// active button, an entry that is off in the disabled colour, and the tick
+// of a check entry in the text's colour.
+func colorMenu(mn *menu) {
+	menus[mn] = true
+	var opts []tk.Opt
+	add := func(key string, opt func(any) tk.Opt) {
+		if c := palette[key]; c != "" {
+			opts = append(opts, opt(c))
+		}
+	}
+	add("background", tk.Background)
+	add("foreground", tk.Foreground)
+	add("active", tk.Activebackground)
+	add("foreground", tk.Activeforeground)
+	add("disabled", tk.Disabledforeground)
+	add("foreground", tk.Selectcolor)
+	if len(opts) > 0 {
+		mn.m.Configure(opts...)
 	}
 }
 

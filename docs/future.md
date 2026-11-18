@@ -807,6 +807,7 @@ Each step is usable on its own and prepares the next:
 | 17 | LMW-Synth GUI: Synth and Effects tabs, keeping in step, colours (13.5 to 13.7) | 15, 16; `/info` in the synth | done, with `tk::setcolors` (Q115) |
 | 18 | LMW-Synth GUI: the Matrix tab (13.5) | 17 | done, with `c->focus()` of a canvas (Q115) |
 | 19 | LMW-Synth GUI: Load, Save, Notes, choosing a synth (13.5) | 17 | done (Q115) |
+| 20 | LMW-Synth GUI: the Schematic tab (13.5) | 18 | done, with `dash` for canvas lines and menus in `tk::setcolors` (Q115) |
 
 Steps 4, 5, 7 and 8 are independent of each other once 1 and 3 exist. A
 `ffi` module (1.6) can come at any point after step 1.
@@ -1822,6 +1823,38 @@ it is connected to) and tabs, as the synth's own GUI has (its Spec S6):
 - **Schematic** (a later step, F-58): the synth's S6.7 drawing on a
   canvas, with the positions from `[schematic]` in `/patch`.
 
+*The Schematic tab (2026-11-18, as the user chose: drawn and cables
+edited; the blocks where the synth has them; dashes in `tk`; hover texts
+in the status line). The tabs are now the synth's: Synth, Effects,
+Matrix, Schematic, Notes. `examples/lmw/lmwschematic.kkl` (no `tk`, tested
+by `schematic.tests`) holds the synth's ui/Schematic.h: its 14 blocks on
+a canvas of 136 by 72 units, the ports on their edges, `[schematic]` read
+as the synth reads it (an unknown block, a bad position or a block that
+does not fit gives the default drawing), the connections (a cable of an
+input that has some, else its normalled source), the Bezier curves, the
+internal links (key tracking while a VCF's Key is above 0, velocity to
+the VCA always), the hover texts and the order of the port cursor.
+`lmwgui` draws it at 6.4 pixels a unit (878 by 469): the symbols in their
+unit's colour (triangles; ADSR, noise and keyboard pictures; OUT a circle
+with an arrow) with their names and port names, normalled connections
+dashed behind them, internal links dotted with an arrow, cables black
+with a white edge on top with their level below 100 %, a legend. Editing
+as the synth's (its S6.6 rules): a drag from a port to a port of the
+other kind puts a cable in; a drag from a plugged input takes its newest
+cable, to another input (keeping its level) or out; Escape cancels;
+Left and Right move a port cursor, Down and Up go to the next or previous
+block; Enter, F10 or a right click opens the port's menu (Connect from or
+to, ticked where there is a cable; taking cables out; only what can be
+done); Delete or BackSpace takes an input's cables out. Writes go as the
+matrix's (an input's whole pins, at most every 20 ms); a fifth cable is
+the synth's to refuse. Moving blocks waits for a `/schematic` file in the
+synth: writing `/patch` would rewrite everything else too. Found on the
+way: menus had Tk's grey (#d9d9d9) whatever the palette; `tk::setcolors`
+now colours them too (background, text, the entry under the mouse, a
+tick), so at Max a menu is black on white. Not drawn: the mouse pointer
+over a block or port (the synth's hand and crosshair), and the tooltip
+window (the text is in the status line).*
+
 Load and Save use the file dialogs: Load writes the file to `/patch`
 (the synth checks it and says what is wrong), Save writes what `/patch`
 gives. The status line shows the synth's errors and `busy`.
@@ -1997,6 +2030,15 @@ the user changes the contrast.*
   *And the keyboard, `TestLmwguiKeyboard`: a click low on C4 plays it
   loud, dragging up to D4 plays that softer, a and e held play C4 and
   D#4 once each, x and a play C5.*
+  *And the schematic, `TestLmwguiSchematic` (with `-v` the GUI prints
+  where it draws each port): dragging lfo1.out to vcf1.cutoff writes the
+  cable, dragging it on to vcf2.cutoff moves it, a fifth cable on vcf2.in
+  is refused, dragging a cable away takes it out; Enter on vca.mod, Down,
+  Right and Enter tick its first source, Delete takes it out; a cable put
+  in by another client shows; a patch that moves VCF 1 to the top moves
+  its ports, and a drag to them writes the cable. `schematic.tests`: the
+  ports at the default drawing, `[schematic]` read as the synth reads it,
+  the hover texts, connections and links, the port cursor.*
 - The contrast table for every preset. *Done (2026-11-18):
   `contrast.tests`.*
 - *`lmwgui` against the real synth (2026-11-18, by hand, the synth
@@ -2025,10 +2067,11 @@ the user changes the contrast.*
 Steps (in §8): 15. `tk::Notebook` (13.3); 16. the module `lmw` and the
 fake synth (13.4); 17. the Synth and Effects tabs, keeping in step,
 colours (13.5 to 13.7); 18. the Matrix tab; 19. Load, Save, Notes,
-choosing a synth. In the synth, before step 17: `/info`; later `/serial`,
-`/keys`, telemetry (`/info`, `/serial` and `/keys` are served since
-2026-11-18; telemetry is not yet). After them: the schematic, an
-on-screen keyboard, meters.
+choosing a synth; 20. the Schematic tab. In the synth, before step 17:
+`/info`; later `/serial`, `/keys`, telemetry (`/info`, `/serial` and
+`/keys` are served since 2026-11-18; telemetry is not yet). After them:
+an on-screen keyboard (built 2026-11-18), meters, and moving the
+schematic's blocks once the synth serves `/schematic` (the layout alone).
 
 ### 13.9 Open questions
 

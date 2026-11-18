@@ -1,0 +1,405 @@
+// lmwschematic.kkl: the Schematic tab of lmwgui (docs/future.md §13.5), as
+// the synth's own (its Spec S6.7, ui/Schematic.h): every module a block on
+// a canvas of 136 by 72 units, signal flowing left to right; inputs on a
+// block's left edge, outputs on its right edge (a triangle's output at its
+// tip). No tk here, so it is tested anywhere (lmwschematic.tests).
+//
+// The blocks are where the synth has them: its [schematic] section of
+// /patch moves some (block = "x, y"); lmwgui does not move them itself.
+//
+// A port is a string ("vcf1.cutoff"); cables map an input to its pins
+// ([[output, level], ...], as lmw::parsepins gives them); normalled maps
+// an input to its normalled source ("none" for none).
+
+const WIDTH = 136;    // the canvas, in units
+const HEIGHT = 72;
+const LEGEND = 4;     // the units at the bottom kept for the legend
+
+// The synth's blocks, in its order (also the order of the keyboard's port
+// cursor): name, shape (triangle, adsr, keys, noise, out), box [x, y, w, h]
+// at its default place, inputs and outputs from top to bottom.
+global BLOCKS = [
+    {"name": "LFO 1", "shape": "triangle", "box": [2, 6, 10, 9], "inputs": [], "outputs": ["lfo1.out"]},
+    {"name": "KEYS", "shape": "keys", "box": [2, 23, 12, 9], "inputs": [], "outputs": ["keys.pitch", "keys.gate", "keys.vel"]},
+    {"name": "VCO 1", "shape": "triangle", "box": [26, 4, 11, 10], "inputs": ["vco1.pitch", "vco1.fm"], "outputs": ["vco1.out"]},
+    {"name": "VCO 2", "shape": "triangle", "box": [26, 18, 11, 10], "inputs": ["vco2.pitch", "vco2.fm"], "outputs": ["vco2.out"]},
+    {"name": "VCO 3", "shape": "triangle", "box": [26, 32, 11, 10], "inputs": ["vco3.pitch", "vco3.fm"], "outputs": ["vco3.out"]},
+    {"name": "NOISE", "shape": "noise", "box": [26, 54, 11, 8], "inputs": [], "outputs": ["noise.out", "noise.rand"]},
+    {"name": "MIX", "shape": "triangle", "box": [48, 14, 12, 26], "inputs": ["mix.in1", "mix.in2", "mix.in3", "mix.in4"], "outputs": ["mix.out"]},
+    {"name": "VCF 1", "shape": "triangle", "box": [68, 20, 12, 14], "inputs": ["vcf1.in", "vcf1.cutoff", "vcf1.res"], "outputs": ["vcf1.out"]},
+    {"name": "VCF 2", "shape": "triangle", "box": [88, 20, 12, 14], "inputs": ["vcf2.in", "vcf2.cutoff", "vcf2.res"], "outputs": ["vcf2.out"]},
+    {"name": "VCA", "shape": "triangle", "box": [108, 20, 12, 14], "inputs": ["vca.in", "vca.cv", "vca.mod"], "outputs": ["vca.out"]},
+    {"name": "OUT", "shape": "out", "box": [126, 22, 8, 10], "inputs": ["out.in"], "outputs": []},
+    {"name": "ENV 1", "shape": "adsr", "box": [50, 58, 12, 8], "inputs": ["env1.gate"], "outputs": ["env1.out"]},
+    {"name": "ENV 2", "shape": "adsr", "box": [50, 45, 12, 8], "inputs": ["env2.gate"], "outputs": ["env2.out"]},
+    {"name": "LFO 2", "shape": "triangle", "box": [96, 50, 10, 9], "inputs": [], "outputs": ["lfo2.out"]},
+];
+
+// blockid(name): a block's id in [schematic]: its name in lower case
+// without spaces ("VCO 1" -> "vco1").
+blockid(name) {
+    return lower(replace(name, " ", ""));
+}
+
+// defaults(): the default layout: block id -> [x, y].
+defaults() {
+    local l = {};
+
+    for (local b in BLOCKS) {
+        l[blockid(b["name"])] = [b["box"][0], b["box"][1]];
+    }
+    return l;
+}
+
+// layout(section): the layout of a [schematic] section (block id -> "x,
+// y"): the blocks it names moved there, the others where they are by
+// default. As the synth: an unknown block, a position that is not two
+// whole numbers from 0 to 1000, or a block that does not fit (outside the
+// canvas, over the legend or over another block) gives the default layout.
+layout(section) {
+    local l = defaults();
+
+    if (section == nil) {
+        return l;
+    }
+
+    for (local id, at in section) {
+        local parts = split(str(at), ","), xy = [];
+
+        if (!haskey(l, id) || len(parts) != 2) {
+            return defaults();
+        }
+
+        for (local p in parts) {
+            local n = -1;
+
+            try {
+                n = int(trim(p));
+            } catch (e) {
+            }
+
+            if (n < 0 || n > 1000) {
+                return defaults();
+            }
+            push(xy, n);
+        }
+        l[id] = xy;
+    }
+
+    for (local i = 0; i < len(BLOCKS); i++) {
+        if (!fits(l, i)) {
+            return defaults();
+        }
+    }
+    return l;
+}
+
+// box(l, i): block i's box [x, y, w, h] in layout l.
+box(l, i) {
+    local b = BLOCKS[i], at = l[blockid(b["name"])];
+    return [at[0], at[1], b["box"][2], b["box"][3]];
+}
+
+// fits(l, i): whether block i is within the canvas, above the legend and
+// over no other block in layout l (touching is allowed).
+fits(l, i) {
+    local r = box(l, i);
+
+    if (r[0] < 0 || r[0] + r[2] > WIDTH || r[1] < 0 || r[1] + r[3] > HEIGHT - LEGEND) {
+        return false;
+    }
+
+    for (local j = 0; j < len(BLOCKS); j++) {
+        local o = box(l, j);
+
+        if (j != i && r[0] < o[0] + o[2] && o[0] < r[0] + r[2] && r[1] < o[1] + o[3] && o[1] < r[1] + r[3]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// moved(l): how many blocks are away from their default place.
+moved(l) {
+    local d = defaults(), n = 0;
+
+    for (local id, at in l) {
+        if (at[0] != d[id][0] || at[1] != d[id][1]) {
+            n++;
+        }
+    }
+    return n;
+}
+
+_slot(r, k, n) {
+    return r[1] + r[3] * (k + 1) / float(n + 1);
+}
+
+// blockof(port): the index of the block that has a port, or -1.
+blockof(port) {
+    for (local i = 0; i < len(BLOCKS); i++) {
+        if (_has(BLOCKS[i]["inputs"], port) || _has(BLOCKS[i]["outputs"], port)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+_has(v, x) {
+    for (local y in v) {
+        if (y == x) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// isinput(port): whether a port is an input.
+isinput(port) {
+    local i = blockof(port);
+    return i >= 0 && _has(BLOCKS[i]["inputs"], port);
+}
+
+// point(l, port): where a port is on the canvas, [x, y] in units.
+point(l, port) {
+    local i = blockof(port), b = BLOCKS[i], r = box(l, i);
+
+    for (local k = 0; k < len(b["inputs"]); k++) {
+        if (b["inputs"][k] == port) {
+            return [float(r[0]), _slot(r, k, len(b["inputs"]))];
+        }
+    }
+
+    if (b["shape"] == "triangle") {
+        return [float(r[0] + r[2]), r[1] + r[3] / 2.0];   // the tip
+    }
+
+    for (local k = 0; k < len(b["outputs"]); k++) {
+        if (b["outputs"][k] == port) {
+            return [float(r[0] + r[2]), _slot(r, k, len(b["outputs"]))];
+        }
+    }
+}
+
+// portat(l, x, y, radius, want): the port within radius of a point (want:
+// "input", "output" or "" for either), or nil.
+portat(l, x, y, radius, want = "") {
+    for (local b in BLOCKS) {
+        for (local kind in ["inputs", "outputs"]) {
+            if (want != "" && want + "s" != kind) {
+                continue;
+            }
+
+            for (local p in b[kind]) {
+                local q = point(l, p), dx = q[0] - x, dy = q[1] - y;
+
+                if (sqrt(dx * dx + dy * dy) <= radius) {
+                    return p;
+                }
+            }
+        }
+    }
+    return nil;
+}
+
+// blockat(l, x, y): the index of the block at a point, or -1.
+blockat(l, x, y) {
+    for (local i = 0; i < len(BLOCKS); i++) {
+        local r = box(l, i);
+
+        if (x >= r[0] && x <= r[0] + r[2] && y >= r[1] && y <= r[1] + r[3]) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// label(port): the short name shown next to a port ("vcf1.cutoff" ->
+// "cutoff").
+label(port) {
+    return slice(port, find(port, ".") + 1);
+}
+
+// connections(cables, normalled): every connection: the cables of an input
+// that has some, else its normalled source; maps with from, to, level and
+// normalled (drawn dashed).
+connections(cables, normalled) {
+    local out = [];
+
+    for (local b in BLOCKS) {
+        for (local input in b["inputs"]) {
+            local pins = cables[input] == nil ? [] : cables[input];
+
+            if (len(pins) > 0) {
+                for (local p in pins) {
+                    push(out, {"from": p[0], "to": input, "level": p[1], "normalled": false});
+                }
+            } else if (normalled[input] != nil && normalled[input] != "none") {
+                push(out, {"from": normalled[input], "to": input, "level": 1.0, "normalled": true});
+            }
+        }
+    }
+    return out;
+}
+
+// curve(a, b): the four points of a connection's cubic Bezier curve,
+// leaving an output to the right and entering an input from the left.
+curve(a, b) {
+    local d = max(6.0, abs(b[0] - a[0]) * 0.45);
+    return [a, [a[0] + d, a[1]], [b[0] - d, b[1]], b];
+}
+
+// at(c, t): the point at t (0 to 1) on curve c.
+at(c, t) {
+    local u = 1 - t, w = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t], x = 0.0, y = 0.0;
+
+    for (local i = 0; i < 4; i++) {
+        x += w[i] * c[i][0];
+        y += w[i] * c[i][1];
+    }
+    return [x, y];
+}
+
+// points(c, n, scale, dx, dy): curve c as n straight pieces, for a canvas
+// line: [x1, y1, x2, y2, ...] in pixels.
+points(c, n, scale, dx = 0, dy = 0) {
+    local out = [];
+
+    for (local i = 0; i <= n; i++) {
+        local p = at(c, i / float(n));
+        push(out, dx + p[0] * scale, dy + p[1] * scale);
+    }
+    return out;
+}
+
+// percent(level): "50 %".
+percent(level) {
+    return str(round(level * 100)) + " %";
+}
+
+// links(key1, key2): the internal links, set by a fader rather than a
+// cable: key tracking keys.pitch -> VCF N while its Key fader is above 0,
+// and velocity keys.vel -> VCA always. Maps with from, block and label.
+links(key1, key2) {
+    local out = [];
+
+    if (key1 > 0) {
+        push(out, {"from": "keys.pitch", "block": "VCF 1", "label": "key " + percent(key1)});
+    }
+
+    if (key2 > 0) {
+        push(out, {"from": "keys.pitch", "block": "VCF 2", "label": "key " + percent(key2)});
+    }
+    push(out, {"from": "keys.vel", "block": "VCA", "label": "velocity"});
+    return out;
+}
+
+// findblock(name): the index of the block named so, or -1.
+findblock(name) {
+    for (local i = 0; i < len(BLOCKS); i++) {
+        if (BLOCKS[i]["name"] == name) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// target(l, i): where an internal link enters block i: from below, at a
+// third of its width (on a triangle's lower edge there).
+target(l, i) {
+    local r = box(l, i), x = r[0] + r[2] * 0.3;
+
+    if (BLOCKS[i]["shape"] == "triangle") {
+        return [x, r[1] + r[3] - r[3] * 0.5 * 0.3];
+    }
+    return [x, float(r[1] + r[3])];
+}
+
+// linkcurve(a, t): an internal link's curve: leaves the output to the
+// right, enters the block from below.
+linkcurve(a, t) {
+    local d = max(6.0, abs(t[0] - a[0]) * 0.4);
+    return [a, [a[0] + d, a[1]], [t[0], t[1] + max(8.0, abs(t[1] - a[1]) * 0.6)], t];
+}
+
+// describeinput(input, cables, normalled): what feeds an input, source on
+// the left ("lfo1.out (50 %) + env2.out → vcf1.cutoff (cables, summed)").
+describeinput(input, cables, normalled) {
+    local pins = cables[input] == nil ? [] : cables[input];
+
+    if (len(pins) == 0) {
+        local n = normalled[input];
+
+        if (n == nil || n == "none") {
+            return input + ": not connected";
+        }
+        return n + " → " + input + " (normalled)";
+    }
+    local parts = [];
+
+    for (local p in pins) {
+        push(parts, p[0] + (p[1] < 1 ? " (" + percent(p[1]) + ")" : ""));
+    }
+    return join(parts, " + ") + " → " + input + (len(pins) > 1 ? " (cables, summed)" : " (cable)");
+}
+
+// describeoutput(output, cables, normalled): what an output feeds.
+describeoutput(output, cables, normalled) {
+    local fed = [];
+
+    for (local c in connections(cables, normalled)) {
+        if (c["from"] == output) {
+            push(fed, c["to"] + (c["normalled"] ? " (normalled)" : c["level"] < 1 ? " (" + percent(c["level"]) + ")" : ""));
+        }
+    }
+    return output + " → " + (len(fed) == 0 ? "nothing" : join(fed, ", "));
+}
+
+// blocknote(name, key1, key2): a block's internal links, for its hover
+// text ("" for none).
+blocknote(name, key1, key2) {
+    if (find(name, "VCO") == 0) {
+        return "mod wheel → FM depth (internal: FM fader + wheel × 1 st)";
+    }
+
+    if (name == "VCA") {
+        return "keys.vel → gain (internal, always: the VCA multiplies by velocity)";
+    }
+
+    if (name == "VCF 1" || name == "VCF 2") {
+        local k = name == "VCF 1" ? key1 : key2;
+        return k > 0 ? "keys.pitch → cutoff (internal: Key " + percent(k) + ")" : "key tracking off (Key 0 %)";
+    }
+    return "";
+}
+
+// order(): the ports in the order of the keyboard's cursor: block by
+// block, inputs before outputs.
+order() {
+    local out = [];
+
+    for (local b in BLOCKS) {
+        for (local p in b["inputs"]) {
+            push(out, p);
+        }
+
+        for (local p in b["outputs"]) {
+            push(out, p);
+        }
+    }
+    return out;
+}
+
+// jump(cursor, dir): from port number cursor (in order()) to the first port
+// of the next (dir > 0) or previous block, around the end.
+jump(cursor, dir) {
+    local ports = order(), n = len(BLOCKS);
+    local here = blockof(ports[cursor]), want = dir > 0 ? (here + 1) % n : (here + n - 1) % n;
+
+    for (local k = 0; k < len(ports); k++) {
+        if (blockof(ports[k]) == want) {
+            return k;
+        }
+    }
+    return cursor;
+}

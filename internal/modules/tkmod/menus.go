@@ -98,6 +98,7 @@ func newMenu(env value.Env, this *value.ObjectObj, args []value.Value) (value.Va
 	mn := newMenuState(win, "")
 	mn.popup = popup
 	mn.m = win.w.Menu(tk.Tearoff(false))
+	colorMenu(mn)
 	if !popup {
 		win.w.Configure(tk.Mnu(mn.m))
 		win.menubar = true
@@ -205,6 +206,7 @@ func registerMenus() {
 			}
 			sub := newMenuState(mn.win, label)
 			sub.m = mn.m.Menu(tk.Tearoff(false))
+			colorMenu(sub)
 			mn.m.AddCascade(tk.Lbl(label), tk.Mnu(sub.m))
 			return Menu.Object(sub), nil
 		}),

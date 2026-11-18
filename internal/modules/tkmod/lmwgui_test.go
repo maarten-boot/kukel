@@ -489,3 +489,131 @@ func TestLmwguiKeyboard(t *testing.T) {
 	gui.expect(t, `^play on 72 100$`)
 	gui.expect(t, `^play off 72$`)
 }
+
+// TestLmwguiSchematic uses the Schematic tab against a fake synth in
+// another process: dragging from a port to a port puts a cable in,
+// dragging a plugged input's cable moves it or takes it out, a fifth cable
+// is refused, the port menu (Enter) and Delete work, a change made by
+// another client shows, and blocks moved in the synth's [schematic] are
+// where the GUI finds the ports.
+func TestLmwguiSchematic(t *testing.T) {
+	display(t)
+	if _, err := exec.LookPath("xdotool"); err != nil || os.Getenv("KUKEL_TK_NOCLICK") != "" {
+		t.Skip("no xdotool")
+	}
+	dir, err := filepath.Abs("../../../examples/lmw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctl := filepath.Join(dir, "lmwctl.kkl")
+	fake := startKukel(t, ctl, "-fake", "serve", "60")
+	addr := fake.expect(t, `^serving (\S+)$`)[1]
+	run := func(args ...string) []string {
+		t.Helper()
+		p := startKukel(t, ctl, append([]string{"-a", addr}, args...)...)
+		var out []string
+		for line := range p.lines {
+			out = append(out, line)
+		}
+		if err := <-p.done; err != nil {
+			t.Fatalf("lmwctl %v: %v\n%s", args, err, strings.Join(out, "\n"))
+		}
+		return out
+	}
+	run("cable", "vcf2.in", "vco1.out+vco2.out+vco3.out+noise.out")
+	gui := startKukel(t, filepath.Join(dir, "lmwgui.kkl"), "-a", addr, "-v", "-tab", "Schematic",
+		"-config", filepath.Join(t.TempDir(), "lmw-gui.toml"))
+	gui.expect(t, `^shown all 51$`)
+	// The ports where the GUI draws them, in the canvas.
+	ports := func() map[string][2]int {
+		gui.expect(t, `^schematic moved \d+$`)
+		got := map[string][2]int{}
+		for len(got) < 38 {
+			m := gui.expect(t, `^port (\S+) (\d+) (\d+)$`)
+			x, _ := strconv.Atoi(m[2])
+			y, _ := strconv.Atoi(m[3])
+			got[m[1]] = [2]int{x, y}
+		}
+		return got
+	}
+	at := ports()
+	canvas := gui.places(t, "schematic")["schematic"]
+	time.Sleep(300 * time.Millisecond)
+	wx, wy := lmwWindow(t)
+	screen := func(x, y int) (string, string) { return fmt.Sprint(wx + canvas[0] + x), fmt.Sprint(wy + canvas[1] + y) }
+	// drag goes from port a to port b (or to a point of the canvas) with
+	// the button down.
+	drag := func(a string, b [2]int) {
+		x0, y0 := at[a][0], at[a][1]
+		x, y := screen(x0, y0)
+		xdo(t, "mousemove", x, y, "mousedown", "1")
+		for i := 1; i <= 8; i++ {
+			x, y = screen(x0+(b[0]-x0)*i/8, y0+(b[1]-y0)*i/8)
+			xdo(t, "mousemove", x, y)
+			time.Sleep(20 * time.Millisecond)
+		}
+		xdo(t, "mouseup", "1")
+	}
+
+	drag("lfo1.out", at["vcf1.cutoff"])
+	gui.expect(t, `^write cables vcf1\.cutoff lfo1\.out$`)
+	drag("vcf1.cutoff", at["vcf2.cutoff"]) // the cable moves
+	gui.expect(t, `^write cables vcf1\.cutoff ?$`)
+	gui.expect(t, `^write cables vcf2\.cutoff lfo1\.out$`)
+	drag("vcf2.out", at["vcf2.in"]) // a fifth
+	gui.expect(t, `^refused cable:vcf2\.in vcf2\.in: .*more than 4`)
+	drag("vcf2.cutoff", [2]int{at["vcf2.cutoff"][0] + 30, at["vcf2.cutoff"][1] + 150}) // taken out
+	gui.expect(t, `^write cables vcf2\.cutoff ?$`)
+
+	// The keys: a click puts the port cursor on vca.mod; Enter opens its
+	// menu, whose first source is keys.pitch; Delete takes it out again.
+	x, y := screen(at["vca.mod"][0], at["vca.mod"][1])
+	xdo(t, "mousemove", x, y, "click", "1")
+	time.Sleep(200 * time.Millisecond)
+	xdo(t, "key", "Return")
+	time.Sleep(500 * time.Millisecond)
+	xdo(t, "key", "Down")
+	time.Sleep(200 * time.Millisecond)
+	xdo(t, "key", "Right")
+	time.Sleep(400 * time.Millisecond)
+	xdo(t, "key", "Return")
+	gui.expect(t, `^write cables vca\.mod keys\.pitch$`)
+	time.Sleep(300 * time.Millisecond)
+	xdo(t, "key", "Delete")
+	gui.expect(t, `^write cables vca\.mod ?$`)
+
+	run("cable", "vca.cv", "lfo2.out@0.5")
+	gui.expect(t, `^show cables vca\.cv lfo2\.out@0\.5$`)
+
+	// Blocks moved in the synth: VCF 1 to the top; a cable to its cutoff
+	// is drawn there.
+	patch := strings.Join(run("patch"), "\n") + "\n"
+	patch = strings.Replace(patch, "[notes]", "[schematic]\nvcf1 = 68, 2\nlfo2 = 80, 50\n\n[notes]", 1)
+	file := filepath.Join(t.TempDir(), "moved.lmwpatch")
+	if err := os.WriteFile(file, []byte(patch), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("load", file)
+	at = ports()
+	if at["vcf1.cutoff"][1] > 100 {
+		t.Errorf("vcf1.cutoff is drawn at %v, not at the top", at["vcf1.cutoff"])
+	}
+	drag("lfo2.out", at["vcf1.cutoff"])
+	gui.expect(t, `^write cables vcf1\.cutoff lfo2\.out$`)
+
+	want := map[string]bool{
+		"vcf1.cutoff = lfo2.out":                         true,
+		"vcf2.in = vco1.out+vco2.out+vco3.out+noise.out": true,
+		"vca.cv = lfo2.out@0.5":                          true,
+	}
+	time.Sleep(300 * time.Millisecond)
+	for _, line := range run("cables") {
+		if !want[line] {
+			t.Errorf("the synth has %q", line)
+		}
+		delete(want, line)
+	}
+	for line := range want {
+		t.Errorf("the synth lacks %q", line)
+	}
+}

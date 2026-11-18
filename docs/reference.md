@@ -2709,19 +2709,18 @@ keeps what it was):
 
 | Part | What it colours |
 |---|---|
-| `background` | windows, frames, labels, buttons, check and radio buttons, tabs, the parts of sliders and scrollbars |
-| `foreground` | text, the cursor of an entry or text, the arrows of drop-down lists |
+| `background` | windows, frames, labels, buttons, check and radio buttons, tabs, menus, the parts of sliders and scrollbars |
+| `foreground` | text, the cursor of an entry or text, the arrows of drop-down lists, the tick of a check entry in a menu |
 | `field` | where text is typed or listed: entries, drop-down lists, texts, list boxes |
 | `select`, `selectforeground` | selected text and lines, and their text |
 | `trough` | the groove of a slider or scrollbar |
 | `border` | outlines, and the focus ring |
-| `active` | a button (also a check box, tab, ...) under the mouse or pressed, and the tabs not shown |
+| `active` | a button (also a check box, tab, menu entry, ...) under the mouse or pressed, and the tabs not shown |
 | `disabled` | the text of a widget that is off (`state` `"disabled"`) |
 
 A program that wants all its pairs at a contrast ratio of its choosing
 (black on white, as WCAG asks) sets them all; `examples/lmw/lmwtheme.kkl`
-works them out for a minimum ratio. A canvas has its own `background`, and
-menus keep the system's colours.
+works them out for a minimum ratio. A canvas has its own `background`.
 
 **Layout.** A widget appears once its parent places it with `pack` or
 `grid`; each window or frame uses one of the two for its widgets (mixing
@@ -3048,8 +3047,8 @@ coordinates are numbers (pixels, from -1e6 to 1e6), points are vectors
 | Constructor or member function | Description |
 |---|---|
 | `new tk::Canvas(parent [, options])` | Options: `width`, `height`, `background` (a colour), and in the constructor `scroll` (the scrollbars reach everything drawn) |
-| `c->line(points [, options])` | A line through at least 2 points. Options: `color`, `width` (pixels, 0 to 1000), `arrow` (`"none"`, `"first"`, `"last"`, `"both"`), `smooth` (`true`: a curve) |
-| `c->rect(x1, y1, x2, y2 [, options])`, `c->oval(x1, y1, x2, y2 [, options])` | A rectangle, or the oval in it. Options: `fill`, `outline` (colours; `""`: none), `width` (of the outline: pixels, 0 to 1000) |
+| `c->line(points [, options])` | A line through at least 2 points. Options: `color`, `width` (pixels, 0 to 1000), `arrow` (`"none"`, `"first"`, `"last"`, `"both"`), `smooth` (`true`: a curve), `dash` (a vector of up to 16 lengths in pixels, 1 to 255, drawn and left out in turn: `[6, 4]` dashes, `[2]` dots; `[]` solid, the default) |
+| `c->rect(x1, y1, x2, y2 [, options])`, `c->oval(x1, y1, x2, y2 [, options])` | A rectangle, or the oval in it. Options: `fill`, `outline` (colours; `""`: none), `width` (of the outline: pixels, 0 to 1000), `dash` (of the outline, as for `line`) |
 | `c->arc(x1, y1, x2, y2 [, options])` | A part of the oval in that rectangle. Options as for `rect`, and `start` (degrees from -360 to 360, counterclockwise from 3 o'clock; 0 when left out), `extent` (degrees from -360 to 360; 90 when left out, negative: clockwise), `style` (`"pieslice"`, the default, `"chord"`, `"arc"`: the curve only) |
 | `c->polygon(points [, options])` | A polygon of at least 3 points; options as for `rect` |
 | `c->text(x, y, s [, options])` | A text at `x, y`. Options: `color`, `font`, `anchor` (which point of the text is at `x, y`: `"center"`, the default, `"nw"`, ...), `justify`, `width` (pixels before a line wraps) |

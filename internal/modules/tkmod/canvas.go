@@ -332,6 +332,23 @@ func degrees(v value.Value) (any, string) {
 	return x, ""
 }
 
+// dash is a dash pattern: a vector of up to 16 lengths in pixels (1 to
+// 255), drawn and left out in turn, such as [6, 4]; [] is a solid line.
+func dash(v value.Value) (any, string) {
+	const want = " must be a vector of up to 16 lengths in pixels (1 to 255), drawn and left out in turn, such as [6, 4] ([] is solid), not "
+	if v.Kind() != value.Vector || len(v.AsVector().Elems) > 16 {
+		return nil, want + v.Repr()
+	}
+	pattern := []int{}
+	for _, e := range v.AsVector().Elems {
+		if e.Kind() != value.Int || e.AsInt() < 1 || e.AsInt() > 255 {
+			return nil, want + v.Repr()
+		}
+		pattern = append(pattern, int(e.AsInt()))
+	}
+	return pattern, ""
+}
+
 var tagRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 var colorRE = regexp.MustCompile(`^(?:#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{12})|[A-Za-z][A-Za-z0-9 ]*)$`)
@@ -356,13 +373,15 @@ var (
 	optLineWidth      = option{"width", intFrom(0, 1000, "a number of pixels"), func(x any) tk.Opt { return tk.Width(x) }}
 	optFill           = option{"fill", color(true), func(x any) tk.Opt { return tk.Fill(x) }}
 	optOutline        = option{"outline", color(true), func(x any) tk.Opt { return tk.Outline(x) }}
-	shapeOptions      = []option{optFill, optOutline, optLineWidth}
+	optDash           = option{"dash", dash, func(x any) tk.Opt { return tk.Dash(x.([]int)...) }}
+	shapeOptions      = []option{optFill, optOutline, optLineWidth, optDash}
 	canvasItemOptions = map[string][]option{
 		"line": {
 			{"color", color(false), func(x any) tk.Opt { return tk.Fill(x) }},
 			optLineWidth,
 			{"arrow", oneOf("none", "first", "last", "both"), func(x any) tk.Opt { return tk.Linearrow(x) }},
 			{"smooth", boolean, func(x any) tk.Opt { return tk.Smooth(x) }},
+			optDash,
 		},
 		"rect": shapeOptions,
 		"oval": shapeOptions,

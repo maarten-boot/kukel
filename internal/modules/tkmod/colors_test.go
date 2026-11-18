@@ -31,7 +31,11 @@ main() {
     local b = new tk::Listbox(w, ["a"], {"height": 2});
     t->pack();
     b->pack();
+    // Menus take the palette, made before it changes or after.
+    local bar = new tk::Menu(w);
+    bar->submenu("File")->check("Big", nil);
     tk::setcolors({"active": "#e8e8e8", "disabled": "#595959", "trough": "#767676", "border": "#767676"});
+    new tk::Menu(w, {"popup": true})->item("Copy", fn() {});
     tk::settheme(tk::theme());   // the palette stays
     println(len(tk::colors()));
     local tests = [
@@ -71,8 +75,8 @@ ArgumentError: tk::colors expects 0 arguments, got 1
 `
 
 // TestColors runs its program in a process of its own: the palette of
-// tk::setcolors and tk::colors, and the colour options of frames and
-// labels.
+// tk::setcolors and tk::colors (also on menus), and the colour options of
+// frames and labels.
 func TestColors(t *testing.T) {
 	display(t)
 	file := filepath.Join(t.TempDir(), "colors.kkl")

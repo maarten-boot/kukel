@@ -7,7 +7,8 @@
 // socket that answers. -fake: a fake synth in this program (fakesynth.kkl).
 // -config file: the settings file instead of lmw-gui.toml in the user's
 // configuration directory. -tab name: the tab shown first (Synth, Effects,
-// Matrix or Notes). -v: prints what it shows and writes, for the tests.
+// Matrix, Schematic or Notes). -v: prints what it shows and writes, for the
+// tests.
 //
 // The Synth tab has the synth's module panels, the Effects tab the reverb.
 // A fader writes its parameter at most every 20 ms while it moves; every
@@ -17,7 +18,13 @@
 // The Matrix tab has a row per input and a column per output: a click
 // puts a cable in or takes it out, dragging up or down sets its level, a
 // double click asks for it; the arrow keys move a cell cursor, Space
-// toggles, + and - change by 10 %, Delete removes. The Notes tab is the
+// toggles, + and - change by 10 %, Delete removes. The Schematic tab
+// draws the synth as its own Schematic tab does (the blocks where the synth
+// has them): dragging from a port to a port of the other kind puts a cable
+// in, dragging a plugged input's newest cable moves it to another input or
+// takes it out; the arrow keys move a port cursor, Enter or a right click
+// opens a menu of the port's cables, Delete takes an input's cables out,
+// Escape cancels a drag. The Notes tab is the
 // patch's notes, written a second after typing stops and when the text
 // loses the keyboard.
 //
@@ -36,6 +43,7 @@ use tk;
 use events;
 use lmw;
 use lmwtheme;
+use lmwschematic;
 use fakesynth;
 use toml;
 use fs;
@@ -97,6 +105,8 @@ global cursor = [0, 0], focused = false, drag = nil;
 global notesbox = nil, notestext = "", notesdirty = false, notestimer = nil;
 global synthlist, lister = nil, patchtitle = "", synths = {};   // label -> address
 global loadbutton, savebutton, connected = true;
+global schem = nil, slayout = nil, keyamount = {"vcf1.key": 0.0, "vcf2.key": 0.0};
+global scursor = 0, sfocused = false, sdrag = nil, sdrawing = false;
 global piano = nil, down = {}, mousekey = nil, typed = {}, releases = {}, shift = 0, pianofocus = false;
 
 // The keyboard: notes 21 (A0) to 108 (C8), key sizes in pixels, and the
@@ -115,6 +125,10 @@ const LABELW = 150;
 const HEADH = 36;
 const CELLW = 46;
 const CELLH = 22;
+
+// The schematic's canvas: pixels per unit, and the margin around it.
+const SCALE = 6.4;
+const MARGIN = 4;
 
 // The panels are compact, so that the window fits a 1024 by 768 screen:
 // the controls' texts in a smaller font, short faders.
@@ -137,7 +151,7 @@ main(args) {
         } else if (args[i] == "-v") {
             verbose = true;
         } else {
-            eprintln("usage: lmwgui [-a address | -fake] [-config file] [-tab Synth|Effects|Matrix|Notes] [-v]");
+            eprintln("usage: lmwgui [-a address | -fake] [-config file] [-tab Synth|Effects|Matrix|Schematic|Notes] [-v]");
             return 2;
         }
     }
@@ -313,16 +327,18 @@ build(first) {
     tabs->pack({"fill": "both", "expand": true});
     local page = new tk::Frame(tabs, {"padding": 4}), effects = new tk::Frame(tabs, {"padding": 4});
     local cablepage = new tk::Frame(tabs, {"padding": 4}), notespage = new tk::Frame(tabs, {"padding": 4});
-    tabs->add(page, "Synth")->add(effects, "Effects")->add(cablepage, "Matrix")->add(notespage, "Notes");
+    local schempage = new tk::Frame(tabs, {"padding": 4});
+    tabs->add(page, "Synth")->add(effects, "Effects")->add(cablepage, "Matrix")->add(schempage, "Schematic")->add(notespage, "Notes");
     local top = [cell(tabs)];
     rows(page, SYNTH, extend(top, cell(page)));
     rows(effects, EFFECTS, extend(top, cell(effects)));
     makematrix(cablepage, extend(top, cell(cablepage)));
+    makeschematic(schempage, extend(top, cell(schempage)));
     makenotes(notespage, extend(top, cell(notespage)));
     makepiano(window);
     status = new tk::Label(window, "", {"anchor": "w", "padding": [6, 2]});
     status->pack({"fill": "x"});
-    local names = ["Synth", "Effects", "Matrix", "Notes"], found = false;
+    local names = ["Synth", "Effects", "Matrix", "Schematic", "Notes"], found = false;
 
     for (local i = 0; i < len(names); i++) {
         if (lower(first) == lower(names[i])) {
@@ -332,7 +348,7 @@ build(first) {
     }
 
     if (!found) {
-        throw new Error("there is no tab " + first + " (Synth, Effects, Matrix or Notes)");
+        throw new Error("there is no tab " + first + " (Synth, Effects, Matrix, Schematic or Notes)");
     }
 
     // The keys of the window; on the notes too, where Tk's text would
@@ -348,14 +364,17 @@ build(first) {
         window->bind("<Control-Key-" + k + ">", shortcut);
         notesbox->bind("<Control-Key-" + k + ">", shortcut);
     }
-    tabs->onchange(fn(i) {
-        if (i == 2) {
-            matrix->focus();
-        }
-    });
+    tabs->onchange(tabfocus);
+    tabfocus(tabs->selected());
+}
 
-    if (tabs->selected() == 2) {
+// tabfocus(i): the matrix and the schematic take the keyboard when their
+// tab opens (as the synth's).
+tabfocus(i) {
+    if (i == 2) {
         matrix->focus();
+    } else if (i == 3) {
+        schem->focus();
     }
 }
 
@@ -586,8 +605,10 @@ show(id, v) {
     if (_cable(id) != nil) {
         cables[_cable(id)] = v;
         drawrow(_index(inputs, _cable(id)));
+        redrawschematic();
         return;
     }
+    keyfader(id, v);
     local c = controls[id];
 
     if (c == nil || v == nil) {
@@ -612,6 +633,7 @@ busy(id) {
 moved(id, pos) {
     local c = controls[id], v = valueat(c["p"], pos);
     c["entry"]->settext(text(c["p"], v));
+    keyfader(id, v);
     touched[id] = clock() + SETTLE;
     pending[id] = v;
 
@@ -640,6 +662,7 @@ flush() {
 
 // setnow(id, v): writes a value at once (typed, reset, chosen).
 setnow(id, v) {
+    keyfader(id, v);
     touched[id] = clock() + SETTLE;
     pending = _without(pending, id);
     write(id, v);
@@ -765,6 +788,10 @@ poll() {
     if (haskey(ch, "notes")) {
         shownotes(first);
     }
+
+    if (haskey(ch, "schematic") || slayout == nil) {
+        showlayout(ch["schematic"]);
+    }
 }
 
 // failed(e): a refusal of the synth goes to the status line; a lost
@@ -802,7 +829,9 @@ enable(on) {
     loadbutton->configure(state);
     savebutton->configure(state);
     reconnect->configure({"state": on ? "disabled" : "normal"});
+    sdrag = nil;
     drawmatrix();
+    drawschematic();
     drawpiano();
 }
 
@@ -846,6 +875,7 @@ switchto(a) {
     latest = {};
     pending = {};
     cables = {};
+    slayout = nil;
     notestext = "";
     notesdirty = false;
     patchtitle = "";
@@ -1196,8 +1226,18 @@ setpin(c, l) {
     if (!found && l > 0) {
         push(pins, [output, l]);   // a fifth is the synth's to refuse
     }
+    setcable(input, pins);
+}
+
+// setcable(input, pins): an input's cables, shown at once and written (at
+// most every THROTTLE, as a fader).
+setcable(input, pins) {
+    if (synth->closed()) {
+        return;
+    }
     cables[input] = pins;
-    drawrow(c[0]);
+    drawrow(_index(inputs, input));
+    redrawschematic();
     local key = "cable:" + input;
     touched[key] = clock() + SETTLE;
     pending[key] = pins;
@@ -1378,6 +1418,523 @@ drawcursor() {
     if (focused) {
         local b = _box(cursor[0], cursor[1]);
         matrix->tag(matrix->rect(b[0] + 1, b[1] + 1, b[2] - 1, b[3] - 1, {"outline": ink(), "width": 3}), "cursor");
+    }
+}
+
+// The schematic (docs/future.md §13.5; the synth's S6.7)
+
+// makeschematic(page, chain): the canvas of the Schematic tab.
+makeschematic(page, chain) {
+    schem = new tk::Canvas(
+        page,
+        {
+            "width": round(lmwschematic::WIDTH * SCALE) + 2 * MARGIN, "height": round(lmwschematic::HEIGHT * SCALE) + 2 * MARGIN,
+            "background": lmwtheme::WHITE,
+        },
+    );
+    schem->pack();
+
+    if (verbose) {
+        push(geometry, ["schematic", extend(chain, cell(schem))]);
+    }
+    schem->bind("<Button-1>", fn(e) {
+        schem->focus();
+        local p = sportat(e["x"], e["y"], "");
+        sdrag = nil;
+
+        if (p == nil || synth->closed()) {
+            return;
+        }
+        scursor = _index(lmwschematic::order(), p);
+        local pins = _pinsof(cables, p);
+
+        if (lmwschematic::isinput(p) && len(pins) > 0) {   // its newest cable
+            local last = pins[len(pins) - 1];
+            sdrag = {"from": p, "grab": true, "output": last[0], "level": last[1], "x": e["x"], "y": e["y"], "moved": false};
+        } else {
+            sdrag = {"from": p, "grab": false, "x": e["x"], "y": e["y"], "moved": false};
+        }
+        drawschematic();
+    });
+    schem->bind("<B1-Motion>", fn(e) {
+        if (sdrag == nil) {
+            return;
+        }
+
+        if (!sdrag["moved"] && abs(e["x"] - sdrag["x"]) + abs(e["y"] - sdrag["y"]) < 4) {
+            return;
+        }
+        sdrag["moved"] = true;
+        sdrag["x"] = e["x"];
+        sdrag["y"] = e["y"];
+        sdrag["target"] = droptarget(sdrag, e["x"], e["y"]);
+        drawdrag();
+    });
+    schem->bind("<ButtonRelease-1>", fn(e) {
+        if (sdrag == nil) {
+            return;
+        }
+        local d = sdrag;
+        sdrag = nil;
+
+        if (d["moved"]) {
+            drop(d, droptarget(d, e["x"], e["y"]));
+        }
+        drawschematic();
+    });
+    schem->bind("<Button-3>", fn(e) {
+        local p = sportat(e["x"], e["y"], "");
+
+        if (p != nil && !synth->closed()) {
+            scursor = _index(lmwschematic::order(), p);
+            drawschematic();
+            cablemenu(p, e["xroot"], e["yroot"]);
+        }
+    });
+    schem->bind("<Motion>", fn(e) {
+        local p = sportat(e["x"], e["y"], "");
+
+        if (p != nil) {
+            say(describeport(p));
+            return;
+        }
+        local b = lmwschematic::blockat(slayout, (e["x"] - MARGIN) / SCALE, (e["y"] - MARGIN) / SCALE);
+
+        if (b >= 0) {
+            say(describeblock(b));
+        }
+    });
+    schem->bind("<FocusIn>", fn(e) {
+        sfocused = true;
+        drawschematic();
+    });
+    schem->bind("<FocusOut>", fn(e) {
+        sfocused = false;
+        drawschematic();
+    });
+    schem->bind("<Key>", schemkey);
+}
+
+// keyfader(id, v): the Key faders of the filters, for the key-tracking
+// links.
+keyfader(id, v) {
+    if (haskey(keyamount, id) && typeof(v) != "string") {
+        local changed = abs(keyamount[id] - v) > 1e-9;
+        keyamount[id] = float(v);
+
+        if (changed) {
+            redrawschematic();
+        }
+    }
+}
+
+// showlayout(section): the blocks where the synth's [schematic] has them.
+showlayout(section) {
+    slayout = lmwschematic::layout(section);
+    trace("schematic moved", lmwschematic::moved(slayout));
+
+    if (verbose) {
+        for (local p in lmwschematic::order()) {
+            local q = spixels(lmwschematic::point(slayout, p));
+            trace("port", p, round(q[0]), round(q[1]));
+        }
+    }
+    drawschematic();
+}
+
+// spixels(p): a point of the schematic in units, on the canvas in pixels.
+spixels(p) {
+    return [MARGIN + p[0] * SCALE, MARGIN + p[1] * SCALE];
+}
+
+// sportat(x, y, want): the port at a point of the canvas ("input",
+// "output" or "" for either), or nil.
+sportat(x, y, want) {
+    if (slayout == nil) {
+        return nil;
+    }
+    return lmwschematic::portat(slayout, (x - MARGIN) / SCALE, (y - MARGIN) / SCALE, 1.3, want);
+}
+
+// droptarget(d, x, y): where drag d would go at a point: for a new cable
+// a port of the other kind, for a cable picked up another input; or nil.
+droptarget(d, x, y) {
+    if (d["grab"]) {
+        local p = sportat(x, y, "input");
+        return p == d["from"] ? nil : p;
+    }
+    return sportat(x, y, lmwschematic::isinput(d["from"]) ? "output" : "input");
+}
+
+// drop(d, target): the end of a drag: a new cable between its port and
+// target, or a picked-up cable moved to target (keeping its level) or,
+// dropped elsewhere, taken out.
+drop(d, target) {
+    if (!d["grab"]) {
+        if (target != nil) {
+            local input = lmwschematic::isinput(target) ? target : d["from"], output = input == target ? d["from"] : target;
+            addpin(input, output, 1.0);
+        }
+        return;
+    }
+    removepin(d["from"], d["output"]);
+
+    if (target != nil) {
+        addpin(target, d["output"], d["level"]);
+    }
+}
+
+// addpin(input, output, level), removepin(input, output): one cable in or
+// out (a cable already there keeps its level; a fifth is the synth's to
+// refuse).
+addpin(input, output, level) {
+    local pins = [];
+
+    for (local p in _pinsof(cables, input)) {
+        if (p[0] == output) {
+            return;
+        }
+        push(pins, p);
+    }
+    push(pins, [output, level]);
+    setcable(input, pins);
+}
+
+removepin(input, output) {
+    local pins = [];
+
+    for (local p in _pinsof(cables, input)) {
+        if (p[0] != output) {
+            push(pins, p);
+        }
+    }
+    setcable(input, pins);
+}
+
+// _feeds(output): the inputs with a cable from output.
+_feeds(output) {
+    local out = [];
+
+    for (local input in inputs) {
+        for (local p in _pinsof(cables, input)) {
+            if (p[0] == output) {
+                push(out, input);
+            }
+        }
+    }
+    return out;
+}
+
+// cablemenu(port, x, y): the port's menu at x, y on the screen, as the
+// synth's: an input's sources or an output's inputs to tick, taking cables
+// out; only what can be done.
+cablemenu(port, x, y) {
+    local m = new tk::Menu(window, {"popup": true}), plugged = false;
+
+    for (local i in inputs) {
+        if (len(_pinsof(cables, i)) > 0) {
+            plugged = true;
+        }
+    }
+
+    if (lmwschematic::isinput(port)) {
+        local sub = m->submenu("Connect from"), pins = _pinsof(cables, port);
+
+        for (local o in outputs) {
+            local on = _index(_feeds(o), port) >= 0;
+
+            if (on || len(pins) < 4) {
+                local output = o;
+                sub->check(o, fn(checked) { checked ? addpin(port, output, 1.0) : removepin(port, output); }, on);
+            }
+        }
+
+        if (len(pins) > 0) {
+            m->item("Remove all cables here", fn() { setcable(port, []); });
+        }
+    } else {
+        local sub = m->submenu("Connect to"), fed = _feeds(port);
+
+        for (local i in inputs) {
+            local on = _index(fed, i) >= 0;
+
+            if (on || len(_pinsof(cables, i)) < 4) {
+                local input = i;
+                sub->check(i, fn(checked) { checked ? addpin(input, port, 1.0) : removepin(input, port); }, on);
+            }
+        }
+
+        if (len(fed) > 0) {
+            m->item("Remove cables from here", fn() {
+                for (local i in fed) {
+                    removepin(i, port);
+                }
+            });
+        }
+    }
+
+    if (plugged) {
+        m->separator();
+        m->item("Remove all cables", fn() {
+            for (local i in inputs) {
+                if (len(_pinsof(cables, i)) > 0) {
+                    setcable(i, []);
+                }
+            }
+        });
+    }
+    m->popup(x, y);
+}
+
+// schemkey(e): the keys of the schematic (as the synth's): Left and Right
+// move the port cursor, Down and Up to the next or previous block; Enter
+// or Shift+F10 opens the port's menu; Delete or BackSpace takes an input's
+// cables out; Escape cancels a drag. (Tk gives no Shift with the key, so
+// F10 alone opens the menu too.)
+schemkey(e) {
+    local k = e["key"], ports = lmwschematic::order(), n = len(ports), p = ports[scursor];
+
+    if (k == "Escape" && sdrag != nil) {
+        sdrag = nil;
+    } else if (k == "Right" || k == "Left") {
+        scursor = (scursor + (k == "Right" ? 1 : n - 1)) % n;
+    } else if (k == "Down" || k == "Up") {
+        scursor = lmwschematic::jump(scursor, k == "Down" ? 1 : -1);
+    } else if (k == "Return" || k == "F10") {
+        if (!synth->closed()) {
+            local q = spixels(lmwschematic::point(slayout, p));
+            cablemenu(p, e["xroot"] - e["x"] + round(q[0]), e["yroot"] - e["y"] + round(q[1]));
+        }
+        return false;
+    } else if ((k == "Delete" || k == "BackSpace") && lmwschematic::isinput(p)) {
+        setcable(p, []);
+    } else {
+        return;
+    }
+    drawschematic();
+    say(describeport(ports[scursor]));
+    return false;   // the key is the schematic's
+}
+
+// describeport(p), describeblock(i): the hover texts.
+describeport(p) {
+    if (lmwschematic::isinput(p)) {
+        local hint = len(_pinsof(cables, p)) > 0 ? " Drag: move or take out the newest cable." : " Drag to an output: a cable.";
+        return lmwschematic::describeinput(p, cables, normalled) + "." + hint + " Right click or Enter: menu.";
+    }
+    return lmwschematic::describeoutput(p, cables, normalled) + ". Drag to an input: a cable. Right click or Enter: menu.";
+}
+
+describeblock(i) {
+    local b = lmwschematic::BLOCKS[i], parts = [];
+
+    for (local kind in ["inputs", "outputs"]) {
+        for (local p in b[kind]) {
+            push(parts, kind == "inputs" ? lmwschematic::describeinput(p, cables, normalled) : lmwschematic::describeoutput(p, cables, normalled));
+        }
+    }
+    local note = lmwschematic::blocknote(b["name"], keyamount["vcf1.key"], keyamount["vcf2.key"]);
+
+    if (note != "") {
+        push(parts, note);
+    }
+    return b["name"] + ": " + join(parts, "; ");
+}
+
+// redrawschematic(): draws the schematic once the handler that changed it
+// is done (a poll may change several inputs).
+redrawschematic() {
+    if (!sdrawing) {
+        sdrawing = true;
+        events::post(fn() {
+            sdrawing = false;
+            drawschematic();
+        });
+    }
+}
+
+// _line(c, options): a curve of the schematic (units) as a canvas line.
+_line(c, options) {
+    return schem->line(lmwschematic::points(c, 16, SCALE, MARGIN, MARGIN), options);
+}
+
+// drawschematic(): all of it: the normalled connections dashed behind the
+// blocks; the blocks in their unit's colour with their ports; the internal
+// links dotted; the cables black with a white edge on top, with their level
+// below 100 %; the legend; the port cursor and a cable being dragged.
+drawschematic() {
+    if (schem == nil || theme == nil || slayout == nil) {
+        return;
+    }
+    schem->clear();
+    local black = ink(), l = slayout, hide = sdrag != nil && sdrag["grab"] ? sdrag : nil;
+    local conns = lmwschematic::connections(cables, normalled);
+
+    for (local c in conns) {
+        if (c["normalled"]) {
+            local a = lmwschematic::point(l, c["from"]), b = lmwschematic::point(l, c["to"]);
+            _line(lmwschematic::curve(a, b), {"color": black, "width": 1, "dash": [5, 4]});
+        }
+    }
+
+    for (local i = 0; i < len(lmwschematic::BLOCKS); i++) {
+        drawblock(i, black);
+    }
+
+    for (local k in lmwschematic::links(keyamount["vcf1.key"], keyamount["vcf2.key"])) {
+        local a = lmwschematic::point(l, k["from"]), t = lmwschematic::target(l, lmwschematic::findblock(k["block"]));
+        _line(lmwschematic::linkcurve(a, t), {"color": black, "width": 1, "dash": [2, 3], "arrow": "last"});
+        local q = spixels(t);
+        schem->text(q[0] + 4, q[1] + 6, k["label"], {"anchor": "nw", "color": black, "font": {"size": 7}});
+    }
+
+    for (local c in conns) {
+        if (c["normalled"] || hide != nil && c["to"] == hide["from"] && c["from"] == hide["output"]) {
+            continue;
+        }
+        local curve = lmwschematic::curve(lmwschematic::point(l, c["from"]), lmwschematic::point(l, c["to"]));
+        _line(curve, {"color": lmwtheme::WHITE, "width": 5});
+        _line(curve, {"color": black, "width": 2});
+
+        if (c["level"] < 1) {
+            local q = spixels(lmwschematic::at(curve, 0.5));
+            schem->rect(q[0] - 15, q[1] - 7, q[0] + 15, q[1] + 7, {"fill": lmwtheme::WHITE, "outline": black});
+            schem->text(q[0], q[1], lmwschematic::percent(c["level"]), {"color": black, "font": {"size": 7}});
+        }
+    }
+    drawlegend(black);
+
+    if (sfocused) {
+        local q = spixels(lmwschematic::point(l, lmwschematic::order()[scursor])), r = 1.3 * SCALE;
+        schem->rect(q[0] - r, q[1] - r, q[0] + r, q[1] + r, {"outline": black, "width": 2});
+    }
+    drawdrag();
+}
+
+// drawblock(i, black): a block: its symbol in its unit's colour, its name,
+// its ports (an input white with a black ring, black in the middle when
+// it has a cable; an output black with a white ring) and their names when
+// it has several.
+drawblock(i, black) {
+    local b = lmwschematic::BLOCKS[i], r = lmwschematic::box(slayout, i), shape = b["shape"];
+    local x = MARGIN + r[0] * SCALE, y = MARGIN + r[1] * SCALE, w = r[2] * SCALE, h = r[3] * SCALE;
+    local fill = theme["units"][lmwtheme::unit(b["name"])], bold = {"bold": true, "size": 8}, small = {"size": 7};
+
+    if (shape == "triangle") {
+        schem->polygon([x, y, x, y + h, x + w, y + h / 2], {"fill": fill, "outline": black, "width": 2});
+        local n = len(b["inputs"]), ny = y + h / 2;   // the name in the middle, or between the first two inputs
+
+        if (n == 3) {
+            ny = y + h * 1.5 / 4;
+        }
+        schem->text(x + 0.9 * SCALE, ny, b["name"], {"anchor": "w", "color": black, "font": bold});
+    } else if (shape == "out") {
+        local d = min(w, h) * 0.8, cx = x + w * 0.45, cy = y + h / 2;
+        schem->oval(cx - d / 2, cy - d / 2, cx + d / 2, cy + d / 2, {"fill": fill, "outline": black, "width": 2});
+        schem->line([cx + d / 2, cy, x + w, cy], {"color": black, "width": 2, "arrow": "last"});
+        schem->text(cx, cy, b["name"], {"color": black, "font": {"bold": true, "size": 7}});
+    } else {
+        schem->rect(x, y, x + w, y + h, {"fill": fill, "outline": black, "width": 2});
+        schem->text(x + w / 2, y + 2, b["name"], {"anchor": "n", "color": black, "font": bold});
+        drawpicture(shape, x, y, w, h, black);
+    }
+
+    for (local kind in ["inputs", "outputs"]) {
+        local ports = b[kind];
+
+        for (local p in ports) {
+            local q = spixels(lmwschematic::point(slayout, p)), rad = 0.7 * SCALE;
+
+            if (kind == "inputs") {
+                schem->oval(q[0] - rad, q[1] - rad, q[0] + rad, q[1] + rad, {"fill": lmwtheme::WHITE, "outline": black, "width": 2});
+
+                if (len(_pinsof(cables, p)) > 0) {
+                    schem->oval(q[0] - 2, q[1] - 2, q[0] + 2, q[1] + 2, {"fill": black, "outline": black});
+                }
+            } else {
+                schem->oval(q[0] - rad, q[1] - rad, q[0] + rad, q[1] + rad, {"fill": black, "outline": black});
+                schem->oval(q[0] - rad + 2, q[1] - rad + 2, q[0] + rad - 2, q[1] + rad - 2, {"outline": lmwtheme::WHITE, "width": 1});
+            }
+
+            if (len(ports) > 1) {
+                local lx = kind == "inputs" ? q[0] + 0.9 * SCALE : q[0] - 0.9 * SCALE;
+                schem->text(lx, q[1], lmwschematic::label(p), {"anchor": kind == "inputs" ? "w" : "e", "color": black, "font": small});
+            }
+        }
+    }
+}
+
+// drawpicture(shape, x, y, w, h, black): the picture under a box's name:
+// an ADSR curve, a white-noise trace, a small keyboard.
+drawpicture(shape, x, y, w, h, black) {
+    if (shape == "adsr") {
+        local base = y + h * 0.88, top = y + h * 0.38, hold = y + h * 0.6;
+        schem->line(
+            [x + w * 0.12, base, x + w * 0.3, top, x + w * 0.45, hold, x + w * 0.7, hold, x + w * 0.88, base],
+            {"color": black, "width": 2},
+        );
+    } else if (shape == "noise") {
+        local pts = [], mid = y + h * 0.65, ups = [0.2, -0.7, 0.5, -0.3, 0.9, -0.9, 0.3, -0.5, 0.7, -0.2, 0.6, -0.8, 0.1];
+
+        for (local i = 0; i < len(ups); i++) {
+            push(pts, x + w * (0.08 + 0.5 * i / (len(ups) - 1)), mid + ups[i] * h * 0.22);
+        }
+        schem->line(pts, {"color": black, "width": 1});
+    } else if (shape == "keys") {
+        local kw = w * 0.12, top = y + h * 0.36, bottom = y + h * 0.9, left = x + w * 0.08;
+
+        for (local k = 0; k < 4; k++) {
+            schem->rect(left + k * kw, top, left + (k + 1) * kw, bottom, {"fill": lmwtheme::WHITE, "outline": black, "width": 1});
+        }
+        schem->rect(left + kw * 0.65, top, left + kw * 1.35, top + (bottom - top) * 0.6, {"fill": black, "outline": black});
+    }
+}
+
+// drawlegend(black): what the three kinds of line mean, at the bottom.
+drawlegend(black) {
+    local y = MARGIN + (lmwschematic::HEIGHT - 2) * SCALE, x = MARGIN + 2 * SCALE, span = 6 * SCALE;
+    local kinds = [
+        [{"color": black, "width": 1, "dash": [5, 4]}, "normalled (used while the input has no cables)"],
+        [{"color": black, "width": 2}, "cable (its level when below 100 %)"],
+        [{"color": black, "width": 1, "dash": [2, 3], "arrow": "last"}, "internal link (set by a fader)"],
+    ];
+
+    for (local k in kinds) {
+        schem->line([x, y, x + span, y], k[0]);
+        schem->text(x + span + 6, y, k[1], {"anchor": "w", "color": black, "font": {"size": 8}});
+        x += span + 6 + 40 * SCALE;
+    }
+}
+
+// drawdrag(): a cable being dragged: its loose end at the mouse, a ring
+// around the port it would go to.
+drawdrag() {
+    if (schem == nil) {
+        return;
+    }
+    schem->remove("drag");
+
+    if (sdrag == nil || !sdrag["moved"]) {
+        return;
+    }
+    local black = ink(), m = [(sdrag["x"] - MARGIN) / SCALE, (sdrag["y"] - MARGIN) / SCALE], c = nil;
+
+    if (sdrag["grab"]) {
+        c = lmwschematic::curve(lmwschematic::point(slayout, sdrag["output"]), m);
+    } else if (lmwschematic::isinput(sdrag["from"])) {
+        c = lmwschematic::curve(m, lmwschematic::point(slayout, sdrag["from"]));
+    } else {
+        c = lmwschematic::curve(lmwschematic::point(slayout, sdrag["from"]), m);
+    }
+    local items = [_line(c, {"color": lmwtheme::WHITE, "width": 5}), _line(c, {"color": black, "width": 2})];
+
+    if (sdrag["target"] != nil) {
+        local q = spixels(lmwschematic::point(slayout, sdrag["target"])), r = 1.2 * SCALE;
+        push(items, schem->oval(q[0] - r, q[1] - r, q[0] + r, q[1] + r, {"outline": black, "width": 2}));
+    }
+
+    for (local id in items) {
+        schem->tag(id, "drag");
     }
 }
 
@@ -1635,6 +2192,7 @@ setcontrast(p, r, save) {
     theme = lmwtheme::palette(minimum);
     tk::setcolors(theme["tk"]);
     drawmatrix();
+    drawschematic();
     drawpiano();
 
     for (local t in titles) {
