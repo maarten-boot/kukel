@@ -4,17 +4,19 @@
 // parameters (its Spec S5a.1) in the synth's order, and they are what the
 // synth's /info is to give: one JSON object per parameter.
 //
-//     local fake = new fakesynth::Synth({"serial": true});
+//     local fake = new fakesynth::Synth();
 //     local server = fake->serve("tcp://127.0.0.1:0");
 //
 // Differences from the synth: [schematic] is kept as it is (the synth
 // checks the blocks and positions), a write is applied when the file is closed
 // (the synth applies /params and /cables at each write; for whole-file
-// writes that is the same), floats are stored as given (the synth stores
-// a float, 32 bits), parameter lines in /patch have no unit comments, and
-// /serial is served only when asked for (the synth has none yet).
-// Options: {"serial": true} serves /serial, {"noinfo": true} no /info
-// (as the synth before it has one).
+// writes that is the same), floats are stored as given and written as the
+// shortest text that reads back as that value (the synth stores a 32-bit
+// float of the fader's position, so 800 reads back as 800 but 1234.5678
+// as 1234.5673 there), parameter lines in /patch have no unit comments,
+// and /keys keeps the notes played in played (the synth plays them).
+// Options: {"noserial": true} serves no /serial, {"noinfo": true} no
+// /info (as the synth before it had them).
 use p9;
 use json;
 use lmw;
@@ -229,9 +231,63 @@ parse(p, text) {
     return v;
 }
 
-// show(p, v): the text of value v of parameter p, as the synth writes it.
+// show(p, v): the text of value v of parameter p, as the synth writes it:
+// a float as the shortest text that reads back as it, without ".0".
 show(p, v) {
-    return p["kind"] == "float" ? lmw::number(v, 7) : str(v);
+    if (p["kind"] != "float") {
+        return str(v);
+    }
+    local s = str(float(v));
+    return slice(s, len(s) - 2) == ".0" ? slice(s, 0, len(s) - 2) : s;
+}
+
+// keylines(text): the notes of a write to /keys, as the synth reads them: a
+// line "on <note> [velocity]" or "off <note>", note 0 to 127, velocity 0
+// to 127 (100 without one; 0 is off), at most 3 digits each, words apart
+// by spaces or tabs, empty lines skipped. Gives a vector of [on, note,
+// velocity]; a line that is not one is an error naming it, and then none
+// is played.
+keylines(text) {
+    local out = [];
+
+    for (local raw in split(text, "\n")) {
+        local line = trim(raw);
+
+        if (line == "") {
+            continue;
+        }
+        local words = [];
+
+        for (local w in split(replace(line, "\t", " "), " ")) {
+            if (w != "") {
+                push(words, w);
+            }
+        }
+        local on = words[0] == "on", off = words[0] == "off";
+        local note = len(words) >= 2 ? _key(words[1]) : nil;
+        local velocity = len(words) == 3 ? _key(words[2]) : 100;
+
+        if (!(on || off) || note == nil || velocity == nil || len(words) > (on ? 3 : 2)) {
+            throw new Error("bad key line: " + line);
+        }
+        push(out, [on && velocity > 0, note, velocity]);
+    }
+    return out;
+}
+
+// _key(w): a note or velocity: 1 to 3 digits, 0 to 127; nil if not.
+_key(w) {
+    if (len(w) > 3) {
+        return nil;
+    }
+
+    for (local c in w) {
+        if (c < 48 || c > 57) {
+            return nil;
+        }
+    }
+    local n = int(w);
+    return n <= 127 ? n : nil;
 }
 
 class Synth {
@@ -241,6 +297,7 @@ class Synth {
     name;
     schematic; // block -> "x, y": moved symbols of the Schematic tab
     serial;    // a number that goes up with each change; nil: no /serial
+    played;    // the notes /keys was given, each [on, note, velocity]
     tree;
     Synth(options);
     serve(address);
@@ -260,7 +317,8 @@ Synth::Synth(options = {}) {
     notes = "";
     name = "";
     schematic = {};
-    serial = options["serial"] ? 0 : nil;
+    serial = options["noserial"] ? nil : 0;
+    played = [];
     tree = new p9::Tree();
     tree->file("/source", SOURCE + "\n");
 
@@ -313,6 +371,11 @@ Synth::Synth(options = {}) {
         ports += "output " + out + "\n";
     }
     tree->file("/ports", ports);
+    tree->file("/keys", fn() { return ""; }, fn(data) {
+        for (local k in keylines(data)) {
+            push(played, k);
+        }
+    });
 
     if (serial != nil) {
         tree->file("/serial", fn() { return str(serial) + "\n"; });

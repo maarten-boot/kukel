@@ -9,16 +9,16 @@
 // tcp!host!port); without it, the newest synth socket that answers.
 // -fake: a fake synth in this program (fakesynth.kkl) on a free TCP port;
 // -fakedir: one on a Unix socket in a new directory, found as lmw finds
-// synths; -serial: the fake serves /serial; -noinfo: it serves no /info.
+// synths; -noserial: the fake serves no /serial, -noinfo no /info.
 use lmw;
 use fakesynth;
 use fs;
 
-const USAGE = "usage: lmwctl [-a address | -fake | -fakedir] [-serial] [-noinfo] command [args] [, command [args]]...";
-const COMMANDS = "commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes";
+const USAGE = "usage: lmwctl [-a address | -fake | -fakedir] [-noserial] [-noinfo] command [args] [, command [args]]...";
+const COMMANDS = "commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes, serial, on note [velocity], off note, played (-fake)";
 
 main(args) {
-    local addr = nil, fake = nil, serial = false, noinfo = false, i = 0;
+    local addr = nil, fake = nil, noserial = false, noinfo = false, i = 0;
 
     for (; i < len(args) && find(args[i], "-") == 0; i++) {
         if (args[i] == "-a") {
@@ -30,8 +30,8 @@ main(args) {
             fake = "tcp";
         } else if (args[i] == "-fakedir") {
             fake = "dir";
-        } else if (args[i] == "-serial") {
-            serial = true;
+        } else if (args[i] == "-noserial") {
+            noserial = true;
         } else if (args[i] == "-noinfo") {
             noinfo = true;
         } else {
@@ -52,11 +52,11 @@ main(args) {
         return usage("no command");
     }
 
-    local server = nil, dir = nil, synth = nil;
+    local server = nil, dir = nil, synth = nil, f = nil;
 
     try {
         if (fake != nil) {
-            local f = new fakesynth::Synth({"serial": serial, "noinfo": noinfo});
+            f = new fakesynth::Synth({"noserial": noserial, "noinfo": noinfo});
 
             if (fake == "tcp") {
                 server = f->serve("tcp://127.0.0.1:0");
@@ -74,7 +74,7 @@ main(args) {
         }
 
         for (local c in commands) {
-            run(synth, c, dir);
+            run(synth, c, dir, f);
         }
     } catch (e) {
         eprintln("lmwctl:", e->message);
@@ -102,11 +102,13 @@ usage(why) {
     return 2;
 }
 
-// run(synth, c, dir): one command, c its words.
-run(synth, c, dir) {
+// run(synth, c, dir, fake): one command, c its words; fake is the fake
+// synth of -fake and -fakedir, or nil.
+run(synth, c, dir, fake) {
     local name = c[0], want = {
         "sockets": 0, "source": 0, "params": 0, "info": 1, "get": 1, "set": 2, "cables": 0, "cable": -1, "clear": 0,
         "ports": 0, "patch": 0, "load": 1, "save": 1, "notes": 0, "setnotes": 1, "changes": 0,
+        "serial": 0, "on": -1, "off": 1, "played": 0,
     }[name];
 
     if (want == nil) {
@@ -178,6 +180,25 @@ run(synth, c, dir) {
         }
     } else if (name == "setnotes") {
         synth->setnotes(c[1]);
+    } else if (name == "serial") {
+        local n = synth->serial();
+        println(n == nil ? "none" : n);
+    } else if (name == "on") {
+        if (len(c) == 3) {
+            synth->noteon(c[1], c[2]);
+        } else {
+            synth->noteon(c[1]);
+        }
+    } else if (name == "off") {
+        synth->noteoff(c[1]);
+    } else if (name == "played") {
+        if (fake == nil) {
+            throw new Error("played: only with -fake or -fakedir");
+        }
+
+        for (local k in fake->played) {
+            println(k[0] ? "on" : "off", k[1], k[2]);
+        }
     } else if (name == "changes") {
         showchanges(synth->changes(), len(synth->params()));
     }

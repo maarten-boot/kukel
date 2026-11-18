@@ -1682,8 +1682,21 @@ it), so a GUI must pass over sockets it cannot dial.
    another client are seen only by reading again. Polling `/patch` works
    now; a `/serial` file (a number that goes up with each change) would
    make most polls a few bytes (F-57).
+   *Served by the synth (2026-11-18): `/serial`, a decimal number and a
+   newline, up with every change of parameters (also DAW automation),
+   cables, name, notes, schematic or restored state, not with notes
+   played; one change may raise it by more than 1. `lmw`'s `changes()`
+   asks it first, and the fake serves it by default.*
 3. **No way to play notes.** An on-screen keyboard needs a `/keys` file
    (`on 60 100`, `off 60`); until then notes come from MIDI (F-59).
+   *Served by the synth (2026-11-18): `/keys`, lines `on <note>
+   [velocity]` and `off <note>` (note and velocity at most 3 digits, 0 to
+   127; velocity 100 without one, 0 is off; words apart by spaces or tabs;
+   empty lines skipped); every line is checked before any is played, a
+   bad one is `bad key line: <line>`; reading gives nothing. In `lmw`:
+   `s->play(text)`, `s->noteon(note [, velocity])`, `s->noteoff(note)`;
+   the fake checks the lines as the synth does and keeps them in
+   `played`.*
 4. **No meters or scope.** The synth's Spec S10.6 plans telemetry files;
    there are none yet.
 
@@ -1828,6 +1841,14 @@ Theme.h).
   reads back as 800.0001 (the synth's float round trip: for the synth);
   the synth binary at hand was older than its patch-file code (it refused
   a `[schematic]` section), so the fake follows the source.*
+  *Again (2026-11-18), with `/info`, `/serial`, `/keys` and the exact
+  float read-back in the synth: the cases of `lmwctl.tests` run with `-a`
+  against the synth give what they give against the fake, `/info`
+  included. The one difference left is by design: the synth stores a
+  32-bit float of a fader's position, so 1234.5678 reads back as
+  1234.5673 and 20.000001 as 20.000002 there (800, 0.25 and 99.5 as
+  written), where the fake keeps the value as given and writes the
+  shortest text for it.*
 - The GUI as `notes.kkl` is tested now: under Xvfb with xdotool in
   `make test-tk`, against the fake synth.
 - The contrast table for every preset.

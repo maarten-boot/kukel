@@ -371,6 +371,10 @@ class Synth {
     notes();
     setnotes(text);
     source();
+    serial();
+    play(text);
+    noteon(note, velocity);
+    noteoff(note);
     changes();
     close();
     closed();
@@ -571,6 +575,36 @@ Synth::setnotes(text) {
 
 Synth::source() {
     return trim(_read("/source"));
+}
+
+// s->serial(): /serial, a number that goes up with every change (not
+// always by 1), or nil for a synth without it.
+Synth::serial() {
+    try {
+        return int(trim(client->read("/serial")));
+    } catch (e) {
+        if (e->kind != "IOError") {
+            throw e;
+        }
+        return nil;
+    }
+}
+
+// s->play(text): plays the lines of text on the synth's keyboard (/keys):
+// "on <note> [velocity]" and "off <note>", note 0 to 127, velocity 1 to
+// 127 (100 without one; 0 is off). The synth checks every line before it
+// plays one: a bad line is an IOError, "keys: bad key line: on 128".
+Synth::play(text) {
+    _write("/keys", text, "keys");
+}
+
+// s->noteon(note [, velocity]), s->noteoff(note): one note on or off.
+Synth::noteon(note, velocity = nil) {
+    play("on " + str(note) + (velocity == nil ? "" : " " + str(velocity)) + "\n");
+}
+
+Synth::noteoff(note) {
+    play("off " + str(note) + "\n");
 }
 
 // s->changes(): what changed since the last call, as a map with some of

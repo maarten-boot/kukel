@@ -17,6 +17,10 @@ From v1.0.0 on, what keeps working is in
 
 ## Unreleased
 
+- `examples/lmw/`: the synth's `/serial` and `/keys`: `lmw::Synth` gains
+  `serial()`, `play(text)`, `noteon` and `noteoff`; the fake synth serves
+  both as the synth does (`/serial` by default), and `lmwctl` has
+  `serial`, `on`, `off` and `played`. Q115.
 - The module `logging`, written in Kukel: structured logging after PHP's
   Monolog. A logger per channel (`logging::get("shop")`), a member
   function per syslog level, `{name}` placeholders filled from the

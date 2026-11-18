@@ -222,13 +222,56 @@ name: "Fat bass # with a hash"
 notes: 91 bytes
 schematic moved: 1
 
-$ -fake -serial changes , changes , setnotes hi , changes
+$ -fake serial , changes , changes , setnotes hi , serial , changes
+0
+param (all 51 of them)
+name: ""
+notes: 0 bytes
+schematic moved: 0
+no changes
+1
+notes: 2 bytes
+
+$ -fake -noserial serial , changes , changes , setnotes hi , changes
+none
 param (all 51 of them)
 name: ""
 notes: 0 bytes
 schematic moved: 0
 no changes
 notes: 2 bytes
+
+# Keys: notes on and off as the synth reads them; every line is checked before any is played
+$ -fake on 60 , on 61 0 , on 62 127 , off 60 , serial , played
+0
+on 60 100
+off 61 0
+on 62 127
+off 60 100
+
+$ -fake on 128
+! lmwctl: keys: bad key line: on 128
+exit 1
+
+$ -fake on 60 1.5
+! lmwctl: keys: bad key line: on 60 1.5
+exit 1
+
+$ -fake on 60 0100
+! lmwctl: keys: bad key line: on 60 0100
+exit 1
+
+$ -fake on +60
+! lmwctl: keys: bad key line: on +60
+exit 1
+
+$ -fake off 60 5
+! lmwctl: off: wrong number of arguments
+exit 1
+
+$ -fake on
+! lmwctl: on: wrong number of arguments
+exit 1
 
 # Finding a synth: a socket in a directory, as lmw::sockets() finds them
 $ -fakedir sockets , get out.gain
@@ -238,12 +281,12 @@ $ -fakedir sockets , get out.gain
 # The command line
 $ -fake
 ! lmwctl: no command
-! usage: lmwctl [-a address | -fake | -fakedir] [-serial] [-noinfo] command [args] [, command [args]]...
-! commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes
+! usage: lmwctl [-a address | -fake | -fakedir] [-noserial] [-noinfo] command [args] [, command [args]]...
+! commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes, serial, on note [velocity], off note, played (-fake)
 exit 2
 
 $ -fake nonsense
-! lmwctl: unknown command nonsense; commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes
+! lmwctl: unknown command nonsense; commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes, serial, on note [velocity], off note, played (-fake)
 exit 1
 
 $ -fake get
@@ -252,14 +295,14 @@ exit 1
 
 $ -x get vcf1.cutoff
 ! lmwctl: unknown option -x
-! usage: lmwctl [-a address | -fake | -fakedir] [-serial] [-noinfo] command [args] [, command [args]]...
-! commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes
+! usage: lmwctl [-a address | -fake | -fakedir] [-noserial] [-noinfo] command [args] [, command [args]]...
+! commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes, serial, on note [velocity], off note, played (-fake)
 exit 2
 
 $ -a
 ! lmwctl: -a needs an address
-! usage: lmwctl [-a address | -fake | -fakedir] [-serial] [-noinfo] command [args] [, command [args]]...
-! commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes
+! usage: lmwctl [-a address | -fake | -fakedir] [-noserial] [-noinfo] command [args] [, command [args]]...
+! commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes, serial, on note [velocity], off note, played (-fake)
 exit 2
 
 $ -a tcp://127.0.0.1:1 get vcf1.cutoff
