@@ -2011,6 +2011,16 @@ the user changes the contrast.*
   appears first in the list, and choosing it connects and shows all 51
   parameters (the dead one leaves the list). Nothing differed from the
   fake.*
+- *The on-screen keyboard against the real synth (2026-11-18, by hand,
+  the same way; the synth's own keyboard shows the notes it is given):
+  a click on C4 lights the synth's C4 until the button is let go; a
+  and e held for 1.5 s light C4 and D#4 and send each note once (X's key
+  repeat filtered); x then a lights C5; a drag from C4 to C5 lights each
+  key in turn; a held key goes dark at once when the focus moves to a
+  value box, and a held click when Ctrl+Q quits. Nothing differed from
+  the fake. Without a window manager the X focus stays with the window
+  it was last given to: the typed keys went to the synth's window (which
+  plays them itself) until the GUI was given the focus.*
 
 Steps (in §8): 15. `tk::Notebook` (13.3); 16. the module `lmw` and the
 fake synth (13.4); 17. the Synth and Effects tabs, keeping in step,
