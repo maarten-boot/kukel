@@ -1,19 +1,23 @@
 // lmwgui.kkl: a GUI for LMW-Synth over 9P (docs/future.md §13), with the
 // module tk (a kukel built with the build tag tk, and a display):
 //
-//     kukel run lmwgui.kkl [-- [-a address | -fake] [-config file] [-v]]
+//     kukel run lmwgui.kkl [-- [-a address | -fake] [-config file] [-tab name] [-v]]
 //
 // -a address: the synth (as lmwctl takes it); without it, the newest synth
 // socket that answers. -fake: a fake synth in this program (fakesynth.kkl).
 // -config file: the settings file instead of lmw-gui.toml in the user's
-// configuration directory. -v: prints what it shows and writes, for the
-// tests.
+// configuration directory. -tab name: the tab shown first (Synth, Effects
+// or Matrix). -v: prints what it shows and writes, for the tests.
 //
 // The Synth tab has the synth's module panels, the Effects tab the reverb.
 // A fader writes its parameter at most every 20 ms while it moves; every
 // 200 ms the GUI asks the synth what changed and shows it, except on a
 // fader the user holds (until half a second after it is let go). A value
 // can be typed under a fader (Enter); a double click on a fader resets it.
+// The Matrix tab has a row per input and a column per output: a click
+// puts a cable in or takes it out, dragging up or down sets its level, a
+// double click asks for it; the arrow keys move a cell cursor, Space
+// toggles, + and - change by 10 %, Delete removes.
 // The contrast (AA, AAA, Max or a custom ratio) is kept in the settings
 // file.
 use tk;
@@ -75,9 +79,19 @@ global held = {}, touched = {}, latest = {}, stale = {};
 global pending = {}, flushing = nil, poller = nil, shown = false;
 global configpath, preset = "AA", ratio = 4.5;
 global geometry = [], placed = {}, placing = false;   // -v: where the faders are
+global tabs, theme = nil;
+global matrix = nil, inputs = [], outputs = [], normalled = {}, cables = {};
+global cursor = [0, 0], focused = false, drag = nil;
+
+// The matrix's sizes in pixels: the labels of the rows, the heads of the
+// columns, a cell.
+const LABELW = 150;
+const HEADH = 38;
+const CELLW = 46;
+const CELLH = 26;
 
 main(args) {
-    local fake = false, i = 0;
+    local fake = false, i = 0, first = "Synth";
     configpath = nil;
 
     for (; i < len(args); i++) {
@@ -87,10 +101,12 @@ main(args) {
             fake = true;
         } else if (args[i] == "-config" && i + 1 < len(args)) {
             configpath = args[++i];
+        } else if (args[i] == "-tab" && i + 1 < len(args)) {
+            first = args[++i];
         } else if (args[i] == "-v") {
             verbose = true;
         } else {
-            eprintln("usage: lmwgui [-a address | -fake] [-config file] [-v]");
+            eprintln("usage: lmwgui [-a address | -fake] [-config file] [-tab Synth|Effects|Matrix] [-v]");
             return 2;
         }
     }
@@ -115,7 +131,18 @@ main(args) {
         return 1;
     }
     readconfig();
-    build();
+
+    try {
+        build(first);
+    } catch (e) {
+        eprintln("lmwgui:", e->message);
+        quit();
+
+        if (window != nil) {
+            window->close();
+        }
+        return 1;
+    }
     trace("connected", address);
     setcontrast(preset, ratio, false);
     poll();
@@ -202,7 +229,7 @@ say(text) {
 
 // The window
 
-build() {
+build(first) {
     window = new tk::Window("LMW-Synth: " + address);
     window->onclose(quit);
     local head = new tk::Frame(window, {"padding": [6, 4]});
@@ -221,15 +248,38 @@ build() {
     reconnect->pack({"side": "right"});
     new tk::Label(head, address)->pack({"side": "right", "padx": 8});
 
-    local tabs = new tk::Notebook(window, {"padding": 4});
+    tabs = new tk::Notebook(window, {"padding": 4});
     tabs->pack({"fill": "both", "expand": true});
     local page = new tk::Frame(tabs, {"padding": 4}), effects = new tk::Frame(tabs, {"padding": 4});
-    tabs->add(page, "Synth")->add(effects, "Effects");
+    local cablepage = new tk::Frame(tabs, {"padding": 4});
+    tabs->add(page, "Synth")->add(effects, "Effects")->add(cablepage, "Matrix");
     local top = [cell(tabs)];
     rows(page, SYNTH, extend(top, cell(page)));
     rows(effects, EFFECTS, extend(top, cell(effects)));
+    makematrix(cablepage, extend(top, cell(cablepage)));
     status = new tk::Label(window, "", {"anchor": "w", "padding": [6, 2]});
     status->pack({"fill": "x"});
+    local names = ["Synth", "Effects", "Matrix"], found = false;
+
+    for (local i = 0; i < len(names); i++) {
+        if (lower(first) == lower(names[i])) {
+            tabs->select(i);
+            found = true;
+        }
+    }
+
+    if (!found) {
+        throw new Error("there is no tab " + first + " (Synth, Effects or Matrix)");
+    }
+    tabs->onchange(fn(i) {
+        if (i == 2) {
+            matrix->focus();
+        }
+    });
+
+    if (tabs->selected() == 2) {
+        matrix->focus();
+    }
 }
 
 // rows(page, layout, chain): the panels of layout in page; chain is where
@@ -453,8 +503,14 @@ parsetext(p, s) {
 
 // Keeping in step
 
-// show(id, v): puts the synth's value v in the control of id.
+// show(id, v): puts the synth's value v in the control of id; for an id
+// "cable:input", v is the input's pins.
 show(id, v) {
+    if (_cable(id) != nil) {
+        cables[_cable(id)] = v;
+        drawrow(_index(inputs, _cable(id)));
+        return;
+    }
     local c = controls[id];
 
     if (c == nil || v == nil) {
@@ -523,17 +579,57 @@ _without(m, key) {
     return out;
 }
 
+// _cable(id): the input of an id "cable:input", else nil.
+_cable(id) {
+    return find(id, "cable:") == 0 ? slice(id, 6) : nil;
+}
+
+// _index(v, x): where x is in v, or -1.
+_index(v, x) {
+    for (local i = 0; i < len(v); i++) {
+        if (v[i] == x) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// write(id, v): a parameter, or the pins of an input for "cable:input".
+// What the synth refuses goes to the status line, and the control shows
+// what the synth has again.
 write(id, v) {
     if (synth->closed()) {
         return;
     }
+    local input = _cable(id);
 
     try {
-        synth->set(id, v);
-        trace("write", id, typeof(v) == "float" ? lmw::number(v, 7) : v);
+        if (input != nil) {
+            synth->setcables(input, v);
+            trace("write cables", input, lmw::formatpins(v));
+        } else {
+            synth->set(id, v);
+            trace("write", id, typeof(v) == "float" ? lmw::number(v, 7) : v);
+        }
     } catch (e) {
         failed(e);
+
+        if (!synth->closed()) {
+            trace("refused", id, e->message);
+
+            try {
+                show(id, input != nil ? _pinsof(synth->cables(), input) : synth->get(id));
+            } catch (again) {
+                failed(again);
+            }
+        }
     }
+}
+
+// _pinsof(cables, input): the pins of input in a map of cables ([] when
+// it has none).
+_pinsof(m, input) {
+    return m[input] == nil ? [] : m[input];
 }
 
 // poll(): what changed on the synth, shown; a control the user has is
@@ -555,6 +651,11 @@ poll() {
         latest[id] = v;
         stale[id] = true;
     }
+
+    for (local input, pins in ch["cables"] == nil ? {} : ch["cables"]) {
+        latest["cable:" + input] = pins;
+        stale["cable:" + input] = true;
+    }
     local done = [];
 
     for (local id, _ in stale) {
@@ -562,7 +663,9 @@ poll() {
             show(id, latest[id]);
             push(done, id);
 
-            if (shown) {
+            if (shown && _cable(id) != nil) {
+                trace("show cables", _cable(id), lmw::formatpins(latest[id]));
+            } else if (shown) {
                 trace("show", id, latest[id]);
             }
         }
@@ -620,6 +723,8 @@ connectagain() {
     }
     shown = false;
     stale = {};
+    cables = {};
+    drawmatrix();
     enable(true);
     say("Connected again.");
     trace("connected", address);
@@ -632,7 +737,10 @@ quit() {
     if (flushing != nil) {
         flushing->cancel();
     }
-    poller->cancel();
+
+    if (poller != nil) {
+        poller->cancel();
+    }
 
     if (!synth->closed()) {
         synth->close();
@@ -642,6 +750,330 @@ quit() {
         server->close();
     }
     return true;
+}
+
+// The matrix (docs/future.md §13.5, the synth's MatrixView.cpp)
+
+// makematrix(page, chain): the canvas of the Matrix tab, its rows and
+// columns from /ports.
+makematrix(page, chain) {
+    local ports = synth->ports();
+
+    for (local i in ports["inputs"]) {
+        push(inputs, i["name"]);
+        normalled[i["name"]] = i["normalled"];
+    }
+    outputs = ports["outputs"];
+    matrix = new tk::Canvas(
+        page,
+        {"width": LABELW + len(outputs) * CELLW + 2, "height": HEADH + len(inputs) * CELLH + 2, "background": lmwtheme::WHITE},
+    );
+    matrix->pack();
+
+    if (verbose) {
+        push(geometry, ["matrix", extend(chain, cell(matrix))]);
+        trace("matrix cells", LABELW, HEADH, CELLW, CELLH);
+    }
+    matrix->bind("<Button-1>", fn(e) {
+        matrix->focus();
+        local c = cellat(e["x"], e["y"]);
+        drag = nil;
+
+        if (c != nil && !synth->closed()) {
+            cursor = c;
+            drawcursor();
+            drag = {"cell": c, "start": level(c), "y": e["y"], "moved": false};
+            held["cable:" + inputs[c[0]]] = true;
+        }
+    });
+    matrix->bind("<B1-Motion>", fn(e) {
+        if (drag == nil || gate(inputs[drag["cell"][0]])) {
+            return;
+        }
+        local dy = e["y"] - drag["y"];
+
+        if (!drag["moved"] && abs(dy) < 3) {
+            return;
+        }
+        drag["moved"] = true;
+        setpin(drag["cell"], drag["start"] - dy / 150.0);   // 1 % per 1.5 pixels, up is more
+    });
+    matrix->bind("<ButtonRelease-1>", fn(e) {
+        if (drag == nil) {
+            return;
+        }
+        local c = drag["cell"], at = cellat(e["x"], e["y"]), key = "cable:" + inputs[c[0]];
+        held[key] = false;
+        touched[key] = clock() + SETTLE;
+
+        if (!drag["moved"] && at != nil && at[0] == c[0] && at[1] == c[1]) {
+            setpin(c, level(c) > 0 ? 0.0 : 1.0);
+        }
+        drag = nil;
+    });
+    matrix->bind("<Double-Button-1>", fn(e) {
+        local c = cellat(e["x"], e["y"]);
+
+        if (c != nil && !gate(inputs[c[0]]) && !synth->closed()) {
+            asklevel(c);
+        }
+    });
+    matrix->bind("<Motion>", fn(e) {
+        local c = cellat(e["x"], e["y"]);
+
+        if (c != nil) {
+            say(describe(c));
+        }
+    });
+    matrix->bind("<FocusIn>", fn(e) {
+        focused = true;
+        drawcursor();
+    });
+    matrix->bind("<FocusOut>", fn(e) {
+        focused = false;
+        drawcursor();
+    });
+    matrix->bind("<Key>", key);
+}
+
+// gate(input): whether an input is on or off only (an envelope's gate).
+gate(input) {
+    local dot = find(input, ".");
+    return slice(input, dot + 1) == "gate";
+}
+
+// cellat(x, y): the cell [input index, output index] at a point of the
+// canvas, or nil.
+cellat(x, y) {
+    if (x < LABELW || y < HEADH) {
+        return nil;
+    }
+    local o = (x - LABELW) / CELLW, i = (y - HEADH) / CELLH;
+    return i < len(inputs) && o < len(outputs) ? [i, o] : nil;
+}
+
+// level(c): the level of the cable of cell c, 0 for none.
+level(c) {
+    for (local p in _pinsof(cables, inputs[c[0]])) {
+        if (p[0] == outputs[c[1]]) {
+            return p[1];
+        }
+    }
+    return 0.0;
+}
+
+// setpin(c, l): the cable of cell c at level l (whole percents; 0 takes
+// it out; a gate's is on or off), shown at once and written (at most every
+// THROTTLE, as a fader).
+setpin(c, l) {
+    local input = inputs[c[0]], output = outputs[c[1]];
+
+    if (synth->closed()) {
+        return;
+    }
+    l = max(0.0, min(1.0, round(l * 100) / 100.0));
+
+    if (gate(input)) {
+        l = l > 0 ? 1.0 : 0.0;
+    }
+
+    if (abs(l - level(c)) < 1e-6) {
+        return;
+    }
+    local pins = [], found = false;
+
+    for (local p in _pinsof(cables, input)) {
+        if (p[0] == output) {
+            found = true;
+
+            if (l > 0) {
+                push(pins, [output, l]);
+            }
+        } else {
+            push(pins, p);
+        }
+    }
+
+    if (!found && l > 0) {
+        push(pins, [output, l]);   // a fifth is the synth's to refuse
+    }
+    cables[input] = pins;
+    drawrow(c[0]);
+    local key = "cable:" + input;
+    touched[key] = clock() + SETTLE;
+    pending[key] = pins;
+
+    if (flushing == nil) {
+        flush();
+    }
+}
+
+// key(e): the keys of the matrix (as the synth's).
+key(e) {
+    local k = e["key"], ch = e["char"], c = cursor;
+
+    if (k == "Up" || k == "Down" || k == "Left" || k == "Right") {
+        local di = k == "Up" ? -1 : k == "Down" ? 1 : 0, dout = k == "Left" ? -1 : k == "Right" ? 1 : 0;
+        cursor = [max(0, min(len(inputs) - 1, c[0] + di)), max(0, min(len(outputs) - 1, c[1] + dout))];
+        drawcursor();
+    } else if (k == "space" || k == "Return") {
+        setpin(c, level(c) > 0 ? 0.0 : 1.0);
+    } else if (k == "Delete" || k == "BackSpace" || k == "End") {
+        setpin(c, 0.0);
+    } else if (k == "Home") {
+        setpin(c, 1.0);
+    } else if (k == "Prior" || k == "Next") {
+        setpin(c, level(c) + (k == "Prior" ? 0.01 : -0.01));
+    } else if (ch == "+" || ch == "=" || ch == "-" || ch == "_") {
+        setpin(c, level(c) + (ch == "+" || ch == "=" ? 0.1 : -0.1));
+    } else {
+        return;
+    }
+    return false;   // the key is the matrix's
+}
+
+// describe(c): what cell c is, and what can be done with it.
+describe(c) {
+    local input = inputs[c[0]], output = outputs[c[1]], l = level(c), state = "no cable";
+
+    if (l > 0) {
+        state = "cable at " + str(round(l * 100)) + " %";
+    } else if (len(_pinsof(cables, input)) == 0 && normalled[input] == output) {
+        state = "normalled (used while this input has no cables)";
+    }
+    local how = gate(input) ? "Click: on/off." : "Click: on/off. Drag up/down: level. Double-click: type the level.";
+
+    if (l == 0 && len(_pinsof(cables, input)) >= 4) {
+        how = "This input already has 4 cables.";
+    }
+    return output + " → " + input + ": " + state + ". " + how;
+}
+
+// asklevel(c): a small window that asks for the level of cell c.
+asklevel(c) {
+    local w = new tk::Window("Cable level"), f = new tk::Frame(w, {"padding": 10});
+    f->pack({"fill": "both", "expand": true});
+    new tk::Label(f, outputs[c[1]] + " → " + inputs[c[0]] + "\nLevel in percent (0 removes the cable):")->pack();
+    local entry = new tk::Entry(f, str(round(level(c) * 100)), {"width": 8, "justify": "center"});
+    entry->pack({"pady": 6});
+    local ok = fn(text) {
+        local t = trim(replace(text, "%", "")), v = nil;
+
+        try {
+            v = float(t);
+        } catch (e) {
+        }
+
+        if (v == nil || v < 0) {
+            say("Not a level: " + text);
+        } else {
+            setpin(c, v / 100.0);
+        }
+        w->close();
+    };
+    entry->onenter(ok);
+    local buttons = new tk::Frame(f);
+    buttons->pack();
+    new tk::Button(buttons, "OK")->onclick(fn() { ok(entry->text()); })->pack({"side": "left", "padx": 4});
+    new tk::Button(buttons, "Cancel")->onclick(fn() { w->close(); })->pack({"side": "left", "padx": 4});
+    w->bind("<Key-Escape>", fn(e) { w->close(); });
+    entry->focus();
+}
+
+// The drawing: tags h (heads and labels), r<i> (the cells of row i), grid
+// and cursor.
+
+_box(i, o) {
+    local x = LABELW + o * CELLW, y = HEADH + i * CELLH;
+    return [x, y, x + CELLW, y + CELLH];
+}
+
+_module(port) {
+    return slice(port, 0, find(port, "."));
+}
+
+// drawmatrix(): all of it (at the start, and for new colours).
+drawmatrix() {
+    if (matrix == nil || theme == nil) {
+        return;
+    }
+    matrix->clear();
+    local units = theme["units"], black = lmwtheme::BLACK;
+    local right = LABELW + len(outputs) * CELLW, bottom = HEADH + len(inputs) * CELLH;
+
+    for (local o = 0; o < len(outputs); o++) {
+        local x = LABELW + o * CELLW, name = outputs[o], dot = find(name, ".");
+        matrix->rect(x, 0, x + CELLW, HEADH, {"fill": units[lmwtheme::unit(name)], "outline": ""});
+        matrix->text(x + CELLW / 2, HEADH / 2 - 1, slice(name, 0, dot), {"anchor": "s", "color": black, "font": {"bold": true, "size": 9}});
+        matrix->text(x + CELLW / 2, HEADH / 2 + 1, slice(name, dot + 1), {"anchor": "n", "color": black, "font": {"bold": true, "size": 9}});
+    }
+
+    for (local i = 0; i < len(inputs); i++) {
+        local y = HEADH + i * CELLH, name = inputs[i];
+        matrix->rect(0, y, LABELW, y + CELLH, {"fill": units[lmwtheme::unit(name)], "outline": ""});
+        matrix->text(LABELW - 6, y + CELLH / 2, name + (gate(name) ? " (on/off)" : ""), {"anchor": "e", "color": black, "font": {"size": 9}});
+    }
+
+    for (local o = 0; o <= len(outputs); o++) {   // thin lines, thick between modules
+        local x = LABELW + o * CELLW;
+        local edge = o == 0 || o == len(outputs) || _module(outputs[o]) != _module(outputs[o - 1]);
+        matrix->line([x, edge ? 0 : HEADH, x, bottom], {"color": black, "width": edge ? 2 : 1});
+    }
+
+    for (local i = 0; i <= len(inputs); i++) {
+        local y = HEADH + i * CELLH;
+        local edge = i == 0 || i == len(inputs) || _module(inputs[i]) != _module(inputs[i - 1]);
+        matrix->line([edge ? 0 : LABELW, y, right, y], {"color": black, "width": edge ? 2 : 1});
+    }
+
+    for (local i = 0; i < len(inputs); i++) {
+        drawrow(i);
+    }
+    drawcursor();
+}
+
+// drawrow(i): the cells of row i: a cable as its level in % over a bar
+// filled to it; the normalled source of an input without cables as a
+// ring.
+drawrow(i) {
+    if (matrix == nil || theme == nil || i < 0) {
+        return;
+    }
+    local tag = "r" + str(i), black = lmwtheme::BLACK, input = inputs[i];
+    matrix->remove(tag);
+    local items = [];
+
+    for (local o = 0; o < len(outputs); o++) {
+        local b = _box(i, o), l = level([i, o]);
+        local x1 = b[0] + 3, y1 = b[1] + 3, x2 = b[2] - 3, y2 = b[3] - 3;
+
+        if (l > 0) {
+            push(items, matrix->rect(x1, y1, x2, y2, {"outline": black, "width": 1}));
+            push(items, matrix->rect(x1, y2 - 4, x1 + max(2, round((x2 - x1) * l)), y2, {"fill": black, "outline": ""}));
+            push(items, matrix->text((x1 + x2) / 2, y1 + 1, str(round(l * 100)) + " %", {"anchor": "n", "color": black, "font": {"size": 8}}));
+        } else if (len(_pinsof(cables, input)) == 0 && normalled[input] == outputs[o]) {
+            local cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
+            push(items, matrix->oval(cx - 5, cy - 5, cx + 5, cy + 5, {"outline": black, "width": 2}));
+        }
+    }
+
+    for (local id in items) {
+        matrix->tag(id, tag);
+    }
+    matrix->raise("cursor");
+}
+
+// drawcursor(): the cell cursor, while the matrix has the keyboard.
+drawcursor() {
+    if (matrix == nil) {
+        return;
+    }
+    matrix->remove("cursor");
+
+    if (focused) {
+        local b = _box(cursor[0], cursor[1]);
+        matrix->tag(matrix->rect(b[0] + 1, b[1] + 1, b[2] - 1, b[3] - 1, {"outline": lmwtheme::BLACK, "width": 3}), "cursor");
+    }
 }
 
 // Contrast (docs/future.md §13.7)
@@ -657,8 +1089,9 @@ setcontrast(p, r, save) {
         say("Contrast: " + e->message);
         return;
     }
-    local theme = lmwtheme::palette(minimum);
+    theme = lmwtheme::palette(minimum);
     tk::setcolors(theme["tk"]);
+    drawmatrix();
 
     for (local t in titles) {
         t[0]->configure({"background": theme["units"][t[1]], "foreground": lmwtheme::BLACK});

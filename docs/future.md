@@ -805,7 +805,7 @@ Each step is usable on its own and prepares the next:
 | 15 | `tk::Notebook` (13.3) | 7 | done (Q115) |
 | 16 | LMW-Synth GUI: the module `lmw` and a fake synth (13.4) | 9 | done (Q115) |
 | 17 | LMW-Synth GUI: Synth and Effects tabs, keeping in step, colours (13.5 to 13.7) | 15, 16; `/info` in the synth | done, with `tk::setcolors` (Q115) |
-| 18 | LMW-Synth GUI: the Matrix tab (13.5) | 17 | proposed (Q115) |
+| 18 | LMW-Synth GUI: the Matrix tab (13.5) | 17 | done, with `c->focus()` of a canvas (Q115) |
 | 19 | LMW-Synth GUI: Load, Save, Notes, choosing a synth (13.5) | 17 | proposed (Q115) |
 
 Steps 4, 5, 7 and 8 are independent of each other once 1 and 3 exist. A
@@ -1618,8 +1618,8 @@ with section 11); 2. `logging` with `Stderr`, `File`, `Memory` and the
 ## 13. A GUI for LMW-Synth over 9P
 
 *A proposal (2026-11-16, TODO.md Q115); steps 15 (`tk::Notebook`), 16
-(the module `lmw`, a fake synth) and 17 (the Synth and Effects tabs,
-keeping in step, colours) built.
+(the module `lmw`, a fake synth), 17 (the Synth and Effects tabs,
+keeping in step, colours) and 18 (the Matrix tab) built.
 The open questions are 13.9; all are answered (2026-11-17) as
 proposed.* [LMW-Synth](https://github.com/maarten-boot/software-synth-LMW) is
 a semi-modular polyphonic synthesizer (C++20, JUCE; standalone and VST3)
@@ -1733,6 +1733,11 @@ served (it reads `/` first).
    the state maps of the theme's classes, and the classic texts and list
    boxes one by one), `tk::colors()`, and `background` for a frame and
    `background` and `foreground` for a label. See the reference, `tk`.*
+10. **No keyboard focus for a canvas.** Found at step 18: only an entry
+   had `focus()`, so the matrix's cell cursor could not have the keys.
+   *Built (2026-11-18): `c->focus()` of a `tk::Canvas`; the matrix takes
+   the focus when clicked and when its tab is chosen, and binds its keys
+   on the canvas.*
 
 ### 13.4 The parts
 
@@ -1821,6 +1826,22 @@ in the synth's own text (ParamText.h: "800 Hz", "18.0 kHz", "-1.9 dB",
 "200 ms", "70 %", "+1.0 oct") and takes typed values as the synth reads
 them ("2k", "250 ms", "-6 dB"). A choice is a drop-down list.*
 
+*Built (2026-11-18), step 18: the Matrix tab, as the synth's
+MatrixView.cpp: a canvas with the inputs and outputs of `/ports`, their
+labels on the units' colours, thicker lines between modules, a cable as
+its level in % over a bar filled to it, the normalled source of an input
+without cables as a ring, and gates marked "(on/off)". Click, drag (1 %
+per 1.5 pixels, up is more), double click (a small window asks for the
+level in %), and the keys: arrows, Space or Enter, + or = and - or _ (10
+%), Page Up and Page Down (1 %), Home (100 %), Delete, Backspace or End.
+The status line says what the cell under the mouse is and what can be
+done with it. A cable change is written as the input's whole pins
+(`setcables`), at most every 20 ms like a fader, and kept in step by the
+same poll; what the synth refuses (a fifth cable) goes to the status line,
+and the input's cells show what the synth has again. `-tab name` starts on
+a tab. Without a window manager (Xvfb) the level window gets no focus by
+itself; on a desktop it does.*
+
 ### 13.6 Keeping in step
 
 - A fader that moves writes its parameter at most once every 20 ms, the
@@ -1902,6 +1923,12 @@ the user changes the contrast.*
   than the moves, the synth has the last; another client's changes show; the
   contrast comes from the settings file; killing the fake greys the
   window. The tk test harness now loads the modules next to a program.*
+  *And the Matrix tab (2026-11-18), `TestLmwguiMatrix`: with `-v` the GUI
+  prints the matrix's place and cell sizes; a click puts a cable in, a
+  drag sets it to 80 %, Right and Space put in a second, minus lowers it
+  to 90 %, a fifth cable on an input is refused with the synth's message,
+  another client's cable shows, and the synth has the cables the GUI
+  wrote.*
 - The contrast table for every preset.
 
 Steps (in §8): 15. `tk::Notebook` (13.3); 16. the module `lmw` and the

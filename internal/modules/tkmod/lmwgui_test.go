@@ -103,31 +103,12 @@ func TestLmwgui(t *testing.T) {
 	y, _ := strconv.Atoi(at[2])
 	w, _ := strconv.Atoi(at[3])
 	time.Sleep(300 * time.Millisecond) // the last places settle
-
-	var win string
-	for i := 0; i < 50 && win == ""; i++ {
-		got, _ := exec.Command("xdotool", "search", "--name", "^LMW-Synth: ").Output()
-		win = strings.TrimSpace(strings.SplitN(string(got), "\n", 2)[0])
-		time.Sleep(100 * time.Millisecond)
-	}
-	if win == "" {
-		t.Fatal("no window LMW-Synth")
-	}
-	geo, _ := exec.Command("xdotool", "getwindowgeometry", "--shell", win).Output()
-	var wx, wy int
-	for _, line := range strings.Fields(string(geo)) {
-		fmt.Sscanf(line, "X=%d", &wx)
-		fmt.Sscanf(line, "Y=%d", &wy)
-	}
+	wx, wy := lmwWindow(t)
 
 	// The cutoff is at its top (18 kHz): its handle is at the top of the
 	// fader. Drag it down.
 	hx, hy := wx+x+w/2, wy+y+8
-	run := func(args ...string) {
-		if err := exec.Command("xdotool", args...).Run(); err != nil {
-			t.Fatalf("xdotool %v: %v", args, err)
-		}
-	}
+	run := func(args ...string) { xdo(t, args...) }
 	run("mousemove", fmt.Sprint(hx), fmt.Sprint(hy), "mousedown", "1")
 	for i := 1; i <= 15; i++ {
 		run("mousemove", fmt.Sprint(hx), fmt.Sprint(hy+4*i))
@@ -169,4 +150,115 @@ wait:
 	// The synth goes away.
 	fake.cmd.Process.Kill()
 	gui.expect(t, `^lost$`)
+}
+
+// lmwWindow finds the window of lmwgui: its place on the screen.
+func lmwWindow(t *testing.T) (x, y int) {
+	t.Helper()
+	var win string
+	for i := 0; i < 50 && win == ""; i++ {
+		got, _ := exec.Command("xdotool", "search", "--name", "^LMW-Synth: ").Output()
+		win = strings.TrimSpace(strings.SplitN(string(got), "\n", 2)[0])
+		time.Sleep(100 * time.Millisecond)
+	}
+	if win == "" {
+		t.Fatal("no window LMW-Synth")
+	}
+	geo, _ := exec.Command("xdotool", "getwindowgeometry", "--shell", win).Output()
+	for _, line := range strings.Fields(string(geo)) {
+		fmt.Sscanf(line, "X=%d", &x)
+		fmt.Sscanf(line, "Y=%d", &y)
+	}
+	return x, y
+}
+
+// xdo runs xdotool.
+func xdo(t *testing.T, args ...string) {
+	t.Helper()
+	if err := exec.Command("xdotool", args...).Run(); err != nil {
+		t.Fatalf("xdotool %v: %v", args, err)
+	}
+}
+
+// TestLmwguiMatrix uses the Matrix tab of lmwgui against a fake synth: a
+// click puts a cable in, a drag sets its level, the keys move the cursor
+// and put in a second cable and lower it, a fifth cable on an input is
+// refused (the synth's message, and the cell shows what the synth has),
+// and another client's cable shows.
+func TestLmwguiMatrix(t *testing.T) {
+	display(t)
+	if _, err := exec.LookPath("xdotool"); err != nil || os.Getenv("KUKEL_TK_NOCLICK") != "" {
+		t.Skip("no xdotool")
+	}
+	dir, err := filepath.Abs("../../../examples/lmw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctl := filepath.Join(dir, "lmwctl.kkl")
+	fake := startKukel(t, ctl, "-fake", "serve", "30")
+	addr := fake.expect(t, `^serving (\S+)$`)[1]
+	full := startKukel(t, ctl, "-a", addr, "cable", "vcf2.in", "vco1.out+vco2.out+vco3.out+noise.out")
+	if err := <-full.done; err != nil {
+		t.Fatal(err)
+	}
+	gui := startKukel(t, filepath.Join(dir, "lmwgui.kkl"), "-a", addr, "-v", "-tab", "Matrix",
+		"-config", filepath.Join(t.TempDir(), "lmw-gui.toml"))
+	sizes := gui.expect(t, `^matrix cells (\d+) (\d+) (\d+) (\d+)$`)
+	gui.expect(t, `^shown all 51$`)
+	at := gui.expect(t, `^at matrix (\d+) (\d+) \d+ \d+$`)
+	time.Sleep(300 * time.Millisecond)
+	wx, wy := lmwWindow(t)
+	n := func(s string) int { i, _ := strconv.Atoi(s); return i }
+	// The middle of cell (input i, output o): the inputs and outputs in
+	// the order of the fake's /ports.
+	cellAt := func(i, o int) (string, string) {
+		x := wx + n(at[1]) + n(sizes[1]) + o*n(sizes[3]) + n(sizes[3])/2
+		y := wy + n(at[2]) + n(sizes[2]) + i*n(sizes[4]) + n(sizes[4])/2
+		return fmt.Sprint(x), fmt.Sprint(y)
+	}
+	const cutoff, vcf2in, lfo1, lfo2 = 13, 15, 8, 9
+
+	x, y := cellAt(cutoff, lfo1)
+	xdo(t, "mousemove", x, y, "click", "1")
+	gui.expect(t, `^write cables vcf1\.cutoff lfo1\.out$`)
+	time.Sleep(700 * time.Millisecond) // not a double click
+
+	xdo(t, "mousemove", x, y, "mousedown", "1")
+	for i := 1; i <= 6; i++ {
+		xdo(t, "mousemove_relative", "0", "5")
+		time.Sleep(10 * time.Millisecond)
+	}
+	xdo(t, "mouseup", "1")
+	gui.expect(t, `^write cables vcf1\.cutoff lfo1\.out@0\.8$`)
+
+	xdo(t, "key", "Right", "space")
+	gui.expect(t, `^write cables vcf1\.cutoff lfo1\.out@0\.8\+lfo2\.out$`)
+	xdo(t, "key", "minus")
+	gui.expect(t, `^write cables vcf1\.cutoff lfo1\.out@0\.8\+lfo2\.out@0\.9$`)
+	time.Sleep(700 * time.Millisecond)
+
+	x, y = cellAt(vcf2in, lfo2)
+	xdo(t, "mousemove", x, y, "click", "1")
+	gui.expect(t, `^refused cable:vcf2\.in vcf2\.in: .*more than 4`)
+
+	other := startKukel(t, ctl, "-a", addr, "cable", "vca.mod", "lfo1.out@0.5")
+	gui.expect(t, `^show cables vca\.mod lfo1\.out@0\.5$`)
+	if err := <-other.done; err != nil {
+		t.Fatal(err)
+	}
+	check := startKukel(t, ctl, "-a", addr, "cables")
+	want := map[string]bool{
+		"vcf1.cutoff = lfo1.out@0.8+lfo2.out@0.9":        true,
+		"vcf2.in = vco1.out+vco2.out+vco3.out+noise.out": true,
+		"vca.mod = lfo1.out@0.5":                         true,
+	}
+	for line := range check.lines {
+		if !want[line] {
+			t.Errorf("the synth has %q", line)
+		}
+		delete(want, line)
+	}
+	for line := range want {
+		t.Errorf("the synth lacks %q", line)
+	}
 }

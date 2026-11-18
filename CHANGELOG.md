@@ -17,6 +17,11 @@ From v1.0.0 on, what keeps working is in
 
 ## Unreleased
 
+- `examples/lmw/lmwgui.kkl`: the Matrix tab, a row per input and a column
+  per output of the synth: cables put in and taken out with a click,
+  levels set by dragging, typing or the keys, the normalled sources
+  shown; `-tab name` starts on a tab. `tk::Canvas` gains `focus()`, for
+  the keys of a canvas. Q115.
 - `examples/lmw/lmwgui.kkl`: a GUI for LMW-Synth over 9P (module `tk`),
   with the synth's module panels on a Synth tab and the reverb on an
   Effects tab: faders with the synth's value texts (typed values too),

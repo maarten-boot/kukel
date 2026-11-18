@@ -818,6 +818,11 @@ func registerCanvas() {
 		Canvas.Methods[kind] = create(kind)
 	}
 	// coords(id): the item's coordinates, as a vector.
+	// focus(): the keys typed go to the canvas (to its key bindings).
+	Canvas.Methods["focus"] = widgetMethod("Canvas", "focus", 0, 0, func(a native.Args, this *value.ObjectObj, wd *widget) (value.Value, error) {
+		tk.Focus(wd.w)
+		return value.ObjectValue(this), nil
+	})
 	Canvas.Methods["coords"] = canvasMethod("coords", 1, 1, func(a native.Args, this *value.ObjectObj, cv *canvas) (value.Value, error) {
 		i, err := cv.find(a, 0)
 		if err != nil {
