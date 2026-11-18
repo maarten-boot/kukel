@@ -80,6 +80,42 @@ func (p *kukelProcess) expect(t *testing.T, re string) []string {
 	}
 }
 
+// places waits for the lines "at name x y w h" of lmwgui -v for each of
+// names, in any order, and gives their numbers by name.
+func (p *kukelProcess) places(t *testing.T, names ...string) map[string][4]int {
+	t.Helper()
+	got := map[string][4]int{}
+	r := regexp.MustCompile(`^at (\S+) (\d+) (\d+) (\d+) (\d+)$`)
+	timeout := time.After(10 * time.Second)
+	for {
+		done := true
+		for _, name := range names {
+			if _, ok := got[name]; !ok {
+				done = false
+			}
+		}
+		if done {
+			return got
+		}
+		select {
+		case line, ok := <-p.lines:
+			if !ok {
+				t.Fatalf("the program ended before the places of %v; its output:\n%s", names, strings.Join(p.seen, "\n"))
+			}
+			p.seen = append(p.seen, line)
+			if m := r.FindStringSubmatch(line); m != nil {
+				var v [4]int
+				for i := range v {
+					v[i], _ = strconv.Atoi(m[i+2])
+				}
+				got[m[1]] = v
+			}
+		case <-timeout:
+			t.Fatalf("no places of %v within 10 s; the output:\n%s", names, strings.Join(p.seen, "\n"))
+		}
+	}
+}
+
 // TestLmwgui runs examples/lmw/lmwgui.kkl against a fake synth served by
 // lmwctl.kkl in another process (docs/future.md §13.8): the panels show
 // what the synth has, a fader dragged with xdotool writes its parameter
@@ -338,14 +374,13 @@ func TestLmwguiFiles(t *testing.T) {
 		"-a", one, "-v", "-tab", "Notes", "-config", filepath.Join(tmp, "lmw-gui.toml"))
 	gui.expect(t, `^shown all 51$`)
 	gui.expect(t, `^synths `+regexp.QuoteMeta(two)+` `+regexp.QuoteMeta(one)+`$`)
-	n := func(s string) int { i, _ := strconv.Atoi(s); return i }
-	list := gui.expect(t, `^at synthlist (\d+) (\d+) (\d+) (\d+)$`) // in the order the GUI made them
-	notes := gui.expect(t, `^at notes (\d+) (\d+) \d+ \d+$`)
+	at := gui.places(t, "synthlist", "notes", "reconnect")
+	list, notes, again := at["synthlist"], at["notes"], at["reconnect"]
 	time.Sleep(300 * time.Millisecond)
 	wx, wy := lmwWindow(t)
 
 	// Notes: typed after the text ("one"), written a second later.
-	xdo(t, "mousemove", fmt.Sprint(wx+n(notes[1])+40), fmt.Sprint(wy+n(notes[2])+40), "click", "1")
+	xdo(t, "mousemove", fmt.Sprint(wx+notes[0]+40), fmt.Sprint(wy+notes[1]+40), "click", "1")
 	xdo(t, "key", "ctrl+End")
 	xdo(t, "type", " and more")
 	gui.expect(t, `^write notes 12 bytes$`)
@@ -375,9 +410,28 @@ func TestLmwguiFiles(t *testing.T) {
 
 	// The other synth, from the list (it is first: the newest).
 	time.Sleep(700 * time.Millisecond)
-	xdo(t, "mousemove", fmt.Sprint(wx+n(list[1])+n(list[3])/2), fmt.Sprint(wy+n(list[2])+n(list[4])/2), "click", "1")
+	xdo(t, "mousemove", fmt.Sprint(wx+list[0]+list[2]/2), fmt.Sprint(wy+list[1]+list[3]/2), "click", "1")
 	time.Sleep(500 * time.Millisecond)
 	xdo(t, "key", "Up", "Return")
 	gui.expect(t, `^connected `+regexp.QuoteMeta(two)+`$`)
 	gui.expect(t, `^shown all 51$`)
+
+	// Notes typed, and the synth gone before they are written (a second
+	// after typing): they are kept, and written once "Connect again" has
+	// the synth back.
+	time.Sleep(300 * time.Millisecond)
+	xdo(t, "mousemove", fmt.Sprint(wx+notes[0]+40), fmt.Sprint(wy+notes[1]+40), "click", "1")
+	xdo(t, "type", "kept")
+	fake2.cmd.Process.Kill()
+	gui.expect(t, `^lost$`)
+	os.Remove(strings.TrimPrefix(two, "unix://")) // a killed server leaves its socket
+	fake2 = startKukel(t, ctl, "-fakeat", two, "serve", "60")
+	fake2.expect(t, `^serving `)
+	xdo(t, "mousemove", fmt.Sprint(wx+again[0]+again[2]/2), fmt.Sprint(wy+again[1]+again[3]/2), "click", "1")
+	gui.expect(t, `^connected `+regexp.QuoteMeta(two)+`$`)
+	gui.expect(t, `^write notes 4 bytes$`)
+	check := startKukel(t, ctl, "-a", two, "notes")
+	if got := check.expect(t, `^(.*)$`)[1]; got != "kept" {
+		t.Errorf("the synth's notes are %q, want the ones typed before it went", got)
+	}
 }

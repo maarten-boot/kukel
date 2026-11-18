@@ -90,6 +90,7 @@ global matrix = nil, inputs = [], outputs = [], normalled = {}, cables = {};
 global cursor = [0, 0], focused = false, drag = nil;
 global notesbox = nil, notestext = "", notesdirty = false, notestimer = nil;
 global synthlist, lister = nil, patchtitle = "", synths = {};   // label -> address
+global loadbutton, savebutton, connected = true;
 
 // The matrix's sizes in pixels: the labels of the rows, the heads of the
 // columns, a cell.
@@ -244,6 +245,7 @@ build(first) {
     window->onclose(quit);
     local head = new tk::Frame(window, {"padding": [6, 4]});
     head->pack({"fill": "x"});
+    local headcell = cell(head);   // one: a second bind would replace the first
 
     // From the left: the synth (first: the window may be wider than the
     // screen), the patch, the contrast.
@@ -260,19 +262,23 @@ build(first) {
     synthlist->pack({"side": "left", "padx": 4});
 
     if (verbose) {
-        push(geometry, ["synthlist", [cell(head), cell(synthlist)]]);
+        push(geometry, ["synthlist", [headcell, cell(synthlist)]]);
     }
     reconnect = new tk::Button(head, "Connect again", {"state": "disabled"});
     reconnect->onclick(connectagain);
     reconnect->pack({"side": "left"});
+
+    if (verbose) {
+        push(geometry, ["reconnect", [headcell, cell(reconnect)]]);
+    }
     patchname = new tk::Label(head, "Patch:", {"width": 24});
     patchname->pack({"side": "left", "padx": 12});
-    local load = new tk::Button(head, "Load...");
-    load->onclick(loadpatch);
-    load->pack({"side": "left"});
-    local save = new tk::Button(head, "Save...");
-    save->onclick(savepatch);
-    save->pack({"side": "left", "padx": 4});
+    loadbutton = new tk::Button(head, "Load...");
+    loadbutton->onclick(loadpatch);
+    loadbutton->pack({"side": "left"});
+    savebutton = new tk::Button(head, "Save...");
+    savebutton->onclick(savepatch);
+    savebutton->pack({"side": "left", "padx": 4});
     new tk::Label(head, "Contrast:")->pack({"side": "left", "padx": 4});
     contrast = new tk::Combobox(head, ["AA", "AAA", "Max", "Custom"], {"state": "readonly", "width": 7});
     contrast->pack({"side": "left"});
@@ -754,8 +760,12 @@ failed(e) {
     trace("lost");
 }
 
-// enable(on): every control usable, or greyed.
+// enable(on): every control usable, or greyed: the faders and lists,
+// the matrix (drawn in the disabled colour), the notes, Load and Save. The
+// list of synths stays: it is a way to another synth.
 enable(on) {
+    connected = on;
+
     for (local id, c in controls) {
         if (c["kind"] == "choice") {
             c["box"]->configure({"state": on ? "readonly" : "disabled"});
@@ -764,7 +774,12 @@ enable(on) {
             c["entry"]->configure({"state": on ? "normal" : "disabled"});
         }
     }
+    local state = {"state": on ? "normal" : "disabled"};
+    notesbox->configure(state);
+    loadbutton->configure(state);
+    savebutton->configure(state);
     reconnect->configure({"state": on ? "disabled" : "normal"});
+    drawmatrix();
 }
 
 connectagain() {
@@ -790,6 +805,9 @@ switchto(a) {
     }
     flush();
     savenotes();
+    // Notes typed but not written when the connection was lost: kept for
+    // the same synth, written once it is back.
+    local keep = synth->closed() && notesdirty && other->address == address ? notesbox->text() : nil;
 
     if (!synth->closed()) {
         synth->close();
@@ -805,14 +823,18 @@ switchto(a) {
     cables = {};
     notestext = "";
     notesdirty = false;
-    notesbox->settext("");
     patchtitle = "";
     patchname->settext("Patch:");
-    drawmatrix();
     enable(true);
+    notesbox->settext(keep == nil ? "" : keep);
+    notesdirty = keep != nil;   // the poll leaves them alone
     say("Connected to " + address + ".");
     trace("connected", address);
     poll();
+
+    if (keep != nil) {
+        savenotes();
+    }
 }
 
 // label(a): how the list in the header shows the synth at address a: a
@@ -1243,13 +1265,19 @@ _module(port) {
     return slice(port, 0, find(port, "."));
 }
 
+// ink(): the colour the matrix is drawn in: black, or while the synth is
+// lost the colour of disabled text (black too at Max).
+ink() {
+    return connected ? lmwtheme::BLACK : theme["tk"]["disabled"];
+}
+
 // drawmatrix(): all of it (at the start, and for new colours).
 drawmatrix() {
     if (matrix == nil || theme == nil) {
         return;
     }
     matrix->clear();
-    local units = theme["units"], black = lmwtheme::BLACK;
+    local units = theme["units"], black = ink();
     local right = LABELW + len(outputs) * CELLW, bottom = HEADH + len(inputs) * CELLH;
 
     for (local o = 0; o < len(outputs); o++) {
@@ -1290,7 +1318,7 @@ drawrow(i) {
     if (matrix == nil || theme == nil || i < 0) {
         return;
     }
-    local tag = "r" + str(i), black = lmwtheme::BLACK, input = inputs[i];
+    local tag = "r" + str(i), black = ink(), input = inputs[i];
     matrix->remove(tag);
     local items = [];
 
@@ -1323,7 +1351,7 @@ drawcursor() {
 
     if (focused) {
         local b = _box(cursor[0], cursor[1]);
-        matrix->tag(matrix->rect(b[0] + 1, b[1] + 1, b[2] - 1, b[3] - 1, {"outline": lmwtheme::BLACK, "width": 3}), "cursor");
+        matrix->tag(matrix->rect(b[0] + 1, b[1] + 1, b[2] - 1, b[3] - 1, {"outline": ink(), "width": 3}), "cursor");
     }
 }
 

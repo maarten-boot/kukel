@@ -1635,12 +1635,12 @@ rest of Kukel.
 
 | File | | What it is | Use in the GUI |
 |---|---|---|---|
-| `/params/<module>/<name>` | rw | each of the 51 parameters, the dotted id as a path (`vcf1.cutoff` is `params/vcf1/cutoff`); the value as text: floats with 7 significant digits, choices by name, integers. Writing takes the same, a choice also by a prefix (`band`) or an index; a number out of range is clipped; each write applies at once | faders and choice boxes |
-| `/cables` | rw | one line per patched input, `input=out[@level]+out...` (`vcf1.cutoff=env2.out@0.5+lfo1.out`, at most 4 outputs); writing a line sets that input's cables, `input=` removes them, `clear` all | matrix, cable menus |
+| `/params/<module>/<name>` | rw | each of the 51 parameters, the dotted id as a path (`vcf1.cutoff` is `params/vcf1/cutoff`); the value as text: floats as the shortest text that reads back as the value stored (since 2026-11-18; 7 significant digits before), choices by name, integers. Writing takes the same, a choice also by a prefix (`band`) or an index; a number out of range is clipped; each write applies at once | faders and choice boxes |
+| `/cables` | rw | one line per patched input, `input=out[@level]+out...` (`vcf1.cutoff=env2.out@0.5+lfo1.out`, at most 4 outputs); writing a line sets that input's cables, `input=` removes them, `clear` all | the matrix |
 | `/ports` | r | the 22 inputs with their normalled source (`input  lfo1.out -> vco1.fm`, `none` for `vcf1.res`), then the 16 outputs | rows and columns of the matrix, sockets: nothing hard-coded |
 | `/patch` | rw | the whole state as an `.lmwpatch` text (parameters, cables, `[schematic]`, `[notes]`, the name); writing loads a patch when the file is closed (an error comes back on the close) | loading and saving files; keeping the GUI in step |
 | `/notes` | rw | the Notes text, replaced on close | the Notes tab |
-| `/source` | r | the repository URL (AGPLv3 §13) | the About box |
+| `/source` | r | the repository URL (AGPLv3 §13) | an About box (later: not in the first version) |
 
 Errors are 9P error strings (`bad value`, `unknown input: nope`, a patch
 file error, `busy` when the synth's message thread did not answer within
@@ -1703,8 +1703,10 @@ it), so a GUI must pass over sockets it cannot dial.
    there are none yet.
 
 These go to the synth's own project (`../software-synth-LMW`), in a
-session there; the Kukel GUI is built so that each is used once it is
-served (it reads `/` first).
+session there. *As built (2026-11-18): the GUI needs `/info` (without it
+it says a newer synth is needed and stops); `changes()` of `lmw` reads
+`/serial` when there is one and `/patch` otherwise; `/keys` is not used
+yet (an on-screen keyboard is for later); telemetry is not served.*
 
 ### 13.3 What is missing, in Kukel
 
@@ -1722,7 +1724,9 @@ served (it reads `/` first).
    calls first, a worker only if that proves a problem (F-61).
 7. **Linear sliders.** `tk::Scale` is linear: a log parameter (the
    cutoff, 20 Hz to 18 kHz) is a slider from 0 to 1 that the GUI maps,
-   with the value in a label beside it.
+   with the value in a label beside it. *Built (2026-11-18) with 1000
+   steps, and the value in an entry under the fader, where it can also be
+   typed.*
 8. **No configuration directory.** The config file's place comes from
    `getenv` (`XDG_CONFIG_HOME`, `HOME`, `APPDATA`); no change to Kukel.
 9. **No colours.** Found at step 17: `tk`'s themed widgets took no
@@ -1746,9 +1750,12 @@ served (it reads `/` first).
 examples/lmw/
     lmw.kkl          the module lmw: no GUI; finding, connecting, the model
     lmwgui.kkl       the program: windows, tabs, panels
+    lmwtheme.kkl     the GUI's colours and contrast rules (no tk)
     fakesynth.kkl    a 9P server in Kukel that behaves as the synth, for tests
     lmwctl.kkl       a command-line client, for the tests and by hand
     lmwctl.tests     its tests, against fakesynth.kkl
+    contrast.kkl     the colour pairs of a contrast preset, checked
+    contrast.tests   its tests, for every preset
 ```
 
 The module `lmw` (no `tk`, so it runs and is tested anywhere):
@@ -1775,6 +1782,10 @@ a command-line client, `lmwctl.kkl` (commands `get`, `set`, `info`,
 separated by `,`; `-fake` runs the fake synth in the program, `-fakedir`
 on a Unix socket in a new directory, `-serial` and `-noinfo` change what
 it serves), in `lmwctl.tests`, since a `.tests` file runs a program.
+(Later, 2026-11-18: `-noserial` in place of `-serial`, since the fake
+serves `/serial` by default; the commands `serial`, `on`, `off`,
+`played`, and `serve seconds` with `-fake` or `-fakeat address`, a fake
+at a given address, for the GUI's tests.)
 `s->info()` and `s->param(id)` give `/info`; without `/info`, `params()`
 lists the files in `/params` and values stay the synth's text (`+1` is an
 octave, not a number). `lmw::connect` asks for 9P2000: the synth speaks
@@ -1883,6 +1894,11 @@ within half a second of the user's last change, and while its write is
 still to go; a change the poll skipped is shown once the fader is free. The
 poll asks `changes()` of `lmw` (`/serial` first). Greyed means every
 control disabled, and the status line says why.*
+*After the crosscheck (2026-11-18): greyed is also the notes, Load and
+Save, and the matrix (drawn in the colour of disabled text); the list of
+synths stays usable, as a way to another synth. Notes typed but not yet
+written when the connection went are kept, and written when "Connect
+again" has the same synth back (before, they were dropped).*
 
 ### 13.7 Colours
 
@@ -1913,9 +1929,9 @@ the user changes the contrast.*
   values, error messages and the text forms, served on a Unix socket in
   the test (a Kukel tree applies a write on close, the synth at once; for
   the tests that is the same).
-- The fake against the real one: a script (not in CI, since kukel's CI
-  does not build the synth) runs the same tests against a synth under
-  `xvfb-run`.
+- The fake against the real one: the same tests against a synth under
+  `xvfb-run`, by hand (not in CI, since kukel's CI does not build the
+  synth); there is no script for it.
   *Done by hand (2026-11-17) with `lmwctl -a` against a synth under
   `xvfb-run`: values, choices by prefix and index, clipping, step, the
   error messages, cables, ports, `changes()` and the patch-file errors
@@ -1955,14 +1971,17 @@ the user changes the contrast.*
   written elsewhere show; Ctrl+S saves the synth's patch, Ctrl+O loads a
   patch file (its cutoff shows) and a bad one is refused; choosing the
   other synth in the list connects to it.*
-- The contrast table for every preset.
+- The contrast table for every preset. *Done (2026-11-18):
+  `contrast.tests`.*
+- *Not yet tried: `lmwgui` against the real synth.*
 
 Steps (in §8): 15. `tk::Notebook` (13.3); 16. the module `lmw` and the
 fake synth (13.4); 17. the Synth and Effects tabs, keeping in step,
 colours (13.5 to 13.7); 18. the Matrix tab; 19. Load, Save, Notes,
 choosing a synth. In the synth, before step 17: `/info`; later `/serial`,
-`/keys`, telemetry. After them: the schematic, an on-screen keyboard,
-meters.
+`/keys`, telemetry (`/info`, `/serial` and `/keys` are served since
+2026-11-18; telemetry is not yet). After them: the schematic, an
+on-screen keyboard, meters.
 
 ### 13.9 Open questions
 

@@ -17,6 +17,9 @@ From v1.0.0 on, what keeps working is in
 
 ## Unreleased
 
+- `examples/lmw/lmwgui.kkl`: notes typed but not yet written when the
+  connection to the synth is lost are kept and written when it is back;
+  the notes, Load, Save and the matrix are greyed while it is lost. Q115.
 - `examples/lmw/lmwgui.kkl`: Load and Save of patch files (also Ctrl+O and
   Ctrl+S), the Notes tab, and a list of the running synths to switch to
   another; `lmwctl` gains `-fakeat address`. Q115.
