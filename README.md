@@ -135,6 +135,16 @@ go install -tags tk github.com/maarten-boot/kukel/cmd/kukel@latest
 make tk                       # bin/kukel-tk
 ```
 
+`go install` names the binary `kukel` either way, so the second install
+replaces the first in the Go bin directory. To keep both, install the
+one with `tk` into a directory of its own with `GOBIN` (and run it from
+there, or put that directory on your `PATH`):
+
+```
+GOBIN=$HOME/go/bin-tk go install -tags tk github.com/maarten-boot/kukel/cmd/kukel@latest
+~/go/bin-tk/kukel version     # lists tk among the modules
+```
+
 `kukel version` lists the modules (and databases) a binary has.
 
 Each release on GitHub also has ready-made archives of `kukel`, and of

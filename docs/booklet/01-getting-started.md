@@ -27,6 +27,17 @@ go install github.com/maarten-boot/kukel/cmd/kukel@latest
 go install -tags tk github.com/maarten-boot/kukel/cmd/kukel@latest   # with tk
 ```
 
+Both are called `kukel`, so the second replaces the first in Go's bin
+directory. To keep both, put the one with `tk` in a directory of its
+own with `GOBIN`:
+
+```text
+GOBIN=$HOME/go/bin-tk go install -tags tk github.com/maarten-boot/kukel/cmd/kukel@latest
+```
+
+and run it as `~/go/bin-tk/kukel`, or put that directory on your `PATH`
+(before Go's bin directory if `kukel` should be the one with `tk`).
+
 Check what you have:
 
 ```
