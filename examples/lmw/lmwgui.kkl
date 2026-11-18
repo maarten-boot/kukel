@@ -95,9 +95,14 @@ global loadbutton, savebutton, connected = true;
 // The matrix's sizes in pixels: the labels of the rows, the heads of the
 // columns, a cell.
 const LABELW = 150;
-const HEADH = 38;
+const HEADH = 36;
 const CELLW = 46;
-const CELLH = 26;
+const CELLH = 22;
+
+// The panels are compact, so that the window fits a 1024 by 768 screen:
+// the controls' texts in a smaller font, short faders.
+global SMALL = {"size": 8};
+const FADER = 96;   // a fader's length in pixels
 
 main(args) {
     local fake = false, i = 0, first = "Synth";
@@ -250,7 +255,7 @@ build(first) {
     // From the left: the synth (first: the window may be wider than the
     // screen), the patch, the contrast.
     new tk::Label(head, "Synth:")->pack({"side": "left"});
-    synthlist = new tk::Combobox(head, [label(address)], {"state": "readonly", "width": 16});
+    synthlist = new tk::Combobox(head, [label(address)], {"state": "readonly", "width": 14});
     synthlist->settext(label(address));
     synthlist->onselect(fn(l) {
         local a = synths[l] == nil ? l : synths[l];
@@ -271,7 +276,7 @@ build(first) {
     if (verbose) {
         push(geometry, ["reconnect", [headcell, cell(reconnect)]]);
     }
-    patchname = new tk::Label(head, "Patch:", {"width": 24});
+    patchname = new tk::Label(head, "Patch:", {"width": 14});
     patchname->pack({"side": "left", "padx": 12});
     loadbutton = new tk::Button(head, "Load...");
     loadbutton->onclick(loadpatch);
@@ -354,17 +359,17 @@ rows(page, layout, chain) {
 // unit's colour, and a column per control.
 makepanel(parent, title, items, chain) {
     local f = new tk::Frame(parent, {"relief": "solid", "borderwidth": 1});
-    f->pack({"side": "left", "fill": "y", "padx": 3, "pady": 3});
-    local t = new tk::Label(f, title, {"anchor": "center", "padding": [6, 2], "font": {"bold": true}});
+    f->pack({"side": "left", "fill": "y", "padx": 2, "pady": 2});
+    local t = new tk::Label(f, title, {"anchor": "center", "padding": [4, 1], "font": {"bold": true, "size": 9}});
     t->pack({"fill": "x"});
     push(titles, [t, lmwtheme::unit(title)]);
-    local body = new tk::Frame(f, {"padding": 4}), column = 0;
+    local body = new tk::Frame(f, {"padding": 2}), column = 0;
     body->pack({"fill": "both", "expand": true});
     chain = extend(chain, cell(f), cell(body));
 
     for (local item in items) {
         local c = new tk::Frame(body);
-        c->grid({"row": 0, "column": column++, "sticky": "n", "padx": 3});
+        c->grid({"row": 0, "column": column++, "sticky": "n", "padx": 1});
         local at = extend(chain, cell(c));
 
         if (typeof(item[0]) == "vector") {
@@ -381,7 +386,7 @@ makepanel(parent, title, items, chain) {
 // for a choice a drop-down list.
 control(parent, id, label, chain) {
     local p = synth->param(id);
-    new tk::Label(parent, label, {"anchor": "center"})->pack({"fill": "x"});
+    new tk::Label(parent, label, {"anchor": "center", "font": SMALL})->pack({"fill": "x"});
 
     if (p == nil) {   // the synth has no such parameter
         new tk::Label(parent, "(none)")->pack();
@@ -392,17 +397,17 @@ control(parent, id, label, chain) {
         local width = 3;
 
         for (local name in p["choices"]) {
-            width = max(width, len(name) + 1);
+            width = max(width, len(name));
         }
-        local box = new tk::Combobox(parent, p["choices"], {"state": "readonly", "width": width});
+        local box = new tk::Combobox(parent, p["choices"], {"state": "readonly", "width": width, "font": SMALL});
         box->pack({"pady": 2});
         box->onselect(fn(text) { setnow(id, text); });
         controls[id] = {"p": p, "kind": "choice", "box": box};
         return;
     }
-    local scale = new tk::Scale(parent, {"from": STEPS, "to": 0, "step": 1, "orient": "vertical", "length": 120});
+    local scale = new tk::Scale(parent, {"from": STEPS, "to": 0, "step": 1, "orient": "vertical", "length": FADER});
     scale->pack();
-    local entry = new tk::Entry(parent, {"width": 9, "justify": "center"});
+    local entry = new tk::Entry(parent, {"width": 7, "justify": "center", "font": SMALL});
     entry->pack({"pady": 2});
     controls[id] = {"p": p, "kind": "fader", "scale": scale, "entry": entry};
 
@@ -954,7 +959,7 @@ savepatch() {
 // makenotes(page, chain): the Notes tab: the text is written a second
 // after typing stops, and when it loses the keyboard.
 makenotes(page, chain) {
-    notesbox = new tk::Text(page, {"width": 80, "height": 24, "wrap": "word", "scroll": "y"});
+    notesbox = new tk::Text(page, {"width": 80, "height": 20, "wrap": "word", "scroll": "y"});
     notesbox->pack({"fill": "both", "expand": true});
 
     if (verbose) {
@@ -1324,12 +1329,12 @@ drawrow(i) {
 
     for (local o = 0; o < len(outputs); o++) {
         local b = _box(i, o), l = level([i, o]);
-        local x1 = b[0] + 3, y1 = b[1] + 3, x2 = b[2] - 3, y2 = b[3] - 3;
+        local x1 = b[0] + 3, y1 = b[1] + 2, x2 = b[2] - 3, y2 = b[3] - 2;
 
         if (l > 0) {
             push(items, matrix->rect(x1, y1, x2, y2, {"outline": black, "width": 1}));
-            push(items, matrix->rect(x1, y2 - 4, x1 + max(2, round((x2 - x1) * l)), y2, {"fill": black, "outline": ""}));
-            push(items, matrix->text((x1 + x2) / 2, y1 + 1, str(round(l * 100)) + " %", {"anchor": "n", "color": black, "font": {"size": 8}}));
+            push(items, matrix->rect(x1, y2 - 3, x1 + max(2, round((x2 - x1) * l)), y2, {"fill": black, "outline": ""}));
+            push(items, matrix->text((x1 + x2) / 2, y1, str(round(l * 100)) + " %", {"anchor": "n", "color": black, "font": {"size": 8}}));
         } else if (len(_pinsof(cables, input)) == 0 && normalled[input] == outputs[o]) {
             local cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
             push(items, matrix->oval(cx - 5, cy - 5, cx + 5, cy + 5, {"outline": black, "width": 2}));

@@ -147,6 +147,19 @@ func TestLmwgui(t *testing.T) {
 	time.Sleep(300 * time.Millisecond) // the last places settle
 	wx, wy := lmwWindow(t)
 
+	// The window fits a screen of 1024 by 768 (docs/future.md 13.5), as
+	// Xvfb's here.
+	geo, _ := exec.Command("xdotool", "search", "--name", "^LMW-Synth: ").Output()
+	size, _ := exec.Command("xdotool", "getwindowgeometry", "--shell", strings.Fields(string(geo))[0]).Output()
+	var ww, wh int
+	for _, line := range strings.Fields(string(size)) {
+		fmt.Sscanf(line, "WIDTH=%d", &ww)
+		fmt.Sscanf(line, "HEIGHT=%d", &wh)
+	}
+	if ww == 0 || ww > 1024 || wh > 768 {
+		t.Errorf("the window is %dx%d, more than a 1024x768 screen", ww, wh)
+	}
+
 	// The cutoff is at its top (18 kHz): its handle is at the top of the
 	// fader. Drag it down.
 	hx, hy := wx+x+w/2, wy+y+8

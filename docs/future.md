@@ -1868,10 +1868,17 @@ shown by its name (`4711-1`); choosing one connects to it (the GUI stays
 with the one it has when the other does not answer) and shows what it
 has. "Connect again" does the same with the synth that was lost. The header
 starts with the synth (its list and "Connect again"), then the patch
-(name, Load, Save), then the contrast: the window is about 1400 pixels
+(name, Load, Save), then the contrast: the window was about 1400 pixels
 wide, and CI's 1024 pixel screen (Xvfb) cut off what stood at the right,
 where the list was at first. The GUI tests now fail with that message
 when a point they click is off the screen.*
+
+*Made to fit a 1024 by 768 screen (2026-11-18): the controls' labels,
+values and lists in an 8 point font, value boxes of 7 characters, faders
+of 96 pixels, less padding, matrix rows of 22 pixels. The window is
+940x674 with Noto Sans and 989x659 with DejaVu Sans (wider; GitHub's
+CI), so a title bar and a desktop's panel fit too; `TestLmwgui` fails
+when it is more than 1024x768.*
 
 ### 13.6 Keeping in step
 
