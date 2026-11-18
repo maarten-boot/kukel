@@ -1973,7 +1973,18 @@ the user changes the contrast.*
   other synth in the list connects to it.*
 - The contrast table for every preset. *Done (2026-11-18):
   `contrast.tests`.*
-- *Not yet tried: `lmwgui` against the real synth.*
+- *`lmwgui` against the real synth (2026-11-18, by hand, the synth
+  built that day, under Xvfb with its own home and socket directory):
+  the panels and the matrix come from its `/info` and `/ports` as from
+  the fake; a dragged cutoff wrote 10 values and the synth reads back the
+  last exactly (216.8103); "-6 dB" typed under the volume gave 0.5011872;
+  changes made with `lmwctl` show (a value, a choice, a cable, the
+  notes); a matrix click puts a cable in; typed notes reach the synth; a
+  saved patch is byte for byte what `/patch` gives. Stopped with
+  SIGTERM, the synth removes its socket and the GUI greys; a new synth
+  appears first in the list, and choosing it connects and shows all 51
+  parameters (the dead one leaves the list). Nothing differed from the
+  fake.*
 
 Steps (in §8): 15. `tk::Notebook` (13.3); 16. the module `lmw` and the
 fake synth (13.4); 17. the Synth and Effects tabs, keeping in step,
