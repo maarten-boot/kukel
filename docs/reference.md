@@ -2699,6 +2699,30 @@ nearest one.
 `tk::themes()` lists the themes there are, `tk::theme()` gives the one in
 use, and `tk::settheme(name)` changes it for all windows.
 
+**Colours.** The widgets take the theme's colours, except where the
+program gives its own: `tk::setcolors(palette)` sets colours for all
+windows and widgets at once (also those made later, and they stay after
+`tk::settheme`), and a frame or label takes its own `background` (a label
+also `foreground`), as for the title of a panel in a colour of its own. The
+parts of the palette, each a colour and each optional (what is left out
+keeps what it was):
+
+| Part | What it colours |
+|---|---|
+| `background` | windows, frames, labels, buttons, check and radio buttons, tabs, the parts of sliders and scrollbars |
+| `foreground` | text, the cursor of an entry or text, the arrows of drop-down lists |
+| `field` | where text is typed or listed: entries, drop-down lists, texts, list boxes |
+| `select`, `selectforeground` | selected text and lines, and their text |
+| `trough` | the groove of a slider or scrollbar |
+| `border` | outlines, and the focus ring |
+| `active` | a button (also a check box, tab, ...) under the mouse or pressed, and the tabs not shown |
+| `disabled` | the text of a widget that is off (`state` `"disabled"`) |
+
+A program that wants all its pairs at a contrast ratio of its choosing
+(black on white, as WCAG asks) sets them all; `examples/lmw/lmwtheme.kkl`
+works them out for a minimum ratio. A canvas has its own `background`, and
+menus keep the system's colours.
+
 **Layout.** A widget appears once its parent places it with `pack` or
 `grid`; each window or frame uses one of the two for its widgets (mixing
 them is a `ValueError`). Frames hold widgets, and nest.
@@ -2778,7 +2802,9 @@ a button takes the keyboard focus when clicked; an entry gets it back with
 | Function | Description |
 |---|---|
 | `tk::available()` | Whether Tk can be used; it starts Tk. False without a display, after Tk ended, and off the main thread (in a worker) |
-| `tk::themes()`, `tk::theme()`, `tk::settheme(name)` | The themes there are (a vector of names), the one in use, and choosing one (it gives nil; an unknown name is a `ValueError`); the fonts given to widgets stay |
+| `tk::themes()`, `tk::theme()`, `tk::settheme(name)` | The themes there are (a vector of names), the one in use, and choosing one (it gives nil; an unknown name is a `ValueError`); the fonts given to widgets stay, and so do the colours of `setcolors` |
+| `tk::setcolors(palette)` | Sets the colours of all windows and widgets (above): a map of some of `background`, `foreground`, `field`, `select`, `selectforeground`, `trough`, `border`, `active` and `disabled` to colours; gives nil. Another key is a `ValueError`, a colour Tk does not know a `TkError`, and either changes nothing |
+| `tk::colors()` | The palette set so far: a map of the parts given to `setcolors`, in the order of the table above (`{}` before the first) |
 | `tk::messagebox(text [, options])` | Shows a message and waits for a button; gives its name (`"ok"`, `"cancel"`, `"yes"`, `"no"`, `"retry"`, `"abort"`, `"ignore"`). Options: `title`, `detail` (a second, smaller text), `icon` (`"info"`, `"warning"`, `"error"`, `"question"`), `buttons` (`"ok"`, `"okcancel"`, `"yesno"`, `"yesnocancel"`, `"retrycancel"`, `"abortretryignore"`), `default` (the button Enter presses: one of those of `buttons`, else a `ValueError`), `parent` (an open window it shows over) |
 | `tk::openfile([options])` | Lets the user choose a file to open; gives its path, or nil when cancelled. Options: `title`, `dir` (where it starts), `file`, `types` (`[["Kukel", ".kkl"], ["All files", "*"]]`: a name and patterns), `multiple` (`true`: a vector of paths), `parent` |
 | `tk::savefile([options])` | Lets the user choose where to save; gives the path (the file need not exist; the dialog asks before an existing one is chosen), or nil. Options: `title`, `dir`, `file`, `types`, `ext` (added to a name without one, as `".txt"`), `parent` |
@@ -2799,7 +2825,7 @@ out when it opens.
 | `w->close()` | Closes the window (and, the first window, all); a second `close()` does nothing |
 | `w->closed()` | Whether the window is closed |
 | `w->bind(sequence, f)`, `w->rowconfigure(i, options)`, `w->columnconfigure(i, options)` | See above |
-| `new tk::Frame(parent [, options])` | A container for widgets in a window or frame. Options: `width`, `height`, `padding` (pixels inside the edge: one number, or `[x, y]`, or `[left, top, right, bottom]`), `relief` (`"flat"`, `"raised"`, `"sunken"`, `"groove"`, `"ridge"`, `"solid"`), `borderwidth` |
+| `new tk::Frame(parent [, options])` | A container for widgets in a window or frame. Options: `width`, `height`, `padding` (pixels inside the edge: one number, or `[x, y]`, or `[left, top, right, bottom]`), `relief` (`"flat"`, `"raised"`, `"sunken"`, `"groove"`, `"ridge"`, `"solid"`), `borderwidth`, `background` (a colour; the widgets in it keep their own) |
 | `f->configure(options)`, `f->pack(...)`, `f->grid(...)`, `f->bind(...)`, `f->rowconfigure(...)`, `f->columnconfigure(...)` | See above |
 | `new tk::Notebook(parent [, options])` | Pages, one shown at a time, chosen by a row of tabs. Its pages are frames made in it (`new tk::Frame(notebook)`); other widgets go in those frames (making one in the notebook itself is a `ValueError`). Options: `width`, `height` (of the pages), `padding` (around them). It has `configure`, `pack`, `grid` and `bind` |
 | `n->add(frame, title)` | Makes `frame` the last page, with `title` on its tab; the first page added is shown. A frame made elsewhere, or a page already, is a `ValueError` |
@@ -2835,7 +2861,7 @@ notebook).
 
 | Constructor or member function | Description |
 |---|---|
-| `new tk::Label(parent, text [, options])` | A text. Options: `width` (characters), `font`, `image`, `compound` (below), `anchor` (where the text sits: `"w"`, `"center"`, `"ne"`, ...), `justify` (`"left"`, `"center"`, `"right"`: of several lines), `wraplength` (pixels before a line wraps), `padding`, `state` (`"normal"`, `"disabled"`) |
+| `new tk::Label(parent, text [, options])` | A text. Options: `width` (characters), `font`, `image`, `compound` (below), `anchor` (where the text sits: `"w"`, `"center"`, `"ne"`, ...), `justify` (`"left"`, `"center"`, `"right"`: of several lines), `wraplength` (pixels before a line wraps), `padding`, `state` (`"normal"`, `"disabled"`), `background`, `foreground` (colours) |
 | `new tk::Button(parent, text [, options])` | A button. Options: `width`, `padding`, `state`, `font`, `image`, `compound` (below) |
 | `b->onclick(f)` | `f()` is called when the button is clicked (nil: nothing) |
 | `b->invoke()` | Calls the `onclick` handler as a click would, at once: its result and exception come back |

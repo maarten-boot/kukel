@@ -804,7 +804,7 @@ Each step is usable on its own and prepares the next:
 | 14 | Logging: the module `logging`, written in Kukel, with syslog (12) | 11, 13; 10 for syslog over TLS | done (Q114), with the module `os` |
 | 15 | `tk::Notebook` (13.3) | 7 | done (Q115) |
 | 16 | LMW-Synth GUI: the module `lmw` and a fake synth (13.4) | 9 | done (Q115) |
-| 17 | LMW-Synth GUI: Synth and Effects tabs, keeping in step, colours (13.5 to 13.7) | 15, 16; `/info` in the synth | proposed (Q115) |
+| 17 | LMW-Synth GUI: Synth and Effects tabs, keeping in step, colours (13.5 to 13.7) | 15, 16; `/info` in the synth | done, with `tk::setcolors` (Q115) |
 | 18 | LMW-Synth GUI: the Matrix tab (13.5) | 17 | proposed (Q115) |
 | 19 | LMW-Synth GUI: Load, Save, Notes, choosing a synth (13.5) | 17 | proposed (Q115) |
 
@@ -1617,8 +1617,9 @@ with section 11); 2. `logging` with `Stderr`, `File`, `Memory` and the
 
 ## 13. A GUI for LMW-Synth over 9P
 
-*A proposal (2026-11-16, TODO.md Q115); steps 15 (`tk::Notebook`) and 16
-(the module `lmw`, a fake synth) built.
+*A proposal (2026-11-16, TODO.md Q115); steps 15 (`tk::Notebook`), 16
+(the module `lmw`, a fake synth) and 17 (the Synth and Effects tabs,
+keeping in step, colours) built.
 The open questions are 13.9; all are answered (2026-11-17) as
 proposed.* [LMW-Synth](https://github.com/maarten-boot/software-synth-LMW) is
 a semi-modular polyphonic synthesizer (C++20, JUCE; standalone and VST3)
@@ -1723,6 +1724,15 @@ served (it reads `/` first).
    with the value in a label beside it.
 8. **No configuration directory.** The config file's place comes from
    `getenv` (`XDG_CONFIG_HOME`, `HOME`, `APPDATA`); no change to Kukel.
+9. **No colours.** Found at step 17: `tk`'s themed widgets took no
+   colours (only a canvas a `background`), so a white background, black
+   text and the units' colours could not be set. *Built (2026-11-18), as
+   the user chose: `tk::setcolors(palette)` for all widgets at once (parts
+   `background`, `foreground`, `field`, `select`, `selectforeground`,
+   `trough`, `border`, `active`, `disabled`; through the ttk styles and
+   the state maps of the theme's classes, and the classic texts and list
+   boxes one by one), `tk::colors()`, and `background` for a frame and
+   `background` and `foreground` for a label. See the reference, `tk`.*
 
 ### 13.4 The parts
 
@@ -1799,6 +1809,18 @@ Load and Save use the file dialogs: Load writes the file to `/patch`
 (the synth checks it and says what is wrong), Save writes what `/patch`
 gives. The status line shows the synth's errors and `busy`.
 
+*Built (2026-11-18), step 17: `examples/lmw/lmwgui.kkl` (`-a address`,
+`-fake`, `-config file`, `-v`) with the Synth and Effects tabs. The header
+has the patch name, the contrast (a list of the presets and an entry for a
+custom ratio), the synth's address and "Connect again"; Load and Save come
+with step 19. The panels and their short labels are the synth's
+(PluginEditor.cpp); a fader is a `tk::Scale` of 1000 steps that the GUI
+maps to the value, with JUCE's skew for a parameter with a `centre`, the
+value put on its `step` and an int rounded; the value under it is an entry
+in the synth's own text (ParamText.h: "800 Hz", "18.0 kHz", "-1.9 dB",
+"200 ms", "70 %", "+1.0 oct") and takes typed values as the synth reads
+them ("2k", "250 ms", "-6 dB"). A choice is a drop-down list.*
+
 ### 13.6 Keeping in step
 
 - A fader that moves writes its parameter at most once every 20 ms, the
@@ -1813,6 +1835,14 @@ gives. The status line shows the synth's errors and `busy`.
 - A lost connection (the synth closed) greys the window and offers to
   connect again; nothing is lost on the synth's side.
 
+*Built (2026-11-18) as above. The writes of all faders go out together:
+the first at once, then at most every 20 ms, each fader's last value. A
+fader is left alone by the poll while the mouse button is down on it,
+within half a second of the user's last change, and while its write is
+still to go; a change the poll skipped is shown once the fader is free. The
+poll asks `changes()` of `lmw` (`/serial` first). Greyed means every
+control disabled, and the status line says why.*
+
 ### 13.7 Colours
 
 As in the synth's own GUI (its S6.2 and S6.3): a white
@@ -1823,6 +1853,18 @@ configuration directory, F-63). The unit colours are light tints raised
 to the chosen ratio against the black text, white at Max; the pairs are
 listed in one table that a test checks for every preset (as the synth's
 Theme.h).
+
+*Built (2026-11-18): the module `examples/lmw/lmwtheme.kkl` (no `tk`) has
+the synth's unit colours and contrast rules (Contrast.cpp:
+`enforce` mixes a colour towards black or white until it has the ratio)
+and gives, for a ratio, the palette for `tk::setcolors`, the unit
+colours, and every pair the GUI draws: text, selected text, disabled text,
+outlines, the faders' groove, a button under the mouse, and each unit's
+title. `contrast.kkl` prints them for a preset and fails when a pair is
+below it; `contrast.tests` runs AA, AAA, Max and custom ratios. The file is
+`lmw-gui.toml` in `$XDG_CONFIG_HOME`, else `%APPDATA%`, else
+`~/.config`: `[contrast]` with `preset` and `ratio`; it is written when
+the user changes the contrast.*
 
 ### 13.8 How it would be tested
 
@@ -1851,6 +1893,15 @@ Theme.h).
   shortest text for it.*
 - The GUI as `notes.kkl` is tested now: under Xvfb with xdotool in
   `make test-tk`, against the fake synth.
+  *Done (2026-11-18): `internal/modules/tkmod/lmwgui_test.go` runs
+  `lmwctl -fake serve 30` (a fake synth in a process of its own, a
+  command added for this) and `lmwgui -a ... -v` against it. With `-v` the
+  GUI prints what it shows and writes, and where each fader is in the
+  window (from `<Configure>` of its frames), so the test drags the cutoff
+  with xdotool wherever the fonts put it: at least one write and no more
+  than the moves, the synth has the last; another client's changes show; the
+  contrast comes from the settings file; killing the fake greys the
+  window. The tk test harness now loads the modules next to a program.*
 - The contrast table for every preset.
 
 Steps (in §8): 15. `tk::Notebook` (13.3); 16. the module `lmw` and the

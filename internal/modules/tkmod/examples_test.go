@@ -13,12 +13,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/maarten-boot/kukel/internal/ast"
 	"github.com/maarten-boot/kukel/internal/builtins"
 	"github.com/maarten-boot/kukel/internal/compiler"
+	"github.com/maarten-boot/kukel/internal/loader"
 	"github.com/maarten-boot/kukel/internal/modules/eventsmod"
+	_ "github.com/maarten-boot/kukel/internal/modules/fsmod" // the modules of examples/lmw
+	_ "github.com/maarten-boot/kukel/internal/modules/jsonmod"
+	_ "github.com/maarten-boot/kukel/internal/modules/p9mod"
 	"github.com/maarten-boot/kukel/internal/modules/tkmod"
-	"github.com/maarten-boot/kukel/internal/parser"
+	_ "github.com/maarten-boot/kukel/internal/modules/tomlmod"
 	"github.com/maarten-boot/kukel/internal/vm"
 )
 
@@ -252,23 +255,21 @@ func TestNotes(t *testing.T) {
 	exec.Command("xdotool", "key", "ctrl+q").Run()
 }
 
-// runExample runs the program in file, on the main goroutine, and closes
-// its windows after a second (unless $KUKEL_TK_ARG gives it an argument:
-// a test then closes it); it gives the exit code.
+// runExample runs the program in file (with the modules it uses, found
+// next to it), on the main goroutine, and closes its windows after a
+// second (unless $KUKEL_TK_ARG gives it an argument, or $KUKEL_TK_ARGS
+// its arguments one per line: a test then closes it); it gives the exit
+// code.
 func runExample(file string) int {
 	fail := func(err error) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	src, err := os.ReadFile(file)
+	files, err := loader.Load([]string{file}, nil)
 	if err != nil {
 		return fail(err)
 	}
-	f, err := parser.ParseFile(file, src)
-	if err != nil {
-		return fail(err)
-	}
-	prog, err := compiler.Compile([]*ast.File{f}, builtins.Names())
+	prog, err := compiler.Compile(files, builtins.Names())
 	if err != nil {
 		return fail(err)
 	}
@@ -279,6 +280,8 @@ func runExample(file string) int {
 	args := []string{}
 	if arg := os.Getenv("KUKEL_TK_ARG"); arg != "" {
 		args = append(args, arg)
+	} else if more := os.Getenv("KUKEL_TK_ARGS"); more != "" {
+		args = strings.Split(more, "\n")
 	} else {
 		loop := eventsmod.For(m)
 		go func() {

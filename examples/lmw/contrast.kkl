@@ -1,0 +1,47 @@
+// contrast.kkl: the colours of lmwgui for a contrast preset (module
+// lmwtheme), with the ratio of every pair the GUI draws; it fails (exit
+// code 1) when a pair is below the preset's ratio. contrast.tests runs it
+// for every preset.
+//
+//     kukel run contrast.kkl -- AA | AAA | Max | Custom ratio
+use lmwtheme;
+
+main(args) {
+    if (len(args) < 1 || len(args) > 2) {
+        eprintln("usage: contrast AA | AAA | Max | Custom ratio");
+        return 2;
+    }
+    local r = 0.0;
+
+    try {
+        r = lmwtheme::ratio(args[0], len(args) == 2 ? args[1] : 4.5);
+    } catch (e) {
+        eprintln("contrast:", e->message);
+        return 2;
+    }
+    local p = lmwtheme::palette(r), failed = 0;
+    println("minimum", r);
+
+    for (local key, c in p["tk"]) {
+        println("tk", key, c);
+    }
+
+    for (local u, c in p["units"]) {
+        println("unit", u, c);
+    }
+
+    for (local pair in p["pairs"]) {
+        local q = lmwtheme::contrast(pair[1], pair[2]), ok = q >= r;
+        println(ok ? "ok  " : "LOW ", pair[1], "on", pair[2], round(q * 100) / 100.0, pair[0]);
+
+        if (!ok) {
+            failed++;
+        }
+    }
+
+    if (failed > 0) {
+        eprintln("contrast:", failed, "pairs below", r);
+        return 1;
+    }
+    return 0;
+}

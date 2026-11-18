@@ -125,6 +125,10 @@ func registerLists() {
 			wd.textw = in.Text(append(sb, tk.Undo(true))...)
 			return wd.textw.Window
 		}, nil)
+		classic[wd] = true
+		if colors := classicColors(wd.class); len(colors) > 0 {
+			wd.w.Configure(colors...)
+		}
 		wd.textw.Insert("end", text)
 		wd.configureAfter(a, opts)
 		return nil
@@ -168,6 +172,10 @@ func registerLists() {
 			wd.list = in.Listbox(append(sb, tk.Exportselection(false))...)
 			return wd.list.Window
 		}, nil)
+		classic[wd] = true
+		if colors := classicColors(wd.class); len(colors) > 0 {
+			wd.w.Configure(colors...)
+		}
 		for _, s := range wd.items {
 			wd.list.Insert("end", s)
 		}

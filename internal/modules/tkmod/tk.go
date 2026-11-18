@@ -272,6 +272,9 @@ func newWindow(env value.Env, this *value.ObjectObj, args []value.Value) (value.
 		win.w = tk.App.Toplevel().Window
 	}
 	setTitle(win.w, title)
+	if bg := palette["background"]; bg != "" {
+		win.w.Configure(tk.Background(bg))
+	}
 	path := win.w.String()
 	tk.Bind(win.w, "<Destroy>", tk.Command(func(e *tk.Event) {
 		if e.EventWindow != nil && e.EventWindow.String() == path { // not a widget in it
@@ -483,6 +486,7 @@ func register() {
 	registerWidgets()
 	registerMenus()
 	funcs := dialogFuncs()
+	colorFuncs(funcs)
 	// available(): whether Tk can start (a display is there); it starts Tk.
 	// themes(), theme(), settheme(name): the ttk themes there are, the
 	// one in use, and choosing one.

@@ -10,12 +10,16 @@
 // -fake: a fake synth in this program (fakesynth.kkl) on a free TCP port;
 // -fakedir: one on a Unix socket in a new directory, found as lmw finds
 // synths; -noserial: the fake serves no /serial, -noinfo no /info.
+//
+// With -fake, "serve seconds" keeps the fake synth going that long and
+// prints its address first: a synth for lmwgui (-a) without the real one.
 use lmw;
+use events;
 use fakesynth;
 use fs;
 
 const USAGE = "usage: lmwctl [-a address | -fake | -fakedir] [-noserial] [-noinfo] command [args] [, command [args]]...";
-const COMMANDS = "commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes, serial, on note [velocity], off note, played (-fake)";
+const COMMANDS = "commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes, serial, on note [velocity], off note, played (-fake), serve seconds (-fake)";
 
 main(args) {
     local addr = nil, fake = nil, noserial = false, noinfo = false, i = 0;
@@ -108,7 +112,7 @@ run(synth, c, dir, fake) {
     local name = c[0], want = {
         "sockets": 0, "source": 0, "params": 0, "info": 1, "get": 1, "set": 2, "cables": 0, "cable": -1, "clear": 0,
         "ports": 0, "patch": 0, "load": 1, "save": 1, "notes": 0, "setnotes": 1, "changes": 0,
-        "serial": 0, "on": -1, "off": 1, "played": 0,
+        "serial": 0, "on": -1, "off": 1, "played": 0, "serve": 1,
     }[name];
 
     if (want == nil) {
@@ -199,6 +203,14 @@ run(synth, c, dir, fake) {
         for (local k in fake->played) {
             println(k[0] ? "on" : "off", k[1], k[2]);
         }
+    } else if (name == "serve") {
+        if (fake == nil || dir != nil) {
+            throw new Error("serve: only with -fake");
+        }
+        println("serving", synth->address);
+        fs::stdout()->flush();
+        events::after(float(c[1]), events::stop);
+        events::run();
     } else if (name == "changes") {
         showchanges(synth->changes(), len(synth->params()));
     }

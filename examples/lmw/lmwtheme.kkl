@@ -1,0 +1,163 @@
+// lmwtheme.kkl: the colours of lmwgui (docs/future.md §13.7), as the
+// synth's own GUI has them (its Theme.h and Contrast.cpp): black text on
+// white, and every pair the GUI draws raised to a chosen minimum contrast
+// ratio (WCAG 2.x). No tk here, so it is tested anywhere (contrast.tests).
+//
+// lmwtheme::palette(ratio) gives a map with
+//   "ratio": the minimum ratio (4.5 to 21),
+//   "tk":    the map for tk::setcolors,
+//   "units": the title colour of each kind of unit ("vco", "noise", ...;
+//            "none" for KEYS, OUT and the effects),
+//   "pairs": every [name, foreground, background] the GUI draws.
+
+global PRESETS = {"AA": 4.5, "AAA": 7.0, "Max": 21.0};
+const BLACK = "#000000";
+const WHITE = "#ffffff";
+
+// The design colours (at 4.5:1 or more already); palette() raises them.
+const SELECT = "#1a4fa0";     // selected text: white on it
+const DISABLED = "#767676";   // the text of a widget that is off: 4.54:1 on white
+const BORDER = "#767676";     // outlines and the focus ring, on white
+const TROUGH = "#767676";     // a fader's groove, around its white handle
+const ACTIVE = "#e8e8e8";     // a button under the mouse, black text on it
+
+// The synth's S6.9: light tints behind the black title text of a panel.
+global UNITS = {
+    "none": "#ffffff",
+    "vco": "#ffb3b3",
+    "noise": "#ffcc99",
+    "vcf": "#fff0a0",
+    "vca": "#b8ebb8",
+    "env": "#b3d1ff",
+    "lfo": "#d9b3ff",
+    "mix": "#f0f0f0",
+};
+
+// unit(name): the kind of unit of a panel title or a module name ("VCO 1",
+// "vcf2", "lfo1.out"), by its first three letters in any case.
+unit(name) {
+    local k = lower(slice(name, 0, min(3, len(name))));
+
+    for (local u in ["vco", "vcf", "vca", "env", "lfo", "mix"]) {
+        if (k == u) {
+            return u;
+        }
+    }
+    return k == "noi" ? "noise" : "none";
+}
+
+// ratio(preset [, custom]): the minimum ratio of "AA", "AAA", "Max" or
+// "Custom" (any case); a custom ratio is kept within 4.5 to 21: contrast
+// can only be raised. Another name is a ValueError.
+ratio(preset, custom = 4.5) {
+    for (local name, r in PRESETS) {
+        if (lower(preset) == lower(name)) {
+            return r;
+        }
+    }
+
+    if (lower(preset) == "custom") {
+        return max(4.5, min(21.0, float(custom)));
+    }
+    throw new Error("unknown contrast preset " + preset + " (AA, AAA, Max or Custom)", "ValueError");
+}
+
+// rgb("#rrggbb"): [r, g, b], each 0 to 255.
+rgb(c) {
+    return [int("0x" + slice(c, 1, 3)), int("0x" + slice(c, 3, 5)), int("0x" + slice(c, 5, 7))];
+}
+
+// hex([r, g, b]): "#rrggbb".
+hex(v) {
+    local s = "#", digits = "0123456789abcdef";
+
+    for (local x in v) {
+        s += slice(digits, x / 16, x / 16 + 1) + slice(digits, x % 16, x % 16 + 1);
+    }
+    return s;
+}
+
+_channel(v) {
+    local c = v / 255.0;
+    return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);
+}
+
+// luminance(c): WCAG relative luminance, 0 (black) to 1 (white).
+luminance(c) {
+    local v = rgb(c);
+    return 0.2126 * _channel(v[0]) + 0.7152 * _channel(v[1]) + 0.0722 * _channel(v[2]);
+}
+
+// contrast(a, b): the WCAG contrast ratio of two colours, 1 to 21.
+contrast(a, b) {
+    local la = luminance(a), lb = luminance(b);
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05);
+}
+
+_mix(a, b, t) {
+    local x = rgb(a), y = rgb(b), out = [];
+
+    for (local i = 0; i < 3; i++) {
+        push(out, round(x[i] + (y[i] - x[i]) * t));
+    }
+    return hex(out);
+}
+
+// enforce(fg, bg, r): fg when it has ratio r against bg; else fg moved
+// towards black or white (the one with more contrast against bg) until it
+// has. At 21 that is black or white itself.
+enforce(fg, bg, r) {
+    if (contrast(fg, bg) >= r) {
+        return fg;
+    }
+    local target = contrast(BLACK, bg) >= contrast(WHITE, bg) ? BLACK : WHITE;
+
+    if (contrast(target, bg) < r) {
+        return target;
+    }
+    local lo = 0.0, hi = 1.0;
+
+    for (local i = 0; i < 20; i++) {
+        local mid = (lo + hi) / 2;
+
+        if (contrast(_mix(fg, target, mid), bg) >= r) {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    local out = _mix(fg, target, hi);
+    return contrast(out, bg) >= r ? out : target;
+}
+
+// palette(r): the colours for minimum ratio r (see the top).
+palette(r) {
+    local select = enforce(SELECT, WHITE, r), disabled = enforce(DISABLED, WHITE, r);
+    local border = enforce(BORDER, WHITE, r), trough = enforce(TROUGH, WHITE, r);
+    local active = enforce(ACTIVE, BLACK, r), units = {};
+
+    for (local u, c in UNITS) {
+        units[u] = enforce(c, BLACK, r);
+    }
+    local pairs = [
+        ["text", BLACK, WHITE],
+        ["selected text", WHITE, select],
+        ["disabled text", disabled, WHITE],
+        ["outline", border, WHITE],
+        ["fader groove", trough, WHITE],
+        ["text on a button under the mouse", BLACK, active],
+    ];
+
+    for (local u, c in units) {
+        push(pairs, ["title of " + u, BLACK, c]);
+    }
+    return {
+        "ratio": r,
+        "tk": {
+            "background": WHITE, "foreground": BLACK, "field": WHITE, "select": select, "selectforeground": WHITE,
+            "trough": trough, "border": border, "active": active, "disabled": disabled,
+        },
+        "units": units,
+        "pairs": pairs,
+    };
+}

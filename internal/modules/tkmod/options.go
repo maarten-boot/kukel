@@ -144,6 +144,10 @@ func restyle() {
 	for style, face := range styleFonts {
 		tk.StyleConfigure(style, tk.Font(face))
 	}
+	for c, style := range frameStyles {
+		tk.StyleConfigure(style, tk.Background(c))
+	}
+	applyColors()
 }
 
 func fontFace(f fontSpec) *tk.FontFace {
@@ -379,6 +383,7 @@ var (
 			optPadding,
 			{"relief", oneOf("flat", "raised", "sunken", "groove", "ridge", "solid"), func(x any) tk.Opt { return tk.Relief(x) }},
 			{"borderwidth", pixels, func(x any) tk.Opt { return tk.Borderwidth(x) }},
+			{"background", color(false), func(x any) tk.Opt { return frameStyle(x.(string)) }},
 		},
 		"Label": {
 			optWidth,
@@ -390,6 +395,8 @@ var (
 			{"wraplength", pixels, func(x any) tk.Opt { return tk.Wraplength(x) }},
 			optPadding,
 			optState,
+			{"background", color(false), func(x any) tk.Opt { return tk.Background(x) }},
+			{"foreground", color(false), func(x any) tk.Opt { return tk.Foreground(x) }},
 		},
 		"Button": {optWidth, optPadding, optState, fontOption("TButton"), optImage, optCompound},
 		"Entry": {

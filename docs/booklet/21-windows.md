@@ -172,7 +172,7 @@ have it, for example with a setting in a file.
 
 | Widgets | Other |
 |---|---|
-| `Window`, `Frame`, `Notebook` (tabs), `Label`, `Button`, `Entry`, `Text`, `Checkbutton`, `Radiobutton` (with `Radiogroup`), `Listbox`, `Combobox`, `Scale`, `Canvas`, `Image` | `Menu` (menu bars and pop-up menus), `tk::messagebox`, `tk::openfile`, `tk::savefile`, `tk::choosedir`, themes (`tk::themes`, `tk::settheme`) |
+| `Window`, `Frame`, `Notebook` (tabs), `Label`, `Button`, `Entry`, `Text`, `Checkbutton`, `Radiobutton` (with `Radiogroup`), `Listbox`, `Combobox`, `Scale`, `Canvas`, `Image` | `Menu` (menu bars and pop-up menus), `tk::messagebox`, `tk::openfile`, `tk::savefile`, `tk::choosedir`, themes (`tk::themes`, `tk::settheme`), colours (`tk::setcolors`, `tk::colors`) |
 
 The [reference](../reference.md#tk) describes each, with its options.
 

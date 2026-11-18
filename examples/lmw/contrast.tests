@@ -1,0 +1,217 @@
+# The colours of lmwgui for each contrast preset (module lmwtheme): every
+# pair the GUI draws must reach the preset's ratio.
+
+$ AA
+minimum 4.5
+tk background #ffffff
+tk foreground #000000
+tk field #ffffff
+tk select #1a4fa0
+tk selectforeground #ffffff
+tk trough #767676
+tk border #767676
+tk active #e8e8e8
+tk disabled #767676
+unit none #ffffff
+unit vco #ffb3b3
+unit noise #ffcc99
+unit vcf #fff0a0
+unit vca #b8ebb8
+unit env #b3d1ff
+unit lfo #d9b3ff
+unit mix #f0f0f0
+ok   #000000 on #ffffff 21.0 text
+ok   #ffffff on #1a4fa0 7.87 selected text
+ok   #767676 on #ffffff 4.54 disabled text
+ok   #767676 on #ffffff 4.54 outline
+ok   #767676 on #ffffff 4.54 fader groove
+ok   #000000 on #e8e8e8 17.14 text on a button under the mouse
+ok   #000000 on #ffffff 21.0 title of none
+ok   #000000 on #ffb3b3 12.35 title of vco
+ok   #000000 on #ffcc99 14.35 title of noise
+ok   #000000 on #fff0a0 18.22 title of vcf
+ok   #000000 on #b8ebb8 15.61 title of vca
+ok   #000000 on #b3d1ff 13.48 title of env
+ok   #000000 on #d9b3ff 11.84 title of lfo
+ok   #000000 on #f0f0f0 18.43 title of mix
+exit 0
+
+$ AAA
+minimum 7.0
+tk background #ffffff
+tk foreground #000000
+tk field #ffffff
+tk select #1a4fa0
+tk selectforeground #ffffff
+tk trough #595959
+tk border #595959
+tk active #e8e8e8
+tk disabled #595959
+unit none #ffffff
+unit vco #ffb3b3
+unit noise #ffcc99
+unit vcf #fff0a0
+unit vca #b8ebb8
+unit env #b3d1ff
+unit lfo #d9b3ff
+unit mix #f0f0f0
+ok   #000000 on #ffffff 21.0 text
+ok   #ffffff on #1a4fa0 7.87 selected text
+ok   #595959 on #ffffff 7.0 disabled text
+ok   #595959 on #ffffff 7.0 outline
+ok   #595959 on #ffffff 7.0 fader groove
+ok   #000000 on #e8e8e8 17.14 text on a button under the mouse
+ok   #000000 on #ffffff 21.0 title of none
+ok   #000000 on #ffb3b3 12.35 title of vco
+ok   #000000 on #ffcc99 14.35 title of noise
+ok   #000000 on #fff0a0 18.22 title of vcf
+ok   #000000 on #b8ebb8 15.61 title of vca
+ok   #000000 on #b3d1ff 13.48 title of env
+ok   #000000 on #d9b3ff 11.84 title of lfo
+ok   #000000 on #f0f0f0 18.43 title of mix
+exit 0
+
+$ Max
+minimum 21.0
+tk background #ffffff
+tk foreground #000000
+tk field #ffffff
+tk select #000000
+tk selectforeground #ffffff
+tk trough #000000
+tk border #000000
+tk active #ffffff
+tk disabled #000000
+unit none #ffffff
+unit vco #ffffff
+unit noise #ffffff
+unit vcf #ffffff
+unit vca #ffffff
+unit env #ffffff
+unit lfo #ffffff
+unit mix #ffffff
+ok   #000000 on #ffffff 21.0 text
+ok   #ffffff on #000000 21.0 selected text
+ok   #000000 on #ffffff 21.0 disabled text
+ok   #000000 on #ffffff 21.0 outline
+ok   #000000 on #ffffff 21.0 fader groove
+ok   #000000 on #ffffff 21.0 text on a button under the mouse
+ok   #000000 on #ffffff 21.0 title of none
+ok   #000000 on #ffffff 21.0 title of vco
+ok   #000000 on #ffffff 21.0 title of noise
+ok   #000000 on #ffffff 21.0 title of vcf
+ok   #000000 on #ffffff 21.0 title of vca
+ok   #000000 on #ffffff 21.0 title of env
+ok   #000000 on #ffffff 21.0 title of lfo
+ok   #000000 on #ffffff 21.0 title of mix
+exit 0
+
+$ Custom 10
+minimum 10.0
+tk background #ffffff
+tk foreground #000000
+tk field #ffffff
+tk select #154083
+tk selectforeground #ffffff
+tk trough #424242
+tk border #424242
+tk active #e8e8e8
+tk disabled #424242
+unit none #ffffff
+unit vco #ffb3b3
+unit noise #ffcc99
+unit vcf #fff0a0
+unit vca #b8ebb8
+unit env #b3d1ff
+unit lfo #d9b3ff
+unit mix #f0f0f0
+ok   #000000 on #ffffff 21.0 text
+ok   #ffffff on #154083 10.03 selected text
+ok   #424242 on #ffffff 10.05 disabled text
+ok   #424242 on #ffffff 10.05 outline
+ok   #424242 on #ffffff 10.05 fader groove
+ok   #000000 on #e8e8e8 17.14 text on a button under the mouse
+ok   #000000 on #ffffff 21.0 title of none
+ok   #000000 on #ffb3b3 12.35 title of vco
+ok   #000000 on #ffcc99 14.35 title of noise
+ok   #000000 on #fff0a0 18.22 title of vcf
+ok   #000000 on #b8ebb8 15.61 title of vca
+ok   #000000 on #b3d1ff 13.48 title of env
+ok   #000000 on #d9b3ff 11.84 title of lfo
+ok   #000000 on #f0f0f0 18.43 title of mix
+exit 0
+
+$ Custom 3
+minimum 4.5
+tk background #ffffff
+tk foreground #000000
+tk field #ffffff
+tk select #1a4fa0
+tk selectforeground #ffffff
+tk trough #767676
+tk border #767676
+tk active #e8e8e8
+tk disabled #767676
+unit none #ffffff
+unit vco #ffb3b3
+unit noise #ffcc99
+unit vcf #fff0a0
+unit vca #b8ebb8
+unit env #b3d1ff
+unit lfo #d9b3ff
+unit mix #f0f0f0
+ok   #000000 on #ffffff 21.0 text
+ok   #ffffff on #1a4fa0 7.87 selected text
+ok   #767676 on #ffffff 4.54 disabled text
+ok   #767676 on #ffffff 4.54 outline
+ok   #767676 on #ffffff 4.54 fader groove
+ok   #000000 on #e8e8e8 17.14 text on a button under the mouse
+ok   #000000 on #ffffff 21.0 title of none
+ok   #000000 on #ffb3b3 12.35 title of vco
+ok   #000000 on #ffcc99 14.35 title of noise
+ok   #000000 on #fff0a0 18.22 title of vcf
+ok   #000000 on #b8ebb8 15.61 title of vca
+ok   #000000 on #b3d1ff 13.48 title of env
+ok   #000000 on #d9b3ff 11.84 title of lfo
+ok   #000000 on #f0f0f0 18.43 title of mix
+exit 0
+
+$ Custom 30
+minimum 21.0
+tk background #ffffff
+tk foreground #000000
+tk field #ffffff
+tk select #000000
+tk selectforeground #ffffff
+tk trough #000000
+tk border #000000
+tk active #ffffff
+tk disabled #000000
+unit none #ffffff
+unit vco #ffffff
+unit noise #ffffff
+unit vcf #ffffff
+unit vca #ffffff
+unit env #ffffff
+unit lfo #ffffff
+unit mix #ffffff
+ok   #000000 on #ffffff 21.0 text
+ok   #ffffff on #000000 21.0 selected text
+ok   #000000 on #ffffff 21.0 disabled text
+ok   #000000 on #ffffff 21.0 outline
+ok   #000000 on #ffffff 21.0 fader groove
+ok   #000000 on #ffffff 21.0 text on a button under the mouse
+ok   #000000 on #ffffff 21.0 title of none
+ok   #000000 on #ffffff 21.0 title of vco
+ok   #000000 on #ffffff 21.0 title of noise
+ok   #000000 on #ffffff 21.0 title of vcf
+ok   #000000 on #ffffff 21.0 title of vca
+ok   #000000 on #ffffff 21.0 title of env
+ok   #000000 on #ffffff 21.0 title of lfo
+ok   #000000 on #ffffff 21.0 title of mix
+exit 0
+
+$ Huge
+! contrast: unknown contrast preset Huge (AA, AAA, Max or Custom)
+exit 2
+

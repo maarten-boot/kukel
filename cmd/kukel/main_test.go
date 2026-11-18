@@ -9,6 +9,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -940,13 +941,7 @@ func TestExamples(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		src, _ := os.ReadFile(filepath.Join(dir, prog))
-		if mods, _ := filepath.Glob(filepath.Join(dir, "*.kkl")); filepath.Base(dir) != "examples" {
-			for _, m := range mods { // the modules it uses need what they use
-				more, _ := os.ReadFile(m)
-				src = append(src, more...)
-			}
-		}
+		src := usedSource(dir, prog)
 		if why := unavailable(string(src)); why != "" {
 			t.Logf("%s: %s", prog, why)
 			continue
@@ -972,6 +967,31 @@ func TestExamples(t *testing.T) {
 			})
 		}
 	}
+}
+
+// usedSource is the text of prog in dir and of the modules next to it that
+// it uses, also through each other (what they use decides whether it can
+// run here).
+func usedSource(dir, prog string) string {
+	var src strings.Builder
+	seen := map[string]bool{}
+	var add func(file string)
+	add = func(file string) {
+		if seen[file] {
+			return
+		}
+		seen[file] = true
+		text, err := os.ReadFile(filepath.Join(dir, file))
+		if err != nil {
+			return // a module that is not next to it
+		}
+		src.Write(text)
+		for _, m := range regexp.MustCompile(`(?m)^use (\w+);`).FindAllStringSubmatch(string(text), -1) {
+			add(m[1] + ".kkl")
+		}
+	}
+	add(prog)
+	return src.String()
 }
 
 type exampleCase struct {

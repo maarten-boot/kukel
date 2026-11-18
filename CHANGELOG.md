@@ -17,6 +17,20 @@ From v1.0.0 on, what keeps working is in
 
 ## Unreleased
 
+- `examples/lmw/lmwgui.kkl`: a GUI for LMW-Synth over 9P (module `tk`),
+  with the synth's module panels on a Synth tab and the reverb on an
+  Effects tab: faders with the synth's value texts (typed values too),
+  choices as drop-down lists, writes at most every 20 ms while a fader
+  moves, a poll every 200 ms that shows changes made elsewhere, a greyed
+  window and "Connect again" when the synth goes away, and the contrast
+  presets AA, AAA, Max and a custom ratio, kept in `lmw-gui.toml`. With it
+  `lmwtheme.kkl` (the synth's contrast rules and unit colours),
+  `contrast.kkl` (the pairs of a preset, checked) and `lmwctl`'s
+  `serve seconds` (a fake synth for the GUI). Q115.
+- `tk`: colours. `tk::setcolors(palette)` sets the colours of all windows
+  and widgets (background, foreground, field, select, selectforeground,
+  trough, border, active, disabled), `tk::colors()` gives them; a frame
+  takes a `background`, a label a `background` and a `foreground`. Q115.
 - `examples/lmw/`: the synth's `/serial` and `/keys`: `lmw::Synth` gains
   `serial()`, `play(text)`, `noteon` and `noteoff`; the fake synth serves
   both as the synth does (`/serial` by default), and `lmwctl` has

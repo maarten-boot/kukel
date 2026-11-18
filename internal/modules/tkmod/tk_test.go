@@ -595,7 +595,7 @@ ValueError: tk::Label::Label: the window is closed
 tk::Frame
 tk::Label("Name:") tk::Entry("") tk::Entry("secret") secret
 ValueError: tk::Label::pack: cannot pack: grid already places the widgets beside it (use one of pack and grid in each window or frame)
-ValueError: tk::Label::configure: unknown option "text" (the options are width, font, image, compound, anchor, justify, wraplength, padding and state)
+ValueError: tk::Label::configure: unknown option "text" (the options are width, font, image, compound, anchor, justify, wraplength, padding, state, background and foreground)
 ValueError: tk::Label::configure: option state: "readonly" is not one of normal, disabled
 ValueError: tk::Entry::configure: option show must be one character, or "" to show the text, not "**"
 ValueError: tk::Frame::configure: option padding must be a number of pixels (0 to 10000) or a vector of 2 or 4 of them, not [1, 2, 3]

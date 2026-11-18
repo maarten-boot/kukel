@@ -1,0 +1,718 @@
+// lmwgui.kkl: a GUI for LMW-Synth over 9P (docs/future.md §13), with the
+// module tk (a kukel built with the build tag tk, and a display):
+//
+//     kukel run lmwgui.kkl [-- [-a address | -fake] [-config file] [-v]]
+//
+// -a address: the synth (as lmwctl takes it); without it, the newest synth
+// socket that answers. -fake: a fake synth in this program (fakesynth.kkl).
+// -config file: the settings file instead of lmw-gui.toml in the user's
+// configuration directory. -v: prints what it shows and writes, for the
+// tests.
+//
+// The Synth tab has the synth's module panels, the Effects tab the reverb.
+// A fader writes its parameter at most every 20 ms while it moves; every
+// 200 ms the GUI asks the synth what changed and shows it, except on a
+// fader the user holds (until half a second after it is let go). A value
+// can be typed under a fader (Enter); a double click on a fader resets it.
+// The contrast (AA, AAA, Max or a custom ratio) is kept in the settings
+// file.
+use tk;
+use events;
+use lmw;
+use lmwtheme;
+use fakesynth;
+use toml;
+use fs;
+
+// The panels in the synth's rows (its Spec S6.1): a title and the controls,
+// each [id, label]; a vector of two of them is a column of two choices.
+global SYNTH = [
+    [
+        ["VCO 1", [["vco1.fm", "FM"], ["vco1.tune", "Tune"], [["vco1.wave", "Wave"], ["vco1.octave", "Oct"]]]],
+        ["VCO 2", [["vco2.fm", "FM"], ["vco2.tune", "Tune"], [["vco2.wave", "Wave"], ["vco2.octave", "Oct"]]]],
+        ["VCO 3", [["vco3.fm", "FM"], ["vco3.tune", "Tune"], [["vco3.wave", "Wave"], ["vco3.octave", "Oct"]]]],
+        ["NOISE", [["noise.colour", "Colour"], ["noise.rate", "Rate"], ["noise.smooth", "Smooth"]]],
+        ["LFO 1", [["lfo1.wave", "Wave"], ["lfo1.rate", "Rate"]]],
+    ],
+    [
+        ["MIXER", [["mix.vco1", "VCO 1"], ["mix.vco2", "VCO 2"], ["mix.vco3", "VCO 3"], ["mix.noise", "Noise"]]],
+        [
+            "VCF 1",
+            [
+                ["vcf1.cutoff", "Cutoff"], ["vcf1.res", "Reso"], ["vcf1.env", "Env 2"], ["vcf1.key", "Key"],
+                [["vcf1.slope", "Slope"], ["vcf1.type", "Type"]],
+            ],
+        ],
+        [
+            "VCF 2",
+            [
+                ["vcf2.cutoff", "Cutoff"], ["vcf2.res", "Reso"], ["vcf2.env", "Env 2"], ["vcf2.key", "Key"],
+                [["vcf2.slope", "Slope"], ["vcf2.type", "Type"]],
+            ],
+        ],
+    ],
+    [
+        ["KEYS", [["voice.count", "Voices"]]],
+        ["ENV 1 → VCA", [["env1.attack", "Attack"], ["env1.decay", "Decay"], ["env1.sustain", "Sustain"], ["env1.release", "Release"]]],
+        ["ENV 2 → VCF", [["env2.attack", "Attack"], ["env2.decay", "Decay"], ["env2.sustain", "Sustain"], ["env2.release", "Release"]]],
+        ["LFO 2", [["lfo2.wave", "Wave"], ["lfo2.rate", "Rate"]]],
+        ["VCA", [["vca.initial", "Initial"], ["vca.tremolo", "Tremolo"]]],
+        ["OUT", [["out.gain", "Volume"]]],
+    ],
+];
+global EFFECTS = [[["REVERB", [["reverb.mix", "Mix"], ["reverb.size", "Size"], ["reverb.damping", "Damping"], ["reverb.width", "Width"]]]]];
+
+const STEPS = 1000;      // a fader's positions
+const THROTTLE = 0.02;   // seconds between the writes of a moving fader
+const POLL = 0.2;        // seconds between the questions to the synth
+const SETTLE = 0.5;      // seconds a fader is left alone after the user
+
+global window, synth, address, server = nil, verbose = false;
+global status, patchname, reconnect, contrast, customratio;
+global controls = {};    // id -> {"p", "kind", "scale", "entry", "box"}
+global titles = [];      // [label, unit kind] of each panel title
+global held = {}, touched = {}, latest = {}, stale = {};
+global pending = {}, flushing = nil, poller = nil, shown = false;
+global configpath, preset = "AA", ratio = 4.5;
+global geometry = [], placed = {}, placing = false;   // -v: where the faders are
+
+main(args) {
+    local fake = false, i = 0;
+    configpath = nil;
+
+    for (; i < len(args); i++) {
+        if (args[i] == "-a" && i + 1 < len(args)) {
+            address = args[++i];
+        } else if (args[i] == "-fake") {
+            fake = true;
+        } else if (args[i] == "-config" && i + 1 < len(args)) {
+            configpath = args[++i];
+        } else if (args[i] == "-v") {
+            verbose = true;
+        } else {
+            eprintln("usage: lmwgui [-a address | -fake] [-config file] [-v]");
+            return 2;
+        }
+    }
+
+    try {
+        if (fake) {
+            server = new fakesynth::Synth()->serve("tcp://127.0.0.1:0");
+            address = server->endpoint();
+        }
+        synth = lmw::connect(address);
+        address = synth->address;
+
+        if (synth->info() == nil) {
+            throw new Error("this synth has no /info (it describes the parameters): a newer synth is needed");
+        }
+    } catch (e) {
+        eprintln("lmwgui:", e->message);
+
+        if (server != nil) {
+            server->close();
+        }
+        return 1;
+    }
+    readconfig();
+    build();
+    trace("connected", address);
+    setcontrast(preset, ratio, false);
+    poll();
+    poller = events::every(POLL, poll);
+    events::run();
+    return 0;
+}
+
+// trace(words...): a line for -v (the tests read it at once).
+trace(words..) {
+    if (verbose) {
+        println(words..);
+        fs::stdout()->flush();
+    }
+}
+
+// extend(v, x...): a new vector of v's elements and then x.
+extend(v, more..) {
+    local out = [];
+
+    for (local x in v) {
+        push(out, x);
+    }
+
+    for (local x in more) {
+        push(out, x);
+    }
+    return out;
+}
+
+// cell(w): for -v, w's place in its parent, kept up to date: a map with
+// x, y, w and h once Tk placed it.
+cell(w) {
+    local c = {};
+
+    if (verbose) {
+        w->bind("<Configure>", fn(e) {
+            c["x"] = e["x"];
+            c["y"] = e["y"];
+            c["w"] = e["width"];
+            c["h"] = e["height"];
+
+            if (!placing) {
+                placing = true;
+                events::post(places);
+            }
+        });
+    }
+    return c;
+}
+
+// places(): for -v, "at id x y w h" for each fader that moved: its place
+// in the window.
+places() {
+    placing = false;
+
+    for (local g in geometry) {
+        local x = 0, y = 0, last = nil;
+
+        for (local c in g[1]) {
+            if (c["x"] == nil) {
+                last = nil;
+                break;
+            }
+            x += c["x"];
+            y += c["y"];
+            last = c;
+        }
+
+        if (last != nil) {
+            local s = join([x, y, last["w"], last["h"]], " ");
+
+            if (placed[g[0]] != s) {
+                placed[g[0]] = s;
+                trace("at", g[0], s);
+            }
+        }
+    }
+}
+
+say(text) {
+    status->settext(text);
+}
+
+// The window
+
+build() {
+    window = new tk::Window("LMW-Synth: " + address);
+    window->onclose(quit);
+    local head = new tk::Frame(window, {"padding": [6, 4]});
+    head->pack({"fill": "x"});
+    patchname = new tk::Label(head, "Patch:", {"width": 30});
+    patchname->pack({"side": "left"});
+    new tk::Label(head, "Contrast:")->pack({"side": "left", "padx": 4});
+    contrast = new tk::Combobox(head, ["AA", "AAA", "Max", "Custom"], {"state": "readonly", "width": 7});
+    contrast->pack({"side": "left"});
+    customratio = new tk::Entry(head, {"width": 5});
+    customratio->pack({"side": "left", "padx": 4});
+    contrast->onselect(fn(p) { setcontrast(p, customratio->text(), true); });
+    customratio->onenter(fn(text) { setcontrast("Custom", text, true); });
+    reconnect = new tk::Button(head, "Connect again", {"state": "disabled"});
+    reconnect->onclick(connectagain);
+    reconnect->pack({"side": "right"});
+    new tk::Label(head, address)->pack({"side": "right", "padx": 8});
+
+    local tabs = new tk::Notebook(window, {"padding": 4});
+    tabs->pack({"fill": "both", "expand": true});
+    local page = new tk::Frame(tabs, {"padding": 4}), effects = new tk::Frame(tabs, {"padding": 4});
+    tabs->add(page, "Synth")->add(effects, "Effects");
+    local top = [cell(tabs)];
+    rows(page, SYNTH, extend(top, cell(page)));
+    rows(effects, EFFECTS, extend(top, cell(effects)));
+    status = new tk::Label(window, "", {"anchor": "w", "padding": [6, 2]});
+    status->pack({"fill": "x"});
+}
+
+// rows(page, layout, chain): the panels of layout in page; chain is where
+// page is (for -v).
+rows(page, layout, chain) {
+    for (local row in layout) {
+        local f = new tk::Frame(page);
+        f->pack({"fill": "x"});
+        local at = extend(chain, cell(f));   // one cell: a second bind would replace the first
+
+        for (local panel in row) {
+            makepanel(f, panel[0], panel[1], at);
+        }
+    }
+}
+
+// makepanel(parent, title, items, chain): a module panel: its title in the
+// unit's colour, and a column per control.
+makepanel(parent, title, items, chain) {
+    local f = new tk::Frame(parent, {"relief": "solid", "borderwidth": 1});
+    f->pack({"side": "left", "fill": "y", "padx": 3, "pady": 3});
+    local t = new tk::Label(f, title, {"anchor": "center", "padding": [6, 2], "font": {"bold": true}});
+    t->pack({"fill": "x"});
+    push(titles, [t, lmwtheme::unit(title)]);
+    local body = new tk::Frame(f, {"padding": 4}), column = 0;
+    body->pack({"fill": "both", "expand": true});
+    chain = extend(chain, cell(f), cell(body));
+
+    for (local item in items) {
+        local c = new tk::Frame(body);
+        c->grid({"row": 0, "column": column++, "sticky": "n", "padx": 3});
+        local at = extend(chain, cell(c));
+
+        if (typeof(item[0]) == "vector") {
+            for (local sub in item) {
+                control(c, sub[0], sub[1], at);
+            }
+        } else {
+            control(c, item[0], item[1], at);
+        }
+    }
+}
+
+// control(parent, id, label, chain): a fader with its value under it, or
+// for a choice a drop-down list.
+control(parent, id, label, chain) {
+    local p = synth->param(id);
+    new tk::Label(parent, label, {"anchor": "center"})->pack({"fill": "x"});
+
+    if (p == nil) {   // the synth has no such parameter
+        new tk::Label(parent, "(none)")->pack();
+        return;
+    }
+
+    if (p["kind"] == "choice") {
+        local width = 3;
+
+        for (local name in p["choices"]) {
+            width = max(width, len(name) + 1);
+        }
+        local box = new tk::Combobox(parent, p["choices"], {"state": "readonly", "width": width});
+        box->pack({"pady": 2});
+        box->onselect(fn(text) { setnow(id, text); });
+        controls[id] = {"p": p, "kind": "choice", "box": box};
+        return;
+    }
+    local scale = new tk::Scale(parent, {"from": STEPS, "to": 0, "step": 1, "orient": "vertical", "length": 120});
+    scale->pack();
+    local entry = new tk::Entry(parent, {"width": 9, "justify": "center"});
+    entry->pack({"pady": 2});
+    controls[id] = {"p": p, "kind": "fader", "scale": scale, "entry": entry};
+
+    if (verbose) {
+        push(geometry, [id, extend(chain, cell(scale))]);
+    }
+    scale->onchange(fn(pos) { moved(id, pos); });
+    scale->bind("<Button-1>", fn(e) { held[id] = true; });
+    scale->bind("<ButtonRelease-1>", fn(e) {
+        held[id] = false;
+        touched[id] = clock() + SETTLE;
+    });
+    scale->bind("<Double-Button-1>", fn(e) { setnow(id, p["default"]); });
+    entry->onenter(fn(text) {
+        local v = parsetext(p, text);
+
+        if (v == nil) {
+            say(id + ": not a value: " + text);
+            show(id, latest[id]);
+        } else {
+            setnow(id, v);
+        }
+    });
+}
+
+// Faders: positions, values and their text (as the synth's ParamText.h)
+
+// _skew(p): the skew of a fader whose middle is p["centre"] (JUCE's
+// setSkewForCentre); 1 for a linear one.
+_skew(p) {
+    if (p["centre"] == nil) {
+        return 1.0;
+    }
+    return log(0.5) / log((p["centre"] - p["min"]) / (p["max"] - p["min"]));
+}
+
+// position(p, v): the fader position (0 to STEPS) of value v.
+position(p, v) {
+    local x = (float(v) - p["min"]) / (p["max"] - p["min"]);
+    x = max(0.0, min(1.0, x));
+    return round(pow(x, _skew(p)) * STEPS);
+}
+
+// valueat(p, pos): the value at fader position pos, on the step.
+valueat(p, pos) {
+    local x = float(pos) / STEPS;
+
+    if (x > 0) {
+        x = exp(log(x) / _skew(p));
+    }
+    local v = p["min"] + (p["max"] - p["min"]) * x;
+
+    if (p["kind"] == "int") {
+        return round(v);
+    }
+
+    if (p["step"] != nil) {
+        v = round(v / p["step"]) * p["step"];
+    }
+    return v;
+}
+
+// fixed(x, d): x with d decimals.
+fixed(x, d) {
+    local n = round(x * pow(10, d)), neg = n < 0;
+
+    if (neg) {
+        n = -n;
+    }
+    local s = str(n);
+
+    if (d > 0) {
+        while (len(s) <= d) {
+            s = "0" + s;
+        }
+        s = slice(s, 0, len(s) - d) + "." + slice(s, len(s) - d);
+    }
+    return (neg ? "-" : "") + s;
+}
+
+// text(p, v): the value as the synth shows it under a fader.
+text(p, v) {
+    if (p["kind"] != "float") {
+        return str(v);
+    }
+    local u = p["unit"];
+
+    if (u == "s") {
+        return v < 0.9995 ? fixed(v * 1000, 0) + " ms" : v < 9.995 ? fixed(v, 2) + " s" : fixed(v, 1) + " s";
+    } else if (u == "%") {
+        return fixed(v * 100, 0) + " %";
+    } else if (u == "dB") {
+        if (v <= 0) {
+            return "-inf dB";
+        }
+        local db = 20 * log(v) / log(10);
+        return fixed(abs(db) < 0.05 ? 0.0 : db, 1) + " dB";
+    } else if (u == "Hz") {
+        return v < 10 ? fixed(v, 2) + " Hz" : v < 100 ? fixed(v, 1) + " Hz" : v < 999.5 ? fixed(v, 0) + " Hz"
+            : v < 9995 ? fixed(v / 1000, 2) + " kHz" : fixed(v / 1000, 1) + " kHz";
+    } else if (u == "oct") {
+        return abs(v) < 0.05 ? "0.0 oct" : (v > 0 ? "+" : "") + fixed(v, 1) + " oct";
+    } else if (u == "st") {
+        return fixed(v, 1) + " st";
+    }
+    return fixed(v, 2);
+}
+
+// _number(s): the number at the start of s, or nil.
+_number(s) {
+    local end = 0, chars = "+-.0123456789eE";
+
+    while (end < len(s) && find(chars, slice(s, end, end + 1)) >= 0) {
+        end++;
+    }
+
+    try {
+        return float(slice(s, 0, end));
+    } catch (e) {
+        return nil;
+    }
+}
+
+// parsetext(p, s): the value of a typed text ("250 ms", "2k", "-6 dB",
+// "70 %"), as the synth's ParamText.h reads it; nil when it is none.
+parsetext(p, s) {
+    s = trim(s);
+    local u = p["unit"], has = fn(x) { return find(s, x) >= 0; };
+
+    if (u == "dB" && has("inf")) {
+        return 0.0;
+    }
+    local v = _number(s);
+
+    if (v == nil) {
+        return nil;
+    }
+
+    if (p["kind"] == "int") {
+        return round(v);
+    } else if (u == "s") {
+        return has("ms") ? v / 1000 : has("s") ? v : v < 20 ? v : v / 1000;
+    } else if (u == "%") {
+        return !has("%") && v <= 1 ? v : v / 100;
+    } else if (u == "dB") {
+        return pow(10.0, v / 20);
+    } else if (u == "Hz") {
+        return has("k") || has("K") ? v * 1000 : v;
+    }
+    return v;
+}
+
+// Keeping in step
+
+// show(id, v): puts the synth's value v in the control of id.
+show(id, v) {
+    local c = controls[id];
+
+    if (c == nil || v == nil) {
+        return;
+    }
+
+    if (c["kind"] == "choice") {
+        c["box"]->settext(str(v));
+    } else {
+        c["scale"]->setvalue(position(c["p"], v));
+        c["entry"]->settext(text(c["p"], v));
+    }
+}
+
+// busy(id): whether the user has the control of id (holds it, moved it a
+// moment ago, or its write is still to go).
+busy(id) {
+    return held[id] == true || touched[id] != nil && touched[id] > clock() || haskey(pending, id);
+}
+
+// moved(id, pos): the user moved a fader.
+moved(id, pos) {
+    local c = controls[id], v = valueat(c["p"], pos);
+    c["entry"]->settext(text(c["p"], v));
+    touched[id] = clock() + SETTLE;
+    pending[id] = v;
+
+    if (flushing == nil) {
+        flush();
+    }
+}
+
+// flush(): writes what the faders moved to, then waits THROTTLE before
+// the next writes: a fader moved in between is written once, its last
+// value.
+flush() {
+    flushing = nil;
+
+    if (len(pending) == 0) {
+        return;
+    }
+    local now = pending;
+    pending = {};
+
+    for (local id, v in now) {
+        write(id, v);
+    }
+    flushing = events::after(THROTTLE, flush);
+}
+
+// setnow(id, v): writes a value at once (typed, reset, chosen).
+setnow(id, v) {
+    touched[id] = clock() + SETTLE;
+    pending = _without(pending, id);
+    write(id, v);
+}
+
+_without(m, key) {
+    local out = {};
+
+    for (local k, v in m) {
+        if (k != key) {
+            out[k] = v;
+        }
+    }
+    return out;
+}
+
+write(id, v) {
+    if (synth->closed()) {
+        return;
+    }
+
+    try {
+        synth->set(id, v);
+        trace("write", id, typeof(v) == "float" ? lmw::number(v, 7) : v);
+    } catch (e) {
+        failed(e);
+    }
+}
+
+// poll(): what changed on the synth, shown; a control the user has is
+// shown once the user lets go.
+poll() {
+    if (synth->closed()) {
+        return;
+    }
+    local ch = nil;
+
+    try {
+        ch = synth->changes();
+    } catch (e) {
+        return failed(e);
+    }
+    local params = ch["params"] == nil ? {} : ch["params"];
+
+    for (local id, v in params) {
+        latest[id] = v;
+        stale[id] = true;
+    }
+    local done = [];
+
+    for (local id, _ in stale) {
+        if (!busy(id)) {
+            show(id, latest[id]);
+            push(done, id);
+
+            if (shown) {
+                trace("show", id, latest[id]);
+            }
+        }
+    }
+
+    for (local id in done) {
+        stale = _without(stale, id);
+    }
+
+    if (!shown) {
+        shown = true;
+        trace("shown all", len(params));
+    }
+
+    if (haskey(ch, "name")) {
+        patchname->settext("Patch: " + ch["name"]);
+    }
+}
+
+// failed(e): a refusal of the synth goes to the status line; a lost
+// connection greys the window.
+failed(e) {
+    if (e->kind != "NetError" && !synth->closed()) {
+        say(e->message);
+        return;
+    }
+
+    if (!synth->closed()) {
+        synth->close();
+    }
+    enable(false);
+    say("The connection to the synth is lost (" + e->message + "). Nothing is lost on the synth's side.");
+    trace("lost");
+}
+
+// enable(on): every control usable, or greyed.
+enable(on) {
+    for (local id, c in controls) {
+        if (c["kind"] == "choice") {
+            c["box"]->configure({"state": on ? "readonly" : "disabled"});
+        } else {
+            c["scale"]->configure({"state": on ? "normal" : "disabled"});
+            c["entry"]->configure({"state": on ? "normal" : "disabled"});
+        }
+    }
+    reconnect->configure({"state": on ? "disabled" : "normal"});
+}
+
+connectagain() {
+    try {
+        synth = lmw::connect(address);
+    } catch (e) {
+        say("Cannot connect to " + address + ": " + e->message);
+        return;
+    }
+    shown = false;
+    stale = {};
+    enable(true);
+    say("Connected again.");
+    trace("connected", address);
+    poll();
+}
+
+quit() {
+    flush();
+
+    if (flushing != nil) {
+        flushing->cancel();
+    }
+    poller->cancel();
+
+    if (!synth->closed()) {
+        synth->close();
+    }
+
+    if (server != nil) {
+        server->close();
+    }
+    return true;
+}
+
+// Contrast (docs/future.md §13.7)
+
+// setcontrast(p, r, save): the colours of preset p (r: the ratio for
+// "Custom", a number or its text); with save, kept in the settings file.
+setcontrast(p, r, save) {
+    local minimum = 0.0;
+
+    try {
+        minimum = lmwtheme::ratio(p, typeof(r) == "string" ? float(trim(r)) : r);
+    } catch (e) {
+        say("Contrast: " + e->message);
+        return;
+    }
+    local theme = lmwtheme::palette(minimum);
+    tk::setcolors(theme["tk"]);
+
+    for (local t in titles) {
+        t[0]->configure({"background": theme["units"][t[1]], "foreground": lmwtheme::BLACK});
+    }
+    preset = p;
+    ratio = minimum;
+    contrast->settext(p);
+    customratio->settext(str(minimum));
+    customratio->configure({"state": p == "Custom" ? "normal" : "disabled"});
+    trace("contrast", p, minimum);
+
+    if (save) {
+        saveconfig();
+    }
+}
+
+// The settings file: [contrast] preset = "AA", ratio = 4.5.
+
+readconfig() {
+    if (configpath == nil) {
+        local dir = getenv("XDG_CONFIG_HOME");
+
+        if (dir == nil || dir == "") {
+            dir = getenv("APPDATA");
+        }
+
+        if (dir == nil || dir == "") {
+            dir = fs::join(getenv("HOME") == nil ? "." : getenv("HOME"), ".config");
+        }
+        configpath = fs::join(dir, "lmw-gui.toml");
+    }
+
+    if (!fs::exists(configpath)) {
+        return;
+    }
+
+    try {
+        local c = toml::decode(readfile(configpath))["contrast"];
+
+        if (c != nil) {
+            local p = c["preset"] == nil ? "AA" : c["preset"], r = c["ratio"] == nil ? 4.5 : c["ratio"];
+            ratio = lmwtheme::ratio(p, r);
+            preset = p;
+        }
+    } catch (e) {
+        eprintln("lmwgui:", configpath + ":", e->message, "(the contrast is AA)");
+    }
+}
+
+saveconfig() {
+    try {
+        fs::mkdirall(fs::dir(configpath));
+        writefile(configpath, toml::encode({"contrast": {"preset": preset, "ratio": ratio}}));
+    } catch (e) {
+        say("Cannot save the settings: " + e->message);
+    }
+}
