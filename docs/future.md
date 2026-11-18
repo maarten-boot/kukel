@@ -1855,7 +1855,12 @@ yet written (those win). The list in the header ("Synth:") has the
 running synths, from `lmw::sockets()` every 2 seconds, a Unix socket
 shown by its name (`4711-1`); choosing one connects to it (the GUI stays
 with the one it has when the other does not answer) and shows what it
-has. "Connect again" does the same with the synth that was lost.*
+has. "Connect again" does the same with the synth that was lost. The header
+starts with the synth (its list and "Connect again"), then the patch
+(name, Load, Save), then the contrast: the window is about 1400 pixels
+wide, and CI's 1024 pixel screen (Xvfb) cut off what stood at the right,
+where the list was at first. The GUI tests now fail with that message
+when a point they click is off the screen.*
 
 ### 13.6 Keeping in step
 

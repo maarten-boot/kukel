@@ -178,9 +178,20 @@ func lmwWindow(t *testing.T) (x, y int) {
 	return x, y
 }
 
-// xdo runs xdotool.
+// xdo runs xdotool. A mousemove off the screen (where xdotool would put
+// the mouse at the edge, on another widget) fails the test.
 func xdo(t *testing.T, args ...string) {
 	t.Helper()
+	if len(args) >= 3 && args[0] == "mousemove" {
+		out, _ := exec.Command("xdotool", "getdisplaygeometry").Output()
+		var w, h, x, y int
+		fmt.Sscanf(string(out), "%d %d", &w, &h)
+		fmt.Sscan(args[1], &x)
+		fmt.Sscan(args[2], &y)
+		if w > 0 && (x < 0 || y < 0 || x >= w || y >= h) {
+			t.Fatalf("xdotool %v: the point is off the %dx%d screen (is the window too wide?)", args, w, h)
+		}
+	}
 	if err := exec.Command("xdotool", args...).Run(); err != nil {
 		t.Fatalf("xdotool %v: %v", args, err)
 	}

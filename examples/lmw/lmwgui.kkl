@@ -244,8 +244,29 @@ build(first) {
     window->onclose(quit);
     local head = new tk::Frame(window, {"padding": [6, 4]});
     head->pack({"fill": "x"});
+
+    // From the left: the synth (first: the window may be wider than the
+    // screen), the patch, the contrast.
+    new tk::Label(head, "Synth:")->pack({"side": "left"});
+    synthlist = new tk::Combobox(head, [label(address)], {"state": "readonly", "width": 16});
+    synthlist->settext(label(address));
+    synthlist->onselect(fn(l) {
+        local a = synths[l] == nil ? l : synths[l];
+
+        if (a != address) {
+            switchto(a);
+        }
+    });
+    synthlist->pack({"side": "left", "padx": 4});
+
+    if (verbose) {
+        push(geometry, ["synthlist", [cell(head), cell(synthlist)]]);
+    }
+    reconnect = new tk::Button(head, "Connect again", {"state": "disabled"});
+    reconnect->onclick(connectagain);
+    reconnect->pack({"side": "left"});
     patchname = new tk::Label(head, "Patch:", {"width": 24});
-    patchname->pack({"side": "left"});
+    patchname->pack({"side": "left", "padx": 12});
     local load = new tk::Button(head, "Load...");
     load->onclick(loadpatch);
     load->pack({"side": "left"});
@@ -259,24 +280,6 @@ build(first) {
     customratio->pack({"side": "left", "padx": 4});
     contrast->onselect(fn(p) { setcontrast(p, customratio->text(), true); });
     customratio->onenter(fn(text) { setcontrast("Custom", text, true); });
-    reconnect = new tk::Button(head, "Connect again", {"state": "disabled"});
-    reconnect->onclick(connectagain);
-    reconnect->pack({"side": "right"});
-    synthlist = new tk::Combobox(head, [label(address)], {"state": "readonly", "width": 24});
-    synthlist->settext(label(address));
-    synthlist->onselect(fn(l) {
-        local a = synths[l] == nil ? l : synths[l];
-
-        if (a != address) {
-            switchto(a);
-        }
-    });
-    synthlist->pack({"side": "right", "padx": 4});
-
-    if (verbose) {
-        push(geometry, ["synthlist", [cell(head), cell(synthlist)]]);
-    }
-    new tk::Label(head, "Synth:")->pack({"side": "right"});
 
     tabs = new tk::Notebook(window, {"padding": 4});
     tabs->pack({"fill": "both", "expand": true});
