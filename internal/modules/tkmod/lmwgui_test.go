@@ -448,3 +448,44 @@ func TestLmwguiFiles(t *testing.T) {
 		t.Errorf("the synth's notes are %q, want the ones typed before it went", got)
 	}
 }
+
+// TestLmwguiKeyboard plays the keyboard of lmwgui against its own fake
+// synth: a click low on C4 is loud, dragging up to D4 plays it softer, the
+// computer keys a and e play C4 and D#4 while the keyboard has the focus
+// (held: no repeats), and x shifts them an octave up.
+func TestLmwguiKeyboard(t *testing.T) {
+	display(t)
+	if _, err := exec.LookPath("xdotool"); err != nil || os.Getenv("KUKEL_TK_NOCLICK") != "" {
+		t.Skip("no xdotool")
+	}
+	dir, err := filepath.Abs("../../../examples/lmw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gui := startKukel(t, filepath.Join(dir, "lmwgui.kkl"), "-fake", "-v", "-config", filepath.Join(t.TempDir(), "lmw-gui.toml"))
+	gui.expect(t, `^shown all 51$`)
+	kb := gui.places(t, "keyboard")["keyboard"]
+	time.Sleep(300 * time.Millisecond)
+	wx, wy := lmwWindow(t)
+	// C4 is white key 23 (A0 and B0, then C1 to B3); keys are 17 pixels wide.
+	cx, top := wx+kb[0]+1+23*17+8, wy+kb[1]
+	xdo(t, "mousemove", fmt.Sprint(cx), fmt.Sprint(top+40), "mousedown", "1")
+	gui.expect(t, `^play on 60 (1[01][0-9]|12[0-7])$`)
+	xdo(t, "mousemove", fmt.Sprint(cx+17), fmt.Sprint(top+12))
+	gui.expect(t, `^play off 60$`)
+	gui.expect(t, `^play on 62 ([1-4]?[0-9])$`)
+	xdo(t, "mouseup", "1")
+	gui.expect(t, `^play off 62$`)
+
+	xdo(t, "keydown", "a", "keydown", "e")
+	time.Sleep(700 * time.Millisecond) // long enough for X to repeat them
+	xdo(t, "keyup", "a", "keyup", "e")
+	for _, want := range []string{"play on 60 100", "play on 63 100", "play off 60", "play off 63"} {
+		if line := gui.expect(t, `^(play .*)$`)[1]; line != want {
+			t.Fatalf("got %q, want %q; the output:\n%s", line, want, strings.Join(gui.seen, "\n"))
+		}
+	}
+	xdo(t, "key", "x", "a")
+	gui.expect(t, `^play on 72 100$`)
+	gui.expect(t, `^play off 72$`)
+}

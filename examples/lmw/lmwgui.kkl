@@ -22,7 +22,13 @@
 // loses the keyboard.
 //
 // Load and Save (Ctrl+O, Ctrl+S) read a patch file into the synth and
-// write the synth's patch to a file; Ctrl+Q quits. The list in the header
+// write the synth's patch to a file; Ctrl+Q quits.
+//
+// Under the tabs is a keyboard of 88 keys (A0 to C8), as the synth's: a
+// click plays a note (soft near the top of a key, loud near the bottom),
+// dragging plays the keys passed over. While it has the keyboard (a click
+// gives it), the keys a w s e d f t g y h u j k o l p ; play from C4 up,
+// z and x shift them an octave down or up. The list in the header
 // has the synths that are running (their sockets), to switch to another.
 // The contrast (AA, AAA, Max or a custom ratio) is kept in the settings
 // file.
@@ -91,6 +97,17 @@ global cursor = [0, 0], focused = false, drag = nil;
 global notesbox = nil, notestext = "", notesdirty = false, notestimer = nil;
 global synthlist, lister = nil, patchtitle = "", synths = {};   // label -> address
 global loadbutton, savebutton, connected = true;
+global piano = nil, down = {}, mousekey = nil, typed = {}, releases = {}, shift = 0, pianofocus = false;
+
+// The keyboard: notes 21 (A0) to 108 (C8), key sizes in pixels, and the
+// computer keys from C upward (as JUCE's).
+const LOWNOTE = 21;
+const HIGHNOTE = 108;
+const KEYW = 17;
+const KEYH = 46;
+const BLACKW = 11;
+const BLACKH = 28;
+const QWERTY = "awsedftgyhujkolp;";
 
 // The matrix's sizes in pixels: the labels of the rows, the heads of the
 // columns, a cell.
@@ -302,6 +319,7 @@ build(first) {
     rows(effects, EFFECTS, extend(top, cell(effects)));
     makematrix(cablepage, extend(top, cell(cablepage)));
     makenotes(notespage, extend(top, cell(notespage)));
+    makepiano(window);
     status = new tk::Label(window, "", {"anchor": "w", "padding": [6, 2]});
     status->pack({"fill": "x"});
     local names = ["Synth", "Effects", "Matrix", "Notes"], found = false;
@@ -785,6 +803,7 @@ enable(on) {
     savebutton->configure(state);
     reconnect->configure({"state": on ? "disabled" : "normal"});
     drawmatrix();
+    drawpiano();
 }
 
 connectagain() {
@@ -810,6 +829,7 @@ switchto(a) {
     }
     flush();
     savenotes();
+    allnotesoff();
     // Notes typed but not written when the connection was lost: kept for
     // the same synth, written once it is back.
     local keep = synth->closed() && notesdirty && other->address == address ? notesbox->text() : nil;
@@ -882,6 +902,7 @@ listsynths() {
 quit() {
     flush();
     savenotes();
+    allnotesoff();
 
     if (lister != nil) {
         lister->cancel();
@@ -1360,6 +1381,244 @@ drawcursor() {
     }
 }
 
+// The keyboard (the synth's /keys)
+
+// white(n): whether note n is a white key.
+white(n) {
+    return _index([0, 2, 4, 5, 7, 9, 11], n % 12) >= 0;
+}
+
+// keybox(n): the rectangle of note n's key on the canvas.
+keybox(n) {
+    local whites = 0;
+
+    for (local m = LOWNOTE; m < n; m++) {
+        if (white(m)) {
+            whites++;
+        }
+    }
+
+    if (white(n)) {
+        return [1 + whites * KEYW, 1, 1 + (whites + 1) * KEYW, 1 + KEYH];
+    }
+    local x = 1 + whites * KEYW;
+    return [x - BLACKW / 2, 1, x + BLACKW - BLACKW / 2, 1 + BLACKH];
+}
+
+// keyat(x, y): [note, velocity] of the point on the canvas, or nil: a
+// black key first (they lie on top); soft at the top, loud at the bottom.
+keyat(x, y) {
+    for (local pass = 0; pass < 2; pass++) {
+        for (local n = LOWNOTE; n <= HIGHNOTE; n++) {
+            local b = keybox(n);
+
+            if (white(n) == (pass == 1) && x >= b[0] && x < b[2] && y >= b[1] && y < b[3]) {
+                return [n, max(1, min(127, round(1 + 126.0 * (y - b[1]) / (b[3] - b[1]))))];
+            }
+        }
+    }
+    return nil;
+}
+
+// notename(n): "C4" for 60.
+notename(n) {
+    local names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    return names[n % 12] + str(n / 12 - 1);
+}
+
+makepiano(parent) {
+    local whites = 0;
+
+    for (local n = LOWNOTE; n <= HIGHNOTE; n++) {
+        if (white(n)) {
+            whites++;
+        }
+    }
+    piano = new tk::Canvas(parent, {"width": whites * KEYW + 2, "height": KEYH + 2, "background": lmwtheme::WHITE});
+    piano->pack({"pady": 2});
+
+    if (verbose) {
+        push(geometry, ["keyboard", [cell(piano)]]);
+    }
+    piano->bind("<Button-1>", fn(e) {
+        piano->focus();
+        local k = keyat(e["x"], e["y"]);
+
+        if (k != nil) {
+            mousekey = k[0];
+            noteon(k[0], k[1]);
+        }
+    });
+    piano->bind("<B1-Motion>", fn(e) {
+        local k = keyat(e["x"], e["y"]);
+
+        if (k != nil && k[0] != mousekey) {   // glides over the keys
+            if (mousekey != nil) {
+                noteoff(mousekey);
+            }
+            mousekey = k[0];
+            noteon(k[0], k[1]);
+        }
+    });
+    piano->bind("<ButtonRelease-1>", fn(e) {
+        if (mousekey != nil) {
+            noteoff(mousekey);
+            mousekey = nil;
+        }
+    });
+    piano->bind("<KeyPress>", keypress);
+    piano->bind("<KeyRelease>", keyrelease);
+    piano->bind("<FocusIn>", fn(e) {
+        pianofocus = true;
+        drawpiano();
+    });
+    piano->bind("<FocusOut>", fn(e) {   // a key let go elsewhere never comes here
+        pianofocus = false;
+
+        for (local c, n in typed) {
+            noteoff(n);
+        }
+        typed = {};
+        drawpiano();
+    });
+}
+
+// keychar(e): the character of a key event's key ("" for none): by its
+// name, since Tk gives no character for a release.
+keychar(e) {
+    local k = e["key"] == nil ? "" : e["key"];
+
+    if (k == "semicolon") {
+        return ";";
+    }
+    return len(k) == 1 ? lower(k) : "";
+}
+
+// keypress(e), keyrelease(e): the computer keys. X repeats a held key as
+// a release and a press at once: a release waits a moment, and a press
+// of the same key in that moment cancels it.
+keypress(e) {
+    local c = keychar(e);
+
+    if (c == "z" || c == "x") {
+        shift = max(-3, min(2, shift + (c == "z" ? -1 : 1)));
+        say("The computer keys play from C" + str(4 + shift) + ".");
+        return false;
+    }
+    local i = c == "" ? -1 : find(QWERTY, c);
+
+    if (i < 0) {
+        return;
+    }
+
+    if (releases[c] != nil) {   // a repeat
+        releases[c]->cancel();
+        releases = _without(releases, c);
+        return false;
+    }
+
+    if (typed[c] == nil) {
+        typed[c] = 60 + 12 * shift + i;
+        noteon(typed[c], 100);
+    }
+    return false;
+}
+
+keyrelease(e) {
+    local c = keychar(e);
+
+    if (typed[c] == nil) {
+        return;
+    }
+    releases[c] = events::after(0.04, fn() {
+        releases = _without(releases, c);
+
+        if (typed[c] != nil) {
+            noteoff(typed[c]);
+            typed = _without(typed, c);
+        }
+    });
+    return false;
+}
+
+// noteon(n, velocity), noteoff(n): a note to the synth, and the key drawn
+// pressed or not.
+noteon(n, velocity) {
+    if (synth->closed() || n < LOWNOTE || n > HIGHNOTE || down[n] != nil) {
+        return;
+    }
+
+    try {
+        synth->noteon(n, velocity);
+        down[n] = true;
+        trace("play on", n, velocity);
+    } catch (e) {
+        failed(e);
+    }
+    drawpiano();
+}
+
+noteoff(n) {
+    if (down[n] == nil) {
+        return;
+    }
+    down = _without(down, n);
+
+    if (!synth->closed()) {
+        try {
+            synth->noteoff(n);
+            trace("play off", n);
+        } catch (e) {
+            failed(e);
+        }
+    }
+    drawpiano();
+}
+
+// allnotesoff(): every note the GUI plays, off (before it quits or goes to
+// another synth).
+allnotesoff() {
+    for (local n, _ in down) {
+        noteoff(n);
+    }
+    typed = {};
+    mousekey = nil;
+}
+
+// drawpiano(): the keys: white and black, a pressed one in the pressed
+// colours, the C keys named; a ring while it has the keyboard.
+drawpiano() {
+    if (piano == nil || theme == nil) {
+        return;
+    }
+    piano->clear();
+    local k = theme["keys"], line = ink();
+
+    for (local pass = 0; pass < 2; pass++) {   // the white keys first: the black lie on them
+        for (local n = LOWNOTE; n <= HIGHNOTE; n++) {
+            if (white(n) != (pass == 0)) {
+                continue;
+            }
+            local b = keybox(n), on = down[n] != nil;
+
+            if (white(n)) {
+                piano->rect(b[0], b[1], b[2], b[3], {"fill": on ? k["white"] : lmwtheme::WHITE, "outline": line});
+
+                if (n % 12 == 0) {
+                    piano->text((b[0] + b[2]) / 2, b[3] - 2, notename(n), {"anchor": "s", "color": on ? k["name"] : line, "font": {"size": 7}});
+                }
+            } else {
+                piano->rect(b[0], b[1], b[2], b[3], {"fill": on ? k["black"] : line, "outline": line});
+            }
+        }
+    }
+
+    if (pianofocus) {
+        local last = keybox(HIGHNOTE);
+        piano->rect(1, 1, last[2], last[3], {"outline": line, "width": 2});
+    }
+}
+
 // Contrast (docs/future.md §13.7)
 
 // setcontrast(p, r, save): the colours of preset p (r: the ratio for
@@ -1376,6 +1635,7 @@ setcontrast(p, r, save) {
     theme = lmwtheme::palette(minimum);
     tk::setcolors(theme["tk"]);
     drawmatrix();
+    drawpiano();
 
     for (local t in titles) {
         t[0]->configure({"background": theme["units"][t[1]], "foreground": lmwtheme::BLACK});

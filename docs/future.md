@@ -1880,6 +1880,22 @@ of 96 pixels, less padding, matrix rows of 22 pixels. The window is
 CI), so a title bar and a desktop's panel fit too; `TestLmwgui` fails
 when it is more than 1024x768.*
 
+*The on-screen keyboard (2026-11-18, as the user chose): a strip of 88
+keys (A0 to C8, as the synth's) under the tabs, on every tab, played
+through `/keys`. A click plays a note, soft near the top of a key and
+loud near the bottom (velocity 1 to 127, as JUCE's keyboard); dragging
+plays the keys passed over. While the strip has the keyboard (a click
+gives it; a ring shows it) the computer keys a w s e d f t g y h u j k o
+l p ; play from C4 up at velocity 100, and z and x shift them an octave
+(C1 to C6). X repeats a held key as a release and a press: a release
+waits 40 ms, and a press of the same key cancels it. Losing the
+keyboard, quitting or going to another synth lets go of every note the
+GUI plays. A pressed key has the synth's pressed colours (its Theme.h:
+`#767676` raised to the ratio against white or black keys, the C's name
+on it in black or white), three more pairs in `lmwtheme`'s table. Notes
+played elsewhere (MIDI, the synth's own keyboard) are not shown: the
+synth does not serve them. The window is 940x726 with Noto Sans.*
+
 ### 13.6 Keeping in step
 
 - A fader that moves writes its parameter at most once every 20 ms, the
@@ -1978,6 +1994,9 @@ the user changes the contrast.*
   written elsewhere show; Ctrl+S saves the synth's patch, Ctrl+O loads a
   patch file (its cutoff shows) and a bad one is refused; choosing the
   other synth in the list connects to it.*
+  *And the keyboard, `TestLmwguiKeyboard`: a click low on C4 plays it
+  loud, dragging up to D4 plays that softer, a and e held play C4 and
+  D#4 once each, x and a play C5.*
 - The contrast table for every preset. *Done (2026-11-18):
   `contrast.tests`.*
 - *`lmwgui` against the real synth (2026-11-18, by hand, the synth

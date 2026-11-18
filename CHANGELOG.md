@@ -17,6 +17,9 @@ From v1.0.0 on, what keeps working is in
 
 ## Unreleased
 
+- `examples/lmw/lmwgui.kkl`: an on-screen keyboard of 88 keys under the
+  tabs, played with the mouse (velocity by where a key is clicked) or,
+  while it has the focus, with the computer keys. Q115.
 - `examples/lmw/lmwgui.kkl`: the window fits a 1024 by 768 screen (it was
   about 1400 pixels wide). Q115.
 - `examples/lmw/lmwgui.kkl`: notes typed but not yet written when the

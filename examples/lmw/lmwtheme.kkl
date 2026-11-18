@@ -8,6 +8,8 @@
 //   "tk":    the map for tk::setcolors,
 //   "units": the title colour of each kind of unit ("vco", "noise", ...;
 //            "none" for KEYS, OUT and the effects),
+//   "keys":  the on-screen keyboard: "white" and "black" (a pressed white
+//            or black key), "name" (the note's name on a pressed white key),
 //   "pairs": every [name, foreground, background] the GUI draws.
 
 global PRESETS = {"AA": 4.5, "AAA": 7.0, "Max": 21.0};
@@ -20,6 +22,7 @@ const DISABLED = "#767676";   // the text of a widget that is off: 4.54:1 on whi
 const BORDER = "#767676";     // outlines and the focus ring, on white
 const TROUGH = "#767676";     // a fader's groove, around its white handle
 const ACTIVE = "#e8e8e8";     // a button under the mouse, black text on it
+const KEYDOWN = "#767676";    // a pressed key: 4.54:1 on white, 4.63:1 on black
 
 // The synth's S6.9: light tints behind the black title text of a panel.
 global UNITS = {
@@ -32,6 +35,11 @@ global UNITS = {
     "lfo": "#d9b3ff",
     "mix": "#f0f0f0",
 };
+
+// texton(fill): the better of black and white as text on fill.
+texton(fill) {
+    return contrast(BLACK, fill) >= contrast(WHITE, fill) ? BLACK : WHITE;
+}
 
 // unit(name): the kind of unit of a panel title or a module name ("VCO 1",
 // "vcf2", "lfo1.out"), by its first three letters in any case.
@@ -135,6 +143,7 @@ palette(r) {
     local select = enforce(SELECT, WHITE, r), disabled = enforce(DISABLED, WHITE, r);
     local border = enforce(BORDER, WHITE, r), trough = enforce(TROUGH, WHITE, r);
     local active = enforce(ACTIVE, BLACK, r), units = {};
+    local whitekey = enforce(KEYDOWN, WHITE, r), blackkey = enforce(KEYDOWN, BLACK, r);
 
     for (local u, c in UNITS) {
         units[u] = enforce(c, BLACK, r);
@@ -146,6 +155,9 @@ palette(r) {
         ["outline", border, WHITE],
         ["fader groove", trough, WHITE],
         ["text on a button under the mouse", BLACK, active],
+        ["pressed white key, beside white ones", whitekey, WHITE],
+        ["pressed black key, beside black ones", blackkey, BLACK],
+        ["note name on a pressed white key", texton(whitekey), whitekey],
     ];
 
     for (local u, c in units) {
@@ -158,6 +170,7 @@ palette(r) {
             "trough": trough, "border": border, "active": active, "disabled": disabled,
         },
         "units": units,
+        "keys": {"white": whitekey, "black": blackkey, "name": texton(whitekey)},
         "pairs": pairs,
     };
 }

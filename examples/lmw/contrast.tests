@@ -26,6 +26,9 @@ ok   #767676 on #ffffff 4.54 disabled text
 ok   #767676 on #ffffff 4.54 outline
 ok   #767676 on #ffffff 4.54 fader groove
 ok   #000000 on #e8e8e8 17.14 text on a button under the mouse
+ok   #767676 on #ffffff 4.54 pressed white key, beside white ones
+ok   #767676 on #000000 4.62 pressed black key, beside black ones
+ok   #000000 on #767676 4.62 note name on a pressed white key
 ok   #000000 on #ffffff 21.0 title of none
 ok   #000000 on #ffb3b3 12.35 title of vco
 ok   #000000 on #ffcc99 14.35 title of noise
@@ -61,6 +64,9 @@ ok   #595959 on #ffffff 7.0 disabled text
 ok   #595959 on #ffffff 7.0 outline
 ok   #595959 on #ffffff 7.0 fader groove
 ok   #000000 on #e8e8e8 17.14 text on a button under the mouse
+ok   #595959 on #ffffff 7.0 pressed white key, beside white ones
+ok   #959595 on #000000 7.01 pressed black key, beside black ones
+ok   #ffffff on #595959 7.0 note name on a pressed white key
 ok   #000000 on #ffffff 21.0 title of none
 ok   #000000 on #ffb3b3 12.35 title of vco
 ok   #000000 on #ffcc99 14.35 title of noise
@@ -96,6 +102,9 @@ ok   #000000 on #ffffff 21.0 disabled text
 ok   #000000 on #ffffff 21.0 outline
 ok   #000000 on #ffffff 21.0 fader groove
 ok   #000000 on #ffffff 21.0 text on a button under the mouse
+ok   #000000 on #ffffff 21.0 pressed white key, beside white ones
+ok   #ffffff on #000000 21.0 pressed black key, beside black ones
+ok   #ffffff on #000000 21.0 note name on a pressed white key
 ok   #000000 on #ffffff 21.0 title of none
 ok   #000000 on #ffffff 21.0 title of vco
 ok   #000000 on #ffffff 21.0 title of noise
@@ -131,6 +140,9 @@ ok   #424242 on #ffffff 10.05 disabled text
 ok   #424242 on #ffffff 10.05 outline
 ok   #424242 on #ffffff 10.05 fader groove
 ok   #000000 on #e8e8e8 17.14 text on a button under the mouse
+ok   #424242 on #ffffff 10.05 pressed white key, beside white ones
+ok   #b3b3b3 on #000000 10.02 pressed black key, beside black ones
+ok   #ffffff on #424242 10.05 note name on a pressed white key
 ok   #000000 on #ffffff 21.0 title of none
 ok   #000000 on #ffb3b3 12.35 title of vco
 ok   #000000 on #ffcc99 14.35 title of noise
@@ -166,6 +178,9 @@ ok   #767676 on #ffffff 4.54 disabled text
 ok   #767676 on #ffffff 4.54 outline
 ok   #767676 on #ffffff 4.54 fader groove
 ok   #000000 on #e8e8e8 17.14 text on a button under the mouse
+ok   #767676 on #ffffff 4.54 pressed white key, beside white ones
+ok   #767676 on #000000 4.62 pressed black key, beside black ones
+ok   #000000 on #767676 4.62 note name on a pressed white key
 ok   #000000 on #ffffff 21.0 title of none
 ok   #000000 on #ffb3b3 12.35 title of vco
 ok   #000000 on #ffcc99 14.35 title of noise
@@ -201,6 +216,9 @@ ok   #000000 on #ffffff 21.0 disabled text
 ok   #000000 on #ffffff 21.0 outline
 ok   #000000 on #ffffff 21.0 fader groove
 ok   #000000 on #ffffff 21.0 text on a button under the mouse
+ok   #000000 on #ffffff 21.0 pressed white key, beside white ones
+ok   #ffffff on #000000 21.0 pressed black key, beside black ones
+ok   #ffffff on #000000 21.0 note name on a pressed white key
 ok   #000000 on #ffffff 21.0 title of none
 ok   #000000 on #ffffff 21.0 title of vco
 ok   #000000 on #ffffff 21.0 title of noise
