@@ -9,7 +9,9 @@
 // tcp!host!port); without it, the newest synth socket that answers.
 // -fake: a fake synth in this program (fakesynth.kkl) on a free TCP port;
 // -fakedir: one on a Unix socket in a new directory, found as lmw finds
-// synths; -noserial: the fake serves no /serial, -noinfo no /info.
+// synths; -fakeat address: one at that address (a Unix socket in a
+// directory of synth sockets, say); -noserial: the fake serves no
+// /serial, -noinfo no /info.
 //
 // With -fake, "serve seconds" keeps the fake synth going that long and
 // prints its address first: a synth for lmwgui (-a) without the real one.
@@ -18,8 +20,8 @@ use events;
 use fakesynth;
 use fs;
 
-const USAGE = "usage: lmwctl [-a address | -fake | -fakedir] [-noserial] [-noinfo] command [args] [, command [args]]...";
-const COMMANDS = "commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes, serial, on note [velocity], off note, played (-fake), serve seconds (-fake)";
+const USAGE = "usage: lmwctl [-a address | -fake | -fakedir | -fakeat address] [-noserial] [-noinfo] command [args] [, command [args]]...";
+const COMMANDS = "commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes, serial, on note [velocity], off note, played (-fake), serve seconds (-fake, -fakeat)";
 
 main(args) {
     local addr = nil, fake = nil, noserial = false, noinfo = false, i = 0;
@@ -34,6 +36,12 @@ main(args) {
             fake = "tcp";
         } else if (args[i] == "-fakedir") {
             fake = "dir";
+        } else if (args[i] == "-fakeat") {
+            if (i + 1 >= len(args)) {
+                return usage("-fakeat needs an address");
+            }
+            fake = "at";
+            addr = args[++i];
         } else if (args[i] == "-noserial") {
             noserial = true;
         } else if (args[i] == "-noinfo") {
@@ -65,6 +73,8 @@ main(args) {
             if (fake == "tcp") {
                 server = f->serve("tcp://127.0.0.1:0");
                 addr = server->endpoint();
+            } else if (fake == "at") {
+                server = f->serve(lmw::address(addr));
             } else {
                 dir = fs::tempdir("lmwctl-*");
                 server = f->serve("unix://" + fs::join(dir, "1234-1.sock"));
@@ -205,7 +215,7 @@ run(synth, c, dir, fake) {
         }
     } else if (name == "serve") {
         if (fake == nil || dir != nil) {
-            throw new Error("serve: only with -fake");
+            throw new Error("serve: only with -fake or -fakeat");
         }
         println("serving", synth->address);
         fs::stdout()->flush();

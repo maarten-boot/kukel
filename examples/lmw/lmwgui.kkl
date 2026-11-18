@@ -6,8 +6,8 @@
 // -a address: the synth (as lmwctl takes it); without it, the newest synth
 // socket that answers. -fake: a fake synth in this program (fakesynth.kkl).
 // -config file: the settings file instead of lmw-gui.toml in the user's
-// configuration directory. -tab name: the tab shown first (Synth, Effects
-// or Matrix). -v: prints what it shows and writes, for the tests.
+// configuration directory. -tab name: the tab shown first (Synth, Effects,
+// Matrix or Notes). -v: prints what it shows and writes, for the tests.
 //
 // The Synth tab has the synth's module panels, the Effects tab the reverb.
 // A fader writes its parameter at most every 20 ms while it moves; every
@@ -17,7 +17,13 @@
 // The Matrix tab has a row per input and a column per output: a click
 // puts a cable in or takes it out, dragging up or down sets its level, a
 // double click asks for it; the arrow keys move a cell cursor, Space
-// toggles, + and - change by 10 %, Delete removes.
+// toggles, + and - change by 10 %, Delete removes. The Notes tab is the
+// patch's notes, written a second after typing stops and when the text
+// loses the keyboard.
+//
+// Load and Save (Ctrl+O, Ctrl+S) read a patch file into the synth and
+// write the synth's patch to a file; Ctrl+Q quits. The list in the header
+// has the synths that are running (their sockets), to switch to another.
 // The contrast (AA, AAA, Max or a custom ratio) is kept in the settings
 // file.
 use tk;
@@ -82,6 +88,8 @@ global geometry = [], placed = {}, placing = false;   // -v: where the faders ar
 global tabs, theme = nil;
 global matrix = nil, inputs = [], outputs = [], normalled = {}, cables = {};
 global cursor = [0, 0], focused = false, drag = nil;
+global notesbox = nil, notestext = "", notesdirty = false, notestimer = nil;
+global synthlist, lister = nil, patchtitle = "", synths = {};   // label -> address
 
 // The matrix's sizes in pixels: the labels of the rows, the heads of the
 // columns, a cell.
@@ -106,7 +114,7 @@ main(args) {
         } else if (args[i] == "-v") {
             verbose = true;
         } else {
-            eprintln("usage: lmwgui [-a address | -fake] [-config file] [-tab Synth|Effects|Matrix] [-v]");
+            eprintln("usage: lmwgui [-a address | -fake] [-config file] [-tab Synth|Effects|Matrix|Notes] [-v]");
             return 2;
         }
     }
@@ -147,6 +155,8 @@ main(args) {
     setcontrast(preset, ratio, false);
     poll();
     poller = events::every(POLL, poll);
+    listsynths();
+    lister = events::every(2, listsynths);
     events::run();
     return 0;
 }
@@ -234,8 +244,14 @@ build(first) {
     window->onclose(quit);
     local head = new tk::Frame(window, {"padding": [6, 4]});
     head->pack({"fill": "x"});
-    patchname = new tk::Label(head, "Patch:", {"width": 30});
+    patchname = new tk::Label(head, "Patch:", {"width": 24});
     patchname->pack({"side": "left"});
+    local load = new tk::Button(head, "Load...");
+    load->onclick(loadpatch);
+    load->pack({"side": "left"});
+    local save = new tk::Button(head, "Save...");
+    save->onclick(savepatch);
+    save->pack({"side": "left", "padx": 4});
     new tk::Label(head, "Contrast:")->pack({"side": "left", "padx": 4});
     contrast = new tk::Combobox(head, ["AA", "AAA", "Max", "Custom"], {"state": "readonly", "width": 7});
     contrast->pack({"side": "left"});
@@ -246,20 +262,35 @@ build(first) {
     reconnect = new tk::Button(head, "Connect again", {"state": "disabled"});
     reconnect->onclick(connectagain);
     reconnect->pack({"side": "right"});
-    new tk::Label(head, address)->pack({"side": "right", "padx": 8});
+    synthlist = new tk::Combobox(head, [label(address)], {"state": "readonly", "width": 24});
+    synthlist->settext(label(address));
+    synthlist->onselect(fn(l) {
+        local a = synths[l] == nil ? l : synths[l];
+
+        if (a != address) {
+            switchto(a);
+        }
+    });
+    synthlist->pack({"side": "right", "padx": 4});
+
+    if (verbose) {
+        push(geometry, ["synthlist", [cell(head), cell(synthlist)]]);
+    }
+    new tk::Label(head, "Synth:")->pack({"side": "right"});
 
     tabs = new tk::Notebook(window, {"padding": 4});
     tabs->pack({"fill": "both", "expand": true});
     local page = new tk::Frame(tabs, {"padding": 4}), effects = new tk::Frame(tabs, {"padding": 4});
-    local cablepage = new tk::Frame(tabs, {"padding": 4});
-    tabs->add(page, "Synth")->add(effects, "Effects")->add(cablepage, "Matrix");
+    local cablepage = new tk::Frame(tabs, {"padding": 4}), notespage = new tk::Frame(tabs, {"padding": 4});
+    tabs->add(page, "Synth")->add(effects, "Effects")->add(cablepage, "Matrix")->add(notespage, "Notes");
     local top = [cell(tabs)];
     rows(page, SYNTH, extend(top, cell(page)));
     rows(effects, EFFECTS, extend(top, cell(effects)));
     makematrix(cablepage, extend(top, cell(cablepage)));
+    makenotes(notespage, extend(top, cell(notespage)));
     status = new tk::Label(window, "", {"anchor": "w", "padding": [6, 2]});
     status->pack({"fill": "x"});
-    local names = ["Synth", "Effects", "Matrix"], found = false;
+    local names = ["Synth", "Effects", "Matrix", "Notes"], found = false;
 
     for (local i = 0; i < len(names); i++) {
         if (lower(first) == lower(names[i])) {
@@ -269,7 +300,21 @@ build(first) {
     }
 
     if (!found) {
-        throw new Error("there is no tab " + first + " (Synth, Effects or Matrix)");
+        throw new Error("there is no tab " + first + " (Synth, Effects, Matrix or Notes)");
+    }
+
+    // The keys of the window; on the notes too, where Tk's text would
+    // otherwise take Ctrl+O as a new line.
+    for (local k, f in {"o": loadpatch, "s": savepatch, "q": fn() {
+        quit();
+        window->close();
+    }}) {
+        local shortcut = fn(e) {
+            f();
+            return false;
+        };
+        window->bind("<Control-Key-" + k + ">", shortcut);
+        notesbox->bind("<Control-Key-" + k + ">", shortcut);
     }
     tabs->onchange(fn(i) {
         if (i == 2) {
@@ -645,7 +690,7 @@ poll() {
     } catch (e) {
         return failed(e);
     }
-    local params = ch["params"] == nil ? {} : ch["params"];
+    local params = ch["params"] == nil ? {} : ch["params"], first = !shown;
 
     for (local id, v in params) {
         latest[id] = v;
@@ -681,7 +726,12 @@ poll() {
     }
 
     if (haskey(ch, "name")) {
-        patchname->settext("Patch: " + ch["name"]);
+        patchtitle = ch["name"];
+        patchname->settext("Patch: " + patchtitle);
+    }
+
+    if (haskey(ch, "notes")) {
+        shownotes(first);
     }
 }
 
@@ -715,24 +765,97 @@ enable(on) {
 }
 
 connectagain() {
+    switchto(address);
+}
+
+// switchto(a): connects to the synth at a, and shows what it has; when it
+// does not answer, the GUI stays with the synth it has.
+switchto(a) {
+    local other = nil;
+
     try {
-        synth = lmw::connect(address);
+        other = lmw::connect(a);
+
+        if (other->info() == nil) {
+            other->close();
+            throw new Error("it has no /info (a newer synth is needed)");
+        }
     } catch (e) {
-        say("Cannot connect to " + address + ": " + e->message);
+        say("Cannot connect to " + a + ": " + e->message);
+        synthlist->settext(label(address));
         return;
     }
+    flush();
+    savenotes();
+
+    if (!synth->closed()) {
+        synth->close();
+    }
+    synth = other;
+    address = synth->address;
+    window->settitle("LMW-Synth: " + address);
+    synthlist->settext(label(address));
     shown = false;
     stale = {};
+    latest = {};
+    pending = {};
     cables = {};
+    notestext = "";
+    notesdirty = false;
+    notesbox->settext("");
+    patchtitle = "";
+    patchname->settext("Patch:");
     drawmatrix();
     enable(true);
-    say("Connected again.");
+    say("Connected to " + address + ".");
     trace("connected", address);
     poll();
 }
 
+// label(a): how the list in the header shows the synth at address a: a
+// Unix socket by its name (the synth's process id and number, "4711-1"),
+// another address as it is.
+label(a) {
+    if (find(a, "unix://") == 0 && fs::ext(a) == ".sock") {
+        local name = fs::base(a);
+        return slice(name, 0, len(name) - 5);
+    }
+    return a;
+}
+
+// listsynths(): the synths in the list of the header: the sockets of
+// running synths, and the one the GUI has.
+listsynths() {
+    local found = lmw::sockets(), items = [];
+
+    if (_index(found, address) < 0) {
+        push(found, address);
+    }
+    synths = {};
+
+    for (local a in found) {
+        local l = label(a);
+
+        if (haskey(synths, l)) {   // two directories with the same name in them
+            l = a;
+        }
+        synths[l] = a;
+        push(items, l);
+    }
+
+    if (join(items, " ") != join(synthlist->items(), " ")) {
+        synthlist->setitems(items);
+        trace("synths", join(found, " "));
+    }
+}
+
 quit() {
     flush();
+    savenotes();
+
+    if (lister != nil) {
+        lister->cancel();
+    }
 
     if (flushing != nil) {
         flushing->cancel();
@@ -750,6 +873,131 @@ quit() {
         server->close();
     }
     return true;
+}
+
+// Patch files and notes (docs/future.md §13.5)
+
+global PATCHTYPES = [["LMW-Synth patches", ".lmwpatch"], ["All files", "*"]];
+
+// loadpatch(): a patch file chosen by the user, loaded into the synth
+// (which checks it: its message goes to the status line).
+loadpatch() {
+    if (synth->closed()) {
+        return;
+    }
+    local path = tk::openfile({"title": "Load a patch", "types": PATCHTYPES, "parent": window});
+
+    if (path == nil) {
+        return;
+    }
+    flush();
+    savenotes();
+
+    try {
+        synth->load(readfile(path));
+        say("Loaded " + path + ".");
+        trace("loaded", fs::base(path));
+    } catch (e) {
+        failed(e);
+        trace("refused", "patch", e->message);
+    }
+}
+
+// savepatch(): the synth's patch, written to a file the user chooses.
+savepatch() {
+    if (synth->closed()) {
+        return;
+    }
+    flush();
+    savenotes();
+    local name = patchtitle == "" ? "patch" : patchtitle;
+    local path = tk::savefile({"title": "Save the patch", "types": PATCHTYPES, "ext": ".lmwpatch", "file": name + ".lmwpatch", "parent": window});
+
+    if (path == nil) {
+        return;
+    }
+
+    try {
+        writefile(path, synth->patch());
+        say("Saved " + path + ".");
+        trace("saved", fs::base(path));
+    } catch (e) {
+        failed(e);
+    }
+}
+
+// makenotes(page, chain): the Notes tab: the text is written a second
+// after typing stops, and when it loses the keyboard.
+makenotes(page, chain) {
+    notesbox = new tk::Text(page, {"width": 80, "height": 24, "wrap": "word", "scroll": "y"});
+    notesbox->pack({"fill": "both", "expand": true});
+
+    if (verbose) {
+        push(geometry, ["notes", extend(chain, cell(notesbox))]);
+    }
+    local typed = fn() {
+        if (notesbox->text() != notestext) {
+            notesdirty = true;
+
+            if (notestimer != nil) {
+                notestimer->cancel();
+            }
+            notestimer = events::after(1, savenotes);
+        }
+    };
+    notesbox->bind("<KeyRelease>", fn(e) { typed(); });
+    notesbox->bind("<ButtonRelease-2>", fn(e) { events::after(0, typed); });   // a paste comes after this
+    notesbox->bind("<FocusOut>", fn(e) { savenotes(); });
+}
+
+// savenotes(): the notes, written when they differ from the synth's.
+savenotes() {
+    if (notestimer != nil) {
+        notestimer->cancel();
+        notestimer = nil;
+    }
+
+    if (notesbox == nil || synth->closed()) {
+        return;
+    }
+    local t = notesbox->text();
+
+    if (t == notestext) {
+        notesdirty = false;
+        return;
+    }
+
+    try {
+        synth->setnotes(t);
+        notestext = t;
+        notesdirty = false;
+        trace("write notes", len(t), "bytes");
+    } catch (e) {
+        failed(e);
+    }
+}
+
+// shownotes(first): the synth's notes, shown unless the user has changes
+// not yet written (they win: they are written next); first: at the first
+// poll (no -v line).
+shownotes(first) {
+    local n = "";
+
+    try {
+        n = synth->notes();
+    } catch (e) {
+        return failed(e);
+    }
+
+    if (notesdirty || n == notestext) {
+        return;
+    }
+    notestext = n;
+    notesbox->settext(n);
+
+    if (!first) {
+        trace("show notes", len(n), "bytes");
+    }
 }
 
 // The matrix (docs/future.md §13.5, the synth's MatrixView.cpp)

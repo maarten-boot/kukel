@@ -281,12 +281,12 @@ $ -fakedir sockets , get out.gain
 # The command line
 $ -fake
 ! lmwctl: no command
-! usage: lmwctl [-a address | -fake | -fakedir] [-noserial] [-noinfo] command [args] [, command [args]]...
-! commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes, serial, on note [velocity], off note, played (-fake), serve seconds (-fake)
+! usage: lmwctl [-a address | -fake | -fakedir | -fakeat address] [-noserial] [-noinfo] command [args] [, command [args]]...
+! commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes, serial, on note [velocity], off note, played (-fake), serve seconds (-fake, -fakeat)
 exit 2
 
 $ -fake nonsense
-! lmwctl: unknown command nonsense; commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes, serial, on note [velocity], off note, played (-fake), serve seconds (-fake)
+! lmwctl: unknown command nonsense; commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes, serial, on note [velocity], off note, played (-fake), serve seconds (-fake, -fakeat)
 exit 1
 
 $ -fake get
@@ -295,14 +295,14 @@ exit 1
 
 $ -x get vcf1.cutoff
 ! lmwctl: unknown option -x
-! usage: lmwctl [-a address | -fake | -fakedir] [-noserial] [-noinfo] command [args] [, command [args]]...
-! commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes, serial, on note [velocity], off note, played (-fake), serve seconds (-fake)
+! usage: lmwctl [-a address | -fake | -fakedir | -fakeat address] [-noserial] [-noinfo] command [args] [, command [args]]...
+! commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes, serial, on note [velocity], off note, played (-fake), serve seconds (-fake, -fakeat)
 exit 2
 
 $ -a
 ! lmwctl: -a needs an address
-! usage: lmwctl [-a address | -fake | -fakedir] [-noserial] [-noinfo] command [args] [, command [args]]...
-! commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes, serial, on note [velocity], off note, played (-fake), serve seconds (-fake)
+! usage: lmwctl [-a address | -fake | -fakedir | -fakeat address] [-noserial] [-noinfo] command [args] [, command [args]]...
+! commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes, serial, on note [velocity], off note, played (-fake), serve seconds (-fake, -fakeat)
 exit 2
 
 $ -a tcp://127.0.0.1:1 get vcf1.cutoff
@@ -315,5 +315,11 @@ exit 1
 
 # serve: only with -fake (with it, the fake runs until the time is up: lmwgui tests it in internal/modules/tkmod)
 $ -fakedir serve 1
-! lmwctl: serve: only with -fake
+! lmwctl: serve: only with -fake or -fakeat
 exit 1
+
+$ -fakeat
+! lmwctl: -fakeat needs an address
+! usage: lmwctl [-a address | -fake | -fakedir | -fakeat address] [-noserial] [-noinfo] command [args] [, command [args]]...
+! commands: sockets, source, params, info id, get id, set id value, cables, cable input [pins], clear, ports, patch, load file, save file, notes, setnotes text, changes, serial, on note [velocity], off note, played (-fake), serve seconds (-fake, -fakeat)
+exit 2

@@ -806,7 +806,7 @@ Each step is usable on its own and prepares the next:
 | 16 | LMW-Synth GUI: the module `lmw` and a fake synth (13.4) | 9 | done (Q115) |
 | 17 | LMW-Synth GUI: Synth and Effects tabs, keeping in step, colours (13.5 to 13.7) | 15, 16; `/info` in the synth | done, with `tk::setcolors` (Q115) |
 | 18 | LMW-Synth GUI: the Matrix tab (13.5) | 17 | done, with `c->focus()` of a canvas (Q115) |
-| 19 | LMW-Synth GUI: Load, Save, Notes, choosing a synth (13.5) | 17 | proposed (Q115) |
+| 19 | LMW-Synth GUI: Load, Save, Notes, choosing a synth (13.5) | 17 | done (Q115) |
 
 Steps 4, 5, 7 and 8 are independent of each other once 1 and 3 exist. A
 `ffi` module (1.6) can come at any point after step 1.
@@ -1619,7 +1619,8 @@ with section 11); 2. `logging` with `Stderr`, `File`, `Memory` and the
 
 *A proposal (2026-11-16, TODO.md Q115); steps 15 (`tk::Notebook`), 16
 (the module `lmw`, a fake synth), 17 (the Synth and Effects tabs,
-keeping in step, colours) and 18 (the Matrix tab) built.
+keeping in step, colours), 18 (the Matrix tab) and 19 (Load, Save, Notes,
+choosing a synth) built: the first version is complete.
 The open questions are 13.9; all are answered (2026-11-17) as
 proposed.* [LMW-Synth](https://github.com/maarten-boot/software-synth-LMW) is
 a semi-modular polyphonic synthesizer (C++20, JUCE; standalone and VST3)
@@ -1842,6 +1843,20 @@ and the input's cells show what the synth has again. `-tab name` starts on
 a tab. Without a window manager (Xvfb) the level window gets no focus by
 itself; on a desktop it does.*
 
+*Built (2026-11-18), step 19: Load and Save are buttons in the header
+and Ctrl+O and Ctrl+S (Ctrl+Q quits), through `tk::openfile` and
+`tk::savefile` ("Load a patch", "Save the patch"; `.lmwpatch` files, the
+patch's name as the file's); pending fader and cable writes and the notes
+go out first. A patch the synth refuses gives its message in the status
+line. The Notes tab is a `tk::Text`, written a second after typing stops
+and when it loses the keyboard, only when it differs from the synth's;
+the poll shows notes written elsewhere unless the user has changes not
+yet written (those win). The list in the header ("Synth:") has the
+running synths, from `lmw::sockets()` every 2 seconds, a Unix socket
+shown by its name (`4711-1`); choosing one connects to it (the GUI stays
+with the one it has when the other does not answer) and shows what it
+has. "Connect again" does the same with the synth that was lost.*
+
 ### 13.6 Keeping in step
 
 - A fader that moves writes its parameter at most once every 20 ms, the
@@ -1929,6 +1944,12 @@ the user changes the contrast.*
   to 90 %, a fifth cable on an input is refused with the synth's message,
   another client's cable shows, and the synth has the cables the GUI
   wrote.*
+  *And step 19, `TestLmwguiFiles`: two fakes on Unix sockets in
+  `$XDG_RUNTIME_DIR/lmw-synth` (`lmwctl -fakeat address`, added for
+  this): the list has both, newest first; typed notes are written, notes
+  written elsewhere show; Ctrl+S saves the synth's patch, Ctrl+O loads a
+  patch file (its cutoff shows) and a bad one is refused; choosing the
+  other synth in the list connects to it.*
 - The contrast table for every preset.
 
 Steps (in §8): 15. `tk::Notebook` (13.3); 16. the module `lmw` and the

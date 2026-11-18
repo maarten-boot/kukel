@@ -17,6 +17,9 @@ From v1.0.0 on, what keeps working is in
 
 ## Unreleased
 
+- `examples/lmw/lmwgui.kkl`: Load and Save of patch files (also Ctrl+O and
+  Ctrl+S), the Notes tab, and a list of the running synths to switch to
+  another; `lmwctl` gains `-fakeat address`. Q115.
 - `examples/lmw/lmwgui.kkl`: the Matrix tab, a row per input and a column
   per output of the synth: cables put in and taken out with a click,
   levels set by dragging, typing or the keys, the normalled sources

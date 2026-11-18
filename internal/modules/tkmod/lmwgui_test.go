@@ -26,8 +26,14 @@ type kukelProcess struct {
 
 func startKukel(t *testing.T, file string, args ...string) *kukelProcess {
 	t.Helper()
+	return startKukelEnv(t, nil, file, args...)
+}
+
+// startKukelEnv is startKukel with more environment variables ("NAME=value").
+func startKukelEnv(t *testing.T, env []string, file string, args ...string) *kukelProcess {
+	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=^$")
-	cmd.Env = append(os.Environ(), "KUKEL_TK_EXAMPLE="+file, "KUKEL_TK_ARGS="+strings.Join(args, "\n"))
+	cmd.Env = append(append(os.Environ(), env...), "KUKEL_TK_EXAMPLE="+file, "KUKEL_TK_ARGS="+strings.Join(args, "\n"))
 	cmd.Dir = filepath.Dir(file)
 	out, err := cmd.StdoutPipe()
 	if err != nil {
@@ -261,4 +267,106 @@ func TestLmwguiMatrix(t *testing.T) {
 	for line := range want {
 		t.Errorf("the synth lacks %q", line)
 	}
+}
+
+// answerFile answers Tk's file dialog with that title: the file name
+// field gets path (in place of what it had), then Return.
+func answerFile(t *testing.T, title, path string) {
+	t.Helper()
+	win := findWindow(title)
+	if win == "" {
+		t.Fatalf("no dialog %q", title)
+	}
+	time.Sleep(400 * time.Millisecond)
+	exec.Command("xdotool", "windowfocus", win).Run() // may complain about the focus it finds
+	time.Sleep(200 * time.Millisecond)
+	xdo(t, "key", "Home", "shift+End", "BackSpace")
+	xdo(t, "type", path)
+	time.Sleep(200 * time.Millisecond)
+	xdo(t, "key", "Return")
+	for i := 0; i < 50; i++ {
+		if exec.Command("xdotool", "search", "--onlyvisible", "--name", "^"+title+"$").Run() != nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// TestLmwguiFiles uses the Notes tab, Load and Save, and the list of
+// synths of lmwgui, with two fake synths whose sockets are where synths
+// put theirs ($XDG_RUNTIME_DIR/lmw-synth): typed notes are written, notes
+// written elsewhere show, Ctrl+S saves the synth's patch to a file, Ctrl+O
+// loads one (and a bad one is refused with the synth's message), and the
+// list switches to the other synth.
+func TestLmwguiFiles(t *testing.T) {
+	display(t)
+	if _, err := exec.LookPath("xdotool"); err != nil || os.Getenv("KUKEL_TK_NOCLICK") != "" {
+		t.Skip("no xdotool")
+	}
+	dir, err := filepath.Abs("../../../examples/lmw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctl := filepath.Join(dir, "lmwctl.kkl")
+	tmp := t.TempDir()
+	sockets := filepath.Join(tmp, "lmw-synth")
+	if err := os.Mkdir(sockets, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	one, two := "unix://"+filepath.Join(sockets, "1-1.sock"), "unix://"+filepath.Join(sockets, "2-1.sock")
+	fake1 := startKukel(t, ctl, "-fakeat", one, "setnotes", "one", ",", "serve", "60")
+	fake1.expect(t, `^serving `)
+	time.Sleep(50 * time.Millisecond) // the second is newer
+	fake2 := startKukel(t, ctl, "-fakeat", two, "set", "vcf1.cutoff", "500", ",", "save", filepath.Join(tmp, "five.lmwpatch"), ",", "serve", "60")
+	fake2.expect(t, `^serving `)
+	if err := os.WriteFile(filepath.Join(tmp, "bad.lmwpatch"), []byte("[nonsense\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	gui := startKukelEnv(t, []string{"XDG_RUNTIME_DIR=" + tmp}, filepath.Join(dir, "lmwgui.kkl"),
+		"-a", one, "-v", "-tab", "Notes", "-config", filepath.Join(tmp, "lmw-gui.toml"))
+	gui.expect(t, `^shown all 51$`)
+	gui.expect(t, `^synths `+regexp.QuoteMeta(two)+` `+regexp.QuoteMeta(one)+`$`)
+	n := func(s string) int { i, _ := strconv.Atoi(s); return i }
+	list := gui.expect(t, `^at synthlist (\d+) (\d+) (\d+) (\d+)$`) // in the order the GUI made them
+	notes := gui.expect(t, `^at notes (\d+) (\d+) \d+ \d+$`)
+	time.Sleep(300 * time.Millisecond)
+	wx, wy := lmwWindow(t)
+
+	// Notes: typed after the text ("one"), written a second later.
+	xdo(t, "mousemove", fmt.Sprint(wx+n(notes[1])+40), fmt.Sprint(wy+n(notes[2])+40), "click", "1")
+	xdo(t, "key", "ctrl+End")
+	xdo(t, "type", " and more")
+	gui.expect(t, `^write notes 12 bytes$`)
+	other := startKukel(t, ctl, "-a", one, "notes")
+	if got := other.expect(t, `^(.*)$`)[1]; got != "one and more" {
+		t.Errorf("the synth's notes are %q", got)
+	}
+	startKukel(t, ctl, "-a", one, "setnotes", "changed elsewhere")
+	gui.expect(t, `^show notes 17 bytes$`)
+
+	// Save, Load, and a patch the synth refuses.
+	saved := filepath.Join(tmp, "saved.lmwpatch")
+	xdo(t, "key", "ctrl+s")
+	answerFile(t, "Save the patch", saved)
+	gui.expect(t, `^saved saved\.lmwpatch$`)
+	text, err := os.ReadFile(saved)
+	if err != nil || !strings.Contains(string(text), "changed elsewhere") {
+		t.Errorf("the saved patch (%v):\n%s", err, text)
+	}
+	xdo(t, "key", "ctrl+o")
+	answerFile(t, "Load a patch", filepath.Join(tmp, "five.lmwpatch"))
+	gui.expect(t, `^loaded five\.lmwpatch$`)
+	gui.expect(t, `^show vcf1\.cutoff 500\.0$`)
+	xdo(t, "key", "ctrl+o")
+	answerFile(t, "Load a patch", filepath.Join(tmp, "bad.lmwpatch"))
+	gui.expect(t, `^refused patch patch: `)
+
+	// The other synth, from the list (it is first: the newest).
+	time.Sleep(700 * time.Millisecond)
+	xdo(t, "mousemove", fmt.Sprint(wx+n(list[1])+n(list[3])/2), fmt.Sprint(wy+n(list[2])+n(list[4])/2), "click", "1")
+	time.Sleep(500 * time.Millisecond)
+	xdo(t, "key", "Up", "Return")
+	gui.expect(t, `^connected `+regexp.QuoteMeta(two)+`$`)
+	gui.expect(t, `^shown all 51$`)
 }
