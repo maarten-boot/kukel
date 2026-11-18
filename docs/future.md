@@ -2063,6 +2063,21 @@ the user changes the contrast.*
   the fake. Without a window manager the X focus stays with the window
   it was last given to: the typed keys went to the synth's window (which
   plays them itself) until the GUI was given the focus.*
+- *The Schematic tab against the real synth (2026-11-18, by hand, the
+  same way, the synth's own Schematic tab open beside it): both draw the
+  same blocks, connections, links and legend (the synth draws an output
+  as a plain black dot, and words its legend more briefly). Cables
+  dragged in `lmwgui` (in, a second on the same input, moved to another
+  input, feedback from VCF 2 into its own cutoff, out) show the same
+  in the synth's tab, and its `/cables` agrees. A block moved and a cable
+  put in on the synth's tab show in `lmwgui` within a poll: the synth
+  writes `[schematic]` with every block once one has moved (`lfo2 = 74,
+  46`), as `lmwschematic` reads it. Key tracking set to 30 % shows its
+  link. A socket left behind in this trial and the keyboard's came from
+  the trial script, not the synth: `cd dir && nohup synth &` puts the list
+  in a subshell, so the SIGTERM went to that shell and the synth ended
+  only with its display; signalled itself, it removes its socket within
+  20 ms, also after its window was used.*
 
 Steps (in §8): 15. `tk::Notebook` (13.3); 16. the module `lmw` and the
 fake synth (13.4); 17. the Synth and Effects tabs, keeping in step,
