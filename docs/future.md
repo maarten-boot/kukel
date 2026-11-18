@@ -1621,7 +1621,10 @@ with section 11); 2. `logging` with `Stderr`, `File`, `Memory` and the
 *A proposal (2026-11-16, TODO.md Q115); steps 15 (`tk::Notebook`), 16
 (the module `lmw`, a fake synth), 17 (the Synth and Effects tabs,
 keeping in step, colours), 18 (the Matrix tab) and 19 (Load, Save, Notes,
-choosing a synth) built: the first version is complete.
+choosing a synth) built: the first version is complete. Since then (all
+2026-11-18): an on-screen keyboard, and step 20, the Schematic tab; left
+are meters and moving the schematic's blocks, which wait for the synth
+(13.2).
 The open questions are 13.9; all are answered (2026-11-17) as
 proposed.* [LMW-Synth](https://github.com/maarten-boot/software-synth-LMW) is
 a semi-modular polyphonic synthesizer (C++20, JUCE; standalone and VST3)
@@ -1660,7 +1663,9 @@ synth's errors arrive as an `IOError` with its message
 close of `/patch`. A parameter write or read takes about 0.1 ms, a read
 of the whole `/patch` (1.3 KB) 0.15 ms: polling is cheap. Found: a synth
 stopped with SIGTERM leaves its socket file (the next instance removes
-it), so a GUI must pass over sockets it cannot dial.
+it), so a GUI must pass over sockets it cannot dial. *(Since
+2026-11-18 the synth removes its socket on SIGTERM, SIGINT and SIGHUP;
+13.8.)*
 
 ### 13.2 What is missing, in the synth
 
@@ -1706,8 +1711,11 @@ it), so a GUI must pass over sockets it cannot dial.
 These go to the synth's own project (`../software-synth-LMW`), in a
 session there. *As built (2026-11-18): the GUI needs `/info` (without it
 it says a newer synth is needed and stops); `changes()` of `lmw` reads
-`/serial` when there is one and `/patch` otherwise; `/keys` is not used
-yet (an on-screen keyboard is for later); telemetry is not served.*
+`/serial` when there is one and `/patch` otherwise; `/keys` is played by
+the on-screen keyboard (13.5); telemetry is not served, so there are no
+meters. Moving the schematic's blocks needs one more: a `/schematic` file
+(rw, the layout alone, as the synth's `schematicLayout` text), since
+writing `/patch` would rewrite the parameters, cables and notes too.*
 
 ### 13.3 What is missing, in Kukel
 
@@ -1739,11 +1747,17 @@ yet (an on-screen keyboard is for later); telemetry is not served.*
    the state maps of the theme's classes, and the classic texts and list
    boxes one by one), `tk::colors()`, and `background` for a frame and
    `background` and `foreground` for a label. See the reference, `tk`.*
+   *Found at step 20: menus kept Tk's grey; `tk::setcolors` colours them
+   too since then.*
 10. **No keyboard focus for a canvas.** Found at step 18: only an entry
    had `focus()`, so the matrix's cell cursor could not have the keys.
    *Built (2026-11-18): `c->focus()` of a `tk::Canvas`; the matrix takes
    the focus when clicked and when its tab is chosen, and binds its keys
    on the canvas.*
+11. **No dashed lines.** Found at step 20: the schematic draws normalled
+   connections dashed and internal links dotted. *Built (2026-11-18):
+   `dash` for canvas lines and the outlines of shapes (a vector of
+   lengths, `[6, 4]`; `[]` is solid).*
 
 ### 13.4 The parts
 
@@ -1757,6 +1771,9 @@ examples/lmw/
     lmwctl.tests     its tests, against fakesynth.kkl
     contrast.kkl     the colour pairs of a contrast preset, checked
     contrast.tests   its tests, for every preset
+    lmwschematic.kkl the Schematic tab's geometry, as the synth's (no tk)
+    schematic.kkl    prints it: ports, layouts, hover texts, the cursor
+    schematic.tests  its tests
 ```
 
 The module `lmw` (no `tk`, so it runs and is tested anywhere):
@@ -1808,7 +1825,7 @@ it is connected to) and tabs, as the synth's own GUI has (its Spec S6):
   faders and choice boxes, a value label with its unit under each; a value
   can be typed (Enter), a double-click resets to the default. Not movable
   in the first version, and no cables drawn here: they are edited in the
-  matrix.
+  matrix and (since step 20) the schematic.
 - **Effects**: the reverb's four faders.
 - **Matrix**: a canvas with a row per input and a column per output (from
   `/ports`), as the synth's S6.8: a cell with a cable shows a bar filled
@@ -1927,7 +1944,9 @@ GUI plays. A pressed key has the synth's pressed colours (its Theme.h:
 `#767676` raised to the ratio against white or black keys, the C's name
 on it in black or white), three more pairs in `lmwtheme`'s table. Notes
 played elsewhere (MIDI, the synth's own keyboard) are not shown: the
-synth does not serve them. The window is 940x726 with Noto Sans.*
+synth does not serve them. The window is 940x726 with Noto Sans and
+989x711 with DejaVu Sans (measured again at the crosscheck after step 20:
+the Schematic tab makes it no larger).*
 
 ### 13.6 Keeping in step
 

@@ -22,8 +22,8 @@
 // draws the synth as its own Schematic tab does (the blocks where the synth
 // has them): dragging from a port to a port of the other kind puts a cable
 // in, dragging a plugged input's newest cable moves it to another input or
-// takes it out; the arrow keys move a port cursor, Enter or a right click
-// opens a menu of the port's cables, Delete takes an input's cables out,
+// takes it out; the arrow keys move a port cursor, Enter, F10 or a right
+// click opens a menu of the port's cables, Delete takes an input's cables out,
 // Escape cancels a drag. The Notes tab is the
 // patch's notes, written a second after typing stops and when the text
 // loses the keyboard.
