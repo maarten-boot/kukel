@@ -39,11 +39,11 @@ The package brings the standard modules written in Go (`StandardModules()`
 lists them). The build tags of the README leave large ones out of a Go
 program that imports it too: `go build -tags nopostgres,nomysql,nozmq,no9p`.
 The Tk module (`tk`) is there only with `-tags tk`. The standard modules
-written in Kukel (`iter`, `mail`, reference.md §12) are always there:
+written in Kukel (`iter`, `logging`, `mail`, reference.md §12) are always there:
 they can do nothing the program's own code could not, so `StandardModules`
 and `NoFileModules` do not limit them. They use only the modules the
-program may use: where `net` is left out, `use mail;` is a compile error
-("module net is not available in this program").
+program may use: where `net` is left out, `use mail;` and `use logging;`
+are a compile error ("module net is not available in this program").
 
 | Function | |
 |---|---|
@@ -307,7 +307,7 @@ more does not compile, so it never runs half-way):
 ```go
 opts := kukel.CompileOptions{
     DenyBuiltins:    kukel.SystemBuiltins,          // readfile, writefile, appendfile, readline, getenv, exit
-    StandardModules: []string{"json", "strings"},   // no db, encoding, fs, net, p9, zmq, events, worker, re, term, time, toml, utf8, uuid
+    StandardModules: []string{"json", "strings"},   // no db, encoding, fs, net, os, p9, zmq, events, worker, re, term, time, toml, utf8, uuid
     NoFileModules:   true,                          // no program files: "use" finds only standard modules, no worker::startfile
 }
 ```
@@ -316,9 +316,10 @@ opts := kukel.CompileOptions{
   one is a compile error ("built-in function readfile is not available in
   this program"). The names stay reserved.
 - `StandardModules` lists the standard modules written in Go allowed (nil:
-  all; `[]string{}`: none); those written in Kukel (`iter`, `mail`) can do
-  nothing the program cannot, and are always there (`mail` only where
-  `net` and the others it uses are allowed). `fs`, `db` and `p9` reach files (as do the
+  all; `[]string{}`: none); those written in Kukel (`iter`, `logging`, `mail`) can do
+  nothing the program cannot, and are always there (`logging` and `mail`
+  only where `net` and the others they use are allowed). `os` gives only
+  the process id. `fs`, `db` and `p9` reach files (as do the
   built-ins of `SystemBuiltins`; `p9::disk` serves a directory, and can
   let clients change it), `net`, `zmq` and `p9` the network. A name the build does not have is an error, so a
   Go program built with build tags (`nozmq`, ...) must not list those

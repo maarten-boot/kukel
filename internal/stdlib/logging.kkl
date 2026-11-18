@@ -1,0 +1,1243 @@
+// logging: structured logging, to standard error, files and syslog (Q114,
+// docs/future.md section 12). After PHP's Monolog: a logger per channel,
+// handlers that say where records go (each with its own lowest level),
+// processors that add facts to every record, and formatters.
+//
+//     local log = logging::get("shop");
+//     log->info("order {id} paid by {user}", {"id": 1042, "user": "ann", "total": 99.5});
+//     // 2026-11-16T10:00:00.123Z shop.INFO: order 1042 paid by ann {"total":99.5}
+//
+// Safe by design: a call below the level costs a comparison; a control
+// character in a message or a value is escaped (\n) in the line and syslog
+// formats, so that text from outside cannot forge a record; a handler that
+// fails sends its records to standard error, with a note now and then,
+// and does not stop the program.
+use net;
+use fs;
+use json;
+use time;
+use os;
+use re;
+use utf8;
+
+// The levels of RFC 5424, by name.
+global _SEVERITY = {
+    "emergency": 0, "alert": 1, "critical": 2, "error": 3, "warning": 4, "notice": 5, "info": 6, "debug": 7,
+};
+global _LEVELS = ["emergency", "alert", "critical", "error", "warning", "notice", "info", "debug"];
+
+// The syslog facilities, by name.
+global _FACILITY = {
+    "kern": 0, "user": 1, "mail": 2, "daemon": 3, "auth": 4, "syslog": 5, "lpr": 6, "news": 7, "uucp": 8,
+    "cron": 9, "authpriv": 10, "ftp": 11, "local0": 16, "local1": 17, "local2": 18, "local3": 19, "local4": 20,
+    "local5": 21, "local6": 22, "local7": 23,
+};
+
+global _PLACE = re::compile("\\{([A-Za-z0-9_.]+)\\}");
+global _TOKEN = re::compile(" ?\\{([A-Za-z0-9_.]+)\\}");
+global _CTRL = re::compile("[\\x00-\\x1f\\x7f]");
+global _SDNAME = re::compile("[^!#-<>-\\\\\\^-~]");
+global _FIELD = re::compile("[^!-~]");
+global _TAG = re::compile("[^A-Za-z0-9_.-]");
+global _SDVALUE = re::compile("[\\\\\"\\]]");
+
+global _loggers = {};      // the loggers by channel
+global _setup = nil;       // what configure() made: {"level", "handlers", "processors", "channels", "made"}
+global _stderr = nil;      // the handler of the default setup
+global _fallback = nil;    // the formatter of records a failed handler could not take
+
+// severity(level): the number of a level (0 for "emergency" to 7 for
+// "debug"); a level may be a name in any case or such a number. Another
+// is a ValueError.
+severity(level) {
+    if (typeof(level) == "int" && level >= 0 && level <= 7) {
+        return level;
+    }
+
+    if (typeof(level) == "string") {
+        local n = _SEVERITY[lower(level)];
+
+        if (n != nil) {
+            return n;
+        }
+    }
+    throw new Error("logging: not a level: " + str(level) + " (debug, info, notice, warning, error, critical, alert or emergency)", "ValueError");
+}
+
+// get(channel): the logger of a channel, made the first time and found
+// again by name after that.
+get(channel) {
+    if (typeof(channel) != "string" || channel == "") {
+        throw new Error("logging::get: a channel is a string that is not empty, not " + (channel == "" ? "\"\"" : typeof(channel)), "TypeError");
+    }
+    local l = _loggers[channel];
+
+    if (l == nil) {
+        l = new Logger(channel);
+        _loggers[channel] = l;
+    }
+    return l;
+}
+
+// host(record) and pid(record): processors that add the name of this
+// machine and the process id to a record's extra.
+host(record) {
+    record["extra"]["host"] = net::hostname();
+}
+
+pid(record) {
+    record["extra"]["pid"] = os::pid();
+}
+
+// A logger: what a program calls. Its handlers and processors come from
+// the configuration of its channel; handlers() and processors() change
+// them for this logger.
+class Logger {
+    _channel;
+    _level;
+    _handlers;
+    _processors;
+    _max;          // the highest severity number any handler takes, -1 for none
+    Logger(channel);
+    channel();
+    level(l..);
+    handlers(v..);
+    handler(h);
+    processors(v..);
+    processor(f);
+    log(level, message, context);
+    emergency(message, context);
+    alert(message, context);
+    critical(message, context);
+    error(message, context);
+    warning(message, context);
+    notice(message, context);
+    info(message, context);
+    debug(message, context);
+    _apply();
+    _limit();
+    _emit(level, n, message, context);
+}
+
+Logger::Logger(channel) {
+    _channel = channel;
+    _apply();
+}
+
+// _apply(): the level, handlers and processors of the channel, from the
+// configuration.
+Logger::_apply() {
+    local s = _current(), c = s["channels"][_channel];
+
+    if (c == nil) {
+        c = s;
+    }
+    _level = c["level"];
+    _handlers = slice(c["handlers"], 0);
+    _processors = slice(c["processors"], 0);
+    _limit();
+}
+
+// _limit(): what a record must not exceed to be made at all.
+Logger::_limit() {
+    _max = -1;
+
+    for (local h in _handlers) {
+        _max = max(_max, h->_severity);
+    }
+    _max = min(_max, _level);
+}
+
+Logger::channel() {
+    return _channel;
+}
+
+// level(): the level, a name; level(l): sets it; records less severe are
+// dropped before they are made. Gives the logger.
+Logger::level(l..) {
+    if (len(l) == 0) {
+        return _LEVELS[_level];
+    }
+    _level = severity(l[0]);
+    _limit();
+    return this;
+}
+
+// handlers(): the handlers, a vector; handlers(v): puts the handlers of v
+// in their place. Gives the logger.
+Logger::handlers(v..) {
+    if (len(v) == 0) {
+        return slice(_handlers, 0);
+    }
+
+    if (typeof(v[0]) != "vector") {
+        throw new Error("logging: handlers takes a vector of handlers, not " + typeof(v[0]), "TypeError");
+    }
+
+    for (local h in v[0]) {
+        _handler(h);
+    }
+    _handlers = slice(v[0], 0);
+    _limit();
+    return this;
+}
+
+// handler(h): adds a handler after the others. Gives the logger.
+Logger::handler(h) {
+    push(_handlers, _handler(h));
+    _limit();
+    return this;
+}
+
+// processors(): the processors; processors(v): replaces them. Gives the
+// logger.
+Logger::processors(v..) {
+    if (len(v) == 0) {
+        return slice(_processors, 0);
+    }
+
+    if (typeof(v[0]) != "vector") {
+        throw new Error("logging: processors takes a vector of functions, not " + typeof(v[0]), "TypeError");
+    }
+
+    for (local f in v[0]) {
+        _function(f);
+    }
+    _processors = slice(v[0], 0);
+    return this;
+}
+
+// processor(f): adds a processor, a function f(record) that adds to
+// record["extra"]. Gives the logger.
+Logger::processor(f) {
+    push(_processors, _function(f));
+    return this;
+}
+
+// log(level, message, context): a record of that level. The member
+// functions named after the levels do the same.
+Logger::log(level, message, context = nil) {
+    local n = severity(level);
+
+    if (n <= _max) {
+        _emit(_LEVELS[n], n, message, context);
+    }
+}
+
+Logger::emergency(message, context = nil) {
+    if (_max >= 0) {
+        _emit("emergency", 0, message, context);
+    }
+}
+
+Logger::alert(message, context = nil) {
+    if (_max >= 1) {
+        _emit("alert", 1, message, context);
+    }
+}
+
+Logger::critical(message, context = nil) {
+    if (_max >= 2) {
+        _emit("critical", 2, message, context);
+    }
+}
+
+Logger::error(message, context = nil) {
+    if (_max >= 3) {
+        _emit("error", 3, message, context);
+    }
+}
+
+Logger::warning(message, context = nil) {
+    if (_max >= 4) {
+        _emit("warning", 4, message, context);
+    }
+}
+
+Logger::notice(message, context = nil) {
+    if (_max >= 5) {
+        _emit("notice", 5, message, context);
+    }
+}
+
+Logger::info(message, context = nil) {
+    if (_max >= 6) {
+        _emit("info", 6, message, context);
+    }
+}
+
+Logger::debug(message, context = nil) {
+    if (_max >= 7) {
+        _emit("debug", 7, message, context);
+    }
+}
+
+// _emit: makes the record, runs the processors and hands it to the
+// handlers in turn, until one that does not let it bubble.
+Logger::_emit(level, n, message, context) {
+    if (context == nil) {
+        context = {};
+    } else if (typeof(context) != "map") {
+        throw new Error("logging: the context is a map, not " + typeof(context), "TypeError");
+    }
+    local record = {
+        "time": time::now(), "channel": _channel, "level": level, "message": typeof(message) == "string" ? message : str(message),
+        "context": context, "extra": {},
+    };
+
+    for (local f in _processors) {
+        f(record);
+    }
+
+    for (local h in _handlers) {
+        if (n <= h->_severity) {
+            local go = true;
+
+            try {
+                go = h->handle(record);
+            } catch (e) {
+                _failed(h, e, record);
+            }
+
+            if (go == false) {
+                break;
+            }
+        }
+    }
+}
+
+// _failed: a handler that threw. The record goes to standard error, and a
+// note says why, at most once a minute for each handler, with the number
+// of records it lost since the last note.
+_failed(h, e, record) {
+    if (_fallback == nil) {
+        _fallback = new Line();
+    }
+    h->_lost++;
+
+    try {
+        if (h->_noted == nil || time() - h->_noted >= 60) {
+            local more = h->_lost > 1 ? " (" + str(h->_lost) + " records since the last note)" : "";
+            eprintln("logging: " + _class(h) + " failed: " + _escape(_text(e)) + more + "; its records go to standard error");
+            h->_noted = time();
+            h->_lost = 0;
+        }
+        eprintln(_fallback->format(record));
+    } catch (e2) {
+        // standard error is gone too: nothing is left to tell
+    }
+}
+
+// _class(o): the name of o's class: logging::Syslog.
+_class(o) {
+    local s = str(classof(o));
+
+    if (slice(s, 0, 7) == "<class " && slice(s, len(s) - 1) == ">") {
+        return slice(s, 7, len(s) - 1);
+    }
+    return s;
+}
+
+_handler(h) {
+    if (!instanceof(h, Handler)) {
+        throw new Error("logging: a handler is an object of a class derived from logging::Handler, not " + str(h), "TypeError");
+    }
+    return h;
+}
+
+_function(f) {
+    if (typeof(f) != "function") {
+        throw new Error("logging: a processor is a function, not " + typeof(f), "TypeError");
+    }
+    return f;
+}
+
+// _current(): what configure() made, or the default: info and worse to
+// standard error.
+_current() {
+    if (_setup == nil) {
+        if (_stderr == nil) {
+            _stderr = new Stderr();
+        }
+        _setup = {"level": 6, "handlers": [_stderr], "processors": [], "channels": {}, "made": []};
+    }
+    return _setup;
+}
+
+// configure(c): the levels, handlers and processors of the channels, from
+// a map (from TOML, JSON or code):
+//
+//     level = "info"               # every channel, unless it says otherwise
+//     handlers = ["stderr"]
+//     processors = ["host", "pid"]
+//     [handler.syslog]
+//     type = "syslog"              # stderr, file, syslog, memory, null
+//     address = "unixgram:///dev/log"
+//     level = "warning"
+//     [channel.shop]
+//     level = "debug"
+//     handlers = ["stderr", "syslog"]
+//
+// The handlers "stderr" and "null" are there unless the map defines its
+// own by that name. An unknown key, level, type or name is a ValueError
+// that names the key; the configuration in use then stays. The handlers of
+// the configuration before are closed, and loggers made before follow the
+// new one.
+configure(c) {
+    if (typeof(c) != "map") {
+        throw new Error("logging::configure: the configuration is a map, not " + typeof(c), "TypeError");
+    }
+    _keys("logging::configure", c, ["level", "handlers", "processors", "handler", "channel"]);
+    local made = {}, defs = c["handler"] == nil ? {} : _map("handler", c["handler"]);
+
+    try {
+        for (local name, d in defs) {
+            made[name] = _make("handler." + name, d);
+        }
+
+        if (!haskey(made, "stderr")) {
+            made["stderr"] = new Stderr();
+        }
+
+        if (!haskey(made, "null")) {
+            made["null"] = new Null();
+        }
+        local top = _channelSetup("", c, made, {"level": 6, "handlers": [made["stderr"]], "processors": []});
+        local channels = {};
+
+        if (c["channel"] != nil) {
+            for (local name, d in _map("channel", c["channel"])) {
+                _map("channel." + name, d);
+                _keys("logging::configure: channel." + name, d, ["level", "handlers", "processors"]);
+                channels[name] = _channelSetup("channel." + name + ".", d, made, top);
+            }
+        }
+        local old = _setup;
+        _setup = {
+            "level": top["level"], "handlers": top["handlers"], "processors": top["processors"], "channels": channels,
+            "made": values(made),
+        };
+
+        if (old != nil) {
+            for (local h in old["made"]) {
+                try {
+                    h->close();
+                } catch (e) {}
+            }
+        }
+    } catch (e) {
+        for (local h in values(made)) {
+            try {
+                h->close();
+            } catch (e2) {}
+        }
+        throw e;
+    }
+
+    for (local l in values(_loggers)) {
+        l->_apply();
+    }
+}
+
+// _channelSetup: the level, handlers and processors of c (prefix names
+// its keys), with those of base for what it leaves out.
+_channelSetup(prefix, c, made, base) {
+    local s = {"level": base["level"], "handlers": base["handlers"], "processors": base["processors"]};
+
+    if (c["level"] != nil) {
+        s["level"] = _level(prefix + "level", c["level"]);
+    }
+
+    if (c["handlers"] != nil) {
+        s["handlers"] = [];
+
+        for (local name in _vector(prefix + "handlers", c["handlers"])) {
+            if (!haskey(made, name)) {
+                throw new Error("logging::configure: " + prefix + "handlers: there is no handler " + str(name), "ValueError");
+            }
+            push(s["handlers"], made[name]);
+        }
+    }
+
+    if (c["processors"] != nil) {
+        s["processors"] = [];
+
+        for (local name in _vector(prefix + "processors", c["processors"])) {
+            if (name == "host") {
+                push(s["processors"], host);
+            } else if (name == "pid") {
+                push(s["processors"], pid);
+            } else {
+                throw new Error("logging::configure: " + prefix + "processors: there is no processor " + str(name) + " (host or pid)", "ValueError");
+            }
+        }
+    }
+    return s;
+}
+
+// _make: the handler a [handler.name] table describes.
+_make(key, d) {
+    _map(key, d);
+    local type = d["type"], what = "logging::configure: " + key;
+    local allowed = {
+        "stderr": [], "file": ["path"], "memory": [], "null": [], "syslog": ["address", "timeout", "ca", "cert", "key"],
+    };
+
+    if (typeof(type) != "string" || !haskey(allowed, type)) {
+        throw new Error(what + ".type: " + (type == nil ? "missing" : str(type)) + " (stderr, file, syslog, memory or null)", "ValueError");
+    }
+    local keys = ["type", "level", "bubble", "format", "line", "facility", "app"];
+
+    for (local k in allowed[type]) {
+        push(keys, k);
+    }
+    _keys(what, d, keys);
+    local o = {};
+
+    if (d["level"] != nil) {
+        o["level"] = _level(key + ".level", d["level"]);
+    }
+
+    if (d["bubble"] != nil) {
+        if (typeof(d["bubble"]) != "bool") {
+            throw new Error(what + ".bubble: true or false, not " + str(d["bubble"]), "ValueError");
+        }
+        o["bubble"] = d["bubble"];
+    }
+
+    if (type == "syslog" && d["line"] == nil && d["format"] != "line" && d["format"] != "json") {
+        for (local k in ["format", "facility", "app", "timeout", "ca", "cert", "key"]) {
+            if (d[k] != nil) {
+                o[k] = d[k];
+            }
+        }
+    } else {
+        o["formatter"] = _formatter(key, d);
+    }
+
+    try {
+        if (type == "stderr") {
+            return new Stderr(o);
+        } else if (type == "file") {
+            if (typeof(d["path"]) != "string") {
+                throw new Error(what + ".path: the path of the file is missing", "ValueError");
+            }
+            return new File(d["path"], o);
+        } else if (type == "syslog") {
+            return new Syslog(d["address"] == nil ? "unixgram:///dev/log" : d["address"], o);
+        } else if (type == "memory") {
+            return new Memory(o);
+        }
+        return new Null(o);
+    } catch (e) {
+        if (e->kind == "ValueError" && find(e->message, "logging::configure: ") != 0) {
+            throw new Error(what + ": " + e->message, "ValueError");
+        }
+        throw e;
+    }
+}
+
+// _formatter: the formatter of the keys format, line, facility and app of
+// a handler.
+_formatter(key, d) {
+    local f = d["format"] == nil ? "line" : d["format"], what = "logging::configure: " + key;
+    local o = {};
+
+    for (local k in ["facility", "app"]) {
+        if (d[k] != nil) {
+            if (f != "rfc5424" && f != "rfc3164") {
+                throw new Error(what + "." + k + ": only for syslog formats", "ValueError");
+            }
+            o[k] = d[k];
+        }
+    }
+
+    if (d["line"] != nil && f != "line") {
+        throw new Error(what + ".line: only for the format line", "ValueError");
+    }
+
+    try {
+        if (f == "line") {
+            return new Line(d["line"]);
+        } else if (f == "json") {
+            return new JSON();
+        } else if (f == "rfc5424") {
+            return new RFC5424(o);
+        } else if (f == "rfc3164") {
+            return new RFC3164(o);
+        }
+    } catch (e) {
+        throw new Error(what + ": " + e->message, "ValueError");
+    }
+    throw new Error(what + ".format: " + str(f) + " (line, json, rfc5424 or rfc3164)", "ValueError");
+}
+
+_level(key, l) {
+    try {
+        return severity(l);
+    } catch (e) {
+        throw new Error("logging::configure: " + key + ": " + e->message, "ValueError");
+    }
+}
+
+_map(key, m) {
+    if (typeof(m) != "map") {
+        throw new Error("logging::configure: " + key + ": a map (a table), not " + typeof(m), "ValueError");
+    }
+    return m;
+}
+
+_vector(key, v) {
+    if (typeof(v) != "vector") {
+        throw new Error("logging::configure: " + key + ": a list of names, not " + typeof(v), "ValueError");
+    }
+    return v;
+}
+
+// _keys: a ValueError for a key of m that is not in allowed.
+_keys(what, m, allowed) {
+    for (local k in m) {
+        if (!_in(allowed, k)) {
+            throw new Error(what + ": unknown key " + str(k), "ValueError");
+        }
+    }
+}
+
+// _options: the options of a handler or formatter, checked: a map, or nil
+// for none.
+_in(v, x) {
+    for (local y in v) {
+        if (y == x) {
+            return true;
+        }
+    }
+    return false;
+}
+
+_options(what, o, allowed) {
+    if (o == nil) {
+        return {};
+    }
+
+    if (typeof(o) != "map") {
+        throw new Error(what + ": the options are a map, not " + typeof(o), "TypeError");
+    }
+
+    for (local k in o) {
+        if (!_in(allowed, k)) {
+            throw new Error(what + ": unknown option " + str(k), "ValueError");
+        }
+    }
+    return o;
+}
+
+global _HANDLER = ["level", "bubble", "formatter"];
+
+// A handler: where records go. A handler of one's own derives from it and
+// defines write(text), which gets each record as its formatter made it,
+// or handle(record) for the record itself. Options: level (the least
+// severe level it takes; "debug", all, by default), bubble (false: the
+// handlers after it do not get the records it took) and formatter (a
+// logging::Line by default).
+class Handler {
+    _severity;
+    _bubble;
+    _formatter;
+    _noted;
+    _lost;
+    Handler(options);
+    level();
+    formatter();
+    handle(record);
+    write(text);
+    close();
+}
+
+Handler::Handler(options = nil) {
+    local o = options == nil ? {} : options;
+    _severity = o["level"] == nil ? 7 : severity(o["level"]);
+    _bubble = o["bubble"] != false;
+    _formatter = o["formatter"] == nil ? new Line() : o["formatter"];
+
+    if (!instanceof(_formatter, Formatter)) {
+        throw new Error("logging: a formatter is an object of a class derived from logging::Formatter, not " + str(_formatter), "TypeError");
+    }
+    _lost = 0;
+}
+
+Handler::level() {
+    return _LEVELS[_severity];
+}
+
+Handler::formatter() {
+    return _formatter;
+}
+
+// handle(record): writes the record; gives whether the handlers after
+// this one get it too.
+Handler::handle(record) {
+    write(_formatter->format(record));
+    return _bubble;
+}
+
+Handler::write(text) {
+    throw new Error(_class(this) + " defines neither write nor handle", "MemberError");
+}
+
+Handler::close() {}
+
+// Stderr(options): a line on standard error for each record.
+class Stderr : Handler {
+    Stderr(options);
+    write(text);
+}
+
+Stderr::Stderr(options = nil) {
+    Handler::Handler(_options("logging::Stderr", options, _HANDLER));
+}
+
+Stderr::write(text) {
+    eprintln(text);
+}
+
+// File(path, options): a line for each record, appended to a file (made
+// when it is not there), written out at once. When the file has been moved
+// or emptied (by logrotate) the next record opens path again.
+class File : Handler {
+    _path;
+    _file;
+    File(path, options);
+    path();
+    write(text);
+    close();
+}
+
+File::File(path, options = nil) {
+    Handler::Handler(_options("logging::File", options, _HANDLER));
+
+    if (typeof(path) != "string" || path == "") {
+        throw new Error("logging::File: the path is a string that is not empty", "TypeError");
+    }
+    _path = path;
+}
+
+File::path() {
+    return _path;
+}
+
+File::write(text) {
+    if (_file != nil) {
+        local gone = false;
+
+        try {
+            gone = fs::stat(_path)["size"] < _file->tell();
+        } catch (e) {
+            gone = true;
+        }
+
+        if (gone) {
+            _file->close();
+            _file = nil;
+        }
+    }
+
+    if (_file == nil) {
+        _file = fs::open(_path, "a");
+    }
+    _file->write(text, "\n");
+    _file->flush();
+}
+
+File::close() {
+    if (_file != nil) {
+        _file->close();
+        _file = nil;
+    }
+}
+
+// Memory(options): keeps the records, for tests: records() gives them,
+// lines() what the formatter made of them, clear() forgets them.
+class Memory : Handler {
+    _records;
+    _lines;
+    Memory(options);
+    handle(record);
+    records();
+    lines();
+    clear();
+}
+
+Memory::Memory(options = nil) {
+    Handler::Handler(_options("logging::Memory", options, _HANDLER));
+    _records = [];
+    _lines = [];
+}
+
+Memory::handle(record) {
+    push(_lines, _formatter->format(record));
+    push(_records, record);
+    return _bubble;
+}
+
+Memory::records() {
+    return slice(_records, 0);
+}
+
+Memory::lines() {
+    return slice(_lines, 0);
+}
+
+Memory::clear() {
+    _records = [];
+    _lines = [];
+}
+
+// Null(options): drops the records (with bubble false, also for the
+// handlers after it).
+class Null : Handler {
+    Null(options);
+    handle(record);
+}
+
+Null::Null(options = nil) {
+    Handler::Handler(_options("logging::Null", options, _HANDLER));
+}
+
+Null::handle(record) {
+    return _bubble;
+}
+
+// Syslog(address, options): records to a syslog: the local one
+// ("unixgram:///dev/log", the default), or a server over "udp://host:514",
+// "tcp://host:514" (each record preceded by its length, RFC 6587) or
+// "tls://host:6514" (RFC 5425). The local one gets the BSD format that the
+// C library sends (RFC 3164, without the host name), which journald and
+// every syslogd read; a server gets RFC 5424. Options, besides those of
+// every handler: format ("rfc5424" or "rfc3164"), facility ("user" by
+// default; "local0" ... "local7", "daemon", ...), app (by default the
+// channel), timeout (seconds to connect and to write, 10 by default), and
+// for TLS ca, cert and key as net::connect takes them. A server that
+// cannot be reached is tried again after 30 seconds; until then its
+// records go to standard error.
+class Syslog : Handler {
+    _address;
+    _scheme;
+    _timeout;
+    _tls;
+    _sock;
+    _conn;
+    _retry;
+    Syslog(address, options);
+    address();
+    write(text);
+    close();
+    _connect();
+}
+
+Syslog::Syslog(address = "unixgram:///dev/log", options = nil) {
+    local o = _options("logging::Syslog", options, ["level", "bubble", "formatter", "format", "facility", "app", "timeout", "ca", "cert", "key"]);
+
+    if (typeof(address) != "string") {
+        throw new Error("logging::Syslog: the address is a string, not " + typeof(address), "TypeError");
+    }
+    local i = find(address, "://");
+    _scheme = i < 0 ? "" : slice(address, 0, i);
+
+    if (!_in(["unixgram", "udp", "tcp", "tls"], _scheme)) {
+        throw new Error("logging::Syslog: not an address of a syslog: " + address + " (unixgram://, udp://, tcp:// or tls://)", "ValueError");
+    }
+    _address = address;
+    local f = {"facility": o["facility"], "app": o["app"]};
+
+    if (o["formatter"] != nil) {
+        if (o["format"] != nil || o["facility"] != nil || o["app"] != nil) {
+            throw new Error("logging::Syslog: the option formatter goes without format, facility and app", "ValueError");
+        }
+    } else if (o["format"] == "rfc3164" || o["format"] == nil && _scheme == "unixgram") {
+        if (_scheme == "unixgram") {
+            f["hostname"] = false;
+        }
+        o["formatter"] = new RFC3164(f);
+    } else if (o["format"] == nil || o["format"] == "rfc5424") {
+        o["formatter"] = new RFC5424(f);
+    } else {
+        throw new Error("logging::Syslog: format " + str(o["format"]) + " (rfc5424 or rfc3164)", "ValueError");
+    }
+    Handler::Handler({"level": o["level"], "bubble": o["bubble"], "formatter": o["formatter"]});
+    _timeout = o["timeout"] == nil ? 10 : o["timeout"];
+    _tls = {};
+
+    for (local k in ["ca", "cert", "key"]) {
+        if (o[k] != nil) {
+            _tls[k] = o[k];
+        }
+    }
+}
+
+Syslog::address() {
+    return _address;
+}
+
+Syslog::write(text) {
+    if (_scheme == "unixgram" || _scheme == "udp") {
+        if (_sock == nil) {
+            _sock = net::udp(_scheme == "unixgram" ? "unixgram://" : "udp://:0");
+        }
+        _sock->sendto(text, _address);
+        return;
+    }
+    local frame = str(len(text)) + " " + text;
+
+    if (_conn != nil) {
+        try {
+            _conn->write(frame);
+            return;
+        } catch (e) {
+            // the server went away: one new connection, below
+            _conn->close();
+            _conn = nil;
+        }
+    }
+    _connect();
+
+    try {
+        _conn->write(frame);
+    } catch (e) {
+        _conn->close();
+        _conn = nil;
+        _retry = time() + 30;
+        throw e;
+    }
+}
+
+Syslog::_connect() {
+    if (_retry != nil && time() < _retry) {
+        throw new Error("logging::Syslog: " + _address + " could not be reached; tried again " + str(round(_retry - time())) + " seconds from now", "NetError");
+    }
+
+    try {
+        _conn = (_scheme == "tls" ? net::connect(_address, _timeout, _tls) : net::connect(_address, _timeout))->timeout(_timeout);
+        _retry = nil;
+    } catch (e) {
+        _retry = time() + 30;
+        throw e;
+    }
+}
+
+Syslog::close() {
+    if (_sock != nil) {
+        _sock->close();
+        _sock = nil;
+    }
+
+    if (_conn != nil) {
+        _conn->close();
+        _conn = nil;
+    }
+}
+
+// A formatter: makes text of a record. One of one's own derives from it
+// and defines format(record).
+class Formatter {
+    format(record);
+}
+
+// Line(format): a line of text. The format holds {time} (UTC, to the
+// millisecond), {channel}, {level} (in capitals), {message} (with the
+// {name}s of the context filled in), {context} (the rest of the context,
+// as JSON, or nothing when nothing is left) and {extra}; the default is
+// "{time} {channel}.{level}: {message} {context} {extra}". A space
+// before a part that is empty goes with it.
+class Line : Formatter {
+    _format;
+    Line(format);
+    format(record);
+}
+
+Line::Line(format = nil) {
+    if (format != nil && typeof(format) != "string") {
+        throw new Error("logging::Line: the format is a string, not " + typeof(format), "TypeError");
+    }
+    _format = format == nil ? "{time} {channel}.{level}: {message} {context} {extra}" : format;
+}
+
+Line::format(record) {
+    local m = _fill(record["message"], record["context"]);
+    local rest = {};
+
+    for (local k, v in record["context"]) {
+        if (!_in(m[1], k)) {
+            rest[k] = v;
+        }
+    }
+    local parts = {
+        "time": _stamp(record["time"]), "channel": _escape(record["channel"]), "level": upper(record["level"]),
+        "message": _escape(m[0]), "context": len(rest) == 0 ? "" : _json(rest),
+        "extra": len(record["extra"]) == 0 ? "" : _json(record["extra"]),
+    };
+    return _TOKEN->replace(_format, fn(p) {
+        local space = slice(p, 0, 1) == " " ? " " : "";
+        local v = parts[slice(p, len(space) + 1, len(p) - 1)];
+
+        if (v == nil) {
+            return p;
+        }
+        return v == "" ? "" : space + v;
+    });
+}
+
+// JSON(): a JSON object on one line: time, channel, level, message (filled
+// in), context and extra.
+class JSON : Formatter {
+    format(record);
+}
+
+JSON::format(record) {
+    return json::encode({
+        "time": _stamp(record["time"]), "channel": _plain(record["channel"], 0), "level": record["level"],
+        "message": _plain(_fill(record["message"], record["context"])[0], 0), "context": _plain(record["context"], 0),
+        "extra": _plain(record["extra"], 0),
+    });
+}
+
+// _syslogOptions: the options facility, app and hostname, checked.
+_syslogOptions(what, options) {
+    local o = _options(what, options, ["facility", "app", "hostname"]);
+    local facility = o["facility"] == nil ? "user" : o["facility"];
+
+    if (!haskey(_FACILITY, facility)) {
+        throw new Error(what + ": not a facility: " + str(facility) + " (user, daemon, local0 ... local7, ...)", "ValueError");
+    }
+
+    if (o["app"] != nil && typeof(o["app"]) != "string") {
+        throw new Error(what + ": app is a string, not " + typeof(o["app"]), "TypeError");
+    }
+    return {"facility": _FACILITY[facility], "app": o["app"], "hostname": o["hostname"] != false};
+}
+
+// RFC5424(options): a syslog message of RFC 5424:
+// <14>1 2026-11-16T10:00:00.123Z host shop 4711 - [ctx@32473 id="1042"] order 1042 paid
+// The context becomes the STRUCTURED-DATA ctx@32473, extra extra@32473.
+// Options: facility, app (by default the channel).
+class RFC5424 : Formatter {
+    _facility;
+    _app;
+    _host;
+    _pid;
+    RFC5424(options);
+    format(record);
+}
+
+RFC5424::RFC5424(options = nil) {
+    local o = _syslogOptions("logging::RFC5424", options);
+    _facility = o["facility"];
+    _app = o["app"];
+}
+
+RFC5424::format(record) {
+    if (_host == nil) {
+        _host = _field(net::hostname(), 255);
+        _pid = str(os::pid());
+    }
+    local sd = _sd("ctx@32473", record["context"]) + _sd("extra@32473", record["extra"]);
+    local msg = _escape(_fill(record["message"], record["context"])[0]);
+    local s = "<" + str(_facility * 8 + _SEVERITY[record["level"]]) + ">1 " + _stamp(record["time"]) + " " + _host + " " +
+        _field(_app == nil ? record["channel"] : _app, 48) + " " + _pid + " - " + (sd == "" ? "-" : sd);
+    return msg == "" ? s : s + " " + msg;
+}
+
+// RFC3164(options): a syslog message in the older BSD form of RFC 3164:
+// <14>Nov 16 11:00:00 host shop[4711]: order 1042 paid {"total":99.5}
+// in local time. Options: facility, app (by default the channel), and
+// hostname (false: without it, as the C library writes to the local
+// syslog).
+class RFC3164 : Formatter {
+    _facility;
+    _app;
+    _hostname;
+    _host;
+    _pid;
+    RFC3164(options);
+    format(record);
+}
+
+RFC3164::RFC3164(options = nil) {
+    local o = _syslogOptions("logging::RFC3164", options);
+    _facility = o["facility"];
+    _app = o["app"];
+    _hostname = o["hostname"];
+}
+
+RFC3164::format(record) {
+    if (_pid == nil) {
+        _host = _field(net::hostname(), 255);
+        _pid = str(os::pid());
+    }
+    local m = _fill(record["message"], record["context"]);
+    local rest = {};
+
+    for (local k, v in record["context"]) {
+        if (!_in(m[1], k)) {
+            rest[k] = v;
+        }
+    }
+    local tag = _TAG->replace(_app == nil ? record["channel"] : _app, "_");
+
+    if (len(tag) > 32) {
+        tag = slice(tag, 0, 32);
+    }
+    local s = "<" + str(_facility * 8 + _SEVERITY[record["level"]]) + ">" + record["time"]->inlocal()->format("%b %e %H:%M:%S") + " " +
+        (_hostname ? _host + " " : "") + tag + "[" + _pid + "]: " + _escape(m[0]);
+
+    if (len(rest) > 0) {
+        s = s + " " + _json(rest);
+    }
+
+    if (len(record["extra"]) > 0) {
+        s = s + " " + _json(record["extra"]);
+    }
+    return s;
+}
+
+// _fill(message, context): the message with each {name} that the context
+// has replaced by its value as text, and the names used: [text, names].
+_fill(message, context) {
+    local used = [];
+
+    if (len(context) == 0 || find(message, "{") < 0) {
+        return [message, used];
+    }
+    local s = _PLACE->replace(message, fn(p) {
+        local name = slice(p, 1, len(p) - 1);
+
+        if (!haskey(context, name)) {
+            return p;
+        }
+        push(used, name);
+        return _text(context[name]);
+    });
+    return [s, used];
+}
+
+// _text(v): a value as text in a message: strings as they are, an Error as
+// "kind: message", a time in RFC 3339, vectors and maps as JSON.
+_text(v) {
+    local t = typeof(v);
+
+    if (t == "string") {
+        return v;
+    } else if (t == "vector" || t == "map") {
+        return _json(v);
+    } else if (t == "object") {
+        if (instanceof(v, Error)) {
+            local m = v->message == nil || v->message == "" ? "" : ": " + str(v->message);
+            return str(v->kind) + m;
+        } else if (instanceof(v, time::Time)) {
+            return v->format();
+        }
+    }
+    return str(v);
+}
+
+_json(v) {
+    return json::encode(_plain(v, 0));
+}
+
+// _plain(v, depth): v as values JSON can hold: an Error as a map of kind,
+// message and the place it was thrown, a time in RFC 3339, text that is
+// not UTF-8 mended, other values as text.
+_plain(v, depth) {
+    local t = typeof(v);
+
+    if (t == "nil" || t == "bool" || t == "int") {
+        return v;
+    } else if (t == "float") {
+        return v != v || v == 1.0 / 0 || v == -1.0 / 0 ? str(v) : v;
+    } else if (t == "string") {
+        return utf8::valid(v) ? v : utf8::fix(v);
+    } else if (depth >= 32) {
+        return "...";
+    } else if (t == "vector") {
+        local r = [];
+
+        for (local x in v) {
+            push(r, _plain(x, depth + 1));
+        }
+        return r;
+    } else if (t == "map") {
+        local r = {};
+
+        for (local k, x in v) {
+            r[typeof(k) == "string" ? _plain(k, 0) : str(k)] = _plain(x, depth + 1);
+        }
+        return r;
+    } else if (t == "object" && instanceof(v, Error)) {
+        local r = {"kind": _plain(v->kind, 0), "message": _plain(v->message, 0)};
+
+        if (typeof(v->trace) == "vector" && len(v->trace) > 0) {
+            r["place"] = _plain(v->trace[0], 0);
+        }
+        return r;
+    } else if (t == "object" && instanceof(v, time::Time)) {
+        return v->format();
+    }
+    return _plain(str(v), 0);
+}
+
+// _escape(s): s with each control character written as \n, \r, \t or
+// \xHH, so that it stays on one line.
+_escape(s) {
+    if (!_CTRL->match(s)) {
+        return s;
+    }
+    return _CTRL->replace(s, fn(c) {
+        if (c == "\n") {
+            return "\\n";
+        } else if (c == "\r") {
+            return "\\r";
+        } else if (c == "\t") {
+            return "\\t";
+        }
+        local n = ord(c);
+        return "\\x" + slice("0123456789abcdef", n / 16, n / 16 + 1) + slice("0123456789abcdef", n % 16, n % 16 + 1);
+    });
+}
+
+// _stamp(t): t in UTC to the millisecond: 2026-11-16T10:00:00.123Z.
+_stamp(t) {
+    local s = t->utc()->format("%Y-%m-%dT%H:%M:%S.%f");
+    return slice(s, 0, len(s) - 3) + "Z";
+}
+
+// _field(s, n): a header field of RFC 5424: printable ASCII without
+// spaces, at most n bytes, "-" when empty.
+_field(s, n) {
+    s = _FIELD->replace(s, "_");
+
+    if (len(s) > n) {
+        s = slice(s, 0, n);
+    }
+    return s == "" ? "-" : s;
+}
+
+// _sd(id, m): an SD-ELEMENT of RFC 5424 for the values of m, or "" for an
+// empty m. Names are cut to 32 bytes of printable ASCII without = ] " and
+// space; in values ", \ and ] are escaped, then control characters.
+_sd(id, m) {
+    if (len(m) == 0) {
+        return "";
+    }
+    local s = "[" + id;
+
+    for (local k, v in m) {
+        local name = _SDNAME->replace(str(k), "_");
+
+        if (len(name) > 32) {
+            name = slice(name, 0, 32);
+        }
+        local text = _text(v);
+        text = utf8::valid(text) ? text : utf8::fix(text);
+        s = s + " " + (name == "" ? "_" : name) + "=\"" + _escape(_SDVALUE->replace(text, "\\$0")) + "\"";
+    }
+    return s + "]";
+}

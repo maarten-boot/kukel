@@ -32,8 +32,8 @@ Check what you have:
 ```
 $ kukel version
 kukel v1.4.0 (2b9169674f2c), go1.27.3, bytecode format 12, Unicode 17.0.0
-modules written in Go: db (SQLite, PostgreSQL, MySQL), encoding, events, fs, json, net, p9, re, strings, term, time, toml, utf8, uuid, worker, zmq
-modules written in Kukel: iter, mail
+modules written in Go: db (SQLite, PostgreSQL, MySQL), encoding, events, fs, json, net, os, p9, re, strings, term, time, toml, utf8, uuid, worker, zmq
+modules written in Kukel: iter, logging, mail
 ```
 
 The first line gives the version, the commit it was built from, the Go

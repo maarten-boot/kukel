@@ -34,8 +34,8 @@ hello, Kukel
 8. [Classes and objects](#8-classes-and-objects)
 9. [Exceptions](#9-exceptions)
 10. [Built-in functions](#10-built-in-functions)
-11. [Modules written in Go](#11-modules-written-in-go): db, encoding, events, fs, json, net, p9, re, strings, term, time, tk (with the build tag tk), toml, utf8, uuid, worker, zmq
-12. [Modules written in Kukel](#12-modules-written-in-kukel): iter, mail
+11. [Modules written in Go](#11-modules-written-in-go): db, encoding, events, fs, json, net, os, p9, re, strings, term, time, tk (with the build tag tk), toml, utf8, uuid, worker, zmq
+12. [Modules written in Kukel](#12-modules-written-in-kukel): iter, logging, mail
 
 ---
 
@@ -2266,6 +2266,15 @@ for certificates. An encrypted connection prints as
 STARTTLS on the side that listens (for a server of such a protocol) is
 not there yet.
 
+### os
+
+Facts about the running process. For now the process id; the
+environment is the built-in `getenv` (section 10).
+
+| Function | Description |
+|---|---|
+| `os::pid()` | The id of the process that runs the program: of `kukel`, or of the Go program that embeds Kukel (its workers share it). Syslog's records carry it (`logging::pid`) |
+
 ### p9
 
 The 9P file protocol of Plan 9 and Linux, in both its versions: 9P2000
@@ -3388,8 +3397,9 @@ them before files on disk. Their code shows in traces and the debugger as
 program that embeds Kukel cannot leave them out (`StandardModules` lists
 the modules written in Go), and they are there also without file modules.
 They use only what the program may use: `mail` needs `net`, `encoding`,
-`time`, `uuid`, `re` and `utf8`, and where one of those is left out, `use
-mail;` is a compile error that names it.
+`time`, `uuid`, `re` and `utf8`, `logging` needs `net`, `fs`, `json`,
+`time`, `os`, `re` and `utf8`, and where one of those is left out, `use
+mail;` (`use logging;`) is a compile error that names it.
 
 ### iter
 
@@ -3453,6 +3463,174 @@ $ kukel run iter.kkl
   more than a loop written out: about 85 ns per value for
   `for (local x in iter::range(n))`, against 25 ns for `for (local i = 0;
   i < n; i++)`.
+
+### logging
+
+Structured logging, after PHP's Monolog: a program says what it did as a
+level, a message and the facts around it as a map (the *context*), and
+the configuration says where that goes: standard error, a file, the
+system's syslog or a syslog server.
+
+```
+use logging;
+
+main() {
+    local log = logging::get("shop");                 // the logger of a channel
+    local m = new logging::Memory({"formatter": new logging::Line("{channel}.{level}: {message} {context}")});
+    log->handlers([m]);                               // by default: standard error
+    log->info("order {id} paid by {user}", {"id": 1042, "user": "ann", "total": 99.5});
+    log->debug("not made: below the level, info");
+    log->warning("stock low\nshop.INFO: all is well", {"item": "pen"});
+
+    for (local line in m->lines()) {
+        println(line);
+    }
+}
+```
+
+```
+$ kukel run shop.kkl
+shop.INFO: order 1042 paid by ann {"total":99.5}
+shop.WARNING: stock low\nshop.INFO: all is well {"item":"pen"}
+```
+
+Without the `handlers` call, the lines go to standard error with the
+time in front: `2026-11-16T10:00:00.123Z shop.INFO: order 1042 paid by
+ann {"total":99.5}`.
+
+**Levels** are syslog's (RFC 5424): `emergency` (0), `alert` (1),
+`critical` (2), `error` (3), `warning` (4), `notice` (5), `info` (6) and
+`debug` (7). A logger and each of its handlers has a lowest level; a call
+below the logger's level, or below the level of all its handlers, is
+dropped before a record is made, at about the cost of a call of an empty
+function (the arguments are still evaluated).
+
+**A record** is a map: `time` (a `time::Time`), `channel`, `level` (its
+name), `message`, `context` (a map, `{}` without one) and `extra` (what
+processors add). `{name}` in the message is filled in from the context
+when the record is formatted (as PHP's PSR-3); a name the context does
+not have stays as it is. Values show as text: a string as it is, an
+`Error` as `kind: message`, a `time::Time` in RFC 3339, a vector or map as
+JSON.
+
+**A message cannot forge a record.** In the line and syslog formats, a
+control character in the message or in a value is written as `\n`, `\r`,
+`\t` or `\xHH`, so that text from outside never shows as a line of its
+own.
+
+| Function | Description |
+|---|---|
+| `logging::get(channel)` | The logger of a channel (a string that is not empty): made the first time, found again by name after that |
+| `logging::configure(c)` | The levels, handlers and processors of the channels, from a map (below) |
+| `logging::severity(level)` | The number of a level: a name in any case (`"Error"` is 3) or a number 0 to 7; another is a `ValueError` |
+| `logging::host(record)`, `logging::pid(record)` | Processors: they add `host` (`net::hostname()`) or `pid` (`os::pid()`) to the record's `extra` |
+
+| Member function of `logging::Logger` | Description |
+|---|---|
+| `log->debug(message [, context])`, `info`, `notice`, `warning`, `error`, `critical`, `alert`, `emergency` | A record of that level. `message` is a string (another value is turned into one, as `str` does), `context` a map (another value is a `TypeError`) |
+| `log->log(level, message [, context])` | A record of a level given by name or number |
+| `log->level()`, `log->level(l)` | The logger's level (a name); sets it, and gives the logger |
+| `log->handlers()`, `log->handlers(v)` | The handlers, a vector; puts the handlers of `v` in their place, and gives the logger |
+| `log->handler(h)` | Adds a handler after the others; gives the logger |
+| `log->processors()`, `log->processors(v)`, `log->processor(f)` | The processors: functions `f(record)` that add to `record["extra"]` (a request id, ...), run before the handlers; set or add, as for handlers. An exception in a processor comes out of the call that logs |
+| `log->channel()` | The channel's name |
+
+A record goes to the handlers in turn, to each whose level it reaches.
+A handler with the option `bubble` false keeps the records it takes from
+the handlers after it (errors to syslog only, the rest to a file).
+
+| Handler | Where records go |
+|---|---|
+| `new logging::Stderr([options])` | Standard error, a line each |
+| `new logging::File(path [, options])` | A file, a line each, appended (the file is made when it is not there) and written out at once. When the file has been moved away or emptied (by logrotate), the next record opens `path` again |
+| `new logging::Syslog([address [, options]])` | A syslog (below) |
+| `new logging::Memory([options])` | Keeps them, for tests: `h->records()` the records, `h->lines()` what the formatter made of them, `h->clear()` forgets them |
+| `new logging::Null([options])` | Drops them |
+
+Every handler takes the options (a map; another key is a `ValueError`)
+`level` (the lowest level it takes; `"debug"`, all, by default),
+`bubble` (`true` by default) and `formatter`; `h->level()` and
+`h->formatter()` give them. A handler of one's own derives from
+`logging::Handler`, calls `logging::Handler::Handler(options)` in its
+constructor and defines `write(text)`, which gets each record as its
+formatter made it (or `handle(record)`, which gets the record and gives
+whether it bubbles); `close()` is there to be defined too.
+
+| Formatter | Text of a record |
+|---|---|
+| `new logging::Line([format])` | A line (the default formatter). The format holds `{time}` (UTC, to the millisecond), `{channel}`, `{level}` (in capitals), `{message}` (filled in), `{context}` (what the message did not use, as JSON) and `{extra}` (as JSON); a space before one that is empty goes with it. By default `"{time} {channel}.{level}: {message} {context} {extra}"` |
+| `new logging::JSON()` | A JSON object on one line: `time`, `channel`, `level`, `message` (filled in), `context` and `extra`, for log systems. An `Error` in the context becomes `{"kind", "message", "place"}`; text that is not UTF-8 is mended |
+| `new logging::RFC5424([options])` | A syslog message of RFC 5424: `<14>1 2026-11-16T10:00:00.123Z host shop 4711 - [ctx@32473 id="1042" user="ann"] order 1042 paid by ann`. The context becomes the STRUCTURED-DATA `ctx@32473` and `extra` the element `extra@32473` (32473 is the example number of the RFC), with names cut to 32 characters of printable ASCII and `"`, `\` and `]` escaped in values |
+| `new logging::RFC3164([options])` | A syslog message in the older BSD form of RFC 3164, in local time: `<14>Nov 16 11:00:00 host shop[4711]: order 1042 paid by ann {"total":99.5}` |
+
+The syslog formats take the options `facility` (`"user"` by default;
+`"kern"`, `"mail"`, `"daemon"`, `"auth"`, `"syslog"`, `"lpr"`, `"news"`,
+`"uucp"`, `"cron"`, `"authpriv"`, `"ftp"`, `"local0"` ... `"local7"`),
+`app` (the name of the program; by default the channel) and, for
+RFC 3164, `hostname` (`false`: without the host, as the C library writes
+to the local syslog). A formatter of one's own derives from
+`logging::Formatter` and defines `format(record)`.
+
+**Syslog.** The address says where to: `"unixgram:///dev/log"` (the
+default) is the local syslog (journald's socket on most Linux systems;
+rsyslog and syslog-ng read it too); `"udp://host:514"` a server, one
+record a packet (lost without notice when the network drops it);
+`"tcp://host:514"` a server over TCP, each record preceded by its length
+(RFC 6587), so that no record can split another; `"tls://host:6514"`
+the same, encrypted (RFC 5425). The local syslog gets RFC 3164 without
+the host, the form the C library sends and journald reads; a server gets
+RFC 5424. The options, besides those of every handler: `format`
+(`"rfc5424"` or `"rfc3164"`), `facility`, `app`, `timeout` (seconds to
+connect and to write; 10 by default), and `ca`, `cert` and `key` for TLS,
+as `net::connect` takes them. `h->address()` gives the address. Windows
+has no local syslog (`unixgram://`): there use `Stderr` or `File`.
+
+**A handler that fails** (a syslog that cannot be reached, a disk that is
+full) does not stop the program: its records go to standard error, as
+lines, with a note at most once a minute that says why and how many
+records it missed (`logging: logging::Syslog failed: NetError: ...; its
+records go to standard error`). The handlers after it still get the
+records. A server that cannot be reached is tried again after 30
+seconds, not at every record.
+
+**Configuration.** `logging::configure(c)` takes a map, so it can come
+from TOML, JSON or code alike:
+
+```toml
+level = "info"                 # every channel, unless it says otherwise
+handlers = ["stderr"]
+processors = ["host", "pid"]
+
+[handler.syslog]
+type = "syslog"                # stderr, file, syslog, memory or null
+address = "unixgram:///dev/log"
+facility = "local0"
+level = "warning"
+
+[handler.file]
+type = "file"
+path = "/var/log/shop.log"
+format = "json"                # line (the default; "line" sets its format), json, rfc5424, rfc3164
+
+[channel.shop]
+level = "debug"
+handlers = ["file", "syslog"]
+```
+
+with `logging::configure(toml::decode(readfile("logging.toml")))`. A
+handler takes the keys `type`, `level`, `bubble`, `format`, `line`,
+`facility` and `app`, and `path` (`file`) or `address`, `timeout`, `ca`,
+`cert` and `key` (`syslog`). The handlers `stderr` and `null` are there
+unless the map defines its own by those names. Without `configure`, each
+channel writes `info` and worse to standard error. An unknown key, level,
+type, handler or processor is a `ValueError` that names the key
+(`logging::configure: handler.syslog: unknown key adress`), and the
+configuration in use stays; else the handlers of the configuration
+before are closed, and loggers made before follow the new one.
+
+`logging` writes each record when it is called, also on the event loop;
+a slow syslog server makes the calls slow (at most `timeout`). It uses
+`net`, `fs`, `json`, `time`, `os`, `re` and `utf8`.
 
 ### mail
 

@@ -379,7 +379,7 @@ func TestASTError(t *testing.T) {
 }
 
 // fullModules are the modules of a kukel built without tags.
-const fullModules = "db (SQLite, PostgreSQL, MySQL), encoding, events, fs, json, net, p9, re, strings, term, time, toml, utf8, uuid, worker, zmq"
+const fullModules = "db (SQLite, PostgreSQL, MySQL), encoding, events, fs, json, net, os, p9, re, strings, term, time, toml, utf8, uuid, worker, zmq"
 
 // withTk adds tk to the list of modules when this kukel has it (the build
 // tag tk).
@@ -444,7 +444,7 @@ func TestVersion(t *testing.T) {
 	if code := run([]string{"version"}, nil, &stdout, &stderr); code != 0 ||
 		!strings.HasPrefix(stdout.String(), "kukel ") || !strings.Contains(stdout.String(), "bytecode format") || !strings.Contains(stdout.String(), ", Unicode ") ||
 		!strings.Contains(stdout.String(), "modules written in Go: "+withTk(fullModules)+"\n") && fullBuild() ||
-		!strings.HasSuffix(stdout.String(), "modules written in Kukel: iter, mail\n") {
+		!strings.HasSuffix(stdout.String(), "modules written in Kukel: iter, logging, mail\n") {
 		t.Errorf("version: exit %d, stdout %q", code, stdout.String())
 	}
 }

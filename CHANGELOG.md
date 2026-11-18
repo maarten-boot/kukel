@@ -17,6 +17,19 @@ From v1.0.0 on, what keeps working is in
 
 ## Unreleased
 
+- The module `logging`, written in Kukel: structured logging after PHP's
+  Monolog. A logger per channel (`logging::get("shop")`), a member
+  function per syslog level, `{name}` placeholders filled from the
+  context map (PSR-3); handlers `Stderr` (the default), `File` (opened
+  again after logrotate), `Syslog` (the local syslog over
+  `unixgram:///dev/log` in RFC 3164, servers over `udp://`, `tcp://` and
+  `tls://` in RFC 5424), `Memory` and `Null`; formatters `Line`, `JSON`,
+  `RFC5424` and `RFC3164`; processors `logging::host` and `logging::pid`;
+  `logging::configure(map)`, from TOML say. A call below the level costs
+  about an empty function call; control characters in messages and
+  values are escaped so that a record cannot be forged; a handler that
+  fails sends its records to standard error. Q114.
+- A module `os`, written in Go: `os::pid()`, the process id. Q114.
 - `net::udp` also takes Unix datagram sockets: `"unixgram:///path"`
   binds one to a socket file (removed by `close`), `"unixgram://"` makes
   one that sends, to the local syslog's `"unixgram:///dev/log"` say. Not

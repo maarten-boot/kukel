@@ -11,7 +11,8 @@ or across the world:
 | `zmq` | ZeroMQ messages: whole messages instead of a stream of bytes, with patterns such as request-reply and publish-subscribe |
 | `p9` | the 9P file protocol: serve a tree of files, or read and write another program's |
 
-On top of `net`, the module `mail` (written in Kukel itself) sends mail.
+On top of `net`, the modules `mail` and `logging` (written in Kukel
+itself) send mail and log what a program does, also to syslog.
 
 Each listens or connects on an *address*: `"tcp://host:port"`, and for
 some `"unix:///path"` (a socket file, between programs on one computer),
@@ -293,6 +294,44 @@ whoever typed it add headers or recipients, so it is refused at once.
 `smtp://` insists on encryption (STARTTLS) unless the server is the
 computer itself; the [reference](../reference.md#mail) has attachments,
 HTML, the options and the errors.
+
+## Logging: `logging`
+
+A program that runs unattended (a server, a nightly job) should say what
+it did, in a form that people and log systems can both read. `logging`
+gives each part of a program a logger by name (its *channel*); a call
+has a level, a message and the facts around it as a map:
+
+```
+use logging;
+
+main() {
+    local log = logging::get("shop");
+    local m = new logging::Memory({"formatter": new logging::Line("{channel}.{level}: {message} {context}")});
+    log->handlers([m]);                    // without this: to standard error
+    log->info("order {id} paid by {user}", {"id": 1042, "user": "ann", "total": 99.5});
+    log->debug("details");                 // below the level (info): costs next to nothing
+    log->warning("odd name: {name}", {"name": "x\nshop.INFO: all is well"});
+    println(join(m->lines(), "\n"));
+}
+```
+
+```
+$ kukel run log.kkl
+shop.INFO: order 1042 paid by ann {"total":99.5}
+shop.WARNING: odd name: x\nshop.INFO: all is well
+```
+
+`{id}` and `{user}` are filled in from the map; what the message does not
+use follows as JSON. The line break in the name is written as `\n`, so
+that text from outside cannot make a log line of its own. Where the
+records go is up to *handlers*: standard error (the default), a file,
+or syslog: `new logging::Syslog()` sends them to the computer's own
+(`/dev/log`, through a `unixgram://` socket of `net`), and
+`new logging::Syslog("tls://logs.example.com:6514")` to a server. A
+configuration, from TOML say, sets the levels and handlers of every
+channel at once (`logging::configure`); the
+[reference](../reference.md#logging) has it all.
 
 ## When the network fails
 

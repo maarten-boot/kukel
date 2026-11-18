@@ -801,7 +801,7 @@ Each step is usable on its own and prepares the next:
 | 11 | `encoding` (base64) and `net::hostname()` (11.3) | — | done (Q113): base64 and hexadecimal |
 | 12 | Email: the module `mail`, written in Kukel (11.4, 11.5) | 10, 11 | done (Q113) |
 | 13 | `unixgram://` in `net` (12.4) | — | done (Q114) |
-| 14 | Logging: the module `logging`, written in Kukel, with syslog (12) | 11, 13; 10 for syslog over TLS | proposed (Q114) |
+| 14 | Logging: the module `logging`, written in Kukel, with syslog (12) | 11, 13; 10 for syslog over TLS | done (Q114), with the module `os` |
 | 15 | `tk::Notebook` (13.3) | 7 | done (Q115) |
 | 16 | LMW-Synth GUI: the module `lmw` and a fake synth (13.4) | 9 | done (Q115) |
 | 17 | LMW-Synth GUI: Synth and Effects tabs, keeping in step, colours (13.5 to 13.7) | 15, 16; `/info` in the synth | proposed (Q115) |
@@ -1399,8 +1399,9 @@ Steps: 1. TLS in `net` (useful on its own); 2. `encoding` and
 
 ## 12. Structured logging and syslog: a module `logging` written in Kukel
 
-*A proposal (2026-11-16, TODO.md Q114); not built. The open questions are
-12.7.* Programs that run unattended (a server, a nightly job, a
+*A proposal (2026-11-16, TODO.md Q114); built (2026-11-18, step 14,
+reference.md §12), with the changes noted in 12.4 and 12.7. The open
+questions of 12.7 are all answered.* Programs that run unattended (a server, a nightly job, a
 Kukel-MVC application) need to say what they did, in a form both people
 and log systems can read: a level, a message, and the facts around it as
 named values, sent to standard error, a file, or the system's log. The
@@ -1486,7 +1487,8 @@ main() {
 
 ### 12.4 Syslog
 
-- **The format**: RFC 5424 by default:
+- **The format**: RFC 5424 to a server (*built: the local syslog gets
+  RFC 3164 instead, below*):
   `<14>1 2026-11-16T10:00:00.123Z host shop 4711 - [ctx@32473 id="1042" user="ann"] order 1042 paid by ann`.
   The priority is facility × 8 + severity (here `user`, 1, and `info`, 6); the facility is `user` unless
   set (`local0` ... `local7`, `daemon`, ...). The context becomes
@@ -1494,6 +1496,12 @@ main() {
   says, and names cut to its 32 characters. (32473 is the example
   enterprise number of the RFC; F-52.) RFC 3164, the older format
   without structure, for receivers that need it (F-49).
+  *Built with a change (2026-11-18): journald does not read RFC 5424 on
+  `/dev/log` reliably (it parses the BSD form that the C library's
+  `syslog()` sends, and loses the identifier of other text), so the local
+  syslog (`unixgram://`) gets RFC 3164 without the host name, as the C
+  library writes it, and servers (`udp://`, `tcp://`, `tls://`) RFC 5424;
+  the option `format` chooses either.*
 - **The transports**:
   - the local syslog: `unixgram:///dev/log` (journald's socket on most
     Linux systems; rsyslog and syslog-ng read it too). It is a Unix
@@ -1570,23 +1578,40 @@ with section 11); 2. `logging` with `Stderr`, `File`, `Memory` and the
 
 - **F-47** The model: Monolog's channels with one configuration
   (proposed), or Python's tree of named loggers?
+  *Answered (2026-11-18): Monolog's, as proposed; built.*
 - **F-48** The name: `logging` (proposed; `log` is the logarithm), or
   `logger`, or `syslog` for the whole?
+  *Answered (2026-11-18): `logging`, as proposed.*
 - **F-49** RFC 3164 at all, or only RFC 5424 (which current rsyslog,
   syslog-ng and journald read)?
+  *Answered (2026-11-18): both, as proposed. Journald turned out not to
+  read RFC 5424 on `/dev/log`, so RFC 3164 is the local syslog's default
+  (12.4).*
 - **F-50** Records sent in the background, by the event loop or a
   worker, so that a slow syslog does not slow the program; or always at
   once (proposed for the first step)?
+  *Answered (2026-11-18): at once, as proposed; the background stays
+  out until it is shown to be needed.*
 - **F-51** A handler that fails: to standard error now and then
   (proposed), an exception in the program, or silence?
+  *Answered (2026-11-18): as proposed: its records go to standard error,
+  with a note at most once a minute; a server that cannot be reached is
+  tried again after 30 seconds.*
 - **F-52** The STRUCTURED-DATA id: `ctx@32473` (the RFC's example
   number, proposed until there is reason for another), a private
   enterprise number registered for kukel, or set by the configuration?
+  *Answered (2026-11-18): `ctx@32473`, as proposed; `extra` goes in
+  `extra@32473`.*
 - **F-53** The process id for `logging::pid` and the `PROCID` of RFC
   5424: a built-in `pid()`, or `os::pid()` in a module for the process
   (which might later hold the environment and exit codes)?
+  *Answered (2026-11-18): `os::pid()`, in a new module `os` written in Go.
+  The environment stays with the built-in `getenv`, which `DenyBuiltins`
+  already controls.*
 - **F-54** `{name}` placeholders filled from the context (PSR-3,
   proposed), or Kukel's own string formatting?
+  *Answered (2026-11-18): PSR-3, as proposed (Kukel has no string
+  formatting of its own).*
 
 ---
 

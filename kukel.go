@@ -44,6 +44,7 @@ import (
 	_ "github.com/maarten-boot/kukel/internal/modules/fsmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/jsonmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/netmod"
+	_ "github.com/maarten-boot/kukel/internal/modules/osmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/p9mod"
 	_ "github.com/maarten-boot/kukel/internal/modules/remod"
 	_ "github.com/maarten-boot/kukel/internal/modules/stringsmod"
@@ -68,8 +69,9 @@ var SystemBuiltins = []string{"readfile", "writefile", "appendfile", "readline",
 func Builtins() []string { return builtins.Names() }
 
 // StandardModules lists the modules written in Go that come with Kukel
-// (db, events, fs, json, net, p9, re, strings, term, time, utf8, uuid,
-// worker, zmq, and tk when built with -tags tk), less those that build
+// (db, encoding, events, fs, json, net, os, p9, re, strings, term, time,
+// toml, utf8, uuid, worker, zmq, and tk when built with -tags tk), less
+// those that build
 // tags left out.
 func StandardModules() []string { return native.Names() }
 
@@ -80,9 +82,10 @@ type CompileOptions struct {
 	Modules []*Module
 	// StandardModules lists the standard modules written in Go the program
 	// may use (nil: all of them; an empty, non-nil slice: none). Those
-	// written in Kukel (iter, mail) are always there: they can do nothing
-	// the program's own code could not, and use only the modules allowed
-	// here (mail needs net, encoding, time, uuid, re and utf8).
+	// written in Kukel (iter, logging, mail) are always there: they can do
+	// nothing the program's own code could not, and use only the modules
+	// allowed here (mail needs net, encoding, time, uuid, re and utf8;
+	// logging net, fs, json, time, os, re and utf8).
 	StandardModules []string
 	// DenyBuiltins lists built-in functions the program may not use
 	// (using one is a compile error); see SystemBuiltins.
