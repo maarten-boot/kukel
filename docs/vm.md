@@ -5,7 +5,7 @@ values, the program image, the execution model of the stack machine, every
 instruction, how the compiler translates the language's constructs, the
 `.kkc` file format and what the loader guarantees.
 
-It describes bytecode format version **12** (introduced in kukel v1.4). The language
+It describes bytecode format version **13** (introduced in kukel v1.6). The language
 itself is described in [reference.md](reference.md), its grammar in
 [syntax.ebnf](../syntax.ebnf).
 
@@ -65,9 +65,10 @@ made from existing bytes never allocate a box.
 | bool | 0 or 1 | |
 | int | int64 | arithmetic wraps around |
 | float | IEEE-754 bits | |
+| decimal | a coefficient that fits in an int64 and a `*decScale` (its scale, a pointer into a fixed table), or a `*decBig` (a `math/big` coefficient and the scale) | base 10, exact; the first form does not allocate (`internal/value/decimal.go`) |
 | string | length; a `*byte` to its first byte, or the `*strBuf` of a concatenation | immutable bytes; see below |
 | vector | `*VectorObj` (a slice) | shared, mutable |
-| map | `*MapObj` | insertion-ordered; keys normalized so 1 and 1.0 are one key |
+| map | `*MapObj` | insertion-ordered; keys normalized so 1, 1.0 and 1d are one key |
 | function | `*bytecode.Function` | a top-level or static member function |
 | closure | `*ClosureObj` | function + captured cells + `this` |
 | builtin | `*BuiltinObj` | a Go function (a built-in, or a function of a native module) |
@@ -1307,7 +1308,7 @@ noted; `str` is a `uv` length followed by that many bytes.
 
 ```
 "KUKL"                       4 bytes: magic
-uv   format version          12
+uv   format version          13
 uv   flags                   0 (1: a module, below)
 uv   main                    global index of main
 uv   n, then n globals       str name, byte kind (0 variable, 1 function, 2 built-in, 3 class, 4 native),
@@ -1330,7 +1331,8 @@ uv   n + str                 slot names
 uv   n + upvalues            str name, byte from-local (0/1), uv index
 uv   n + bytes               code
 uv   n + constants           byte tag: 0 nil, 1 false, 2 true,
-                               3 int (a zigzag varint), 4 float (8 bytes, IEEE bits), 5 string (str)
+                               3 int (a zigzag varint), 4 float (8 bytes, IEEE bits), 5 string (str),
+                               6 decimal (str: its text, "12.50")
 uv   n + line entries        uv pc, uv line
 uv   n + jump tables         min (a zigzag varint), uv n + targets (uv target+1, 0: none)
 ```
@@ -1345,7 +1347,8 @@ version 6: native base classes, `CALL_NATIVE`; version 7: `ARITH_LK`,
 `GENERATOR`, `YIELD`, `ITER_CLOSE`; version 10: `GEN_RETURN`, for steps
 in the loop that walks the generator; version 11: `YIELD_VALUE`,
 `ITER_SEND`, for `send` and `yield from`; version 12: named arguments,
-`ABSENT`, `JUMP_IF_GIVEN`, `NAMED_CALL` and a function's named entry). `BREAK` came later
+`ABSENT`, `JUMP_IF_GIVEN`, `NAMED_CALL` and a function's named entry;
+version 13: decimal constants, tag 6). `BREAK` came later
 without a new version: it is only in the debugger's copy of the code, and a
 file that holds one is refused. A reader refuses any version other
 than its own, telling the user to compile the program again. Built-ins and

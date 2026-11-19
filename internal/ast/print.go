@@ -269,6 +269,8 @@ func (p *printer) node(n Node) {
 		p.line(n, "Name %s", n.Name)
 	case *IntLit:
 		p.line(n, "Int %s", literal(n.Text, strconv.FormatInt(n.Value, 10)))
+	case *DecimalLit:
+		p.line(n, "Decimal %s", literal(n.Text, n.Value.String()))
 	case *FloatLit:
 		p.line(n, "Float %s", literal(n.Text, strconv.FormatFloat(n.Value, 'g', -1, 64)))
 	case *CharLit:

@@ -897,6 +897,16 @@ func BenchmarkLoop1M(b *testing.B) {
 	benchmarkSource(b, `main() { local sum = 0; for (local i = 0; i < 1000000; i++) sum += i; }`)
 }
 
+func BenchmarkFloatLoop1M(b *testing.B) {
+	benchmarkSource(b, `main() { local sum = 0.0; for (local i = 0; i < 1000000; i++) sum += i * 0.5; }`)
+}
+
+// BenchmarkDecimalSum1M: a million prices of the small form, which do not
+// allocate (docs/future.md §14.9).
+func BenchmarkDecimalSum1M(b *testing.B) {
+	benchmarkSource(b, `main() { local sum = 0.00d; for (local i = 0; i < 1000000; i++) sum += 12.49d * 3 + 0.01d; }`)
+}
+
 func BenchmarkMethodCalls1M(b *testing.B) {
 	benchmarkSource(b, `
 		class C { n; C(); inc(); }

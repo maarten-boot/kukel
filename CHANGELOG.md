@@ -15,6 +15,23 @@ Two kinds of change need care when you upgrade:
 From v1.0.0 on, what keeps working is in
 [docs/compatibility.md](docs/compatibility.md).
 
+## Unreleased
+
+Syntax version 12 and bytecode format 13: programs of version 11 work
+unchanged, but `.kkc` files must be built again (`kukel build`).
+
+- Decimals: a type `decimal`, numbers in base 10 that are exact for `+`,
+  `-` and `*`, for prices and amounts. Literals `12.50d`, `3d`, `1.5e3d`;
+  the scale is kept as in SQL (`12.50d` prints as `12.50`; `2.50d * 1.10d`
+  is `2.7500`); `/` is exact up to 34 significant digits, else rounded
+  half to even; with an int exact, with a float in arithmetic a
+  `TypeError`; `==`, `<` and map keys exact across int, float and decimal
+  (`2d`, `2` and `2.0` are one key). The built-in `decimal(x [, scale])`;
+  `round(x, n)` rounds to `n` digits after the point (also floats); `int`,
+  `float`, `abs`, `min`, `max`, `pow`, `floor`, `ceil` and `round` take
+  decimals. Small decimals do not allocate. A program with a top-level
+  name `decimal` must rename it. docs/future.md §14, Q117.
+
 ## v1.5.0 (2026-11-19)
 
 Syntax version 11 and bytecode format 12, as in v1.4: programs and `.kkc`

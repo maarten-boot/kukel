@@ -489,7 +489,7 @@ func (f *formatter) mapBrace() bool {
 // is binary and "++" is postfix).
 func operandEnd(t *token.Token) bool {
 	switch t.Kind {
-	case token.IDENT, token.INT, token.FLOAT, token.CHAR, token.STRING, token.TRUE, token.FALSE, token.NIL,
+	case token.IDENT, token.INT, token.FLOAT, token.DECIMAL, token.CHAR, token.STRING, token.TRUE, token.FALSE, token.NIL,
 		token.THIS, token.RPAREN, token.RBRACK, token.RBRACE, token.INC, token.DEC, token.DOTDOT:
 		return true
 	}

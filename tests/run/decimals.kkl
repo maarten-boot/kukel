@@ -1,0 +1,79 @@
+// Decimals (syntax version 12): literals, the scale, arithmetic with ints,
+// comparisons with every kind of number, map keys, conversions and errors.
+const VAT = 0.21d;
+
+total(lines) {
+    local sum = 0.00d;
+
+    for (local l in lines) {
+        sum += l[0] * l[1];
+    }
+    return sum;
+}
+
+tries(f) {
+    try {
+        println(f());
+    } catch (e) {
+        println(e->kind + ": " + e->message);
+    }
+}
+
+main() {
+    println(12.50d, 3d, .5d, 1_000.00d, 1.5e3d, -0.05d);
+    println(typeof(1.5d), [12.50d, 12.5, "x"], {"p": 2.50d});
+    println(0.1d + 0.2d, 0.1 + 0.2);
+
+    local net = total([[12.50d, 3], [0.99d, 10], [4.25d, 1]]);
+    local vat = round(net * VAT, 2);
+    println(net, "+", vat, "=", net + vat, "from", net * VAT);
+
+    println(2.50d * 1.10d, 7.50d / 2, 10.00d / 4, 1d / 3d, -7.5d % 2);
+    local d = 1.50d;
+    d++;
+    println(d, -d, d--, d);
+
+    println(12.50d == 12.5d, 2d == 2, 2.5d == 2.5, 0.1d == 0.1, 0.1d < 0.1);
+    println(1.5d < 2, 2.01d > 2, max(1, 2.5d, 2.0), min([3d, 2.9, 4]));
+    local m = {};
+    m[2d] = "a";
+    m[2] = "b";
+    m[1.5d] = "c";
+    m[1.50] = "d";
+    m[0.1d] = "e";
+    println(len(m), m);
+
+    if (0.00d) {
+        println("0.00d is true");
+    } else {
+        println("0.00d is false");
+    }
+
+    switch (2d) {
+        case 2:
+            println("switch: 2");
+            break;
+        default:
+            println("switch: default");
+    }
+
+    println(decimal(2), decimal(2, 2), decimal(0.1), decimal(" 1_000.5 "), decimal("7.8750", 2), decimal(1.25d, 1));
+    println(int(-2.9d), float(0.1d), round(2.5d), round(-2.5d), floor(-2.1d), ceil(2.1d));
+    println(round(7.8650d, 2), round(3, 2), round(2.675, 2), round(0.125, 2), round(-1.5d, 0));
+    println(abs(-1.50d), pow(1.10d, 2), pow(2d, 0), str(12.50d) + "!");
+
+    tries(fn() { return 12.50d * 1.1; });
+    tries(fn() { return 1.5 + 1d; });
+    tries(fn() { return 1d / 0; });
+    tries(fn() { return 1.5d % 0.0d; });
+    tries(fn() { return 1d & 1; });
+    tries(fn() { return sqrt(2d); });
+    tries(fn() { return decimal("1.2.3"); });
+    tries(fn() { return decimal("inf"); });
+    tries(fn() { return decimal(1.0 / 0); });
+    tries(fn() { return decimal(1, 1001); });
+    tries(fn() { return pow(10d, 1000); });
+    tries(fn() { return pow(1.5d, 0.5); });
+    tries(fn() { return int(1e30d); });
+    tries(fn() { return "a" + 1d; });
+}

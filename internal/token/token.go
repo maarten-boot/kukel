@@ -12,11 +12,12 @@ const (
 	COMMENT // only from a lexer with KeepComments (kukel fmt)
 
 	// Literals and names.
-	IDENT  // main
-	INT    // 42, 0xFF, 0b1010
-	FLOAT  // 1.5, .5, 2e10
-	CHAR   // 'a'
-	STRING // "abc"
+	IDENT   // main
+	INT     // 42, 0xFF, 0b1010
+	FLOAT   // 1.5, .5, 2e10
+	DECIMAL // 12.50d, 3d (syntax version 12)
+	CHAR    // 'a'
+	STRING  // "abc"
 
 	// Operators and punctuation.
 	PLUS      // +
@@ -108,11 +109,12 @@ var names = [...]string{
 	EOF:     "EOF",
 	COMMENT: "COMMENT",
 
-	IDENT:  "IDENT",
-	INT:    "INT",
-	FLOAT:  "FLOAT",
-	CHAR:   "CHAR",
-	STRING: "STRING",
+	IDENT:   "IDENT",
+	INT:     "INT",
+	FLOAT:   "FLOAT",
+	DECIMAL: "DECIMAL",
+	CHAR:    "CHAR",
+	STRING:  "STRING",
 
 	PLUS:      "+",
 	MINUS:     "-",
@@ -207,7 +209,8 @@ func (k Kind) String() string {
 // IsKeyword reports whether k is a keyword.
 func (k Kind) IsKeyword() bool { return k > keywordBeg && k < keywordEnd }
 
-// IsLiteral reports whether k is a literal (INT, FLOAT, CHAR or STRING).
+// IsLiteral reports whether k is a literal (INT, FLOAT, DECIMAL, CHAR or
+// STRING).
 func (k Kind) IsLiteral() bool { return k >= INT && k <= STRING }
 
 var keywords map[string]Kind
@@ -254,6 +257,7 @@ type Token struct {
 	//           directly after a unary minus (the parser checks that).
 	//   CHAR:   Int holds the character code.
 	//   FLOAT:  Float.
+	//   DECIMAL: Str holds the number without its _ and d ("1000.50").
 	//   STRING: Str holds the decoded bytes.
 	Int    uint64
 	IntMin bool

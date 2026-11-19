@@ -590,6 +590,8 @@ func formatToken(t token.Token) string {
 		return line + "  = " + strconv.FormatUint(t.Int, 10)
 	case token.FLOAT:
 		return line + "  = " + strconv.FormatFloat(t.Float, 'g', -1, 64)
+	case token.DECIMAL:
+		return line + "  = " + t.Str
 	case token.STRING:
 		return line + "  = " + strconv.Quote(t.Str)
 	}

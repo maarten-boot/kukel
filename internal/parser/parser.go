@@ -11,6 +11,7 @@ import (
 	"github.com/maarten-boot/kukel/internal/diag"
 	"github.com/maarten-boot/kukel/internal/lexer"
 	"github.com/maarten-boot/kukel/internal/token"
+	"github.com/maarten-boot/kukel/internal/value"
 )
 
 // ParseFile parses one source file.
@@ -155,7 +156,7 @@ func describe(t token.Token) string {
 		return "end of file"
 	case token.IDENT:
 		return "identifier '" + t.Text + "'"
-	case token.INT, token.FLOAT:
+	case token.INT, token.FLOAT, token.DECIMAL:
 		return "number " + t.Text
 	case token.CHAR:
 		return "character " + t.Text
@@ -359,7 +360,7 @@ func (p *parser) parseStmt() ast.Stmt {
 	switch p.tok.Kind {
 	case token.LBRACE: // a "{" that starts a statement is a block
 		switch p.peek(1).Kind {
-		case token.STRING, token.INT, token.FLOAT, token.CHAR:
+		case token.STRING, token.INT, token.FLOAT, token.DECIMAL, token.CHAR:
 			if p.peek(2).Kind == token.COLON { // {"a": 1} written as a statement
 				p.errorf(p.peek(2).Pos, "a '{' that starts a statement is a block, not a map literal (in parentheses, ({...}), it is a map)")
 			}
@@ -507,7 +508,7 @@ func (p *parser) oldElseif() bool {
 			if depth--; depth == 0 {
 				switch next := p.toks[min(i+1, len(p.toks)-1)].Kind; {
 				case next == token.IDENT, next == token.LBRACE, next.IsKeyword(),
-					next == token.INT, next == token.FLOAT, next == token.CHAR, next == token.STRING:
+					next == token.INT, next == token.FLOAT, next == token.DECIMAL, next == token.CHAR, next == token.STRING:
 					return true
 				}
 				return false
@@ -668,7 +669,7 @@ func (p *parser) atFrom() bool {
 		return false
 	}
 	switch p.peek(1).Kind {
-	case token.IDENT, token.INT, token.FLOAT, token.CHAR, token.STRING, token.TRUE, token.FALSE, token.NIL,
+	case token.IDENT, token.INT, token.FLOAT, token.DECIMAL, token.CHAR, token.STRING, token.TRUE, token.FALSE, token.NIL,
 		token.THIS, token.NEW, token.FN, token.LPAREN, token.LBRACK, token.LBRACE, token.BANG, token.TILDE:
 		return true
 	}
@@ -763,7 +764,7 @@ func (p *parser) parseUnary() ast.Expr {
 	case token.MINUS:
 		// "-" directly followed by a literal is folded into the literal,
 		// unless a postfix operator applies to the literal first.
-		if lit := p.peek(1); (lit.Kind == token.INT || lit.Kind == token.FLOAT || lit.Kind == token.CHAR) &&
+		if lit := p.peek(1); (lit.Kind == token.INT || lit.Kind == token.FLOAT || lit.Kind == token.DECIMAL || lit.Kind == token.CHAR) &&
 			!isPostfixStart(p.peek(2).Kind) {
 			p.next()
 			return p.parseLiteral(op.Pos, true)
@@ -862,7 +863,7 @@ func (p *parser) parsePrimary() ast.Expr {
 		return x
 	case token.YIELD:
 		p.errorf(t.Pos, "a yield that gives a value stands after = or in parentheses: (yield x)")
-	case token.INT, token.FLOAT, token.CHAR, token.STRING:
+	case token.INT, token.FLOAT, token.DECIMAL, token.CHAR, token.STRING:
 		return p.parseLiteral(t.Pos, false)
 	case token.TRUE, token.FALSE:
 		p.next()
@@ -949,6 +950,13 @@ func (p *parser) parseLiteral(pos token.Pos, negate bool) ast.Expr {
 		return &ast.IntLit{ValuePos: pos, Text: text, Value: sign * int64(t.Int)}
 	case token.FLOAT:
 		return &ast.FloatLit{ValuePos: pos, Text: text, Value: float64(sign) * t.Float}
+	case token.DECIMAL:
+		digits := t.Str // checked by the lexer
+		if negate {
+			digits = "-" + digits
+		}
+		v, _ := value.ParseDecimal(digits)
+		return &ast.DecimalLit{ValuePos: pos, Text: text, Value: v}
 	case token.CHAR:
 		return &ast.CharLit{ValuePos: pos, Text: text, Value: sign * int64(t.Int)}
 	}

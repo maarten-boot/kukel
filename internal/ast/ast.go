@@ -5,6 +5,7 @@ package ast
 import (
 	"github.com/maarten-boot/kukel/internal/bytecode"
 	"github.com/maarten-boot/kukel/internal/token"
+	"github.com/maarten-boot/kukel/internal/value"
 )
 
 // Node is any node of the tree. Pos is the position of its first token.
@@ -284,6 +285,14 @@ type IntLit struct {
 	Value    int64
 }
 
+// DecimalLit is a decimal literal, 12.50d (possibly folded with "-");
+// Value is a decimal (value.Decimal).
+type DecimalLit struct {
+	ValuePos token.Pos
+	Text     string
+	Value    value.Value
+}
+
 // FloatLit is a floating-point literal (possibly folded with "-").
 type FloatLit struct {
 	ValuePos token.Pos
@@ -495,20 +504,21 @@ func (s *WithStmt) Pos() token.Pos     { return s.With }
 func (s *ThrowStmt) Pos() token.Pos    { return s.Throw }
 func (s *LabeledStmt) Pos() token.Pos  { return s.Label.NamePos }
 
-func (x *Ident) Pos() token.Pos     { return x.NamePos }
-func (x *IntLit) Pos() token.Pos    { return x.ValuePos }
-func (x *FloatLit) Pos() token.Pos  { return x.ValuePos }
-func (x *CharLit) Pos() token.Pos   { return x.ValuePos }
-func (x *StringLit) Pos() token.Pos { return x.ValuePos }
-func (x *BoolLit) Pos() token.Pos   { return x.ValuePos }
-func (x *NilLit) Pos() token.Pos    { return x.ValuePos }
-func (x *ThisExpr) Pos() token.Pos  { return x.This }
-func (x *VectorLit) Pos() token.Pos { return x.Lbrack }
-func (x *MapLit) Pos() token.Pos    { return x.Lbrace }
-func (x *MapEntry) Pos() token.Pos  { return x.Key.Pos() }
-func (x *NewExpr) Pos() token.Pos   { return x.New }
-func (x *FuncLit) Pos() token.Pos   { return x.Fn }
-func (x *YieldExpr) Pos() token.Pos { return x.Yield }
+func (x *Ident) Pos() token.Pos      { return x.NamePos }
+func (x *IntLit) Pos() token.Pos     { return x.ValuePos }
+func (x *FloatLit) Pos() token.Pos   { return x.ValuePos }
+func (x *DecimalLit) Pos() token.Pos { return x.ValuePos }
+func (x *CharLit) Pos() token.Pos    { return x.ValuePos }
+func (x *StringLit) Pos() token.Pos  { return x.ValuePos }
+func (x *BoolLit) Pos() token.Pos    { return x.ValuePos }
+func (x *NilLit) Pos() token.Pos     { return x.ValuePos }
+func (x *ThisExpr) Pos() token.Pos   { return x.This }
+func (x *VectorLit) Pos() token.Pos  { return x.Lbrack }
+func (x *MapLit) Pos() token.Pos     { return x.Lbrace }
+func (x *MapEntry) Pos() token.Pos   { return x.Key.Pos() }
+func (x *NewExpr) Pos() token.Pos    { return x.New }
+func (x *FuncLit) Pos() token.Pos    { return x.Fn }
+func (x *YieldExpr) Pos() token.Pos  { return x.Yield }
 func (x *StaticRef) Pos() token.Pos {
 	if x.Module != nil {
 		return x.Module.NamePos
@@ -566,6 +576,7 @@ func (*LabeledStmt) stmtNode()  {}
 func (*Ident) exprNode()      {}
 func (*IntLit) exprNode()     {}
 func (*FloatLit) exprNode()   {}
+func (*DecimalLit) exprNode() {}
 func (*CharLit) exprNode()    {}
 func (*StringLit) exprNode()  {}
 func (*BoolLit) exprNode()    {}

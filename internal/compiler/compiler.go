@@ -778,8 +778,11 @@ func (c *compiler) constIndex(v value.Value, pos token.Pos) int {
 	fn := c.fs.fn
 	for i, k := range fn.Consts {
 		same := k.Kind() == v.Kind() && value.Equal(k, v)
-		if v.Kind() == value.Float { // keep 0.0 and -0.0 apart
+		switch v.Kind() {
+		case value.Float: // keep 0.0 and -0.0 apart
 			same = k.Kind() == value.Float && math.Float64bits(k.AsFloat()) == math.Float64bits(v.AsFloat())
+		case value.Decimal: // and 12.5d and 12.50d
+			same = k.Kind() == value.Decimal && k.String() == v.String()
 		}
 		if same {
 			return i
@@ -921,7 +924,7 @@ func (c *compiler) simpleStmt(s ast.Stmt) {
 		c.withStmt(s)
 	case *ast.ThrowStmt:
 		switch s.Value.(type) {
-		case *ast.IntLit, *ast.FloatLit, *ast.CharLit, *ast.StringLit, *ast.BoolLit, *ast.NilLit,
+		case *ast.IntLit, *ast.FloatLit, *ast.DecimalLit, *ast.CharLit, *ast.StringLit, *ast.BoolLit, *ast.NilLit,
 			*ast.VectorLit, *ast.MapLit, *ast.FuncLit:
 			c.errorf(s.Value.Pos(), "only Error objects can be thrown: throw new Error(message, kind)")
 		}
@@ -1408,6 +1411,8 @@ func (c *compiler) expr(e ast.Expr) {
 		c.constant(value.MakeInt(e.Value), e.Pos())
 	case *ast.FloatLit:
 		c.constant(value.MakeFloat(e.Value), e.Pos())
+	case *ast.DecimalLit:
+		c.constant(e.Value, e.Pos())
 	case *ast.StringLit:
 		c.constant(value.MakeString(e.Value), e.Pos())
 	case *ast.BoolLit:
@@ -1845,6 +1850,8 @@ func (c *compiler) operandConst(e ast.Expr) (value.Value, bool) {
 		return value.MakeInt(e.Value), true
 	case *ast.FloatLit:
 		return value.MakeFloat(e.Value), true
+	case *ast.DecimalLit:
+		return e.Value, true
 	case *ast.StringLit:
 		return value.MakeString(e.Value), true
 	case *ast.BoolLit:
@@ -2131,7 +2138,7 @@ func (c *compiler) constValue(e ast.Expr) value.Value {
 // and ?: operators.
 func (c *compiler) checkConst(e ast.Expr) {
 	switch e := e.(type) {
-	case *ast.IntLit, *ast.CharLit, *ast.FloatLit, *ast.StringLit, *ast.BoolLit, *ast.NilLit:
+	case *ast.IntLit, *ast.CharLit, *ast.FloatLit, *ast.DecimalLit, *ast.StringLit, *ast.BoolLit, *ast.NilLit:
 	case *ast.Ident:
 		if g, ok := c.lookup(e.Name); !ok || g.kind != symConst {
 			c.errorf(e.NamePos, "%s is not a constant defined earlier", e.Name)
@@ -2167,6 +2174,8 @@ func (c *compiler) evalConst(e ast.Expr) value.Value {
 		return value.MakeInt(e.Value)
 	case *ast.FloatLit:
 		return value.MakeFloat(e.Value)
+	case *ast.DecimalLit:
+		return e.Value
 	case *ast.StringLit:
 		return value.MakeString(e.Value)
 	case *ast.BoolLit:

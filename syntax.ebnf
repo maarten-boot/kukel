@@ -1,5 +1,5 @@
 (*
-   Kukel syntax, as implemented by kukel v1.4 and later (syntax version 11).
+   Kukel syntax, as implemented by kukel v1.6 and later (syntax version 12).
 
    Notation: ISO/IEC 14977 EBNF.
        =  definition        ;  end of rule        |  alternative
@@ -12,7 +12,11 @@
    What programs mean is described in docs/reference.md; how they are
    compiled and run in docs/vm.md.
 
-   History: syntax version 11 added named arguments: in the argument
+   History: syntax version 12 added decimal literals: a number in base
+   10 with the suffix d, as in 12.50d and 3d (Decimal). Programs of
+   version 11 are unchanged (a number followed by d was an error).
+
+   Syntax version 11 added named arguments: in the argument
    list of a call, a method call or new, "name: value" after the
    positional arguments, as in f(1, z: 3) (call_arguments). Programs of
    version 10 are unchanged.
@@ -410,7 +414,7 @@ multiplicative      = unary , { ( "*" | "/" | "%" ) , unary } ;
 unary               = ( "-" | "!" | "~" ) , unary
                     | ( "++" | "--" ) , unary       (* Rule: an lvalue *)
                     | postfix ;
-                    (* "-" followed by an Integer, Float or Character
+                    (* "-" followed by an Integer, Float, Decimal or Character
                        literal (white space and comments may come between)
                        is folded into one negative literal, unless a postfix
                        operator follows the literal (-5[0] is -(5[0])); this
@@ -477,7 +481,7 @@ named_argument      = Identifier , ":" , assignment ;
 
 primary             = "(" , expression , ")"
                     | "(" , yield_value , ")"
-                    | Integer | Float | Character | String
+                    | Integer | Float | Decimal | Character | String
                     | "true" | "false" | "nil"
                     | "this"
                     | vector_literal
@@ -567,6 +571,16 @@ Float               = Decimal_Digits , "." , [ Decimal_Digits ] , [ Exponent ]
                          integer part may exceed 2^63. Rule: a value beyond
                          the float range ("Number too large") is an error; at
                          most 255 characters. *)
+
+Decimal             = ( Decimal_Digits , [ "." , [ Decimal_Digits ] ]
+                      | "." , Decimal_Digits ) , [ Exponent ] , "d" ;
+                      (* a decimal: 12.50d  3d  .5d  1_000.00d  1.5e3d.
+                         Its scale (digits after the point) is that of the
+                         text less the exponent, at least 0: 12.50d keeps
+                         two, 1.5e3d is 1500. Only base 10: 0x12d is a
+                         hexadecimal Integer. Rule: at most 1000 significant
+                         digits and a scale of at most 1000; at most 255
+                         characters. *)
 
 Exponent            = ( "e" | "E" ) , [ "+" | "-" ] , Decimal_Digits ;
 

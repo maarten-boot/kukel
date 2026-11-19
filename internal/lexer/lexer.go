@@ -12,6 +12,7 @@ import (
 
 	"github.com/maarten-boot/kukel/internal/diag"
 	"github.com/maarten-boot/kukel/internal/token"
+	"github.com/maarten-boot/kukel/internal/value"
 )
 
 const maxNameLen = 255 // identifiers and float literals
@@ -261,6 +262,12 @@ func (l *Lexer) number(start token.Pos) (token.Token, error) {
 		}
 		isFloat = true
 	}
+	// 12.50d: a decimal (syntax version 12); a d that starts a name is not.
+	isDecimal := false
+	if l.peek(0) == 'd' && !isLetter(l.peek(1)) && !isDigit(l.peek(1)) {
+		l.advance()
+		isDecimal = true
+	}
 	if err := l.checkNumberEnd(); err != nil {
 		return token.Token{}, err
 	}
@@ -269,6 +276,13 @@ func (l *Lexer) number(start token.Pos) (token.Token, error) {
 	clean := strings.ReplaceAll(text, "_", "")
 	if len(text) > maxNameLen {
 		return token.Token{}, l.errorf(start, "number longer than %d characters", maxNameLen)
+	}
+	if isDecimal {
+		clean = clean[:len(clean)-1]
+		if _, err := value.ParseDecimal(clean); err != nil {
+			return token.Token{}, l.errorf(start, "decimal %s has more than %d digits or a scale above %d", text, value.MaxDecimalDigits, value.MaxDecimalScale)
+		}
+		return token.Token{Kind: token.DECIMAL, Pos: start, Text: text, Str: clean}, nil
 	}
 	if isFloat {
 		f, err := strconv.ParseFloat(clean, 64)

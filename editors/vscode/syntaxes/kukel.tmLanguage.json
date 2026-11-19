@@ -102,6 +102,11 @@
           "match": "\\b0[bB][01](?:_?[01])*\\b"
         },
         {
+          "name": "constant.numeric.decimal.kukel",
+          "comment": "12.50d, 3d, .5d, 1.5e3d (a decimal)",
+          "match": "(?:\\b[0-9](?:_?[0-9])*(?:\\.(?!\\.)(?:[0-9](?:_?[0-9])*)?)?|(?<![A-Za-z0-9_.])\\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?d(?![A-Za-z0-9_])"
+        },
+        {
           "name": "constant.numeric.float.kukel",
           "comment": "1.5, 1., .5, 2e10, 1_000.5e1_0 (not the 1 of 1..)",
           "match": "(?:\\b[0-9](?:_?[0-9])*\\.(?!\\.)(?:[0-9](?:_?[0-9])*)?|(?<![A-Za-z0-9_.])\\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?(?![A-Za-z0-9_])|\\b[0-9](?:_?[0-9])*[eE][+-]?[0-9](?:_?[0-9])*\\b"
@@ -190,7 +195,7 @@
     },
     "builtins": {
       "name": "support.function.builtin.kukel",
-      "match": "\\b(?:abs|appendfile|atan2|ceil|char|classof|clock|cos|delete|eprint|eprintln|exit|exp|find|float|floor|getenv|haskey|insert|instanceof|int|join|keys|len|log|lower|max|min|ord|pop|pow|print|println|program|push|randint|random|readfile|readline|remove|replace|round|seed|sin|slice|sort|split|sqrt|str|tan|time|trim|typeof|upper|values|writefile)\\b(?=\\s*\\()"
+      "match": "\\b(?:abs|appendfile|atan2|ceil|char|classof|clock|cos|decimal|delete|eprint|eprintln|exit|exp|find|float|floor|getenv|haskey|insert|instanceof|int|join|keys|len|log|lower|max|min|ord|pop|pow|print|println|program|push|randint|random|readfile|readline|remove|replace|round|seed|sin|slice|sort|split|sqrt|str|tan|time|trim|typeof|upper|values|writefile)\\b(?=\\s*\\()"
     },
     "qualified": {
       "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(::)",

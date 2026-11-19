@@ -651,3 +651,22 @@ func DecimalPow(v Value, n int64) (Value, error) {
 	}
 	return makeDec(c.Exp(c, big.NewInt(n), nil), s*int(n), "pow")
 }
+
+// RoundFloat gives f rounded to n digits after the point (0..1000),
+// halves away from zero, from the float's exact value: round(2.675, 2) is
+// 2.67, since the float 2.675 is a little less than 2.675. inf and nan
+// stay as they are.
+func RoundFloat(f float64, n int) float64 {
+	if math.IsInf(f, 0) || math.IsNaN(f) || f == 0 {
+		return f
+	}
+	r := new(big.Rat).SetFloat64(f)
+	p := pow10(n)
+	num := new(big.Int).Mul(r.Num(), p)
+	q, _ := roundQuo(num, r.Denom(), HalfAway)
+	g, _ := new(big.Rat).SetFrac(q, p).Float64()
+	if g == 0 {
+		return math.Copysign(0, f)
+	}
+	return g
+}

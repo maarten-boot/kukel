@@ -131,6 +131,32 @@ func TestFloats(t *testing.T) {
 	}
 }
 
+func TestDecimals(t *testing.T) {
+	tests := []struct{ src, want string }{
+		{"12.50d", "12.50"},
+		{"3d", "3"},
+		{".5d", ".5"},
+		{"1.d", "1."},
+		{"1_000.00d", "1000.00"},
+		{"1.5e3d", "1.5e3"},
+		{"2.5E-3d", "2.5E-3"},
+		{"99999999999999999999.5d", "99999999999999999999.5"},
+	}
+	for _, tt := range tests {
+		tk := one(t, tt.src)
+		if tk.Kind != token.DECIMAL || tk.Str != tt.want || tk.Text != tt.src {
+			t.Errorf("%q: got %v %q %q, want DECIMAL %q", tt.src, tk.Kind, tk.Str, tk.Text, tt.want)
+		}
+	}
+	// Only base 10 takes the suffix; a d that starts a name does not.
+	if tk := one(t, "0x12d"); tk.Kind != token.INT || tk.Int != 0x12d {
+		t.Errorf("0x12d: %v %d", tk.Kind, tk.Int)
+	}
+	if got := kinds(t, "1.5d+2d"); len(got) != 3 || got[0] != token.DECIMAL || got[2] != token.DECIMAL {
+		t.Errorf("1.5d+2d: %v", got)
+	}
+}
+
 func TestCharsAndStrings(t *testing.T) {
 	chars := map[string]uint64{
 		`'a'`: 'a', `' '`: ' ', `'"'`: '"', `'\''`: '\'', `'\\'`: '\\', `'\n'`: '\n',
@@ -272,6 +298,12 @@ func TestErrors(t *testing.T) {
 		{"9223372036854775809", "t.kkl:1:1", "too large"},
 		{"99999999999999999999999", "t.kkl:1:1", "too large"},
 		{"1e999", "t.kkl:1:1", "number too large"},
+		{"1e1000d", "t.kkl:1:1", "decimal 1e1000d has more than 1000 digits or a scale above 1000"},
+		{"1e-1001d", "t.kkl:1:1", "decimal 1e-1001d has more than 1000 digits or a scale above 1000"},
+		{"3dx", "t.kkl:1:2", "invalid character 'd' in number"},
+		{"3d_", "t.kkl:1:2", "invalid character 'd' in number"},
+		{"0b1d", "t.kkl:1:4", "invalid character 'd' in number"},
+		{"1." + strings.Repeat("0", 253) + "d", "t.kkl:1:1", "number longer than 255"},
 		{strings.Repeat("a", 256), "t.kkl:1:1", "identifier longer than 255"},
 		{"1." + strings.Repeat("0", 254), "t.kkl:1:1", "number longer than 255"},
 		{"a @ b", "t.kkl:1:3", "unexpected character '@'"},

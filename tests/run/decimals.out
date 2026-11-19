@@ -1,0 +1,29 @@
+12.50 3 0.5 1000.00 1500 -0.05
+decimal [12.50d, 12.5, "x"] {"p": 2.50d}
+0.3 0.30000000000000004
+51.65 + 10.85 = 62.50 from 10.8465
+2.7500 3.75 2.50 0.3333333333333333333333333333333333 -1.5
+2.50 -2.50 2.50 1.50
+true true true false true
+true true 2.5 2.9
+3 {2d: "b", 1.5d: "d", 0.1d: "e"}
+0.00d is false
+switch: 2
+2 2.00 0.1 1000.5 7.88 1.3
+-2 0.1 3 -3 -3 3
+7.87 3.00 2.67 0.13 -2
+1.50 1.2100 1 12.50!
+TypeError: cannot apply * to decimal and float: write the float as a decimal (1.1d) or convert it with decimal(x)
+TypeError: cannot apply + to float and decimal: write the float as a decimal (1.1d) or convert it with decimal(x)
+ZeroDivisionError: decimal division by zero
+ZeroDivisionError: decimal modulo by zero
+TypeError: cannot apply & to decimal and int
+TypeError: sqrt: takes a float or an int, not a decimal (convert it with float(x))
+ValueError: decimal: "1.2.3" is not a number
+ValueError: decimal: "inf" is not a number
+ValueError: decimal: inf is not a number a decimal can hold
+RangeError: decimal: 1001 digits after the point; 0 to 1000 are possible
+RangeError: decimal pow: more than 1000 digits or a scale above 1000
+TypeError: pow: argument 2 must be an int (the power of a decimal), not float
+RangeError: int: 1000000000000000000000000000000 does not fit in an int
+TypeError: cannot apply + to string and decimal

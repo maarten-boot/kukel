@@ -385,6 +385,13 @@ or 64 binary digits, leading zeros included.
 range is an error; one too small to represent is 0.0 (`1e-400`). A number
 literal is at most 255 characters long.
 
+**Decimals**: `12.50d`, `3d`, `.5d`, `1_000.00d`, `1.5e3d` — a number in
+base 10 with the suffix `d` (only base 10: `0x12d` is a hex int). Its
+*scale*, the digits after the point, is that of the text less the
+exponent, and at least 0: `12.50d` has scale 2, `1.5e3d` is `1500`. At
+most 1000 significant digits and a scale of at most 1000. (Syntax version
+12, Kukel v1.6.)
+
 **Characters**: `'a'`, `'\n'`, `'\''` — one byte, whose value is an int (its
 code): `'A'` is 65.
 
@@ -410,6 +417,7 @@ NUL byte in the source ends its line, as if the rest were a comment;
 | bool | `"bool"` | `true`, `false` |
 | int | `"int"` | `42`, `-7`, `'a'` (64-bit, wrapping around) |
 | float | `"float"` | `1.5`, `1e300` (64-bit IEEE) |
+| decimal | `"decimal"` | `12.50d`, `decimal("0.1")` (base 10, exact; keeps its scale) |
 | string | `"string"` | `"hello"` (immutable bytes) |
 | vector | `"vector"` | `[1, "two", [3]]` |
 | map | `"map"` | `{"a": 1, 2: "b"}` |
@@ -417,24 +425,28 @@ NUL byte in the source ends its line, as if the rest were a comment;
 | class | `"class"` | `Point` |
 | object | `"object"` | `new Point(1, 2)` |
 
-**Truth**: `nil`, `false`, `0` and `0.0` are false; everything else is true,
+**Truth**: `nil`, `false`, `0`, `0.0` and a zero decimal (`0d`, `0.00d`) are false; everything else is true,
 including `""`, `[]` and `{}`.
 
 **Sharing**: vectors, maps and objects are shared, not copied:
 `local w = v; push(w, 1);` changes `v` too. Use `slice(v, 0)` for a copy.
 
-**Equality** (`==`, `!=`): numbers by value (`1 == 1.0`), strings by
+**Equality** (`==`, `!=`): numbers by value, exactly (`1 == 1.0`,
+`12.50d == 12.5d`, `2.5d == 2.5`, but `0.1d != 0.1`: the float is not
+exactly 0.1), strings by
 content, `nil` and booleans by value; vectors, maps, objects, classes and
 functions only when they are the same one (`[1] == [1]` is false); bound
 methods when they are the same member function of the same object
 (`p->m == p->m` is true). Values of different types are never equal (except
-int and float).
+int, float and decimal).
 
 **Printing**: `print`/`str` show strings as they are; inside vectors, maps
 and objects strings are quoted. Floats always show a `.` or an exponent,
 in the shortest form that reads back as the same float: an exponent below
 1e-4 and from 1e6 on (`1.0`, `123456.0`, `1e+06`, `1.5e-05`, `inf`,
-`nan`). Objects print as `Point{x: 1, y: 2}`; a container inside itself
+`nan`). Decimals show their digits and scale, never an exponent (`12.50`,
+`1500`), and inside vectors, maps and objects a `d` after them (`[12.50d,
+12.5]`), so that they differ from floats. Objects print as `Point{x: 1, y: 2}`; a container inside itself
 prints as `[...]`, `{...}` or `Point{...}`. Functions print as
 `<function main>`, `<function P::f>` (a static member function) or
 `<function main/fn@4>` (a function literal on line 4), built-ins as `<builtin println>`, classes as
@@ -764,6 +776,24 @@ side; `/` or `%` by integer 0 is a `ZeroDivisionError` (a float division by
 zero gives `inf` or `nan`). `%` with a float is the float remainder
 (`7.5 % 2` is `1.5`; `7.0 % 0` is `nan`). Comparing an int with a float is
 exact.
+
+**Decimals** are exact for `+`, `-`, `*` and `%`, and keep a scale as SQL's
+`NUMERIC` does: `a + b`, `a - b` and `a % b` have the larger scale of the
+two, `a * b` the sum of their scales (`2.50d * 1.10d` is `2.7500`; `round`
+brings it back). `a / b` is the exact quotient when it has at most 34
+significant digits, at the scale of `a` less that of `b` when that is
+enough (`7.50d / 2` is `3.75`, `10.00d / 4` is `2.50`); else it is rounded
+to 34 significant digits, halves to even (`1d / 3d` is
+`0.3333333333333333333333333333333333`); a quotient of 10^34 or more keeps
+all its integer digits, and a tiny one is rounded at scale 1000. An int
+with a decimal is a decimal of scale 0, exact; a float with a decimal in
+`+ - * / %` is a `TypeError` (write the float as a decimal, `1.1d`, or
+convert it with `decimal(x)`), while comparing them is exact. `%` has the
+sign of the left side; `/` or `%` by a zero decimal is a
+`ZeroDivisionError`; `d++` adds 1 and keeps the scale. A result beyond
+1000 significant digits or scale 1000 is a `RangeError`. Decimals are map
+keys by value too: `2d`, `2` and `2.0` are one key, as are `1.5d` and
+`1.5`.
 
 **Strings**: `+` needs two strings: `"n = " + str(n)`. `s[i]` gives a byte
 as an int; strings cannot be changed (`s[i] = x` is an error).
@@ -1371,10 +1401,11 @@ program printed before a wait is seen during it.
 
 | Function | Description |
 |---|---|
-| `typeof(x)` | `"nil"`, `"bool"`, `"int"`, `"float"`, `"string"`, `"vector"`, `"map"`, `"function"`, `"class"` or `"object"` |
+| `typeof(x)` | `"nil"`, `"bool"`, `"int"`, `"float"`, `"decimal"`, `"string"`, `"vector"`, `"map"`, `"function"`, `"class"` or `"object"` |
 | `str(x)` | `x` as text, as `print` writes it |
-| `int(x)` | An int: floats are truncated toward zero; strings in decimal, `0x` or `0b` form with an optional sign (`"42"`, `"-0x10"`, `"0b11"`), surrounding spaces allowed and every `_` ignored (`"1_000"`); `true` is 1, `false` 0. A string that is not a number is a `ValueError`, one too large a `RangeError`; hexadecimal and binary use all 64 bits, as literals do (`int("0xffffffffffffffff")` is -1) |
-| `float(x)` | A float from an int, float or string (`"2.5"`, `"1e3"`, `"inf"`, also Go's other forms such as `"0x1p3"`; surrounding spaces are allowed and every `_` is ignored, as for `int`: `" 1_000.5 "`, also `"_1_"`). A string beyond the float range is a `RangeError`; one too small gives 0.0 |
+| `int(x)` | An int: floats and decimals are truncated toward zero; strings in decimal, `0x` or `0b` form with an optional sign (`"42"`, `"-0x10"`, `"0b11"`), surrounding spaces allowed and every `_` ignored (`"1_000"`); `true` is 1, `false` 0. A string that is not a number is a `ValueError`, one too large a `RangeError`; hexadecimal and binary use all 64 bits, as literals do (`int("0xffffffffffffffff")` is -1) |
+| `decimal(x [, scale])` | A decimal from an int (scale 0), a decimal, a float (the decimal of its shortest text: `decimal(0.1)` is `0.1`; `inf` and `nan` are a `ValueError`) or a string (`"12.50"`, `"-1e3"`, `".5"`; surrounding spaces allowed and every `_` ignored, as for `int`; not `inf`, `nan` or hex). With `scale` (0 to 1000), rounded to that many digits as `round(x, scale)` does: `decimal(2, 2)` is `2.00`. A string that is not a number is a `ValueError`, one with more than 1000 digits or a scale above 1000 a `RangeError` |
+| `float(x)` | A float from an int, float, decimal (the nearest float; one beyond the float range is a `RangeError`) or string (`"2.5"`, `"1e3"`, `"inf"`, also Go's other forms such as `"0x1p3"`; surrounding spaces are allowed and every `_` is ignored, as for `int`: `" 1_000.5 "`, also `"_1_"`). A string beyond the float range is a `RangeError`; one too small gives 0.0 |
 | `classof(obj)` | The class of an object |
 | `instanceof(x, C)` | Whether `x` is an object of class `C` or of a class derived from it |
 
@@ -1453,12 +1484,13 @@ Bo 2
 
 | Function | Description |
 |---|---|
-| `abs(x)` | Absolute value |
+| `abs(x)` | Absolute value (of a decimal: a decimal of the same scale) |
 | `min(a, b, ...)`, `max(a, b, ...)` | Smallest or largest of numbers or of strings (mixing them is a `TypeError`; of equal values, the first); also `min(vector)` (`ArgumentError` for no values); `min(x)` of one number or string is `x` |
-| `pow(x, y)` | `x` to the power `y`: an int for ints with `y >= 0` (wrapping around), else a float |
-| `sqrt(x)`, `exp(x)`, `log(x)` | Square root, e<sup>x</sup>, natural logarithm (floats) |
+| `pow(x, y)` | `x` to the power `y`: an int for ints with `y >= 0` (wrapping around), else a float. A decimal `x` takes an int `y >= 0` and gives the exact decimal (`pow(1.10d, 2)` is `1.2100`) |
+| `sqrt(x)`, `exp(x)`, `log(x)` | Square root, e<sup>x</sup>, natural logarithm (floats; a decimal is a `TypeError` here and in the trigonometry below: convert it with `float(x)`) |
 | `sin(x)`, `cos(x)`, `tan(x)`, `atan2(y, x)` | Trigonometry (radians) |
 | `floor(x)`, `ceil(x)`, `round(x)` | Rounded to an int (`round`: halves away from zero); `RangeError` if it does not fit |
+| `round(x, n)` | `x` rounded to `n` digits after the point (0 to 1000), halves away from zero: a decimal of scale `n` for a decimal or an int (`round(7.8750d, 2)` is `7.88`, `round(3, 2)` is `3.00`), a float for a float, from its exact value (`round(2.675, 2)` is `2.67`: the float 2.675 is a little less than 2.675) |
 | `random()` | A float from 0 up to (not including) 1; every run starts from a different seed |
 | `randint(a, b)` | An int from `a` to `b`, both included (`RangeError` if `a > b`) |
 | `seed(n)` | Restarts the random numbers from seed `n` (the same seed gives the same numbers) |

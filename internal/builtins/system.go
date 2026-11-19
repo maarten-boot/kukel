@@ -73,6 +73,8 @@ func init() {
 			return x, nil
 		case value.Float:
 			return floatToInt("int", x.AsFloat(), math.Trunc)
+		case value.Decimal:
+			return decimalToInt("int", x, value.Down)
 		case value.Bool:
 			if x.AsBool() {
 				return value.MakeInt(1), nil
@@ -93,16 +95,60 @@ func init() {
 			return value.MakeFloat(float64(x.AsInt())), nil
 		case value.Float:
 			return x, nil
+		case value.Decimal:
+			f := x.DecimalToFloat()
+			if math.IsInf(f, 0) {
+				return value.NilValue, value.Errorf(value.RangeError, "float: %s is too large", x)
+			}
+			return value.MakeFloat(f), nil
 		case value.String:
 			return parseFloat(x.AsString())
 		default:
 			return value.NilValue, value.Errorf(value.TypeError, "float: cannot convert %s", x.Kind())
 		}
 	})
+	define("decimal", func(env value.Env, args []value.Value) (value.Value, error) {
+		if err := argRange("decimal", args, 1, 2); err != nil {
+			return value.NilValue, err
+		}
+		var d value.Value
+		var err error
+		switch x := args[0]; x.Kind() {
+		case value.Int:
+			d, err = value.DecimalRound(x, 0, value.HalfAway)
+		case value.Decimal:
+			d = x
+		case value.Float:
+			if d, err = value.DecimalFromFloat(x.AsFloat()); err != nil {
+				return value.NilValue, value.Errorf(value.ValueError, "decimal: %s is not a number a decimal can hold", x)
+			}
+		case value.String:
+			d, err = parseDecimal(x.AsString())
+		default:
+			return value.NilValue, value.Errorf(value.TypeError, "decimal: cannot convert %s", x.Kind())
+		}
+		if err != nil {
+			return value.NilValue, err
+		}
+		if len(args) == 2 {
+			scale, err := argScale("decimal", args, 1)
+			if err != nil {
+				return value.NilValue, err
+			}
+			return value.DecimalRound(d, scale, value.HalfAway)
+		}
+		return d, nil
+	})
 
 	// ---- math ----
 
 	define("abs", func(env value.Env, args []value.Value) (value.Value, error) {
+		if len(args) == 1 && args[0].Kind() == value.Decimal {
+			if lt, _ := value.Compare(value.Less, args[0], value.MakeInt(0)); lt {
+				return value.Neg(args[0])
+			}
+			return args[0], nil
+		}
 		x, err := oneNumber("abs", args)
 		if err != nil {
 			return value.NilValue, err
@@ -118,6 +164,12 @@ func init() {
 	define("min", minMax("min", value.Less))
 	define("max", minMax("max", value.Greater))
 	define("pow", func(env value.Env, args []value.Value) (value.Value, error) {
+		if len(args) == 2 && args[0].Kind() == value.Decimal {
+			if args[1].Kind() != value.Int {
+				return value.NilValue, argTypeError("pow", 1, "an int (the power of a decimal)", args[1])
+			}
+			return value.DecimalPow(args[0], args[1].AsInt())
+		}
 		if err := twoNumbers("pow", args); err != nil {
 			return value.NilValue, err
 		}
@@ -133,9 +185,25 @@ func init() {
 		}
 		return value.MakeFloat(math.Pow(toFloat(args[0]), toFloat(args[1]))), nil
 	})
-	define("floor", rounder("floor", math.Floor))
-	define("ceil", rounder("ceil", math.Ceil))
-	define("round", rounder("round", math.Round))
+	define("floor", rounder("floor", math.Floor, value.Floor))
+	define("ceil", rounder("ceil", math.Ceil, value.Ceil))
+	define("round", func(env value.Env, args []value.Value) (value.Value, error) {
+		if len(args) != 2 {
+			return rounder("round", math.Round, value.HalfAway)(env, args)
+		}
+		n, err := argScale("round", args, 1)
+		if err != nil {
+			return value.NilValue, err
+		}
+		switch x := args[0]; x.Kind() {
+		case value.Int, value.Decimal:
+			return value.DecimalRound(x, n, value.HalfAway)
+		case value.Float:
+			return value.MakeFloat(value.RoundFloat(x.AsFloat(), n)), nil
+		default:
+			return value.NilValue, argTypeError("round", 0, "a number", x)
+		}
+	})
 	for name, f := range map[string]func(float64) float64{
 		"sqrt": math.Sqrt, "sin": math.Sin, "cos": math.Cos, "tan": math.Tan,
 		"log": math.Log, "exp": math.Exp,
@@ -340,6 +408,46 @@ func floatToInt(name string, f float64, r func(float64) float64) (value.Value, e
 	return value.MakeInt(int64(g)), nil
 }
 
+// decimalRefused is the error of a function that gives a float, given a
+// decimal (sqrt, sin, atan2, pow of a non-decimal, ...).
+func decimalRefused(name string) error {
+	return value.Errorf(value.TypeError, "%s: takes a float or an int, not a decimal (convert it with float(x))", name)
+}
+
+// decimalToInt rounds a decimal to an int by mode.
+func decimalToInt(name string, x value.Value, mode value.RoundMode) (value.Value, error) {
+	n, err := value.DecimalToInt(x, mode)
+	if err != nil {
+		return value.NilValue, value.Errorf(value.RangeError, "%s: %s does not fit in an int", name, x)
+	}
+	return value.MakeInt(n), nil
+}
+
+// argScale gives argument i as a scale: an int from 0 to 1000.
+func argScale(name string, args []value.Value, i int) (int, error) {
+	n, err := argInt(name, args, i)
+	if err != nil {
+		return 0, err
+	}
+	if n < 0 || n > value.MaxDecimalScale {
+		return 0, value.Errorf(value.RangeError, "%s: %d digits after the point; 0 to %d are possible", name, n, value.MaxDecimalScale)
+	}
+	return int(n), nil
+}
+
+// parseDecimal reads a decimal from a string as decimal() does: spaces
+// around it allowed, every _ ignored (as for int and float).
+func parseDecimal(s string) (value.Value, error) {
+	d, err := value.ParseDecimal(strings.ReplaceAll(strings.TrimSpace(s), "_", ""))
+	if err != nil {
+		if e, ok := err.(*value.Error); ok && e.Kind == value.RangeError {
+			return value.NilValue, value.Errorf(value.RangeError, "decimal: %q has more than %d digits or a scale above %d", s, value.MaxDecimalDigits, value.MaxDecimalScale)
+		}
+		return value.NilValue, value.Errorf(value.ValueError, "decimal: %q is not a number", s)
+	}
+	return d, nil
+}
+
 func toFloat(v value.Value) float64 {
 	if v.Kind() == value.Int {
 		return float64(v.AsInt())
@@ -353,6 +461,9 @@ func oneNumber(name string, args []value.Value) (value.Value, error) {
 	if err := wantArgs(name, args, 1); err != nil {
 		return value.NilValue, err
 	}
+	if args[0].Kind() == value.Decimal {
+		return value.NilValue, decimalRefused(name)
+	}
 	if !isNumber(args[0]) {
 		return value.NilValue, argTypeError(name, 0, "a number", args[0])
 	}
@@ -364,6 +475,9 @@ func twoNumbers(name string, args []value.Value) error {
 		return err
 	}
 	for i := range args {
+		if args[i].Kind() == value.Decimal {
+			return decimalRefused(name)
+		}
 		if !isNumber(args[i]) {
 			return argTypeError(name, i, "a number", args[i])
 		}
@@ -373,8 +487,11 @@ func twoNumbers(name string, args []value.Value) error {
 
 // rounder: floor, ceil and round give ints (an int argument is returned
 // as it is); round rounds halves away from zero.
-func rounder(name string, r func(float64) float64) builtinFn {
+func rounder(name string, r func(float64) float64, mode value.RoundMode) builtinFn {
 	return func(env value.Env, args []value.Value) (value.Value, error) {
+		if len(args) == 1 && args[0].Kind() == value.Decimal {
+			return decimalToInt(name, args[0], mode)
+		}
 		x, err := oneNumber(name, args)
 		if err != nil || x.Kind() == value.Int {
 			return x, err
@@ -405,7 +522,7 @@ func minMax(name string, better value.CmpOp) builtinFn {
 			return value.NilValue, value.Errorf(value.ArgumentError, "%s: no values", name)
 		}
 		best := vals[0]
-		if !isNumber(best) && best.Kind() != value.String {
+		if !isNumber(best) && best.Kind() != value.Decimal && best.Kind() != value.String {
 			return value.NilValue, value.Errorf(value.TypeError, "%s: cannot compare %s", name, best.Kind())
 		}
 		for _, v := range vals[1:] {

@@ -56,7 +56,7 @@ func parse(src string) (ast.Expr, error) {
 // what eval refuses whatever the values are.
 func check(x ast.Expr) error {
 	switch x := x.(type) {
-	case *ast.IntLit, *ast.CharLit, *ast.FloatLit, *ast.StringLit, *ast.BoolLit, *ast.NilLit,
+	case *ast.IntLit, *ast.CharLit, *ast.FloatLit, *ast.DecimalLit, *ast.StringLit, *ast.BoolLit, *ast.NilLit,
 		*ast.Ident, *ast.ThisExpr, *ast.StaticRef:
 		return nil
 	case *ast.UnaryExpr:
@@ -120,6 +120,8 @@ func (e *evaluator) eval(x ast.Expr) (value.Value, error) {
 		return value.MakeInt(x.Value), nil
 	case *ast.FloatLit:
 		return value.MakeFloat(x.Value), nil
+	case *ast.DecimalLit:
+		return x.Value, nil
 	case *ast.StringLit:
 		return value.MakeString(x.Value), nil
 	case *ast.BoolLit:

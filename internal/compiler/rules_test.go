@@ -196,6 +196,7 @@ var ruleCases = map[string]struct {
 	},
 	"map_entry":      {elsewhere: "internal/vm TestRuntimeErrors: \"bad map key in a literal\"; internal/value TestMapKeys"},
 	"Float":          {elsewhere: "internal/lexer TestErrors: \"Number too large\", \"number longer than 255\""},
+	"Decimal":        {elsewhere: "internal/lexer TestDecimals; TestErrors: \"more than 1000 digits or a scale above 1000\""},
 	"Escape":         {elsewhere: "internal/lexer TestErrors: \"unknown escape sequence\""},
 	"Unicode_Escape": {elsewhere: "internal/lexer TestErrors: \"beyond the last Unicode character\", \"a surrogate\", \"a character literal is one byte\""},
 	"Comment":        {elsewhere: "internal/lexer TestErrors: \"unterminated comment\""},

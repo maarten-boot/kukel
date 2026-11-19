@@ -42,7 +42,7 @@ const (
 )
 
 // FormatVersion is the version of the .kkc format written by Encode.
-const FormatVersion = 12 // 2: milestone 12 superinstructions; 3: native modules (GlobalNative); 4: THROW takes only Error objects (Kukel v0.4); 5: jump tables and ADD_LOCAL (Kukel v0.8); 6: native base classes, CALL_NATIVE (Kukel v0.9); 7: ARITH_LK, CMP_JUMP_LK (Kukel v0.22); 8: INDEX_LL and the other fused forms of Kukel v0.26; 9: generators, GENERATOR, YIELD and ITER_CLOSE (Kukel v0.34); 10: GEN_RETURN (Kukel v0.35: a generator steps in the loop that walks it); 11: YIELD_VALUE and ITER_SEND (Kukel v0.37: send and yield from); 12: ABSENT, JUMP_IF_GIVEN, NAMED_CALL and Function.NamedEntry (Kukel v1.4: named arguments)
+const FormatVersion = 13 // 2: milestone 12 superinstructions; 3: native modules (GlobalNative); 4: THROW takes only Error objects (Kukel v0.4); 5: jump tables and ADD_LOCAL (Kukel v0.8); 6: native base classes, CALL_NATIVE (Kukel v0.9); 7: ARITH_LK, CMP_JUMP_LK (Kukel v0.22); 8: INDEX_LL and the other fused forms of Kukel v0.26; 9: generators, GENERATOR, YIELD and ITER_CLOSE (Kukel v0.34); 10: GEN_RETURN (Kukel v0.35: a generator steps in the loop that walks it); 11: YIELD_VALUE and ITER_SEND (Kukel v0.37: send and yield from); 12: ABSENT, JUMP_IF_GIVEN, NAMED_CALL and Function.NamedEntry (Kukel v1.4: named arguments); 13: decimal constants (Kukel v1.6)
 
 const magic = "KUKL"
 
@@ -54,6 +54,7 @@ const (
 	tagInt
 	tagFloat
 	tagString
+	tagDecimal // its text, "12.50" (format 13)
 )
 
 // Encode serializes a program.
@@ -160,6 +161,9 @@ func (e *encoder) function(f *Function) error {
 		case value.String:
 			e.buf = append(e.buf, tagString)
 			e.str(k.AsString())
+		case value.Decimal:
+			e.buf = append(e.buf, tagDecimal)
+			e.str(k.String())
 		default:
 			return fmt.Errorf("function %s: cannot store a %s constant", f.FuncName, k.Kind())
 		}
@@ -375,6 +379,13 @@ func (d *decoder) function() *Function {
 			}
 		case tagString:
 			f.Consts[i] = value.MakeString(d.str())
+		case tagDecimal:
+			text := d.str()
+			v, err := value.ParseDecimal(text)
+			if err != nil {
+				d.fail("bad decimal constant %q", text)
+			}
+			f.Consts[i] = v
 		default:
 			d.fail("bad constant tag %d", tag)
 		}

@@ -809,8 +809,8 @@ Each step is usable on its own and prepares the next:
 | 18 | LMW-Synth GUI: the Matrix tab (13.5) | 17 | done, with `c->focus()` of a canvas (Q115) |
 | 19 | LMW-Synth GUI: Load, Save, Notes, choosing a synth (13.5) | 17 | done (Q115) |
 | 20 | LMW-Synth GUI: the Schematic tab (13.5) | 18 | done, with `dash` for canvas lines and menus in `tk::setcolors` (Q115) |
-| 21 | Decimals: the value and its arithmetic (14.8, step 1) | — | proposed (Q117) |
-| 22 | Decimals: the literal `12.50d`, the VM, the built-ins (14.8, step 2) | 21 | proposed (Q117) |
+| 21 | Decimals: the value and its arithmetic (14.8, step 1) | — | done (Q117) |
+| 22 | Decimals: the literal `12.50d`, the VM, the built-ins (14.8, step 2) | 21 | done (Q117), with the reference, the grammars and the editors |
 | 23 | Decimals in `json`, `db` and the Go package (14.8, step 3) | 22 | proposed (Q117) |
 | 24 | Decimals: documents, editors, an invoice example (14.8, step 4) | 23 | proposed (Q117) |
 
@@ -2155,7 +2155,7 @@ schematic's blocks once the synth serves `/schematic` (the layout alone).
 
 ## 14. Decimals: a type `decimal` in the language
 
-*A proposal (2026-11-19, TODO.md Q117); not built. F-32 (section 10.9)
+*A proposal (2026-11-19, TODO.md Q117); steps 1 and 2 built (14.8). F-32 (section 10.9)
 chose a decimal type in the language; the literal (`12.50d`), keeping the
 scale, refusing floats in arithmetic, and the number of digits were
 chosen the same day (14.2, 14.3), and the open questions of 14.10 were

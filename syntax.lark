@@ -1,4 +1,4 @@
-// Lark grammar for Kukel (syntax.ebnf, syntax version 11; kukel v1.4 and later).
+// Lark grammar for Kukel (syntax.ebnf, syntax version 12; kukel v1.6 and later).
 //
 // Intended for:  Lark(grammar, parser="lalr", lexer="contextual")
 // (the default lexer for LALR; the start rule is "start"). The contextual
@@ -241,7 +241,7 @@ arguments: call_argument ("," call_argument)* [","]
         | IDENTIFIER "::" IDENTIFIER "::" IDENTIFIER        -> module_static_member
         | IDENTIFIER                                        -> variable
 
-?literal: INTEGER | FLOAT | CHARACTER | STRING | TRUE | FALSE | NIL
+?literal: INTEGER | FLOAT | DECIMAL | CHARACTER | STRING | TRUE | FALSE | NIL
 
 new_expression: "new" [IDENTIFIER "::"] IDENTIFIER "(" [arguments] ")"
 
@@ -332,6 +332,9 @@ REST: ".."
 INTEGER: /0[xX][0-9A-Fa-f](?:_?[0-9A-Fa-f])*/
        | /0[bB][01](?:_?[01])*/
        | /[0-9](?:_?[0-9])*/
+
+// 12.50d, 3d, .5d, 1.5e3d (syntax version 12); limits are semantic checks.
+DECIMAL.3: /(?:[0-9](?:_?[0-9])*(?:\.(?:[0-9](?:_?[0-9])*)?)?|\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?d(?![A-Za-z0-9_])/
 
 FLOAT.2: /[0-9](?:_?[0-9])*\.(?:[0-9](?:_?[0-9])*)?(?:[eE][+-]?[0-9](?:_?[0-9])*)?/
        | /\.[0-9](?:_?[0-9])*(?:[eE][+-]?[0-9](?:_?[0-9])*)?/
