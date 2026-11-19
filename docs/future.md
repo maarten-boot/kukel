@@ -2377,7 +2377,7 @@ Each step is a branch of its own, merged when its tests pass.
 ## 15. Processes: a module `proc`
 
 *A proposal (2026-11-19, TODO.md Q118); not built. The open questions
-are in 15.10.*
+of 15.10 were all answered as proposed the same day.*
 
 Kukel cannot start a program today: `os` has only `os::pid()`. That keeps
 it out of the work bash scripts do, gluing programs together, although
@@ -2591,21 +2591,30 @@ small addition to that module made in the same step (15.8).
 
 - **F-71** `run`'s result: a map (proposed: it prints, goes into `json`
   and needs no methods), or an object `proc::Result`?
+  *Answered (2026-11-19): as proposed.*
 - **F-72** A failing program: a `ProcError` unless `{"check": false}`
   (proposed, as `set -e` but catchable, so that a script does not go on
   after a failed step without saying so), or a result to look at unless
   asked to check (Python's default)?
+  *Answered (2026-11-19): as proposed.*
 - **F-73** `proc::sh`: in the module with `args` for values (proposed),
   or left out, so that there is no shell at all?
+  *Answered (2026-11-19): as proposed.*
 - **F-74** Embedding: `proc` only when a Go program names it in
   `StandardModules` (proposed), or, like every other standard module,
   also under `nil`?
+  *Answered (2026-11-19): as proposed.*
 - **F-75** Directory and environment only per child (proposed), or also
   `fs::chdir` and `os::setenv` for the whole process?
+  *Answered (2026-11-19): as proposed.*
 - **F-76** `proc::sh` on Windows: a `ValueError` (proposed), or `cmd.exe
   /c` (another language under the same name)?
+  *Answered (2026-11-19): as proposed.*
 - **F-77** The pipes of a `Process`: `fs::File`s (proposed: one set of
   reading and writing functions to learn), or a class of `proc`'s own?
+  *Answered (2026-11-19): as proposed.*
 - **F-78** The default cap on captured output: 64 MiB (proposed), or
   none?
+  *Answered (2026-11-19): as proposed.*
 - **F-79** The name: `proc` (proposed), `process`, or functions in `os`?
+  *Answered (2026-11-19): as proposed.*
