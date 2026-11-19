@@ -98,7 +98,7 @@ func init() {
 		case value.Decimal:
 			f := x.DecimalToFloat()
 			if math.IsInf(f, 0) {
-				return value.NilValue, value.Errorf(value.RangeError, "float: %s is too large", x)
+				return value.NilValue, value.Errorf(value.RangeError, "float: %s is too large", short(x))
 			}
 			return value.MakeFloat(f), nil
 		case value.String:
@@ -418,9 +418,18 @@ func decimalRefused(name string) error {
 func decimalToInt(name string, x value.Value, mode value.RoundMode) (value.Value, error) {
 	n, err := value.DecimalToInt(x, mode)
 	if err != nil {
-		return value.NilValue, value.Errorf(value.RangeError, "%s: %s does not fit in an int", name, x)
+		return value.NilValue, value.Errorf(value.RangeError, "%s: %s does not fit in an int", name, short(x))
 	}
 	return value.MakeInt(n), nil
+}
+
+// short gives a decimal's text for a message, its middle cut when it is
+// long (a decimal may have 1000 digits).
+func short(x value.Value) string {
+	if s := x.String(); len(s) > 40 {
+		return s[:20] + "..." + s[len(s)-17:]
+	}
+	return x.String()
 }
 
 // argScale gives argument i as a scale: an int from 0 to 1000.

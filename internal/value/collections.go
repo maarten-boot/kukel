@@ -1,6 +1,7 @@
 package value
 
 import (
+	"fmt"
 	"math"
 )
 
@@ -35,6 +36,17 @@ func keyOf(k Value) (mapKey, error) {
 		return mapKey{kind: String, str: k.AsString()}, nil
 	}
 	return mapKey{}, Errorf(TypeError, "map keys must be strings or numbers, not %s", k.kind)
+}
+
+// CaseKey gives a text that two constants share exactly when they are ==:
+// numbers by value (2d, 2 and 2.0 one key; 1.5d, 1.50d and 1.5 another),
+// strings by content; other values by their Repr. The compiler finds
+// duplicate case values with it.
+func CaseKey(v Value) string {
+	if k, err := keyOf(v); err == nil {
+		return fmt.Sprintf("%d:%d:%s", k.kind, k.num, k.str)
+	}
+	return "r:" + v.Repr()
 }
 
 type mapEntry struct {

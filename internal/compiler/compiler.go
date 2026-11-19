@@ -1343,10 +1343,7 @@ func (c *compiler) caseLabel(s *ast.CaseLabel) {
 	if sw.seen == nil {
 		sw.seen = map[string]int{}
 	}
-	key := v.Repr() // values that are == have the same key: 1 and 1.0 too
-	if n, ok := v.IntValue(); ok {
-		key = fmt.Sprint(n)
-	}
+	key := value.CaseKey(v) // values that are == have the same key: 1, 1.0 and 1d too
 	if i, ok := sw.seen[key]; ok {
 		c.errorf(s.Value.Pos(), "duplicate case value %s (also at %s)", v.Repr(), sw.cases[i].pos)
 	}

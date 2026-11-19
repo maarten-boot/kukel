@@ -2240,7 +2240,7 @@ code the VM uses, as it does for ints and floats.
 | `round(d)`, `floor(d)`, `ceil(d)` | an int, as for floats (`round`: halves away from zero) |
 | `round(x, n)` | New optional argument: `x` rounded to `n` digits after the point (0..1000), halves away from zero (F-64); a decimal for a decimal or int, a float for a float (`round(2.675, 2)`, with the float's own inexactness) |
 | `abs(d)`, `min`, `max` | as for other numbers; `min` and `max` mix decimals and ints |
-| `pow(d, n)` | exact for an int `n >= 0` (scale times `n`); another `n` is a `TypeError` |
+| `pow(d, n)` | exact for an int `n >= 0` (scale times `n`); a negative `n` is a `ValueError`, one that is not an int a `TypeError` (as built) |
 | `sqrt`, `exp`, `log` | `TypeError`: they give floats; convert with `float(d)` first |
 | `typeof(d)` | `"decimal"` |
 
@@ -2326,8 +2326,9 @@ Each step is a branch of its own, merged when its tests pass.
   1000-digit limit; a fuzz test that compares with `math/big.Rat` for
   `+ - * %` and checks that `/` is within half a unit of its last digit.
 - **Equality and keys**: `12.50d == 12.5d`, `2d == 2`, one map key for
-  each; hashing agrees with equality (the existing map fuzz test gains
-  decimals).
+  each; hashing agrees with equality (as built: tables in
+  `TestDecimalCompare`, as there was no map fuzz test to extend), and so
+  do duplicate `case` values (`value.CaseKey`, found in the crosscheck).
 - **The literal**: lexer tables (suffixes, `_`, exponents, `0x12d`), the
   parser's errors, `kukel fmt` round trips, `FuzzLexer` seeds.
 - **Speed**: the existing benchmarks of ints and floats before and after,

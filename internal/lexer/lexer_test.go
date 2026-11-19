@@ -328,7 +328,7 @@ func TestErrors(t *testing.T) {
 func FuzzLexer(f *testing.F) {
 	for _, s := range []string{
 		"", "main(args) { return 0; }", "a <<= 0xFF_FF + 0b1 - 1.5e-3 .. ->",
-		`"a\x41\n" '\'' /* c */ // d`, `"\u{E9}\u{1F600}" "\u{D800}" "\u{"`, "# x\n1__0", "'''", "\x00\n\x00", "1..2", ".5.5",
+		`"a\x41\n" '\'' /* c */ // d`, "12.50d + 3d * .5d - 1.5e3d", "1e-1001d 0x12d 3dx 1.d", `"\u{E9}\u{1F600}" "\u{D800}" "\u{"`, "# x\n1__0", "'''", "\x00\n\x00", "1..2", ".5.5",
 	} {
 		f.Add([]byte(s))
 	}
