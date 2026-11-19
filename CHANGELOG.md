@@ -15,36 +15,55 @@ Two kinds of change need care when you upgrade:
 From v1.0.0 on, what keeps working is in
 [docs/compatibility.md](docs/compatibility.md).
 
-## Unreleased
+## v1.6.0 (2026-11-19)
 
 Syntax version 12 and bytecode format 13: programs of version 11 work
-unchanged, but `.kkc` files must be built again (`kukel build`).
+unchanged, but `.kkc` files must be built again (`kukel build`). Decimals:
+a new type for prices and amounts, exact in base 10, in the language, in
+`json`, `db` and `toml`, and in the Go package. A program with a top-level
+name `decimal` must rename it, as `decimal` is now a built-in function.
 
-- Decimals: a type `decimal`, numbers in base 10 that are exact for `+`,
-  `-` and `*`, for prices and amounts. Literals `12.50d`, `3d`, `1.5e3d`;
-  the scale is kept as in SQL (`12.50d` prints as `12.50`; `2.50d * 1.10d`
-  is `2.7500`); `/` is exact up to 34 significant digits, else rounded
-  half to even; with an int exact, with a float in arithmetic a
-  `TypeError`; `==`, `<` and map keys exact across int, float and decimal
-  (`2d`, `2` and `2.0` are one key). The built-in `decimal(x [, scale])`;
-  `round(x, n)` rounds to `n` digits after the point (also floats); `int`,
-  `float`, `abs`, `min`, `max`, `pow`, `floor`, `ceil` and `round` take
-  decimals. Small decimals do not allocate. A program with a top-level
-  name `decimal` must rename it. docs/future.md §14, Q117.
-- Decimals in modules: `json::encode` writes a decimal's digits, and
-  `json::decode(s, {"decimals": true})` reads numbers with a fraction or
-  exponent (and ints beyond 64 bits) as exact decimals. With
-  `db::open(url, {"decimals": true})`, `NUMERIC` and `DECIMAL` columns
-  give decimals of their declared scale (also through the ORM); decimals
-  are passed as their text. SQLite keeps 15 significant digits in such
-  columns. `toml::encode` writes a decimal as a float with all its digits.
-  The Go package: `kukel.Decimal(text)`, `v.AsDecimal()`, and `ToGo` gives
-  a decimal's text. Without the options, `json` and `db` read what they
-  read before. Q117.
-- Booklet: decimals in chapter 2 ("Decimals: exact amounts"), prices in
-  JSON in chapter 14, and "Amounts: decimals" in chapter 16.
-  `examples/invoice.kkl`: an invoice priced exactly, with the VAT per
-  rate, from JSON to text, JSON and a database. Q117.
+- Decimals: a type `decimal` (`typeof` gives `"decimal"`), numbers in base
+  10 that are exact for `+`, `-` and `*`. Q117, docs/future.md §14.
+  - Literals with the suffix `d`: `12.50d`, `3d`, `.5d`, `1_000.00d`,
+    `1.5e3d` (only base 10: `0x12d` stays a hex int).
+  - The scale is kept as in SQL: `12.50d` prints as `12.50`; `+`, `-` and
+    `%` give the larger scale, `*` the sum (`2.50d * 1.10d` is `2.7500`).
+    Inside vectors and maps a decimal prints with its `d`.
+  - `/` is exact up to 34 significant digits, at the preferred scale
+    (`10.00d / 4` is `2.50`), else rounded half to even.
+  - With an int exact; with a float in arithmetic a `TypeError` (write
+    `1.1d`, or convert with `decimal(x)`). `==`, `<`, map keys and `case`
+    values are exact across int, float and decimal: `2d`, `2` and `2.0`
+    are one key, and `0.1d == 0.1` is false.
+  - At most 1000 significant digits and a scale of 1000 (a `RangeError`
+    beyond). Small decimals do not allocate; ints and floats are as fast
+    as before.
+  - The built-in `decimal(x [, scale])`, from an int, float, string or
+    decimal; `round(x, n)` rounds to `n` digits after the point, halves
+    away from zero (decimals, ints and floats); `int`, `float`, `abs`,
+    `min`, `max`, `pow`, `floor`, `ceil` and `round` take decimals, while
+    `sqrt` and the other float functions refuse them with a hint.
+- Decimals in modules (Q117):
+  - `json::encode` writes a decimal's digits, and `json::decode(s,
+    {"decimals": true})` reads numbers with a fraction or exponent (and
+    ints beyond 64 bits) as exact decimals.
+  - `db::open(url, {"decimals": true})`: `NUMERIC` and `DECIMAL` columns
+    give decimals of their declared scale, also through the ORM; decimals
+    are passed as their text. SQLite keeps 15 significant digits in such
+    columns, PostgreSQL and MySQL all of them.
+  - `toml::encode` writes a decimal as a float with all its digits.
+  - Without the options, `json` and `db` read what they read before.
+- The Go package: `kukel.Decimal(text)`, `v.AsDecimal()`, and `ToGo` gives
+  a decimal's text. Q117.
+- Documents: the reference (literals, types, arithmetic, the built-ins,
+  `json`, `db`), syntax.ebnf and syntax.lark (version 12), vm.md (format
+  13), docs/compatibility.md, the VS Code grammar and Geany's words; the
+  booklet: "Decimals: exact amounts" in chapter 2, prices in JSON in
+  chapter 14, "Amounts: decimals" in chapter 16. The design, with its
+  questions F-64 to F-70, is docs/future.md §14. Q117.
+- `examples/invoice.kkl`: an invoice priced exactly, with the VAT per
+  rate rounded to cents, from JSON to text, JSON and a database. Q117.
 
 ## v1.5.0 (2026-11-19)
 
