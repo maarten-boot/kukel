@@ -273,6 +273,7 @@ main() {
     try1(fn() { m->from("Ann\r <ann@example.org>"); });
     try1(fn() { m->header("X-Note", "a\nb"); });
     try1(fn() { m->header("Bcc", "x@example.org"); });
+    try1(fn() { m->header("Content-Language", "en"); });
     try1(fn() { m->header("Bad Name", "x"); });
     try1(fn() { m->to("no-at-sign"); });
     try1(fn() { m->to("a@b@c"); });
@@ -294,6 +295,7 @@ ValueError: mail: a line break in an address: "ann@example.org\nBcc: victim@exam
 ValueError: mail: a line break in an address: "Ann\r <ann@example.org>" (it would add headers)
 ValueError: mail: a line break in the header X-Note: "a\nb" (it would add headers)
 ValueError: mail: the header Bcc is the message's own; use its function
+ValueError: mail: the header Content-Language is the message's own; use its function
 ValueError: mail: not a header name: "Bad Name"
 ValueError: mail: not an address: "no-at-sign" (it needs one @ between a name and a domain)
 ValueError: mail: not an address: "a@b@c" (it needs one @ between a name and a domain)
@@ -625,7 +627,7 @@ func TestMailSMTPCases(t *testing.T) {
 		{"no AUTH offered", offer{starttls: true}, `{"scheme": "smtp", "host": "localhost", "port": PORT, "ca": CA, "user": "u", "password": "x"}`,
 			"MailError: mail: smtp://u:***@localhost:PORT offers no AUTH, but the DSN has a user", "EHLO|STARTTLS|EHLO|QUIT"},
 		{"a recipient refused", offer{refuse: "nosuch"}, `"smtp://127.0.0.1:PORT"`,
-			"MailError: mail: the server refused 1 of 2 recipients, so the message was not sent: 550 5.1.1 <nosuch@example.org>: no such user [{\"address\": \"nosuch@example.org\", \"reply\": \"550 5.1.1 <nosuch@example.org>: no such user\"}]",
+			"MailError: mail: the server refused 1 of 2 recipients, so the message was not sent: 550 5.1.1 <nosuch@example.org>: no such user 550 [{\"address\": \"nosuch@example.org\", \"reply\": \"550 5.1.1 <nosuch@example.org>: no such user\"}]",
 			"EHLO|MAIL FROM:<a@example.com>|RCPT TO:<b@example.org>|RCPT TO:<nosuch@example.org>|RSET|QUIT"},
 		{"the sender refused", offer{refuse: "a@example.com"}, `"smtp://127.0.0.1:PORT"`,
 			"MailError: mail: smtp://127.0.0.1:PORT: MAIL FROM: 550 5.1.1 <a@example.com>: no such user 550", "EHLO|MAIL FROM:<a@example.com>|QUIT"},
@@ -654,7 +656,7 @@ main() {
     try {
         println(t->send(new mail::Message()->from("a@example.com")->to(`+to+`)->text("x"))["reply"]);
     } catch (e) {
-        println(e->kind + ": " + e->message, e->kind == "MailError" ? (e->code != nil ? e->code : (len(e->refused) > 0 ? e->refused : "")) : "");
+        println(e->kind + ": " + e->message, e->kind == "MailError" ? str(e->code == nil ? "" : e->code) + (len(e->refused) > 0 ? " " + str(e->refused) : "") : "");
     }
     t->close();
 }
@@ -695,6 +697,7 @@ main() {
         "memory://", "null://", "smtp://", "ftp://x", "smtp://h:99999", "smtp://h?bogus=1", "smtp://h?tls=yes",
         "smtps://h?tls=0", "memory://host", "not a dsn", "smtp://:pw@h", 42, {"scheme": "smtp", "host": "h", "port": "25"},
         {"scheme": "smtp", "host": "h", "nope": 1}, {"scheme": "smtp", "host": "h", "user": "u\r\nx"},
+        "smtp://u:p@ss@h:587", "smtp://h:99999999999999999999", "smtp://u:p%zz@h", "smtp://u:p%4@h",
     ]) {
         try {
             local t = mail::transport(d);
@@ -727,6 +730,10 @@ TypeError: mail::transport: a DSN string or map, not int
 TypeError: mail::transport: port is an int, not string
 ValueError: mail::transport: an unknown key "nope"
 ValueError: mail: a line break in the user: "u\r\nx" (it would add headers)
+ValueError: mail::transport: not a DSN: "smtp://u:***@h:587" (an @ in the user or password is written %40)
+ValueError: mail::transport: the port 99999999999999999999 is not 1 to 65535
+ValueError: mail::transport: a % in the DSN that is not %XX (a % itself is %25)
+ValueError: mail::transport: a % in the DSN that is not %XX (a % itself is %25)
 1 {"from": "a@example.com", "to": ["b@example.org"]} true
 250 dropped
 `

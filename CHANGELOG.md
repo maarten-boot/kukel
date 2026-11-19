@@ -17,6 +17,15 @@ From v1.0.0 on, what keeps working is in
 
 ## Unreleased
 
+- `mail`: a DSN whose password holds an `@` not written as `%40`
+  (`smtp://u:p@ss@host`) is refused; it was read with part of the
+  password in the host name, where `t->dsn`, printing and a `NetError`
+  showed it. A `%` not followed by two hexadecimal digits, and a port of
+  more than five digits, are a `ValueError` of `mail::transport` (not of
+  `encoding::unhex` or `int`). Q113.
+- `mail`: `m->header` refuses every `Content-*` header, as documented
+  (it took `Content-Language`, say). A `MailError` for refused recipients
+  has the `code` of the first refusal (it was nil). Q113.
 - `examples/lmw/lmwgui.kkl`: the Schematic tab, the synth drawn as its
   own Schematic tab draws it, live; cables are put in, moved and taken out
   by dragging between ports, with the keys or with a port's menu. The

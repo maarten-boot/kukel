@@ -3696,7 +3696,7 @@ application/pdf 1
 | Function | Description |
 |---|---|
 | `new mail::Message()` | An empty message |
-| `mail::transport(dsn)` | A transport for a DSN string or map (below): a `mail::SmtpTransport`, `mail::MemoryTransport` or `mail::NullTransport`. A DSN it cannot use is a `ValueError` that says why, without the password |
+| `mail::transport(dsn)` | A transport for a DSN string or map (below): a `mail::SmtpTransport`, `mail::MemoryTransport` or `mail::NullTransport`. A DSN it cannot use is a `ValueError` that says why, without the password (a key of the wrong type in a map, or a DSN that is not a string or map, a `TypeError`) |
 | `mail::envelope(m)` | The envelope a transport uses for message `m` by default: `{"from": address, "to": [address, ...]}`, from the sender (or the first from) and to, cc and bcc, each address once. A message without from or without recipients is a `ValueError` |
 | `mail::address(s)` | The parts of an address, `"ann@example.org"` or `"Ann Smith <ann@example.org>"` (a name with a comma or other specials quoted: `"\"Smith, Ann\" <ann@example.org>"`), as a map `{"name": "Ann Smith", "address": "ann@example.org"}` (`""` without a name); a map of that form is checked and given back. A malformed address is a `ValueError` |
 
@@ -3710,8 +3710,8 @@ so calls chain; called without arguments, it gives what is set.
 | `m->sender(a)` | The Sender header, for mail sent on behalf of the from address; also the envelope's from |
 | `m->subject(s)` | The subject |
 | `m->text(s)`, `m->html(s)` | The plain text body and the HTML body; with both, the recipient's program shows one of them |
-| `m->attach(name, data [, type])` | An attachment: the file name the recipient sees, its bytes and its content type (`"application/pdf"`; without one, from the name's extension: `.pdf`, `.txt`, `.csv`, `.html`, `.json`, `.xml`, `.zip`, `.gz`, `.png`, `.jpg`, `.gif`, `.svg`, `.webp`, `.ics`, else `application/octet-stream`) |
-| `m->embed(name, data [, type])` | An inline part that the HTML shows as `cid:name` (`<img src="cid:logo.png">`); without HTML it is an attachment |
+| `m->attach(name, data [, type])` | An attachment: the file name the recipient sees, its bytes and its content type (`"application/pdf"`; without one, from the name's extension: `.pdf`, `.txt`, `.csv`, `.html` or `.htm`, `.json`, `.xml`, `.zip`, `.gz`, `.png`, `.jpg` or `.jpeg`, `.gif`, `.svg`, `.webp`, `.ics`, else `application/octet-stream`) |
+| `m->embed(name, data [, type])` | An inline part that the HTML shows as `cid:name` (`<img src="cid:logo.png">`); without HTML it is an attachment. The name is its Content-ID, so printable ASCII without spaces, `<`, `>` or `"` |
 | `m->attachments()` | The attachments and inline parts, as maps with `name`, `type`, `size` and `inline` |
 | `m->header(name, value)`, `m->header(name)` | Adds a header of the program's own (`X-Mailer`, `List-Unsubscribe`); with only the name, its first value or `nil`. The headers the message writes itself (`From`, `To`, `Cc`, `Bcc`, `Reply-To`, `Sender`, `Subject`, `Date`, `Message-ID`, `MIME-Version`, `Content-*`) are a `ValueError`: they have their own functions |
 | `m->headers()` | The program's own headers, as `[name, value]` pairs |
@@ -3727,12 +3727,13 @@ so calls chain; called without arguments, it gives what is set.
   `\r\n`, a bare `\r`) is sent as CRLF, and SMTP's transport doubles a `.`
   that starts a line, so no text in a body can end the message early
   (SMTP smuggling).
-- The structure follows from what the message holds: `text/plain` alone,
-  `multipart/alternative` for text and HTML, `multipart/related` around
+- The structure follows from what the message holds: `text/plain` alone
+  (or `text/html` alone for HTML without text), `multipart/alternative`
+  for text and HTML, `multipart/related` around
   HTML with inline parts, `multipart/mixed` around all that with
   attachments. Bodies of short ASCII lines go as they are (`7bit`), others
   in quoted-printable, as UTF-8; attachments in base64. Header values and
-  names that are not ASCII are encoded words (RFC 2047, UTF-8), file names
+  display names that are not ASCII are encoded words (RFC 2047, UTF-8), file names
   that are not ASCII RFC 2231 parameters. Lines stay within 78 characters where the rules
   allow (a header word longer than that is not broken).
 - Addresses are checked for what would break the message: one `@` with
@@ -3759,7 +3760,9 @@ is not checked: only for tests), `ca=file` (root certificates to check it
 against, for an own CA), `timeout=seconds` (for connecting and each reply;
 30 by default), `helo=name` (the name `EHLO` gives; `net::hostname()` by
 default). A user name or password with `@`, `:`, `/` or `?` writes it as
-`%40`, `%3A`, `%2F`, `%3F`; or the DSN is a map, which needs no escaping
+`%40`, `%3A`, `%2F`, `%3F` (and `%` itself as `%25`): a DSN with a second
+`@` is refused, so that no part of a password ends up in a host name; or
+the DSN is a map, which needs no escaping
 and lets the password come from a file or the environment:
 `mail::transport({"scheme": "smtp", "host": "mail.example.com", "port":
 587, "user": "shop", "password": trim(readfile(".mailpass"))})`. The keys
@@ -3776,7 +3779,9 @@ and `verify` as booleans).
 - A server that refuses is a `mail::MailError` (kind `MailError`): its
   `code` (550) and `reply` (`"550 5.1.1 <x@example.org>: no such user"`).
   When it refuses a recipient, nothing is sent to anyone: `refused` lists
-  the recipients refused, as maps with `address` and `reply`. A connection
+  the recipients refused, as maps with `address` and `reply` (`code` and
+  `reply` are the first refusal's). A `MailError` that is no refusal (a
+  server without STARTTLS, say) has `code` nil. A connection
   that fails is the `NetError` of `net` (a certificate that cannot be
   checked: `net::Conn::starttls: TLS handshake failed: certificate signed
   by unknown authority`).

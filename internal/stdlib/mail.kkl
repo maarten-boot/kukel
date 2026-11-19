@@ -25,9 +25,12 @@ global _TOKEN = re::compile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$");
 global _TYPE = re::compile("^[!#$&^_.+0-9A-Za-z-]+/[!#$&^_.+0-9A-Za-z-]+$");
 global _HEADERNAME = re::compile("^[!-9;-~]+$");
 global _ATOM = re::compile("^[A-Za-z0-9!#$%&'*+/=?^_`{|}~ -]*$");
-global _DSN = re::compile("^([a-z0-9]+)://(?:([^:@/?]*)(?::([^@/?]*))?@)?(\\[[^\\]/]*\\]|[^:/?]*)(?::([0-9]+))?/?(?:\\?(.*))?$");
+global _HEX = re::compile("^[0-9A-Fa-f]{2}$");
+global _DSN = re::compile("^([a-z0-9]+)://(?:([^:@/?]*)(?::([^@/?]*))?@)?(\\[[^\\]/]*\\]|[^:/?@]*)(?::([0-9]+))?/?(?:\\?(.*))?$");
 
-// The headers a Message writes itself: header() refuses them.
+// The headers a Message writes itself: header() refuses them, and every
+// other Content-* header (they describe the MIME body, which is the
+// message's to write).
 global _OWN = [
     "from", "to", "cc", "bcc", "reply-to", "sender", "subject", "date", "message-id", "mime-version", "content-type",
     "content-transfer-encoding", "content-disposition", "content-id",
@@ -367,7 +370,7 @@ Message::header(name, value..) {
     }
 
     for (local own in _OWN) {
-        if (lower(name) == own) {
+        if (lower(name) == own || find(lower(name), "content-") == 0) {
             throw new Error("mail: the header " + name + " is the message's own; use its function", "ValueError");
         }
     }
@@ -843,7 +846,12 @@ _dsn(dsn) {
         local g = _DSN->groups(dsn);
 
         if (g == nil) {
-            throw new Error("mail::transport: not a DSN: " + _q(_mask(dsn)) + " (scheme://user:password@host:port?options)", "ValueError");
+            local hint = " (scheme://user:password@host:port?options)";
+
+            if (_lastat(dsn) >= 0 && find(dsn, "@") != _lastat(dsn)) {
+                hint = " (an @ in the user or password is written %40)";
+            }
+            throw new Error("mail::transport: not a DSN: " + _q(_mask(dsn)) + hint, "ValueError");
         }
         c["scheme"] = g[1];
 
@@ -860,6 +868,9 @@ _dsn(dsn) {
         }
 
         if (g[5] != nil) {
+            if (len(g[5]) > 5) {
+                throw new Error("mail::transport: the port " + g[5] + " is not 1 to 65535", "ValueError");
+            }
             c["port"] = int(g[5]);
         }
 
@@ -953,13 +964,19 @@ _dsn(dsn) {
     return c;
 }
 
-// _unpct(s): %XX decoded.
+// _unpct(s): %XX decoded. A % without two hexadecimal digits is a
+// ValueError that does not show them (they may be a password's).
 _unpct(s) {
     local out = [];
 
     for (local i = 0; i < len(s); i++) {
-        if (slice(s, i, i + 1) == "%" && i + 2 < len(s)) {
-            push(out, encoding::unhex(slice(s, i + 1, i + 3)));
+        if (slice(s, i, i + 1) == "%") {
+            local hex = slice(s, i + 1, min(i + 3, len(s)));
+
+            if (len(hex) != 2 || !_HEX->match(hex)) {
+                throw new Error("mail::transport: a % in the DSN that is not %XX (a % itself is %25)", "ValueError");
+            }
+            push(out, encoding::unhex(hex));
             i += 2;
         } else {
             push(out, slice(s, i, i + 1));
@@ -968,9 +985,20 @@ _unpct(s) {
     return join(out);
 }
 
+// _lastat(dsn): where the last @ before the options is, or -1: the end of
+// the user and password, even when one of them holds an @.
+_lastat(dsn) {
+    local end = find(dsn, "?"), at = -1;
+
+    for (local i = find(dsn, "@"); i >= 0 && (end < 0 || i < end); i = find(dsn, "@", i + 1)) {
+        at = i;
+    }
+    return at;
+}
+
 // _mask(dsn): a DSN string with its password as ***.
 _mask(dsn) {
-    local scheme = find(dsn, "://"), at = find(dsn, "@");
+    local scheme = find(dsn, "://"), at = _lastat(dsn);
 
     if (scheme < 0 || at < 0) {
         return dsn;
@@ -1045,13 +1073,17 @@ SmtpTransport::send(m, envelope = nil) {
             throw new MailError("mail: the server does not take SMTPUTF8, which an address that is not ASCII needs");
         }
         _cmd("MAIL FROM:<" + env["from"] + ">" + (utf8 ? " SMTPUTF8" : ""), [250], "MAIL FROM");
-        local refused = [];
+        local refused = [], code = nil;
 
         for (local a in env["to"]) {
             local r = _cmd("RCPT TO:<" + a + ">", nil, "RCPT TO");
 
             if (r["code"] != 250 && r["code"] != 251) {
                 push(refused, {"address": a, "reply": r["text"]});
+
+                if (code == nil) {
+                    code = r["code"];
+                }
             }
         }
 
@@ -1062,7 +1094,7 @@ SmtpTransport::send(m, envelope = nil) {
                 push(shown, r["reply"]);
             }
             _cmd("RSET", [250], "RSET");
-            throw new MailError("mail: the server refused " + str(len(refused)) + " of " + str(len(env["to"])) + " recipients, so the message was not sent: " + join(shown, "; "), nil, refused[0]["reply"], refused);
+            throw new MailError("mail: the server refused " + str(len(refused)) + " of " + str(len(env["to"])) + " recipients, so the message was not sent: " + join(shown, "; "), code, refused[0]["reply"], refused);
         }
         _cmd("DATA", [354], "DATA");
         _conn->write(_DOT->replace(data, ".."), ".\r\n");
