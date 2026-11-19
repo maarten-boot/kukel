@@ -35,6 +35,7 @@ const (
 	Iterator // internal: the state of a for-each loop
 	Internal // internal: a Go value the VM keeps in a slot (a pending exception)
 	Cell     // internal: a captured variable
+	Decimal  // a number in base 10 with a scale (decimal.go)
 )
 
 var kindNames = [...]string{
@@ -54,6 +55,7 @@ var kindNames = [...]string{
 	Iterator:    "iterator",
 	Internal:    "internal",
 	Cell:        "cell",
+	Decimal:     "decimal",
 }
 
 // String returns the name typeof() reports for k.
@@ -198,6 +200,8 @@ func (v Value) IntValue() (int64, bool) {
 		if f >= -(1<<63) && f < 1<<63 && f == math.Trunc(f) {
 			return int64(f), true
 		}
+	case Decimal:
+		return v.decIntValue()
 	}
 	return 0, false
 }
@@ -233,6 +237,8 @@ func (v Value) Truthy() bool {
 		return v.num != 0
 	case Float:
 		return v.AsFloat() != 0
+	case Decimal:
+		return v.decSign() != 0
 	}
 	return true
 }
@@ -248,6 +254,8 @@ func (v Value) String() string {
 		return strconv.FormatInt(v.AsInt(), 10)
 	case Float:
 		return FormatFloat(v.AsFloat())
+	case Decimal:
+		return v.decText()
 	case String:
 		return v.AsString()
 	}
@@ -293,6 +301,11 @@ func (v Value) write(b *strings.Builder, quote bool, open map[any]bool) {
 		b.WriteString(strconv.FormatInt(v.AsInt(), 10))
 	case Float:
 		b.WriteString(FormatFloat(v.AsFloat()))
+	case Decimal: // 12.50d inside a container, so that it reads back (F-66)
+		b.WriteString(v.decText())
+		if quote {
+			b.WriteByte('d')
+		}
 	case String:
 		if quote {
 			b.WriteString(Quote(v.AsString()))

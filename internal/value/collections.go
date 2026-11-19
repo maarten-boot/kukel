@@ -10,7 +10,7 @@ import (
 // mapKey is the normalized form of a map key: strings by content, numbers
 // by value, so that 1 and 1.0 are the same key.
 type mapKey struct {
-	kind Kind // Int, Float (non-integral only) or String
+	kind Kind // Int, Float (non-integral only), Decimal (equal to no int or float) or String
 	num  uint64
 	str  string
 }
@@ -29,6 +29,8 @@ func keyOf(k Value) (mapKey, error) {
 			return mapKey{kind: Int, num: uint64(int64(f))}, nil // also turns -0.0 into 0
 		}
 		return mapKey{kind: Float, num: math.Float64bits(f)}, nil
+	case Decimal:
+		return decKey(k), nil
 	case String:
 		return mapKey{kind: String, str: k.AsString()}, nil
 	}

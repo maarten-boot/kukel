@@ -91,6 +91,8 @@ func typeErr(op string, a, b Value) error {
 // gives a float; int / int truncates toward zero; / and % by integer 0 are
 // errors; + also concatenates two strings. Bitwise operators and shifts
 // take ints only; a shift count must be in 0..63; >> is an arithmetic shift.
+// A decimal with a decimal or an int is exact (decArith); with a float it
+// is a TypeError.
 func Arith(op ArithOp, a, b Value) (Value, error) {
 	if a.kind == Int && b.kind == Int {
 		x, y := a.AsInt(), b.AsInt()
@@ -127,6 +129,9 @@ func Arith(op ArithOp, a, b Value) (Value, error) {
 			return MakeInt(x >> uint(y)), nil
 		}
 	}
+	if a.kind == Decimal || b.kind == Decimal {
+		return decArith(op, a, b)
+	}
 	if a.isNumber() && b.isNumber() {
 		x, y := a.toFloat(), b.toFloat()
 		switch op {
@@ -156,6 +161,8 @@ func Neg(v Value) (Value, error) {
 		return MakeInt(-v.AsInt()), nil
 	case Float:
 		return MakeFloat(-v.AsFloat()), nil
+	case Decimal:
+		return decNeg(v)
 	}
 	return NilValue, Errorf(TypeError, "cannot apply - to %s", v.kind)
 }
@@ -175,6 +182,8 @@ func IncDec(v Value, delta int64) (Value, error) {
 		return MakeInt(v.AsInt() + delta), nil
 	case Float:
 		return MakeFloat(v.AsFloat() + float64(delta)), nil
+	case Decimal:
+		return decIncDec(v, delta)
 	}
 	op := "++"
 	if delta < 0 {
@@ -233,8 +242,16 @@ func cmpIntFloat(i int64, f float64) (int, bool) {
 
 // Equal reports whether a == b: numbers by value (1 == 1.0), strings by
 // bytes, nil and booleans by value, everything else by identity. Values of
-// different kinds are never equal (except int and float).
+// different kinds are never equal (except numbers: int, float and
+// decimal, compared exactly).
 func Equal(a, b Value) bool {
+	if a.kind == Decimal || b.kind == Decimal {
+		if (a.isNumber() || a.kind == Decimal) && (b.isNumber() || b.kind == Decimal) {
+			c, ok := cmpDec(a, b)
+			return ok && c == 0
+		}
+		return false
+	}
 	if a.isNumber() && b.isNumber() {
 		c, ok := cmpNumbers(a, b)
 		return ok && c == 0
@@ -270,12 +287,17 @@ var cmpNames = [...]string{Less: "<", LessEq: "<=", Greater: ">", GreaterEq: ">=
 
 func (op CmpOp) String() string { return cmpNames[op] }
 
-// Compare applies a relational operator: numbers with numbers, strings
-// with strings (byte order); other combinations are type errors. Any
+// Compare applies a relational operator: numbers with numbers (exactly,
+// decimals too), strings with strings (byte order); other combinations are type errors. Any
 // comparison with NaN is false.
 func Compare(op CmpOp, a, b Value) (bool, error) {
 	var c int
 	switch {
+	case (a.kind == Decimal || b.kind == Decimal) && (a.isNumber() || a.kind == Decimal) && (b.isNumber() || b.kind == Decimal):
+		var ok bool
+		if c, ok = cmpDec(a, b); !ok {
+			return false, nil
+		}
 	case a.isNumber() && b.isNumber():
 		var ok bool
 		if c, ok = cmpNumbers(a, b); !ok {
