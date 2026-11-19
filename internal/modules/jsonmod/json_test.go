@@ -124,6 +124,23 @@ func FuzzJSON(f *testing.F) {
 		if err != nil || twice.AsString() != once.AsString() {
 			t.Fatalf("%q: %s then %v (%v)", s, once, twice, err)
 		}
+		// With decimals, numbers are exact: decoding and encoding again
+		// gives the same text, and the values are equal (== for numbers).
+		d, err := call(decode, value.MakeString(s), decimalsOn())
+		if err != nil {
+			return // a number beyond a decimal's limits
+		}
+		once, err = call(encode, d)
+		if err != nil {
+			t.Fatalf("encode(decode(%q, decimals)) = %v", s, err)
+		}
+		d2, err := call(decode, once, decimalsOn())
+		if err != nil {
+			t.Fatalf("decode(encode(decode(%q, decimals))) = %v", s, err)
+		}
+		if twice, _ := call(encode, d2); twice.AsString() != once.AsString() {
+			t.Fatalf("%q with decimals: %s then %s", s, once, twice)
+		}
 	})
 }
 
@@ -185,4 +202,75 @@ func infKey() value.Value {
 	m := value.NewMap()
 	m.Set(value.MakeFloat(1/zero()), value.MakeInt(1))
 	return value.MakeMap(m)
+}
+
+func decimalsOn() value.Value {
+	m := value.NewMap()
+	m.Set(value.MakeString("decimals"), value.True)
+	return value.MakeMap(m)
+}
+
+// TestDecimals: encode writes a decimal's digits; decode with
+// {"decimals": true} reads numbers with a fraction or exponent, and ints
+// beyond 64 bits, as exact decimals with the scale of their text.
+func TestDecimals(t *testing.T) {
+	d, _ := value.ParseDecimal("12.50")
+	big, _ := value.ParseDecimal("123456789012345678901234567890.25")
+	v := value.MakeVector([]value.Value{d, big})
+	out, err := call(encode, v)
+	if err != nil || out.AsString() != `[12.50,123456789012345678901234567890.25]` {
+		t.Errorf("encode = %v, %v", out, err)
+	}
+	tests := map[string]string{ // text: the value inside a vector (Repr)
+		`12.50`:                   "12.50d",
+		`1.5e3`:                   "1500d",
+		`2.5E-3`:                  "0.0025d",
+		`-0.10`:                   "-0.10d",
+		`7`:                       "7",
+		`-9223372036854775808`:    "-9223372036854775808",
+		`9223372036854775808`:     "9223372036854775808d",
+		`[0.1, 2, {"p": 9.99}]`:   `[0.1d, 2, {"p": 9.99d}]`,
+		`123456789012345678.1234`: "123456789012345678.1234d",
+	}
+	for text, want := range tests {
+		v, err := call(decode, value.MakeString(text), decimalsOn())
+		if err != nil || v.Repr() != want {
+			t.Errorf("decode(%s, decimals) = %s, %v; want %s", text, v.Repr(), err, want)
+		}
+	}
+	// Without the option, as before.
+	if v, _ := call(decode, value.MakeString(`12.50`)); v.Kind() != value.Float {
+		t.Errorf("decode(12.50) = %s", v.Repr())
+	}
+	off := value.NewMap()
+	off.Set(value.MakeString("decimals"), value.False)
+	if v, _ := call(decode, value.MakeString(`12.50`), value.MakeMap(off)); v.Kind() != value.Float {
+		t.Errorf("decode(12.50, decimals false) = %s", v.Repr())
+	}
+	// A round trip keeps every digit and the scale.
+	text := `{"net":51.65,"vat":10.85,"rate":0.210,"n":3}`
+	v, err = call(decode, value.MakeString(text), decimalsOn())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := call(encode, v); err != nil || out.AsString() != text {
+		t.Errorf("round trip = %v, %v", out, err)
+	}
+	bad := map[string]value.Value{}
+	m := value.NewMap()
+	m.Set(value.MakeString("decimal"), value.True)
+	bad[`unknown option "decimal" (the option is decimals)`] = value.MakeMap(m)
+	m = value.NewMap()
+	m.Set(value.MakeString("decimals"), value.MakeInt(1))
+	bad[`option decimals must be a bool, not int`] = value.MakeMap(m)
+	bad[`must be a map of options`] = value.True
+	for msg, opts := range bad {
+		if _, err := call(decode, value.MakeString(`1`), opts); err == nil || !strings.Contains(err.Error(), msg) {
+			t.Errorf("decode with %s: %v, want %q", opts.Repr(), err, msg)
+		}
+	}
+	if _, err := call(decode, value.MakeString(`[1, 1e5000]`), decimalsOn()); err == nil ||
+		!strings.Contains(err.Error(), "invalid JSON at byte 5: the number 1e5000 has more than 1000 digits or a scale above 1000 for a decimal") {
+		t.Errorf("decode(1e5000, decimals): %v", err)
+	}
 }

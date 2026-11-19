@@ -509,6 +509,12 @@ func (e *encoder) value(v value.Value, depth int) error {
 		e.b.WriteString(strconv.FormatInt(v.AsInt(), 10))
 	case value.Float:
 		e.b.WriteString(value.FormatFloat(v.AsFloat())) // inf, -inf and nan are TOML too
+	case value.Decimal: // TOML has no decimals: a float's text, with all the digits
+		s := v.String()
+		e.b.WriteString(s)
+		if !strings.Contains(s, ".") {
+			e.b.WriteString(".0") // 3d is 3.0, not the int 3
+		}
 	case value.String:
 		return e.str(v.AsString())
 	case value.Vector:

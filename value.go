@@ -33,6 +33,18 @@ func Float(f float64) Value { return Value{value.MakeFloat(f)} }
 // String makes a string.
 func String(s string) Value { return Value{value.MakeString(s)} }
 
+// Decimal makes a decimal from its text: "12.50", "-3", "1.5e3" (an
+// optional sign, digits with an optional point, an optional exponent; the
+// scale is kept, "12.50" has two digits after the point). Other text, or
+// more than 1000 digits or a scale above 1000, is an error.
+func Decimal(text string) (Value, error) {
+	d, err := value.ParseDecimal(text)
+	if err != nil {
+		return Nil, fmt.Errorf("kukel: Decimal(%q): %v", text, err)
+	}
+	return Value{d}, nil
+}
+
 // Vector makes a new vector of the elements.
 func Vector(elems ...Value) Value {
 	vs := make([]value.Value, len(elems))
@@ -61,7 +73,7 @@ func MapOf(m map[string]Value) Value {
 }
 
 // Kind is what typeof gives in Kukel: "nil", "bool", "int", "float",
-// "string", "vector", "map", "function", "class" or "object".
+// "decimal", "string", "vector", "map", "function", "class" or "object".
 func (v Value) Kind() string { return v.v.Kind().String() }
 
 // IsNil reports whether v is nil.
@@ -92,6 +104,15 @@ func (v Value) AsFloat() (float64, bool) {
 		return float64(v.v.AsInt()), true
 	}
 	return 0, false
+}
+
+// AsDecimal gives a decimal's text, with its scale ("12.50"), as
+// str() gives it; Decimal reads it back.
+func (v Value) AsDecimal() (string, bool) {
+	if v.v.Kind() != value.Decimal {
+		return "", false
+	}
+	return v.v.String(), true
 }
 
 // AsString gives a string's value.
@@ -238,8 +259,9 @@ func FromGo(x any) (Value, error) {
 	return Nil, fmt.Errorf("kukel: cannot make a value of %T", x)
 }
 
-// ToGo gives v as a Go value: nil, bool, int64, float64, string, []any for
-// a vector and map[string]any for a map (keys as str() shows them), nested.
+// ToGo gives v as a Go value: nil, bool, int64, float64, string (also for
+// a decimal: its text, "12.50"), []any for a vector and map[string]any for
+// a map (keys as str() shows them), nested.
 // A function, class or object stays a Value. A vector or map that contains
 // itself is an error, and so is a map with two keys that give the same Go
 // key (1 and "1").
@@ -257,6 +279,8 @@ func toGo(v value.Value, open map[any]bool) (any, error) {
 		return v.AsInt(), nil
 	case value.Float:
 		return v.AsFloat(), nil
+	case value.Decimal:
+		return v.String(), nil
 	case value.String:
 		return v.AsString(), nil
 	case value.Vector, value.Map:

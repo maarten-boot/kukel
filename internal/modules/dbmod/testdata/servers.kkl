@@ -35,7 +35,7 @@ Tag::columns() { return {"id": "VARCHAR(40) PRIMARY KEY", "label": "TEXT"}; }
 main(args) {
     local conn = db::open(args[0]);
 
-    for (local t in ["item", "tag", "plain", "line", "order", "customer", "doc"]) conn->exec("DROP TABLE IF EXISTS " + quoted(args[0], t));
+    for (local t in ["item", "tag", "plain", "line", "order", "customer", "doc", "money"]) conn->exec("DROP TABLE IF EXISTS " + quoted(args[0], t));
 
     // plain SQL: parameters, types, a ? inside a string, transactions
     conn->exec("CREATE TABLE plain (id INTEGER PRIMARY KEY, word VARCHAR(20) UNIQUE, n INTEGER, x DOUBLE PRECISION, ok BOOLEAN)");
@@ -140,6 +140,17 @@ main(args) {
 
     try { conn->save(bad); } catch (e) { println(e->kind); }
     conn->close();
+
+    // decimals: NUMERIC and DECIMAL columns of a connection that asks for
+    // them, with their declared scale; decimals go in as their text (a
+    // second connection: for sqlite::memory: a new database)
+    local dc = db::open(args[0], {"decimals": true});
+    dc->exec("DROP TABLE IF EXISTS money");
+    dc->exec("CREATE TABLE money (id INTEGER, price DECIMAL(12,2), rate NUMERIC(5,3), n NUMERIC(10,0))");
+    dc->exec("INSERT INTO money VALUES (?, ?, ?, ?), (?, ?, ?, ?)", 1, 12.50d, 0.21d, 7d, 2, 3, "0.5", 12);
+    println(dc->query("SELECT price, rate, n FROM money ORDER BY id"));
+    println(dc->first("SELECT price FROM money WHERE price = ?", 12.5d));
+    dc->close();
 }
 
 // quoted quotes a table name for DROP TABLE: "order" is a keyword.

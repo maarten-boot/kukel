@@ -1002,3 +1002,37 @@ main() {}`, kukel.CompileOptions{Modules: []*kukel.Module{app}})
 		t.Errorf("%d steps (a loop left early asks no more)", steps)
 	}
 }
+
+// TestDecimalValues: Decimal, AsDecimal, Kind and ToGo, and a decimal
+// passed to Kukel code and back.
+func TestDecimalValues(t *testing.T) {
+	d, err := kukel.Decimal("12.50")
+	if err != nil || d.Kind() != "decimal" || d.String() != "12.50" {
+		t.Fatalf("Decimal(12.50) = %v %s, %v", d, d.Kind(), err)
+	}
+	if s, ok := d.AsDecimal(); !ok || s != "12.50" {
+		t.Errorf("AsDecimal = %q %v", s, ok)
+	}
+	if _, ok := kukel.Float(1.5).AsDecimal(); ok {
+		t.Error("AsDecimal of a float")
+	}
+	if _, ok := d.AsFloat(); ok {
+		t.Error("AsFloat of a decimal")
+	}
+	if g, err := kukel.Vector(d).ToGo(); err != nil || !reflect.DeepEqual(g, []any{"12.50"}) {
+		t.Errorf("ToGo = %#v, %v", g, err)
+	}
+	for _, bad := range []string{"", "1,5", "12.50d", "1e1000"} {
+		if _, err := kukel.Decimal(bad); err == nil {
+			t.Errorf("Decimal(%q) works", bad)
+		}
+	}
+	p := compile(t, `
+vat(net) { return round(net * 0.21d, 2); }
+main() {}`, kukel.CompileOptions{})
+	in := interp(t, p, kukel.Options{})
+	r, err := in.Call("vat", d)
+	if s, ok := r.AsDecimal(); err != nil || !ok || s != "2.63" {
+		t.Errorf("vat(12.50d) = %v, %v", r, err)
+	}
+}

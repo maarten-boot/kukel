@@ -226,3 +226,22 @@ func FuzzTOML(f *testing.F) {
 		}
 	})
 }
+
+// TestEncodeDecimals: TOML has no decimals; a decimal is a float's text
+// with all its digits, and reads back as a float.
+func TestEncodeDecimals(t *testing.T) {
+	m := value.NewMap()
+	for _, kv := range [][2]string{{"price", "12.50"}, {"n", "3"}, {"neg", "-0.05"}} {
+		d, _ := value.ParseDecimal(kv[1])
+		m.Set(value.MakeString(kv[0]), d)
+	}
+	out, err := call(encode, value.MakeMap(m))
+	want := "price = 12.50\nn = 3.0\nneg = -0.05\n"
+	if err != nil || out.AsString() != want {
+		t.Fatalf("encode = %q, %v; want %q", out.AsString(), err, want)
+	}
+	v := dec(t, out.AsString())
+	if p, _, _ := v.AsMap().Get(value.MakeString("n")); p.Kind() != value.Float {
+		t.Errorf("n reads back as %s", p.Kind())
+	}
+}

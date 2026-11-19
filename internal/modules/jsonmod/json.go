@@ -73,6 +73,8 @@ func (e *encoder) value(v value.Value, depth int) error {
 			return e.a.Errorf(value.ValueError, "%s has no JSON form", value.FormatFloat(f))
 		}
 		e.b.WriteString(value.FormatFloat(f)) // keeps ".0", so a float stays a float
+	case value.Decimal:
+		e.b.WriteString(v.String()) // its digits: 12.50, never an exponent
 	case value.String:
 		return e.str(v.AsString())
 	case value.Vector:
@@ -179,7 +181,7 @@ func (e *encoder) str(s string) error {
 // The decoder is our own, not encoding/json, so that its messages (and the
 // byte positions in them) are the same with every version of Go.
 func decode(env value.Env, args []value.Value) (value.Value, error) {
-	a, err := native.Check("json::decode", args, 1, 1)
+	a, err := native.Check("json::decode", args, 1, 2)
 	if err != nil {
 		return value.NilValue, err
 	}
@@ -188,6 +190,11 @@ func decode(env value.Env, args []value.Value) (value.Value, error) {
 		return value.NilValue, err
 	}
 	p := &parser{s: s}
+	if a.Has(1) {
+		if p.decimals, err = decodeOptions(a, args[1]); err != nil {
+			return value.NilValue, err
+		}
+	}
 	p.space()
 	v, err := p.value(0)
 	if err == nil {
@@ -222,10 +229,33 @@ func (e *syntaxError) Error() string { return e.msg }
 
 var errEnd = &syntaxError{pos: -1, msg: "unexpected end of text"}
 
+// decodeOptions reads decode's options: {"decimals": true}.
+func decodeOptions(a native.Args, opts value.Value) (decimals bool, err error) {
+	if opts.Kind() != value.Map {
+		return false, a.TypeError(1, "a map of options")
+	}
+	opts.AsMap().Each(func(k, v value.Value) {
+		if err != nil {
+			return
+		}
+		if k.Kind() != value.String || k.AsString() != "decimals" {
+			err = a.Errorf(value.ValueError, "unknown option %s (the option is decimals)", k.Repr())
+			return
+		}
+		if v.Kind() != value.Bool {
+			err = a.Errorf(value.TypeError, "option decimals must be a bool, not %s", v.Kind())
+			return
+		}
+		decimals = v.AsBool()
+	})
+	return decimals, err
+}
+
 // parser reads JSON text (RFC 8259) from s at i.
 type parser struct {
-	s string
-	i int
+	s        string
+	i        int
+	decimals bool // numbers with a fraction or exponent, and ints beyond 64 bits, as decimals
 }
 
 func (p *parser) errorf(format string, args ...any) error {
@@ -514,7 +544,34 @@ func (p *parser) number() (value.Value, error) {
 			return value.NilValue, err
 		}
 	}
+	if p.decimals {
+		return p.decimal(start)
+	}
 	return number(p.s[start:p.i])
+}
+
+// decimal makes the number at start a decimal, unless it is an int that
+// fits in 64 bits: exact, with the scale of its text (1.50 keeps two).
+func (p *parser) decimal(start int) (value.Value, error) {
+	s := p.s[start:p.i]
+	if !strings.ContainsAny(s, ".eE") {
+		if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+			return value.MakeInt(i), nil
+		}
+	}
+	d, err := value.ParseDecimal(s)
+	if err != nil {
+		return value.NilValue, &syntaxError{start, fmt.Sprintf("the number %s has more than %d digits or a scale above %d for a decimal", shorten(s), value.MaxDecimalDigits, value.MaxDecimalScale)}
+	}
+	return d, nil
+}
+
+// shorten cuts a long number for a message.
+func shorten(s string) string {
+	if len(s) > 40 {
+		return s[:37] + "..."
+	}
+	return s
 }
 
 func number(s string) (value.Value, error) {

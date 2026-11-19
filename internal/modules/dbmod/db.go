@@ -44,6 +44,9 @@ type conn struct {
 	cursor  *cursor // the open cursor, or nil: it holds the connection
 	lastID  value.Value
 	closed  bool
+	// decimals: NUMERIC and DECIMAL columns give decimals (db::open's
+	// option, docs/future.md §14.6); else ints or floats, as before v1.6.
+	decimals bool
 }
 
 // cursor is the state of a db::Cursor object.
@@ -52,8 +55,11 @@ type cursor struct {
 	rows  *sql.Rows
 	cols  []string
 	types []string // the columns' declared types, in upper case
-	done  bool
-	stop  func() // ends the query's context (the rows close when it ends)
+	// scales: for a NUMERIC or DECIMAL column of a connection with the
+	// option decimals, its scale (-1: not declared); nil otherwise.
+	scales []int
+	done   bool
+	stop   func() // ends the query's context (the rows close when it ends)
 }
 
 // Conn and Cursor are the classes db::Conn and db::Cursor.
@@ -130,13 +136,19 @@ func init() {
 var uriEscape = strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23")
 
 func open(env value.Env, args []value.Value) (value.Value, error) {
-	a, err := native.Check("db::open", args, 1, 1)
+	a, err := native.Check("db::open", args, 1, 2)
 	if err != nil {
 		return value.NilValue, err
 	}
 	u, err := a.String(0)
 	if err != nil {
 		return value.NilValue, err
+	}
+	decimals := false
+	if a.Has(1) {
+		if decimals, err = openOptions(a, args[1]); err != nil {
+			return value.NilValue, err
+		}
 	}
 	src, err := sourceOf(u)
 	if err != nil {
@@ -162,7 +174,29 @@ func open(env value.Env, args []value.Value) (value.Value, error) {
 		}
 		return value.NilValue, a.Errorf(DBError, "%s: %s", src.shown, openMessage(err))
 	}
-	return Conn.Object(&conn{url: src.shown, dialect: src.dialect, db: d, lastID: value.NilValue}), nil
+	return Conn.Object(&conn{url: src.shown, dialect: src.dialect, db: d, lastID: value.NilValue, decimals: decimals}), nil
+}
+
+// openOptions reads db::open's options: {"decimals": true}.
+func openOptions(a native.Args, opts value.Value) (decimals bool, err error) {
+	if opts.Kind() != value.Map {
+		return false, a.TypeError(1, "a map of options")
+	}
+	opts.AsMap().Each(func(k, v value.Value) {
+		if err != nil {
+			return
+		}
+		if k.Kind() != value.String || k.AsString() != "decimals" {
+			err = a.Errorf(value.ValueError, "unknown option %s (the option is decimals)", k.Repr())
+			return
+		}
+		if v.Kind() != value.Bool {
+			err = a.Errorf(value.TypeError, "option decimals must be a bool, not %s", v.Kind())
+			return
+		}
+		decimals = v.AsBool()
+	})
+	return decimals, err
 }
 
 func closeConn(a native.Args, env value.Env, c *conn) (value.Value, error) {
@@ -306,6 +340,8 @@ func dbValue(v value.Value) (p any, ok bool) {
 		return v.AsFloat(), true
 	case value.String:
 		return v.AsString(), true
+	case value.Decimal:
+		return v.String(), true // its text, which NUMERIC and DECIMAL columns read
 	}
 	if timemod.Time.Is(v) {
 		return v.AsObject().State.(stdtime.Time), true
@@ -368,6 +404,12 @@ func (c *conn) rowsOf(a native.Args, env value.Env) (*cursor, error) {
 		cu.cols = append(cu.cols, col.Name())
 		cu.types = append(cu.types, strings.ToUpper(col.DatabaseTypeName()))
 	}
+	if c.decimals {
+		cu.scales = make([]int, len(cols))
+		for i, col := range cols {
+			cu.scales[i] = decimalScale(col, cu.types[i])
+		}
+	}
 	return cu, nil
 }
 
@@ -392,6 +434,11 @@ func (cu *cursor) row(a native.Args) (value.Value, error) {
 // driver gives as text (MySQL without parameters, PostgreSQL NUMERIC) are
 // numbers again.
 func (cu *cursor) value(i int, v any) value.Value {
+	if cu.scales != nil && cu.scales[i] != -2 && v != nil {
+		if d, ok := decimalOf(v, cu.scales[i]); ok {
+			return d
+		}
+	}
 	switch v := v.(type) {
 	case nil:
 		return value.NilValue
@@ -412,6 +459,57 @@ func (cu *cursor) value(i int, v any) value.Value {
 		return timemod.Time.Object(v)
 	}
 	return value.MakeString(fmt.Sprint(v))
+}
+
+// decimalScale gives the scale of a NUMERIC or DECIMAL column: from the
+// driver (PostgreSQL, MySQL) or from the declared type, "DECIMAL(12,2)"
+// (SQLite); -1 when none is declared, -2 for a column of another type.
+func decimalScale(col *sql.ColumnType, typ string) int {
+	base, size, _ := strings.Cut(typ, "(")
+	base = strings.TrimSpace(base)
+	if base != "NUMERIC" && base != "DECIMAL" {
+		return -2
+	}
+	if _, s, ok := col.DecimalSize(); ok && s >= 0 && s <= value.MaxDecimalScale {
+		return int(s)
+	}
+	if _, s, ok := strings.Cut(strings.TrimSuffix(size, ")"), ","); ok {
+		if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil && n >= 0 && n <= value.MaxDecimalScale {
+			return n
+		}
+	}
+	return -1
+}
+
+// decimalOf makes a decimal of what a driver gives for a NUMERIC or
+// DECIMAL column (text, an int, or a float from SQLite, which keeps 15
+// significant digits in such columns), with at least the column's scale:
+// SQLite's 12.5 in a DECIMAL(12,2) column is 12.50. ok is false for a
+// value that is not a number.
+func decimalOf(v any, scale int) (value.Value, bool) {
+	var d value.Value
+	var err error
+	switch v := v.(type) {
+	case []byte:
+		d, err = value.ParseDecimal(strings.TrimSpace(string(v)))
+	case string:
+		d, err = value.ParseDecimal(strings.TrimSpace(v))
+	case int64:
+		d, err = value.DecimalRound(value.MakeInt(v), 0, value.HalfAway)
+	case float64:
+		d, err = value.DecimalFromFloat(v)
+	default:
+		return value.NilValue, false
+	}
+	if err != nil {
+		return value.NilValue, false
+	}
+	if _, s := d.DecimalParts(); scale > s { // only more digits: never rounds
+		if r, err := value.DecimalRound(d, scale, value.HalfAway); err == nil {
+			return r, true
+		}
+	}
+	return d, true
 }
 
 // text turns a value the driver gives as text into a number for a column of

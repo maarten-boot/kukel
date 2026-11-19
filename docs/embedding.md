@@ -99,10 +99,10 @@ built with `-tags tk`). `term` reads keys from the standard input of
 
 | Make | Read |
 |---|---|
-| `Bool(b)`, `Int(i)`, `Float(f)`, `String(s)` | `v.AsBool()`, `v.AsInt()`, `v.AsFloat()` (also of an int), `v.AsString()`, each with an `ok` |
+| `Bool(b)`, `Int(i)`, `Float(f)`, `String(s)`; `Decimal(text)` (`"12.50"`; an error for text that is not a number) | `v.AsBool()`, `v.AsInt()`, `v.AsFloat()` (also of an int, not of a decimal), `v.AsString()`, `v.AsDecimal()` (its text, `"12.50"`), each with an `ok` |
 | `Vector(elems...)`, `NewMap()`, `MapOf(map[string]Value)` (keys in sorted order) | `v.Len()`, `v.Index(i)`, `v.Get(key)`, `v.Keys()` |
 | `v.Push(e)`, `v.SetKey(k, val)` | `v.Kind()` (as `typeof`), `v.IsNil()`, `v.Truthy()`, `v.String()` (as `print`) |
-| `FromGo(x)`: nil, bools, integers, floats and strings (also named types such as `type S string`), `[]byte` (a string), slices and arrays, maps with string keys, nested | `v.ToGo()`: nil, `bool`, `int64`, `float64`, `string`, `[]any`, `map[string]any`; functions, classes and objects stay a `Value`. A map with keys that give the same Go key (`1` and `"1"`), or a value that contains itself, is an error. `FromGo` refuses an unsigned integer above the int range, a map whose keys are not strings, and other Go types (functions, channels, structs, ...) |
+| `FromGo(x)`: nil, bools, integers, floats and strings (also named types such as `type S string`), `[]byte` (a string), slices and arrays, maps with string keys, nested | `v.ToGo()`: nil, `bool`, `int64`, `float64`, `string` (also a decimal's text), `[]any`, `map[string]any`; functions, classes and objects stay a `Value`. A map with keys that give the same Go key (`1` and `"1"`), or a value that contains itself, is an error. `FromGo` refuses an unsigned integer above the int range, a map whose keys are not strings, and other Go types (functions, channels, structs, ...) |
 
 A generator (an object of the class `Generator`, from calling a Kukel
 generator function) stays a `Value` too: step it with

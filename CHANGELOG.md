@@ -31,6 +31,16 @@ unchanged, but `.kkc` files must be built again (`kukel build`).
   `float`, `abs`, `min`, `max`, `pow`, `floor`, `ceil` and `round` take
   decimals. Small decimals do not allocate. A program with a top-level
   name `decimal` must rename it. docs/future.md §14, Q117.
+- Decimals in modules: `json::encode` writes a decimal's digits, and
+  `json::decode(s, {"decimals": true})` reads numbers with a fraction or
+  exponent (and ints beyond 64 bits) as exact decimals. With
+  `db::open(url, {"decimals": true})`, `NUMERIC` and `DECIMAL` columns
+  give decimals of their declared scale (also through the ORM); decimals
+  are passed as their text. SQLite keeps 15 significant digits in such
+  columns. `toml::encode` writes a decimal as a float with all its digits.
+  The Go package: `kukel.Decimal(text)`, `v.AsDecimal()`, and `ToGo` gives
+  a decimal's text. Without the options, `json` and `db` read what they
+  read before. Q117.
 
 ## v1.5.0 (2026-11-19)
 

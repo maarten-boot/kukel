@@ -811,7 +811,7 @@ Each step is usable on its own and prepares the next:
 | 20 | LMW-Synth GUI: the Schematic tab (13.5) | 18 | done, with `dash` for canvas lines and menus in `tk::setcolors` (Q115) |
 | 21 | Decimals: the value and its arithmetic (14.8, step 1) | — | done (Q117) |
 | 22 | Decimals: the literal `12.50d`, the VM, the built-ins (14.8, step 2) | 21 | done (Q117), with the reference, the grammars and the editors |
-| 23 | Decimals in `json`, `db` and the Go package (14.8, step 3) | 22 | proposed (Q117) |
+| 23 | Decimals in `json`, `db` and the Go package (14.8, step 3) | 22 | done (Q117), and `toml::encode` |
 | 24 | Decimals: documents, editors, an invoice example (14.8, step 4) | 23 | proposed (Q117) |
 
 Steps 4, 5, 7 and 8 are independent of each other once 1 and 3 exist. A
@@ -2155,7 +2155,7 @@ schematic's blocks once the synth serves `/schematic` (the layout alone).
 
 ## 14. Decimals: a type `decimal` in the language
 
-*A proposal (2026-11-19, TODO.md Q117); steps 1 and 2 built (14.8). F-32 (section 10.9)
+*A proposal (2026-11-19, TODO.md Q117); steps 1 to 3 built (14.8). F-32 (section 10.9)
 chose a decimal type in the language; the literal (`12.50d`), keeping the
 scale, refusing floats in arithmetic, and the number of digits were
 chosen the same day (14.2, 14.3), and the open questions of 14.10 were
@@ -2258,10 +2258,14 @@ code the VM uses, as it does for ints and floats.
 - **`json`**: `json::encode` writes a decimal as a JSON number with its
   digits (`12.50`); JSON has no decimal type, so it reads back as a float
   unless asked: `json::decode(s, {"decimals": true})` makes every number
-  with a fraction or exponent a decimal, exact (F-68).
+  with a fraction or exponent a decimal, exact (F-68); as built, also an
+  int beyond 64 bits, which would otherwise lose digits as a float.
 - **`db`**: a decimal is passed to the database as its text, which
-  `NUMERIC` and `DECIMAL` columns take exactly (SQLite stores up to 15
-  digits as a REAL or INTEGER and longer text as TEXT, without loss). Read
+  `NUMERIC` and `DECIMAL` columns take exactly in PostgreSQL and MySQL.
+  SQLite keeps 15 significant digits in such a column: longer numbers
+  become a REAL and are rounded (found when building step 3; the text was
+  said to be kept), and its computed columns (`sum(price)`) have no
+  declared type, so they stay ints or floats. Read
   back, a column declared `NUMERIC(p, s)` or `DECIMAL(p, s)` gives a
   decimal of scale `s`, once a connection asks for it:
   `db::open(url, {"decimals": true})` (F-68). Today such columns give ints

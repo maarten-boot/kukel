@@ -246,3 +246,57 @@ false true
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+// TestDecimals: with {"decimals": true} NUMERIC and DECIMAL columns give
+// decimals of their declared scale; decimals go in as their text, in every
+// connection. Without the option such columns give ints and floats, as
+// before v1.6. SQLite keeps 15 significant digits in them (more are a
+// REAL, rounded); a TEXT column keeps them all.
+func TestDecimals(t *testing.T) {
+	got := run(t, `use db;
+main() {
+    local c = db::open("sqlite::memory:", {"decimals": true});
+    c->exec("CREATE TABLE t (id INTEGER, price DECIMAL(12,2), rate NUMERIC(5, 3), n NUMERIC, big DECIMAL(30,2), txt TEXT, r REAL)");
+    c->exec("INSERT INTO t VALUES (1, ?, ?, ?, ?, ?, ?)", 12.50d, 0.21d, 7d, 123456789012345678901234567.89d, 123456789012345678901234567.89d, 1.5d);
+    c->exec("INSERT INTO t VALUES (2, ?, ?, ?, ?, ?, ?)", 3, 0.5, "1.250", nil, "x", 2);
+    for (local row in c->query("SELECT * FROM t")) println(row);
+    local s = c->first("SELECT sum(price) AS s, count(*) AS k FROM t");
+    println(s, typeof(s["s"]));
+    println(decimal(c->first("SELECT txt FROM t WHERE id = 1")["txt"]) * 1);
+    c->close();
+    c = db::open("sqlite::memory:");
+    c->exec("CREATE TABLE t (price DECIMAL(12,2))");
+    c->exec("INSERT INTO t VALUES (?)", 12.50d);
+    println(c->first("SELECT price FROM t"));
+    c->close();
+}`)
+	want := `{"id": 1, "price": 12.50d, "rate": 0.210d, "n": 7d, "big": 123456789012345680000000000.00d, "txt": "123456789012345678901234567.89", "r": 1.5}
+{"id": 2, "price": 3.00d, "rate": 0.500d, "n": 1.25d, "big": nil, "txt": "x", "r": 2.0}
+{"s": 15.5, "k": 2} float
+123456789012345678901234567.89
+{"price": 12.5}
+`
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestDecimalOptions(t *testing.T) {
+	got := run(t, `use db;
+main() {
+    for (local o in [{"decimal": true}, {"decimals": 1}, true]) {
+        try {
+            db::open("sqlite::memory:", o);
+        } catch (e) {
+            println(e->kind + ": " + e->message);
+        }
+    }
+}`)
+	want := `ValueError: db::open: unknown option "decimal" (the option is decimals)
+TypeError: db::open: option decimals must be a bool, not int
+TypeError: db::open: argument 2 must be a map of options, not bool
+`
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
