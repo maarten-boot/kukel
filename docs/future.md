@@ -2217,7 +2217,7 @@ the same wherever it is called.
 | | Result |
 |---|---|
 | `d + d`, `d - d`, `d * d`, `d % d` | exact decimal (scale as in 14.2); `%` has the sign of the left side, as for ints |
-| `d / d` | decimal: the exact quotient when it has at most 34 significant digits, else rounded to 34, halves to even; its scale the scale of `a` less that of `b` when that is enough (`7.50d / 2` is `3.75`, `10.00d / 4` is `2.50`), else as many as the quotient needs (`1d / 3d` is `0.3333333333333333333333333333333333`) |
+| `d / d` | decimal: the exact quotient when it has at most 34 significant digits, else rounded to 34, halves to even; its scale the scale of `a` less that of `b` when that is enough (`7.50d / 2` is `3.75`, `10.00d / 4` is `2.50`), else as many as the quotient needs (`1d / 3d` is `0.3333333333333333333333333333333333`); a quotient of 10^34 or more keeps all its integer digits, and a tiny one is rounded at scale 1000 |
 | a decimal and an int, either side | the int is a decimal of scale 0 first: exact |
 | a decimal and a float in `+ - * / %` | `TypeError` ("decimal * float: write the float as a decimal (1.1d) or convert it with decimal(x)") |
 | `d / 0`, `d % 0` (any zero) | `ZeroDivisionError`, as for ints |
