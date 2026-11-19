@@ -2158,7 +2158,8 @@ schematic's blocks once the synth serves `/schematic` (the layout alone).
 *A proposal (2026-11-19, TODO.md Q117); not built. F-32 (section 10.9)
 chose a decimal type in the language; the literal (`12.50d`), keeping the
 scale, refusing floats in arithmetic, and the number of digits were
-chosen the same day (14.2, 14.3). The open questions are in 14.10.*
+chosen the same day (14.2, 14.3), and the open questions of 14.10 were
+all answered as proposed.*
 
 Prices and amounts are `decimal` in the designer (precision 12, scale 2:
 section 10.7), in SQL (`NUMERIC`, `DECIMAL`) and in most business data.
@@ -2201,7 +2202,9 @@ the same wherever it is called.
   `2.50d * 1.10d` is `2.7500`; `round` (14.4) brings it back.
 - **Equality ignores the scale**: `12.50d == 12.5d` is true, and they are
   the same map key; `2d == 2` is true and `2d` and `2` are the same key,
-  as `1` and `1.0` are today. (With floats: F-65.)
+  as `1` and `1.0` are today. A decimal equals a float when their values
+  are exactly the same (`2.5d == 2.5`, `1.5d` and `1.5` one key), so
+  `0.1d == 0.1` is false: the float is not exactly 0.1 (F-65).
 - **Truth**: a zero of any scale (`0d`, `0.00d`) is false, like `0` and
   `0.0`.
 - **Size**: at most 1000 significant digits and a scale of at most 1000
@@ -2219,7 +2222,7 @@ the same wherever it is called.
 | a decimal and a float in `+ - * / %` | `TypeError` ("decimal * float: write the float as a decimal (1.1d) or convert it with decimal(x)") |
 | `d / 0`, `d % 0` (any zero) | `ZeroDivisionError`, as for ints |
 | `-d`, `d++`, `d--`, `+=` and the others | as for ints; `d++` adds 1 and keeps the scale |
-| `<`, `<=`, `>`, `>=` | with decimals and ints: exact. With floats: F-65 |
+| `==`, `<`, `<=`, `>`, `>=` | exact, also with ints and floats (F-65): `price > 0.0` works |
 | bitwise operators, `<<`, `>>`, `~` | `TypeError`, as for floats |
 
 `int / int` is unchanged (it truncates). A constant may be a decimal
@@ -2334,19 +2337,26 @@ Each step is a branch of its own, merged when its tests pass.
 - **F-64** `round(x, n)` halves away from zero, as `round(x)` does and
   invoices usually do (proposed), or to even (banker's rounding, as `/`
   does)? A third argument (`round(x, 2, "even")`) could give the other.
+  *Answered (2026-11-19): as proposed.*
 - **F-65** A decimal and a float in `==` and `<`: compared exactly
   (proposed: comparing loses nothing, `price > 0.0` works, and `2d == 2.0`
   is true as `2 == 2.0` is), or a `TypeError` as in arithmetic?
+  *Answered (2026-11-19): as proposed.*
 - **F-66** A decimal inside a vector or map prints as `12.50d` (proposed,
   so that it reads back and differs from a float), or as `12.50`?
+  *Answered (2026-11-19): as proposed.*
 - **F-67** `/` rounds to 34 significant digits (proposed, as decimal128),
   or to 28 (Python's default), or to a fixed scale (SQL Server's 6)?
+  *Answered (2026-11-19): as proposed.*
 - **F-68** `json` and `db` give decimals only when asked, per call or
   connection (proposed, so that v1 programs read what they read today),
   or always for `NUMERIC` and `DECIMAL` columns (a v2 change)?
+  *Answered (2026-11-19): as proposed.*
 - **F-69** The limit: 1000 significant digits and scale 1000 (proposed),
   or SQL's 38 digits, which every database column fits?
+  *Answered (2026-11-19): as proposed.*
 - **F-70** Conversion by a new built-in `decimal(x)` (proposed; a
   program with a top-level name `decimal` must rename it, as with any new
   built-in, docs/compatibility.md), or by a module (`use decimal;
   decimal::of(x)`), which no program's names can clash with?
+  *Answered (2026-11-19): as proposed.*
