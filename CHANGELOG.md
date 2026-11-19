@@ -20,7 +20,8 @@ From v1.0.0 on, what keeps working is in
 - `mail`: a DSN whose password holds an `@` not written as `%40`
   (`smtp://u:p@ss@host`) is refused; it was read with part of the
   password in the host name, where `t->dsn`, printing and a `NetError`
-  showed it. A `%` not followed by two hexadecimal digits, and a port of
+  showed it. The message of a DSN that cannot be read masks everything up
+  to its last `@`, so a password with `@`, `?` or `/` stays hidden. A `%` not followed by two hexadecimal digits, and a port of
   more than five digits, are a `ValueError` of `mail::transport` (not of
   `encoding::unhex` or `int`). Q113.
 - `mail`: `m->header` refuses every `Content-*` header, as documented

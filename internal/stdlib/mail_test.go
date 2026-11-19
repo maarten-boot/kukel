@@ -698,6 +698,7 @@ main() {
         "smtps://h?tls=0", "memory://host", "not a dsn", "smtp://:pw@h", 42, {"scheme": "smtp", "host": "h", "port": "25"},
         {"scheme": "smtp", "host": "h", "nope": 1}, {"scheme": "smtp", "host": "h", "user": "u\r\nx"},
         "smtp://u:p@ss@h:587", "smtp://h:99999999999999999999", "smtp://u:p%zz@h", "smtp://u:p%4@h",
+        "smtp://u:p?ss@h:587", "smtp://u:p/ss@h:587", "smtp://u:p@ss@h?helo=a@b",
     ]) {
         try {
             local t = mail::transport(d);
@@ -734,6 +735,9 @@ ValueError: mail::transport: not a DSN: "smtp://u:***@h:587" (an @ in the user o
 ValueError: mail::transport: the port 99999999999999999999 is not 1 to 65535
 ValueError: mail::transport: a % in the DSN that is not %XX (a % itself is %25)
 ValueError: mail::transport: a % in the DSN that is not %XX (a % itself is %25)
+ValueError: mail::transport: not a DSN: "smtp://u:***@h:587" (scheme://user:password@host:port?options)
+ValueError: mail::transport: not a DSN: "smtp://u:***@h:587" (scheme://user:password@host:port?options)
+ValueError: mail::transport: not a DSN: "smtp://u:***@b" (an @ in the user or password is written %40)
 1 {"from": "a@example.com", "to": ["b@example.org"]} true
 250 dropped
 `

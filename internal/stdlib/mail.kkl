@@ -985,12 +985,13 @@ _unpct(s) {
     return join(out);
 }
 
-// _lastat(dsn): where the last @ before the options is, or -1: the end of
-// the user and password, even when one of them holds an @.
+// _lastat(dsn): where the last @ is, or -1. Masking up to it hides the
+// password even when it holds an @, ? or /; an @ in the options
+// (helo=a@b) only hides more.
 _lastat(dsn) {
-    local end = find(dsn, "?"), at = -1;
+    local at = -1;
 
-    for (local i = find(dsn, "@"); i >= 0 && (end < 0 || i < end); i = find(dsn, "@", i + 1)) {
+    for (local i = find(dsn, "@"); i >= 0; i = find(dsn, "@", i + 1)) {
         at = i;
     }
     return at;
