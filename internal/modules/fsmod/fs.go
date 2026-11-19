@@ -15,6 +15,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"syscall"
 
 	"github.com/maarten-boot/kukel/internal/modules/timemod"
@@ -25,12 +26,13 @@ import (
 func init() {
 	native.Register(&native.Module{
 		Name: "fs",
-		Doc:  "directories and files: open files, temporary files, readdir, stat, walk, mkdir, remove, rename, chmod, paths",
+		Doc:  "directories and files: open files, temporary files, readdir, stat, walk, glob, mkdir, remove, rename, chmod, paths",
 		Funcs: map[string]native.Func{
 			"readdir":   readdir,
 			"stat":      stat,
 			"exists":    exists,
 			"walk":      walk,
+			"glob":      glob,
 			"mkdir":     pathOp("fs::mkdir", func(p string) error { return os.Mkdir(p, 0o777) }),
 			"mkdirall":  pathOp("fs::mkdirall", func(p string) error { return os.MkdirAll(p, 0o777) }),
 			"remove":    pathOp("fs::remove", os.Remove),
@@ -170,6 +172,30 @@ func exists(env value.Env, args []value.Value) (value.Value, error) {
 		return value.False, nil
 	}
 	return value.NilValue, ioError(a, err)
+}
+
+// fs::glob(pattern): the paths that match pattern, sorted: * is any run of
+// characters but the separator, ? one such character, [a-z] a class
+// ([^a-z] not in it), \ takes the next character as it is (not on
+// Windows, where \ separates). Each part of the path may hold such
+// characters ("logs/*/*.gz"); ** is not special. No match gives []; a
+// malformed pattern ("[a") is a ValueError. Files that cannot be read are
+// left out, as filepath.Glob does.
+func glob(env value.Env, args []value.Value) (value.Value, error) {
+	a, pattern, err := pathArg("fs::glob", args, 1)
+	if err != nil {
+		return value.NilValue, err
+	}
+	paths, err := filepath.Glob(pattern)
+	if err != nil {
+		return value.NilValue, a.Errorf(value.ValueError, "malformed pattern %s", value.Quote(pattern))
+	}
+	sort.Strings(paths)
+	vs := make([]value.Value, len(paths))
+	for i, p := range paths {
+		vs[i] = value.MakeString(p)
+	}
+	return value.MakeVector(vs), nil
 }
 
 // fs::walk(path, f): calls f(p, entry) for path and every file and

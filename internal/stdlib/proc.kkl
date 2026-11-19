@@ -1,0 +1,220 @@
+// proc: running programs from a script (TODO.md Q118, docs/future.md
+// section 15): the arguments are a vector, so nothing is split, expanded
+// or run by a shell, and no value can turn into a command.
+//
+//     local r = proc::run(["git", "log", "--format=%an", "-n", "20"]);
+//     println(split(trim(r["out"]), "\n"));
+//
+// A program that fails (an exit code other than 0, a signal, the time
+// limit) is a proc::ProcError, unless the option check is false. The
+// starting and waiting is the module process, written in Go: a Go program
+// that embeds Kukel gives a program proc by naming process in its
+// StandardModules.
+use process;
+
+// A program that failed, or could not be started: command is the vector
+// it was given; code its exit code (nil when it did not end with one);
+// signal the signal that ended it ("TERM"; nil if none); err the end of
+// what it wrote to standard error (at most 4096 bytes), when that was
+// captured, else nil.
+class ProcError : Error {
+    command;
+    code;
+    signal;
+    err;
+    ProcError(message, command, code, signal, err);
+}
+
+ProcError::ProcError(message, command = nil, code = nil, signal = nil, err = nil) {
+    Error::Error(message, "ProcError");
+    this->command = command;
+    this->code = code;
+    this->signal = signal;
+    this->err = err;
+}
+
+// run(cmd, options): runs cmd (a vector of strings: the program, found on
+// PATH unless it holds a /, and its arguments) to its end, and gives a map
+// with "code" (nil after a signal), "signal", "out" and "err" (captured
+// output, else nil), "time" (seconds) and "timedout". The options, all
+// optional: input (a string for its standard input; without it the input
+// is empty), stdin ("inherit": the program's own), out and err ("capture",
+// "inherit", "null", {"file": path} or {"append": path}; err also "out";
+// by default out is captured and err inherited), cwd, env (a map of
+// variables; nil removes one), clearenv (true: only env), timeout
+// (seconds: then TERM, and KILL 2 seconds later), check (true by
+// default), max (bytes captured of each stream, 64 MiB by default; more
+// ends the program and is a ProcError).
+run(cmd, options = {}) {
+    _command("proc::run", cmd);
+
+    if (typeof(options) != "map") {
+        throw new Error("proc::run: the options are a map, not " + typeof(options), "TypeError");
+    }
+    local o = {}, check = true;
+
+    for (local key, v in options) {
+        switch (key) {
+            case "input":
+                _string("proc::run: option input", v);
+
+                if (haskey(options, "stdin")) {
+                    throw new Error("proc::run: options input and stdin together", "ValueError");
+                }
+                o["in"] = "data";
+                o["data"] = v;
+                break;
+            case "stdin":
+                if (v != "inherit" && v != "null") {
+                    throw new Error("proc::run: option stdin is \"inherit\" or \"null\", not " + _show(v), "ValueError");
+                }
+                o["in"] = v;
+                break;
+            case "out":
+            case "err":
+                o[key] = _stream(key, v);
+                break;
+            case "cwd":
+                _string("proc::run: option cwd", v);
+                o["dir"] = v;
+                break;
+            case "env":
+                if (typeof(v) != "map") {
+                    throw new Error("proc::run: option env is a map, not " + typeof(v), "TypeError");
+                }
+                break;
+            case "clearenv":
+            case "check":
+                if (typeof(v) != "bool") {
+                    throw new Error("proc::run: option " + key + " is true or false, not " + _show(v), "TypeError");
+                }
+
+                if (key == "check") check = v;
+                break;
+            case "timeout":
+            case "max":
+                o[key] = v; // process checks them
+                break;
+            default:
+                throw new Error("proc::run: unknown option " + _show(key) + " (input, stdin, out, err, cwd, env, clearenv, timeout, check, max)", "ValueError");
+        }
+    }
+
+    if (haskey(options, "env") || options["clearenv"] == true) {
+        o["env"] = _environment(options["env"] == nil ? {} : options["env"], options["clearenv"] == true);
+    }
+    local r = process::run(cmd, o);
+
+    if (!r["started"]) {
+        throw new ProcError("proc::run: " + r["error"], cmd);
+    }
+    local result = {"code": r["code"], "signal": r["signal"], "out": r["out"], "err": r["err"], "time": r["time"], "timedout": r["timedout"]};
+
+    if (r["truncated"]) {
+        throw new ProcError("proc::run: " + str(cmd) + " wrote more than the option max allows; it was ended", cmd, r["code"], r["signal"], _tail(r["err"]));
+    }
+
+    if (check && (r["timedout"] || r["code"] != 0)) {
+        local why = r["timedout"] ? "timed out after " + str(options["timeout"]) + " s" : r["code"] == nil ? "was ended by signal " + r["signal"] : "exited with " + str(r["code"]);
+        local last = _lastline(r["err"]);
+        throw new ProcError("proc::run: " + str(cmd) + " " + why + (last == "" ? "" : ": " + last), cmd, r["code"], r["signal"], _tail(r["err"]));
+    }
+    return result;
+}
+
+// which(name): the path of the program run would start for name, or nil.
+which(name) {
+    _string("proc::which: the name", name);
+    return process::lookpath(name);
+}
+
+// env(): the program's environment, as a map by name.
+env() {
+    return process::environ();
+}
+
+// exitcode(r): the exit code of a result of run, as a shell gives it: the
+// code, or 128 plus the signal's number for a program a signal ended (1
+// where signals have no numbers). For exit(proc::exitcode(r)).
+exitcode(r) {
+    if (typeof(r) != "map" || !haskey(r, "code")) {
+        throw new Error("proc::exitcode: a result of proc::run, not " + typeof(r), "TypeError");
+    }
+
+    if (r["code"] != nil) return r["code"];
+    local n = r["signal"] == nil ? nil : process::signum(r["signal"]);
+    return n == nil ? 1 : 128 + n;
+}
+
+// _command checks a command: a vector of strings, not empty.
+_command(what, cmd) {
+    if (typeof(cmd) != "vector" || len(cmd) == 0) {
+        throw new Error(what + ": the command is a vector of strings (the program and its arguments), not " + _show(cmd), "TypeError");
+    }
+
+    for (local i = 0; i < len(cmd); i++) {
+        if (typeof(cmd[i]) != "string") {
+            throw new Error(what + ": argument " + str(i + 1) + " of the command is a " + typeof(cmd[i]) + ", not a string", "TypeError");
+        }
+    }
+}
+
+_string(what, v) {
+    if (typeof(v) != "string") {
+        throw new Error(what + " is a string, not " + typeof(v), "TypeError");
+    }
+}
+
+// _stream checks the option out or err.
+_stream(key, v) {
+    if (typeof(v) == "string" && (v == "capture" || v == "inherit" || v == "null" || key == "err" && v == "out")) return v;
+
+    if (typeof(v) == "map" && len(v) == 1 && (haskey(v, "file") || haskey(v, "append"))) {
+        for (local k, p in v) {
+            if (typeof(p) == "string" && p != "") return v;
+        }
+    }
+    throw new Error("proc::run: option " + key + " is \"capture\", \"inherit\", \"null\"" + (key == "err" ? ", \"out\"" : "") + ", {\"file\": path} or {\"append\": path}, not " + _show(v), "ValueError");
+}
+
+// _environment makes the child's environment, as "name=value" strings: the
+// program's own (none with clear), changed by vars.
+_environment(vars, clear) {
+    local all = clear ? {} : process::environ();
+
+    for (local name, v in vars) {
+        if (typeof(name) != "string" || name == "" || find(name, "=") >= 0 || find(name, "\0") >= 0) {
+            throw new Error("proc::run: not a name for an environment variable: " + _show(name), "ValueError");
+        }
+
+        if (v == nil) {
+            delete(all, name);
+        } else if (typeof(v) != "string") {
+            throw new Error("proc::run: the environment variable " + name + " is a string, not " + typeof(v), "TypeError");
+        } else {
+            all[name] = v;
+        }
+    }
+    local list = [];
+
+    for (local name, v in all) push(list, name + "=" + v);
+    return list;
+}
+
+// _tail gives the last 4096 bytes of captured output, or nil.
+_tail(s) {
+    if (s == nil) return nil;
+    return len(s) > 4096 ? slice(s, len(s) - 4096) : s;
+}
+
+// _lastline gives the last line with text in s, for a message.
+_lastline(s) {
+    if (s == nil) return "";
+    local lines = split(trim(s), "\n");
+    local last = trim(lines[len(lines) - 1]);
+    return len(last) > 200 ? slice(last, 0, 200) + "..." : last;
+}
+
+_show(v) {
+    return typeof(v) == "string" ? "\"" + v + "\"" : str(v);
+}

@@ -15,6 +15,25 @@ Two kinds of change need care when you upgrade:
 From v1.0.0 on, what keeps working is in
 [docs/compatibility.md](docs/compatibility.md).
 
+## Unreleased
+
+- Running programs: the module `proc` (written in Kukel, on a new module
+  `process` written in Go). `proc::run(["git", "log", "-n", "5"],
+  options)` runs a program with its arguments as a vector (nothing split,
+  expanded or run by a shell) and gives its exit code, signal, output,
+  errors and time; options `input`, `stdin`, `out`, `err` (capture,
+  inherit, null, a file, errors into the output), `cwd`, `env`,
+  `clearenv`, `timeout`, `check` and `max`. A program that fails is a
+  `proc::ProcError` (with `command`, `code`, `signal` and `err`) unless
+  `check` is false. `proc::which`, `proc::env`, `proc::exitcode`. Every
+  program runs in a process group of its own, which a time limit, a
+  cancellation or Ctrl-C ends with what it started: `kukel run` and `kukel
+  exec` now end those processes on Ctrl-C, TERM and HUP before ending as
+  they did. A Go program that embeds Kukel gets `process` only when it
+  names it in `StandardModules` (`nil` leaves it out). docs/future.md §15,
+  Q118.
+- `fs::glob(pattern)`: the paths that match a pattern, sorted. Q118.
+
 ## v1.6.0 (2026-11-19)
 
 Syntax version 12 and bytecode format 13: programs of version 11 work

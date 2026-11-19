@@ -136,3 +136,34 @@ func TestModeString(t *testing.T) {
 		}
 	}
 }
+
+// fs::glob: sorted matches, in each part of the path; none is []; a
+// malformed pattern is a ValueError.
+func TestGlob(t *testing.T) {
+	got := run(t, `use fs;
+main(args) {
+    local d = args[0];
+    for (local p in ["b.log", "a.log", "c.txt", "sub/x.log", "sub/y.gz"]) {
+        fs::mkdirall(fs::dir(fs::join(d, p)));
+        fs::open(fs::join(d, p), "w")->close();
+    }
+    local cut = fn (v) { local r = []; for (local p in v) push(r, slice(p, len(d) + 1)); return r; };
+    println(cut(fs::glob(fs::join(d, "*.log"))));
+    println(cut(fs::glob(fs::join(d, "*", "*.log"))));
+    println(cut(fs::glob(fs::join(d, "[ab].*"))));
+    println(cut(fs::glob(fs::join(d, "?.txt"))));
+    println(fs::glob(fs::join(d, "*.none")));
+    try { fs::glob("[a"); } catch (e) { println(e->kind, e->message); }
+}`, t.TempDir())
+	sep := string(filepath.Separator)
+	want := `["a.log", "b.log"]
+["sub` + sep + `x.log"]
+["a.log", "b.log"]
+["c.txt"]
+[]
+ValueError fs::glob: malformed pattern "[a"
+`
+	if strings.ReplaceAll(got, `\\`, `\`) != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}

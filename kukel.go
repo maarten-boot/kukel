@@ -46,6 +46,7 @@ import (
 	_ "github.com/maarten-boot/kukel/internal/modules/netmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/osmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/p9mod"
+	_ "github.com/maarten-boot/kukel/internal/modules/processmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/remod"
 	_ "github.com/maarten-boot/kukel/internal/modules/stringsmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/termmod"
@@ -69,10 +70,9 @@ var SystemBuiltins = []string{"readfile", "writefile", "appendfile", "readline",
 func Builtins() []string { return builtins.Names() }
 
 // StandardModules lists the modules written in Go that come with Kukel
-// (db, encoding, events, fs, json, net, os, p9, re, strings, term, time,
-// toml, utf8, uuid, worker, zmq, and tk when built with -tags tk), less
-// those that build
-// tags left out.
+// (db, encoding, events, fs, json, net, os, p9, process, re, strings,
+// term, time, toml, utf8, uuid, worker, zmq, and tk when built with -tags
+// tk), less those that build tags left out.
 func StandardModules() []string { return native.Names() }
 
 // CompileOptions say what a program may use beyond its own code.
@@ -81,11 +81,12 @@ type CompileOptions struct {
 	// A module here hides a standard module of the same name.
 	Modules []*Module
 	// StandardModules lists the standard modules written in Go the program
-	// may use (nil: all of them; an empty, non-nil slice: none). Those
-	// written in Kukel (iter, logging, mail) are always there: they can do
+	// may use (nil: all of them but process, which starts programs and is
+	// there only when named; an empty, non-nil slice: none). Those written
+	// in Kukel (iter, logging, mail, proc) are always there: they can do
 	// nothing the program's own code could not, and use only the modules
 	// allowed here (mail needs net, encoding, time, uuid, re and utf8;
-	// logging net, fs, json, time, os, re and utf8).
+	// logging net, fs, json, time, os, re and utf8; proc process).
 	StandardModules []string
 	// DenyBuiltins lists built-in functions the program may not use
 	// (using one is a compile error); see SystemBuiltins.
@@ -108,7 +109,14 @@ func (o CompileOptions) config() (*native.Config, error) {
 	for _, m := range o.Modules {
 		c.Modules = append(c.Modules, m.prepare())
 	}
-	if o.StandardModules != nil {
+	if o.StandardModules == nil { // every module but those that must be named
+		c.AllowedModules = map[string]bool{}
+		for _, name := range native.Names() {
+			if m, _ := native.Lookup(name); !m.OptIn {
+				c.AllowedModules[name] = true
+			}
+		}
+	} else {
 		c.AllowedModules = map[string]bool{}
 		for _, name := range o.StandardModules {
 			if _, ok := native.Lookup(name); !ok {

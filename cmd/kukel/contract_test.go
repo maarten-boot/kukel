@@ -25,9 +25,11 @@ import (
 // waitExempt are the functions of the modules that wait without
 // native.Wait, and why that is right.
 var waitExempt = map[string]string{
-	"workermod/worker.go: pop":  "its callers pass the wait to begin (native.Wait) as its argument wait",
-	"p9mod/tree.go: call":       "it runs on a 9P server's goroutine, not the interpreter's: the interpreter does not wait",
-	"netmod/tls.go: handshakes": "a TLS listener's own goroutine (go l.handshakes in listen): the interpreter does not wait",
+	"workermod/worker.go: pop":       "its callers pass the wait to begin (native.Wait) as its argument wait",
+	"p9mod/tree.go: call":            "it runs on a 9P server's goroutine, not the interpreter's: the interpreter does not wait",
+	"netmod/tls.go: handshakes":      "a TLS listener's own goroutine (go l.handshakes in listen): the interpreter does not wait",
+	"processmod/process.go: StopAll": "kukel's signal goroutine calls it, ending the programs before kukel ends: no interpreter waits",
+	"processmod/process.go: stop":    "only runCmd calls it, which waits under native.Wait already",
 }
 
 // TestModulesWait checks that the Go functions of the modules that wait

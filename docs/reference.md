@@ -34,8 +34,8 @@ hello, Kukel
 8. [Classes and objects](#8-classes-and-objects)
 9. [Exceptions](#9-exceptions)
 10. [Built-in functions](#10-built-in-functions)
-11. [Modules written in Go](#11-modules-written-in-go): db, encoding, events, fs, json, net, os, p9, re, strings, term, time, tk (with the build tag tk), toml, utf8, uuid, worker, zmq
-12. [Modules written in Kukel](#12-modules-written-in-kukel): iter, logging, mail
+11. [Modules written in Go](#11-modules-written-in-go): db, encoding, events, fs, json, net, os, p9, process, re, strings, term, time, tk (with the build tag tk), toml, utf8, uuid, worker, zmq
+12. [Modules written in Kukel](#12-modules-written-in-kukel): iter, logging, mail, proc
 
 ---
 
@@ -1974,6 +1974,7 @@ An **entry** is a map: `name` (the last part of the path), `size` (bytes),
 | `fs::readdir(path)` | The entries of a directory, by name. A symbolic link is an entry of its own (`link` true, and `dir` false), not what it points to |
 | `fs::stat(path)` | The entry of a file or directory; for a symbolic link, of what it points to, with `link` true |
 | `fs::exists(path)` | Whether there is a file or directory there (a link to nothing, or a loop of links, does not count). It is `false` when the path, or a directory on the way, is missing or a file (`"notes.txt/x"`); another failure, such as a directory that cannot be searched, is an `IOError` |
+| `fs::glob(pattern)` | The paths that match `pattern`, sorted: `*` is any run of characters but the separator, `?` one such character, `[a-z]` one of a class (`[^a-z]` not), `\` takes the next character as it is (not on Windows). Each part of the path may hold them (`"logs/*/*.gz"`); `**` is not special. No match gives `[]`; a malformed pattern (`"[a"`) is a `ValueError`; directories that cannot be read are left out |
 | `fs::walk(path, f)` | Calls `f(p, entry)` for `path` and everything below it, depth first and by name; `p` is `path` joined with the names. When `f` returns `false` for a directory, `walk` does not go into it. Symbolic links are reported, never followed (so a link cannot make a loop), also when `path` itself is one. A directory that cannot be read ends the walk with an `IOError`; an exception in `f` ends it too, and is passed on unchanged |
 | `fs::mkdir(path)`, `fs::mkdirall(path)` | Makes a directory; `mkdirall` also the ones above it that are missing (and is fine when it exists) |
 | `fs::remove(path)` | Removes a file or an empty directory |
@@ -2455,6 +2456,23 @@ served again after its server is closed. There is no authentication or encryptio
 on a trusted network, or over an SSH tunnel or a VPN. A Go program that
 embeds Kukel keeps a program off the network by leaving `p9` out of
 `StandardModules`.
+
+### process
+
+Starting a program and waiting for it, for the module `proc` (section 12),
+which is what programs use: `process` only starts, feeds, captures and
+waits, with no checks of its own beyond its arguments, and gives no
+errors for a program that fails. A Go program that embeds Kukel gets it
+only when it names it in `StandardModules`, also when that is `nil`
+(every other standard module): it is the largest power a module gives
+([embedding.md](embedding.md)).
+
+| Function | Description |
+|---|---|
+| `process::run(argv, options)` | Runs `argv` to its end with the options `proc::run` makes (`in`, `data`, `out`, `err`, `dir`, `env` as `"name=value"` strings, `timeout`, `max`), and gives a map: `started` (false, with `error`, when it could not be started), `code`, `signal`, `signum`, `out`, `err`, `time`, `timedout`, `truncated` |
+| `process::lookpath(name)` | The path of the program `name` stands for, or `nil` |
+| `process::environ()` | The environment as a map |
+| `process::signum(name)` | The number of a signal (`"TERM"`: 15), or `nil` (also on Windows) |
 
 ### re
 
@@ -3466,8 +3484,9 @@ program that embeds Kukel cannot leave them out (`StandardModules` lists
 the modules written in Go), and they are there also without file modules.
 They use only what the program may use: `mail` needs `net`, `encoding`,
 `time`, `uuid`, `re` and `utf8`, `logging` needs `net`, `fs`, `json`,
-`time`, `os`, `re` and `utf8`, and where one of those is left out, `use
-mail;` (`use logging;`) is a compile error that names it.
+`time`, `os`, `re` and `utf8`, `proc` needs `process`, and where one of
+those is left out, `use mail;` (`use logging;`, `use proc;`) is a compile
+error that names it.
 
 ### iter
 
@@ -3831,3 +3850,88 @@ and `verify` as booleans).
   `m->bytes()`.
 - Not there: the HTTP APIs of mail services, DKIM and S/MIME signatures,
   a `sendmail` transport, and receiving mail.
+
+### proc
+
+Running programs: start one, give it input, take its output, wait for it,
+and see how it ended. A program is a vector of strings, the program and
+its arguments, which reach it exactly as given: nothing splits them,
+expands `*` or `$HOME`, or runs a shell, so no value can turn into a
+command. The starting and waiting is the module `process`, written in Go
+(section 11); a Go program that embeds Kukel gives programs `proc` only by
+naming `process` in its `StandardModules`.
+
+```
+use proc;
+
+main() {
+    local r = proc::run(["go", "env", "GOOS", "GOARCH"]);
+    local lines = split(trim(r["out"]), "\n");
+    println(len(lines), "lines:", typeof(r["code"]), r["code"]);
+
+    // A program that fails, looked at instead of thrown:
+    local s = proc::run(["go", "frobnicate"], {"check": false, "err": "capture"});
+
+    if (s["code"] != 0) {
+        println("go said no:", s["code"], find(s["err"], "unknown command") >= 0);
+    }
+
+    // The same failure as an exception:
+    try {
+        proc::run(["go", "frobnicate"], {"err": "capture"});
+    } catch (e) {
+        println(e->kind, e->code, len(e->command));
+    }
+}
+```
+
+```
+$ kukel run go.kkl
+2 lines: int 0
+go said no: 2 true
+ProcError 2 2
+```
+
+| Function | Description |
+|---|---|
+| `proc::run(cmd [, options])` | Runs `cmd`, a vector of strings (the program, found on `PATH` unless it holds a `/`, and its arguments), to its end, and gives a map: `"code"` (the exit code; `nil` when a signal ended it), `"signal"` (that signal, `"TERM"`, `"KILL"`, ...; else `nil`), `"out"` and `"err"` (what it wrote, when captured; else `nil`), `"time"` (the seconds it ran) and `"timedout"`. A program that fails, an exit code other than 0, a signal or the time limit, is a `proc::ProcError` (unless `check` is false), and so is one that cannot be started (`program x not found`) |
+| `proc::which(name)` | The path of the program `run` would start for `name`, or `nil` |
+| `proc::env()` | The environment, as a map by name (`getenv(name)` reads one variable) |
+| `proc::exitcode(r)` | The exit code of a result of `run` as a shell gives it: the code, or 128 plus the signal's number for a program a signal ended (TERM: 143). For `exit(proc::exitcode(r))` |
+
+The options of `run`, a map (another key is a `ValueError`):
+
+| Option | |
+|---|---|
+| `"input"` | A string written to the program's standard input, which is then closed. Without it the input is empty |
+| `"stdin"` | `"inherit"`: the program reads the standard input of the Kukel program (a terminal too, to answer questions); `"null"`: none (the default). Not with `input` |
+| `"out"`, `"err"` | Where the output and the errors go: `"capture"` (into the result; the default for `out`), `"inherit"` (where the Kukel program's go; the default for `err`), `"null"` (dropped), `{"file": path}` (a file, emptied first) or `{"append": path}`; for `err` also `"out"`, into the same stream as the output, in the order written. Paths are relative to the Kukel program's directory, not `cwd` |
+| `"cwd"` | The directory the program runs in |
+| `"env"` | A map of environment variables to set (a `nil` value removes one), on top of the Kukel program's environment; with `"clearenv": true`, only these. A name that is empty or holds `=` is a `ValueError` |
+| `"timeout"` | Seconds (more than 0). When they pass, the program gets TERM, and KILL 2 seconds later; the result has `"timedout": true`, which `check` makes a `ProcError` (`... timed out after 5 s`) |
+| `"check"` | `true` (the default): a failing program is a `ProcError`; `false`: the result says how it ended, and the program goes on |
+| `"max"` | The most bytes captured of `out` and of `err` each, 64 MiB by default. A program that writes more is ended, and that is a `ProcError` also without `check`: its output is not all there |
+
+- **`proc::ProcError`** (kind `ProcError`) has, besides `message` and
+  `kind`: `command` (the vector), `code`, `signal`, and `err`, the last
+  4096 bytes of what the program wrote to its standard error when that was
+  captured (else `nil`). Its message names the command and how it ended,
+  with the last line of `err`: `proc::run: ["git", "log"] exited with 128:
+  fatal: not a git repository`.
+- **What it starts, it ends**: a program runs in a process group of its own
+  (on Unix; not when it reads the standard input it inherits, which a
+  terminal gives only to the foreground group), so that a time limit, a
+  cancellation (a Go program's limit) and Ctrl-C, TERM or HUP to `kukel
+  run` end it with the programs it started in turn: nothing is left
+  running. Ctrl-C then ends `kukel` as it always does (exit status 130).
+  On Windows a program is ended alone.
+- **Values never become commands**: give each value as an argument of its
+  own (`["grep", "-c", "--", pattern, path]`); a value glued into one
+  string for a shell (`sh -c "grep " + pattern`) can be read as commands.
+  A NUL byte in an argument is a `ValueError`.
+- An argument a program cannot take arrives anyway (it is the program's to
+  refuse); a `cmd` that is not a non-empty vector of strings is a
+  `TypeError`.
+- Not there yet (docs/future.md §15): pipelines without a shell
+  (`proc::pipe`), talking to a running program (`proc::start`), a shell
+  for when it is wanted (`proc::sh`).

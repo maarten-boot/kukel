@@ -8,11 +8,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"text/tabwriter"
+	"time"
 
 	"github.com/maarten-boot/kukel/internal/ast"
 	"github.com/maarten-boot/kukel/internal/builtins"
@@ -30,6 +33,7 @@ import (
 	_ "github.com/maarten-boot/kukel/internal/modules/netmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/osmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/p9mod"
+	"github.com/maarten-boot/kukel/internal/modules/processmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/remod"
 	_ "github.com/maarten-boot/kukel/internal/modules/stringsmod"
 	_ "github.com/maarten-boot/kukel/internal/modules/termmod"
@@ -277,7 +281,9 @@ func runProgram(prog *bytecode.Program, name string, progArgs []string, stdin io
 			native.SetTerminal(machine, in, outFile) // module term: raw mode and the size, if they are a terminal
 		}
 	}
+	stop := guardChildren()
 	code, err := machine.Run(progArgs)
+	stop()
 	ferr := out.Flush()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -288,6 +294,40 @@ func runProgram(prog *bytecode.Program, name string, progArgs []string, stdin io
 		return writeResult(ferr, stderr)
 	}
 	return code
+}
+
+// guardChildren ends the programs that module process started when kukel
+// gets Ctrl-C (SIGINT), TERM or HUP, and then lets the signal end kukel as
+// it would have: a child in a process group of its own does not get the
+// terminal's Ctrl-C (docs/future.md §15.7). A signal that was ignored when
+// kukel started (a program a shell put in the background) stays so. It
+// gives the function that stops guarding.
+func guardChildren() func() {
+	var sigs []os.Signal
+	for _, s := range []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP} {
+		if !signal.Ignored(s) {
+			sigs = append(sigs, s)
+		}
+	}
+	if len(sigs) == 0 {
+		return func() {}
+	}
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, sigs...)
+	quit := make(chan struct{})
+	go func() {
+		select {
+		case s := <-c:
+			processmod.StopAll()
+			signal.Reset(s)
+			if self, err := os.FindProcess(os.Getpid()); err == nil && self.Signal(s) == nil {
+				time.Sleep(time.Second) // the signal ends the process meanwhile
+			}
+			os.Exit(130)
+		case <-quit:
+		}
+	}()
+	return func() { signal.Stop(c); close(quit) }
 }
 
 // endProgram closes what the program left open (VM.End: its files). A

@@ -814,7 +814,7 @@ Each step is usable on its own and prepares the next:
 | 22 | Decimals: the literal `12.50d`, the VM, the built-ins (14.8, step 2) | 21 | done (Q117), with the reference, the grammars and the editors |
 | 23 | Decimals in `json`, `db` and the Go package (14.8, step 3) | 22 | done (Q117), and `toml::encode` |
 | 24 | Decimals: documents, editors, an invoice example (14.8, step 4) | 23 | done (Q117): the booklet (chapters 2, 14 and 16) and `examples/invoice.kkl` |
-| 25 | Processes: `proc::run`, `ProcError`, cancellation; `fs::glob` (15.8, step 1) | — | proposed (Q118) |
+| 25 | Processes: `proc::run`, `ProcError`, cancellation; `fs::glob` (15.8, step 1) | — | done (Q118): `proc` in Kukel on the Go module `process` |
 | 26 | Processes: `proc::pipe`, `proc::start` and `proc::Process` (15.8, step 2) | 25 | proposed (Q118) |
 | 27 | Processes: `proc::sh` with `args`; events (15.8, step 3) | 26 | proposed (Q118) |
 | 28 | Processes: documents, the booklet, an example (15.8, step 4) | 27 | proposed (Q118) |
@@ -2376,8 +2376,24 @@ Each step is a branch of its own, merged when its tests pass.
 
 ## 15. Processes: a module `proc`
 
-*A proposal (2026-11-19, TODO.md Q118); not built. The open questions
-of 15.10 were all answered as proposed the same day.*
+*A proposal (2026-11-19, TODO.md Q118); step 1 built (2026-11-19, 15.8,
+with the changes below). The open questions of 15.10 were all answered
+as proposed the same day.*
+
+*As built, step 1*: (1) A module written in Go cannot throw an object of
+a Kukel class, so `proc` is two layers, as `mail` is (the user's choice):
+`proc`, written in Kukel (`internal/stdlib/proc.kkl`: `ProcError`, the
+options, `check`, the messages), on the Go module `process`, which only
+starts, feeds, captures and waits. F-74's opt-in applies to `process`: a
+Go program names it in `StandardModules` (`nil` leaves it out), and `use
+proc;` needs it, as `use mail;` needs `net`. (2) `"input"` is text only;
+`"stdin": "inherit"` gives the program's own standard input (15.2 had
+`"inherit"` as a value of `input`, which a text could not be told from).
+(3) A child that inherits standard input stays in the foreground process
+group, which alone may read a terminal. (4) A child in a group of its own
+does not get the terminal's Ctrl-C, so `kukel run` and `kukel exec` now
+catch INT, TERM and HUP, end every process `process` started, and then
+let the signal end `kukel` as before (exit status 130 for Ctrl-C).
 
 Kukel cannot start a program today: `os` has only `os::pid()`. That keeps
 it out of the work bash scripts do, gluing programs together, although

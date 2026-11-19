@@ -38,12 +38,15 @@ A **`Program`** is compiled code. It never changes while it runs, so one
 The package brings the standard modules written in Go (`StandardModules()`
 lists them). The build tags of the README leave large ones out of a Go
 program that imports it too: `go build -tags nopostgres,nomysql,nozmq,no9p`.
-The Tk module (`tk`) is there only with `-tags tk`. The standard modules
-written in Kukel (`iter`, `logging`, `mail`, reference.md §12) are always there:
+The Tk module (`tk`) is there only with `-tags tk`. The module `process`,
+which starts programs, is there only when a Go program names it in
+`StandardModules` (section 5). The standard modules
+written in Kukel (`iter`, `logging`, `mail`, `proc`, reference.md §12) are always there:
 they can do nothing the program's own code could not, so `StandardModules`
 and `NoFileModules` do not limit them. They use only the modules the
 program may use: where `net` is left out, `use mail;` and `use logging;`
-are a compile error ("module net is not available in this program").
+are a compile error ("module net is not available in this program"), and
+`use proc;` where `process` is.
 
 | Function | |
 |---|---|
@@ -316,9 +319,12 @@ opts := kukel.CompileOptions{
   one is a compile error ("built-in function readfile is not available in
   this program"). The names stay reserved.
 - `StandardModules` lists the standard modules written in Go allowed (nil:
-  all; `[]string{}`: none); those written in Kukel (`iter`, `logging`, `mail`) can do
+  all but `process`; `[]string{}`: none); those written in Kukel (`iter`, `logging`, `mail`, `proc`) can do
   nothing the program cannot, and are always there (`logging` and `mail`
-  only where `net` and the others they use are allowed). `os` gives only
+  only where `net` and the others they use are allowed, `proc` only where
+  `process` is). `process` starts programs of the computer, the largest
+  power a module gives, so it must be named, also where every other
+  module is allowed (`kukel.StandardModules()` lists it with the others). `os` gives only
   the process id. `fs`, `db` and `p9` reach files (as do the
   built-ins of `SystemBuiltins`; `p9::disk` serves a directory, and can
   let clients change it), `net`, `zmq` and `p9` the network. A name the build does not have is an error, so a

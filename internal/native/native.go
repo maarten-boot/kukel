@@ -34,6 +34,10 @@ type Module struct {
 	Funcs   map[string]Func
 	Consts  map[string]value.Value // nil, booleans, numbers and strings
 	Classes []*Class
+	// OptIn: a Go program gets the module only when it names it in
+	// StandardModules, also when that is nil (every other module): for
+	// process, which starts programs (docs/future.md §15, F-74).
+	OptIn bool
 
 	globals map[string]value.Value // by qualified name, built by Register
 }
