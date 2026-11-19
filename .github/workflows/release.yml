@@ -39,8 +39,7 @@ jobs:
         run: make dist VERSION=${{ github.ref_name }}
       - name: Build the booklet (a PDF; SHA256SUMS made again with it)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 fonts-dejavu-core
+          tools/apt-install.sh libpango-1.0-0 libpangoft2-1.0-0 fonts-dejavu-core
           make booklet VERSION=${{ github.ref_name }}
       - name: Publish the release
         env:

@@ -32,10 +32,11 @@ jobs:
         run: make test
       - name: Test the smallest build (build tags)
         run: make test-small && make small && ./bin/kukel-small version
+      # tools/apt-install.sh tries again, waiting longer each time, when
+      # Ubuntu's servers do not answer (a failed run on 2026-11-19).
       - name: Test the tk build (windows on Xvfb, clicked with xdotool)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends xvfb xdotool
+          tools/apt-install.sh xvfb xdotool
           make test-tk && make tk && ./bin/kukel-tk version
       - name: Build
         run: make build && ./bin/kukel version
@@ -76,8 +77,7 @@ jobs:
         run: tools/release-notes.sh "$(git describe --tags --abbrev=0)" "${{ github.repository }}"
       - name: Build the booklet
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 fonts-dejavu-core
+          tools/apt-install.sh libpango-1.0-0 libpangoft2-1.0-0 fonts-dejavu-core
           make booklet booklet-proof
       - name: Keep the booklet (and its copy to proofread)
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2
