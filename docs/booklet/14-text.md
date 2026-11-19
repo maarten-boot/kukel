@@ -146,7 +146,8 @@ ValueError json::decode: invalid JSON at byte 10: invalid character '}' where a 
 ```
 
 - A JSON object becomes a map (in the order of the text), an array a
-  vector, `null` is `nil`; numbers become ints or floats.
+  vector, `null` is `nil`; numbers become ints or floats, or decimals
+  when you ask for them (below).
 - `json::encode(v)` writes the opposite; with a second argument (spaces)
   it spreads the text over lines, for people to read.
 - Invalid JSON is a `ValueError` that says where it goes wrong.
@@ -155,6 +156,28 @@ ValueError json::decode: invalid JSON at byte 10: invalid character '}' where a 
 With `readfile` and `writefile` (chapter 13) that makes a configuration
 file of a few lines of code:
 `local config = json::decode(readfile("config.json"));`.
+
+Prices in JSON are best read as decimals (chapter 2), which keep every
+digit: `{"decimals": true}` makes every number with a point or an
+exponent a decimal, and `json::encode` writes a decimal's digits as they
+are:
+
+```
+use json;
+
+main() {
+    local order = json::decode("{\"item\": \"pen\", \"price\": 1.10, \"qty\": 3}", {"decimals": true});
+    order["total"] = order["price"] * order["qty"];
+    println(order["price"], typeof(order["price"]), order["total"]);
+    println(json::encode(order));
+}
+```
+
+```
+$ kukel run prices.kkl
+1.10 decimal 3.30
+{"item":"pen","price":1.10,"qty":3,"total":3.30}
+```
 
 ## Configuration: `toml`
 

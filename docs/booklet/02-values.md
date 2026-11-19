@@ -16,6 +16,7 @@ main() {
         typeof(true),
         typeof(42),
         typeof(4.2),
+        typeof(4.20d),
         typeof("hi"),
     );
     println(
@@ -30,7 +31,7 @@ main() {
 
 ```
 $ kukel run types.kkl
-nil bool int float string
+nil bool int float decimal string
 vector map function class object
 ```
 
@@ -40,6 +41,7 @@ vector map function class object
 | bool | `true`, `false` | |
 | int | `42`, `-7`, `0xFF`, `0b1010`, `1_000_000`, `'A'` | a whole number of 64 bits |
 | float | `3.5`, `1e6`, `.5` | a number with a fraction (64-bit floating point) |
+| decimal | `12.50d`, `3d`, `0.21d` | an exact number in base 10, for money and amounts (below) |
 | string | `"hello"` | text: a row of bytes (chapter 3) |
 | vector | `[1, "two", [3]]` | a list of values (chapter 3) |
 | map | `{"name": "Ann", "age": 41}` | values found by a key (chapter 3) |
@@ -51,8 +53,8 @@ vector map function class object
 
 ## Numbers
 
-Kukel has two kinds of numbers, ints and floats, and keeps them apart
-where it matters:
+Kukel has three kinds of numbers: ints, floats and decimals (the next
+section). It keeps ints and floats apart where it matters:
 
 ```
 main() {
@@ -96,6 +98,50 @@ inf -inf nan
 - `'A'` is the code of a character, an int: 65. `_` may separate digits
   for readability.
 
+## Decimals: exact amounts
+
+A float holds a number in base 2, so most fractions written in base 10
+are a little off: `0.1 + 0.2` is not quite `0.3`, and a sum of many
+prices drifts. A *decimal*, written with a `d` after the number, is exact
+in base 10 and keeps the digits after its point, its *scale*:
+
+```
+main() {
+    println(0.1 + 0.2, 0.1d + 0.2d);
+
+    local price = 12.50d;
+    local net = price * 3;
+    local vat = net * 0.21d;
+    println(net, vat, round(vat, 2), net + round(vat, 2));
+
+    println(7.50d / 2, 10d / 3, 2.50d * 1.10d);
+    println(12.50d == 12.5d, 2d == 2, [12.50d, 12.5]);
+    println(decimal("19.99") + 1, decimal(0.1), decimal(2, 2), float(1.25d));
+}
+```
+
+```
+$ kukel run money.kkl
+0.30000000000000004 0.3
+37.50 7.8750 7.88 45.38
+3.75 3.333333333333333333333333333333333 2.7500
+true true [12.50d, 12.5]
+20.99 0.1 2.00 1.25
+```
+
+- `+`, `-` and `*` are exact. A sum keeps the larger scale of the two
+  (`37.50`), a product the scales added up (`7.8750`); `round(x, 2)`
+  rounds to two digits, halves away from zero.
+- `/` is exact when it can be, else it gives 34 significant digits.
+- An int with a decimal is exact too (`price * 3`). A float with a
+  decimal is a `TypeError`, since the float may already be off: write
+  `1.1d`, or convert with `decimal(x)`.
+- `12.50d == 12.5d`: the scale counts for printing, not for `==`. Inside a
+  vector a decimal prints with its `d`, so you can tell it from a float.
+- `decimal(x)` makes one from a string, int or float; `float(x)` and
+  `int(x)` turn it back. Chapter 14 reads decimals from JSON, chapter 16
+  from a database.
+
 ## Converting
 
 `+` adds numbers and joins strings, but it does not mix them: `"total " +
@@ -131,7 +177,7 @@ n)` needs no conversion at all.
 ## True and false
 
 `if`, `while` and the other statements that decide take any value.
-`nil`, `false`, `0` and `0.0` count as false; everything else counts as
+`nil`, `false`, `0`, `0.0` and a zero decimal (`0d`, `0.00d`) count as false; everything else counts as
 true, also the empty string, the empty vector and the empty map:
 
 ```
@@ -161,7 +207,9 @@ counts as.
 
 `==` and `!=` compare:
 
-- numbers by value, also an int with a float: `1 == 1.0` is true;
+- numbers by value, also an int with a float or a decimal: `1 == 1.0`
+  and `1.50d == 1.5` are true (but `0.1d == 0.1` is false: the float is
+  not exactly 0.1);
 - strings by their text: `"a" == "a"`;
 - `nil`, `true` and `false` by value;
 - vectors, maps, objects, classes and functions by *identity*: two of
@@ -170,7 +218,7 @@ counts as.
   taken from an object (`p->m`, chapter 8) equals the same member
   function taken from the same object.
 
-Values of different types are never equal (but for ints and floats):
+Values of different types are never equal (but for numbers):
 `nil == false` and `0 == "0"` are false.
 
 ## Shared, not copied

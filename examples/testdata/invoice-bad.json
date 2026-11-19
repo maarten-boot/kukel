@@ -1,0 +1,8 @@
+{
+  "number": "2026-0118",
+  "customer": "Test",
+  "lines": [
+    {"item": "ok", "price": 1.00, "qty": 1, "vat": 0.21},
+    {"item": "half", "price": 2.50, "qty": 1.5, "vat": 0.21}
+  ]
+}

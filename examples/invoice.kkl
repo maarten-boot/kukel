@@ -1,0 +1,172 @@
+// invoice: prices an invoice exactly, with decimals (docs/future.md §14):
+// the lines, the VAT per rate and the totals, from JSON to text, JSON
+// and a database.
+//
+//     kukel run examples/invoice.kkl -- [-json] [-db url] [file]
+//
+// The invoice is JSON (from the file, or standard input): a number, a
+// customer, an optional date, and lines, each with an item, a price, a
+// quantity (an int) and a VAT rate (0.21 for 21%). json::decode reads its
+// numbers with {"decimals": true}, so 18.95 is exactly 18.95, not the float
+// nearest to it.
+//
+// A line's amount is price * qty in cents (exact for prices in cents;
+// halves away from zero beyond). The VAT is computed per rate, on
+// the sum of the lines with that rate, and rounded to cents (halves away
+// from zero), as invoices do; the total is the net plus the VAT.
+//
+// The output is the invoice as text, or with -json as JSON with the
+// amounts written exactly. With -db the invoice and its lines are saved
+// (tables invoice and invline, amounts in DECIMAL columns, on a connection
+// with the option decimals) and read back to check them. The exit code is
+// 0, 1 for an invoice that is not right, 2 for a wrong command line.
+use db;
+use json;
+
+const CENTS = 2;
+
+main(args) {
+    local asJSON = false, url = nil, file = nil;
+
+    for (local i = 0; i < len(args); i++) {
+        switch (args[i]) {
+            case "-json":
+                asJSON = true;
+                break;
+            case "-db":
+                if (i + 1 == len(args)) return usage("-db needs a URL");
+                url = args[++i];
+                break;
+            default:
+                if (file != nil || find(args[i], "-") == 0) return usage("unknown argument " + args[i]);
+                file = args[i];
+        }
+    }
+    local inv;
+
+    try {
+        inv = priced(json::decode(file == nil ? readall() : readfile(file), {"decimals": true}));
+    } catch (e) {
+        eprintln("invoice: " + e->message);
+        return 1;
+    }
+
+    if (url != nil) save(url, inv);
+    println(asJSON ? json::encode(inv, "  ") : text(inv));
+    return 0;
+}
+
+usage(why) {
+    eprintln("invoice: " + why);
+    eprintln("usage: invoice [-json] [-db url] [file]");
+    return 2;
+}
+
+// readall reads standard input to its end.
+readall() {
+    local lines = [];
+
+    for (local l = readline(); l != nil; l = readline()) push(lines, l);
+    return join(lines, "\n");
+}
+
+// priced checks an invoice and adds the amounts: each line's amount, the
+// VAT per rate, the net, the VAT and the total.
+priced(inv) {
+    if (typeof(inv) != "map" || typeof(inv["lines"]) != "vector" || len(inv["lines"]) == 0) {
+        throw new Error("an invoice is an object with lines", "ValueError");
+    }
+    local net = 0.00d, byRate = {};
+
+    for (local i = 0; i < len(inv["lines"]); i++) {
+        local l = inv["lines"][i], where = "line " + str(i + 1) + ": ";
+
+        if (!isAmount(l["price"]) || l["price"] < 0) throw new Error(where + "the price is not an amount: " + str(l["price"]), "ValueError");
+
+        if (typeof(l["qty"]) != "int" || l["qty"] <= 0) throw new Error(where + "the quantity is not a whole number above 0: " + str(l["qty"]), "ValueError");
+
+        if (!isAmount(l["vat"]) || l["vat"] < 0 || l["vat"] >= 1) throw new Error(where + "the VAT rate is not from 0 to 1: " + str(l["vat"]), "ValueError");
+        l["amount"] = decimal(l["price"] * l["qty"], CENTS);
+        net += l["amount"];
+        local rate = l["vat"]; // 0.21 and 0.210 are one key: keys are compared as numbers
+        byRate[rate] = (haskey(byRate, rate) ? byRate[rate] : 0.00d) + l["amount"];
+    }
+    local vat = 0.00d, rates = [], order = keys(byRate);
+    sort(order);
+
+    for (local rate in order) {
+        local v = round(byRate[rate] * rate, CENTS);
+        push(rates, {"rate": rate, "over": byRate[rate], "vat": v});
+        vat += v;
+    }
+    inv["net"] = net;
+    inv["vat"] = rates;
+    inv["total"] = net + vat;
+    return inv;
+}
+
+isAmount(x) { return typeof(x) == "decimal" || typeof(x) == "int"; }
+
+// text lays the invoice out for people, the amounts in columns.
+text(inv) {
+    local out = ["Invoice " + inv["number"] + (haskey(inv, "date") ? "  " + inv["date"] : ""), "To: " + inv["customer"], ""];
+
+    for (local l in inv["lines"]) {
+        push(out, pad(l["item"], -24) + pad(str(l["qty"]), 4) + " x " + pad(str(l["price"]), 8) + pad(str(l["amount"]), 11) + "  " + percent(l["vat"]));
+    }
+    push(out, pad("", 50, "-"));
+    push(out, pad("Net", -39) + pad(str(inv["net"]), 11));
+
+    for (local r in inv["vat"]) {
+        push(out, pad("VAT " + percent(r["rate"]) + " over " + str(r["over"]), -39) + pad(str(r["vat"]), 11));
+    }
+    push(out, pad("Total", -39) + pad(str(inv["total"]), 11));
+    return join(out, "\n");
+}
+
+// percent shows a rate as a percentage: 0.21 is 21%, 0.095 is 9.5%.
+percent(rate) {
+    local p = str(decimal(rate) * 100);
+
+    while (find(p, ".") >= 0 && (p[len(p) - 1] == '0' || p[len(p) - 1] == '.')) p = slice(p, 0, len(p) - 1);
+    return p + "%";
+}
+
+// pad makes s width characters wide: on the left with a positive width
+// (numbers), on the right with a negative one (text).
+pad(s, width, fill = " ") {
+    local n = width < 0 ? -width : width;
+    local more = "";
+
+    while (len(s) + len(more) < n) more += fill;
+    return width < 0 ? s + more : more + s;
+}
+
+// save writes the invoice and its lines, and reads them back: the
+// amounts must come back exactly as they went in.
+save(url, inv) {
+    with (local conn = db::open(url, {"decimals": true})) {
+        conn->exec("CREATE TABLE IF NOT EXISTS invoice (number TEXT PRIMARY KEY, customer TEXT, net DECIMAL(12,2), total DECIMAL(12,2))");
+        conn->exec("CREATE TABLE IF NOT EXISTS invline (number TEXT, pos INTEGER, item TEXT, price DECIMAL(12,2), qty INTEGER, vat DECIMAL(4,3), amount DECIMAL(12,2))");
+        conn->begin();
+        conn->exec("DELETE FROM invline WHERE number = ?", inv["number"]);
+        conn->exec("DELETE FROM invoice WHERE number = ?", inv["number"]);
+        conn->exec("INSERT INTO invoice VALUES (?, ?, ?, ?)", inv["number"], inv["customer"], inv["net"], inv["total"]);
+
+        for (local i = 0; i < len(inv["lines"]); i++) {
+            local l = inv["lines"][i];
+            conn->exec("INSERT INTO invline VALUES (?, ?, ?, ?, ?, ?, ?)", inv["number"], i + 1, l["item"], l["price"], l["qty"], l["vat"], l["amount"]);
+        }
+        conn->commit();
+
+        local sum = 0.00d;
+
+        for (local row in conn->query("SELECT amount FROM invline WHERE number = ? ORDER BY pos", inv["number"])) sum += row["amount"];
+        local back = conn->first("SELECT net, total FROM invoice WHERE number = ?", inv["number"]);
+
+        if (sum != inv["net"] || back["net"] != inv["net"] || back["total"] != inv["total"]) {
+            throw new Error("the database gave back other amounts: " + str(back), "DBError");
+        }
+        eprintln("saved invoice " + inv["number"] + ": net " + str(back["net"]) + ", total " + str(back["total"]));
+    }
+}

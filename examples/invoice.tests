@@ -1,0 +1,109 @@
+# Tests of invoice.kkl, run in examples/ (see examples/README.md). The
+# database is in memory: nothing is left behind.
+
+$ testdata/invoice.json
+Invoice 2026-0117  2026-11-19
+To: Bakkerij De Molen
+
+flour, 25 kg               4 x    18.95      75.80  9%
+yeast, 500 g              12 x     3.49      41.88  9%
+baking paper               3 x     7.25      21.75  21%
+delivery                   1 x    12.50      12.50  21%
+--------------------------------------------------
+Net                                         151.93
+VAT 9% over 117.68                           10.59
+VAT 21% over 34.25                            7.19
+Total                                       169.71
+
+# The amounts in JSON are exact, with their cents.
+$ -json testdata/invoice.json
+{
+  "number": "2026-0117",
+  "customer": "Bakkerij De Molen",
+  "date": "2026-11-19",
+  "lines": [
+    {
+      "item": "flour, 25 kg",
+      "price": 18.95,
+      "qty": 4,
+      "vat": 0.09,
+      "amount": 75.80
+    },
+    {
+      "item": "yeast, 500 g",
+      "price": 3.49,
+      "qty": 12,
+      "vat": 0.09,
+      "amount": 41.88
+    },
+    {
+      "item": "baking paper",
+      "price": 7.25,
+      "qty": 3,
+      "vat": 0.21,
+      "amount": 21.75
+    },
+    {
+      "item": "delivery",
+      "price": 12.50,
+      "qty": 1,
+      "vat": 0.21,
+      "amount": 12.50
+    }
+  ],
+  "net": 151.93,
+  "vat": [
+    {
+      "rate": 0.09,
+      "over": 117.68,
+      "vat": 10.59
+    },
+    {
+      "rate": 0.21,
+      "over": 34.25,
+      "vat": 7.19
+    }
+  ],
+  "total": 169.71
+}
+
+# Saved and read back: the amounts come back as they went in.
+$ -db sqlite::memory: testdata/invoice.json
+Invoice 2026-0117  2026-11-19
+To: Bakkerij De Molen
+
+flour, 25 kg               4 x    18.95      75.80  9%
+yeast, 500 g              12 x     3.49      41.88  9%
+baking paper               3 x     7.25      21.75  21%
+delivery                   1 x    12.50      12.50  21%
+--------------------------------------------------
+Net                                         151.93
+VAT 9% over 117.68                           10.59
+VAT 21% over 34.25                            7.19
+Total                                       169.71
+! saved invoice 2026-0117: net 151.93, total 169.71
+
+# A price beyond cents is rounded per line; a rate of 9.5% stays 9.5%.
+$ < testdata/invoice-odd.json
+Invoice 1
+To: c
+
+x                          3 x    1.005       3.02  9.5%
+--------------------------------------------------
+Net                                           3.02
+VAT 9.5% over 3.02                            0.29
+Total                                         3.31
+
+$ testdata/invoice-bad.json
+! invoice: line 2: the quantity is not a whole number above 0: 1.5
+exit 1
+
+$ -x
+! invoice: unknown argument -x
+! usage: invoice [-json] [-db url] [file]
+exit 2
+
+$ -db
+! invoice: -db needs a URL
+! usage: invoice [-json] [-db url] [file]
+exit 2

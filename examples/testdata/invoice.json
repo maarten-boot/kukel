@@ -1,0 +1,11 @@
+{
+  "number": "2026-0117",
+  "customer": "Bakkerij De Molen",
+  "date": "2026-11-19",
+  "lines": [
+    {"item": "flour, 25 kg", "price": 18.95, "qty": 4, "vat": 0.09},
+    {"item": "yeast, 500 g", "price": 3.49, "qty": 12, "vat": 0.09},
+    {"item": "baking paper", "price": 7.25, "qty": 3, "vat": 0.21},
+    {"item": "delivery", "price": 12.50, "qty": 1, "vat": 0.21}
+  ]
+}

@@ -24,8 +24,8 @@ takes them one by one.
 
 1. [Getting started](01-getting-started.md): installing, the first
    program, the commands
-2. [Values and types](02-values.md): numbers, strings, `nil`, true and
-   false; what is equal and what is shared
+2. [Values and types](02-values.md): numbers (also exact decimals for
+   money), strings, `nil`, true and false; what is equal and what is shared
 3. [Strings, vectors and maps](03-collections.md)
 4. [Variables and scope](04-scope.md): `local`, `global`, `const`, and
    where a name can be seen

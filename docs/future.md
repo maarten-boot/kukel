@@ -812,7 +812,7 @@ Each step is usable on its own and prepares the next:
 | 21 | Decimals: the value and its arithmetic (14.8, step 1) | — | done (Q117) |
 | 22 | Decimals: the literal `12.50d`, the VM, the built-ins (14.8, step 2) | 21 | done (Q117), with the reference, the grammars and the editors |
 | 23 | Decimals in `json`, `db` and the Go package (14.8, step 3) | 22 | done (Q117), and `toml::encode` |
-| 24 | Decimals: documents, editors, an invoice example (14.8, step 4) | 23 | proposed (Q117) |
+| 24 | Decimals: documents, editors, an invoice example (14.8, step 4) | 23 | done (Q117): the booklet (chapters 2, 14 and 16) and `examples/invoice.kkl` |
 
 Steps 4, 5, 7 and 8 are independent of each other once 1 and 3 exist. A
 `ffi` module (1.6) can come at any point after step 1.
@@ -2155,7 +2155,7 @@ schematic's blocks once the synth serves `/schematic` (the layout alone).
 
 ## 14. Decimals: a type `decimal` in the language
 
-*A proposal (2026-11-19, TODO.md Q117); steps 1 to 3 built (14.8). F-32 (section 10.9)
+*A proposal (2026-11-19, TODO.md Q117); built (2026-11-19, steps 21 to 24 of section 8; reference.md §2, §3, §6, `json`, `db`). F-32 (section 10.9)
 chose a decimal type in the language; the literal (`12.50d`), keeping the
 scale, refusing floats in arithmetic, and the number of digits were
 chosen the same day (14.2, 14.3), and the open questions of 14.10 were

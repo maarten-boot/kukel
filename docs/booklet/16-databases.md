@@ -216,6 +216,45 @@ Objects can also point to each other: an order to its customer, a
 customer to their orders. The [reference](../reference.md#db) shows how
 (`relations()`, `load`, `include`).
 
+## Amounts: decimals
+
+Money belongs in `DECIMAL` (or `NUMERIC`) columns, and in decimals in
+Kukel (chapter 2). Open the connection with `{"decimals": true}`, and such
+columns come back as decimals of the column's scale; a decimal goes in as
+it is:
+
+```
+use db;
+
+main() {
+    with (local conn = db::open("sqlite::memory:", {"decimals": true})) {
+        conn->exec("CREATE TABLE lines (item TEXT, price DECIMAL(10,2), qty INTEGER)");
+        conn->exec("INSERT INTO lines VALUES (?, ?, ?)", "pen", 1.10d, 3);
+        conn->exec("INSERT INTO lines VALUES (?, ?, ?)", "pad", 4.5d, 1);
+
+        local total = 0.00d;
+
+        for (local row in conn->query("SELECT * FROM lines")) {
+            println(row);
+            total += row["price"] * row["qty"];
+        }
+        println("total", total);
+    }
+}
+```
+
+```
+$ kukel run amounts.kkl
+{"item": "pen", "price": 1.10d, "qty": 3}
+{"item": "pad", "price": 4.50d, "qty": 1}
+total 7.80
+```
+
+The `4.5d` that went in comes back as `4.50d`, the column's two digits.
+SQLite keeps 15 digits of a number in such a column, plenty for prices;
+PostgreSQL and MySQL keep them all. Without the option the columns give
+floats, as they always did.
+
 ## Errors
 
 What the database refuses, such as SQL that is not valid or a broken

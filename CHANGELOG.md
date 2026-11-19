@@ -41,6 +41,10 @@ unchanged, but `.kkc` files must be built again (`kukel build`).
   The Go package: `kukel.Decimal(text)`, `v.AsDecimal()`, and `ToGo` gives
   a decimal's text. Without the options, `json` and `db` read what they
   read before. Q117.
+- Booklet: decimals in chapter 2 ("Decimals: exact amounts"), prices in
+  JSON in chapter 14, and "Amounts: decimals" in chapter 16.
+  `examples/invoice.kkl`: an invoice priced exactly, with the VAT per
+  rate, from JSON to text, JSON and a database. Q117.
 
 ## v1.5.0 (2026-11-19)
 
