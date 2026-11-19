@@ -1017,8 +1017,11 @@ makenotes(page, chain) {
         push(geometry, ["notes", extend(chain, cell(notesbox))]);
     }
     local typed = fn() {
-        if (notesbox->text() != notestext) {
+        local now = notesbox->text();
+
+        if (now != notestext) {
             notesdirty = true;
+            trace("typed notes", len(now), "bytes"); // (a test waits for it: keys arrive later than xdotool returns)
 
             if (notestimer != nil) {
                 notestimer->cancel();

@@ -435,6 +435,9 @@ func TestLmwguiFiles(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	xdo(t, "mousemove", fmt.Sprint(wx+notes[0]+40), fmt.Sprint(wy+notes[1]+40), "click", "1")
 	xdo(t, "type", "kept")
+	// xdotool returns once the keys are sent, not when Tk has them: the
+	// synth must go only after the last one, or the greyed box drops it.
+	gui.expect(t, `^typed notes 4 bytes$`)
 	fake2.cmd.Process.Kill()
 	gui.expect(t, `^lost$`)
 	os.Remove(strings.TrimPrefix(two, "unix://")) // a killed server leaves its socket
