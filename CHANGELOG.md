@@ -15,61 +15,46 @@ Two kinds of change need care when you upgrade:
 From v1.0.0 on, what keeps working is in
 [docs/compatibility.md](docs/compatibility.md).
 
-## Unreleased
+## v1.5.0 (2026-11-19)
 
-- `mail`: a DSN whose password holds an `@` not written as `%40`
-  (`smtp://u:p@ss@host`) is refused; it was read with part of the
-  password in the host name, where `t->dsn`, printing and a `NetError`
-  showed it. The message of a DSN that cannot be read masks everything up
-  to its last `@`, so a password with `@`, `?` or `/` stays hidden. A `%` not followed by two hexadecimal digits, and a port of
-  more than five digits, are a `ValueError` of `mail::transport` (not of
-  `encoding::unhex` or `int`). Q113.
-- `mail`: `m->header` refuses every `Content-*` header, as documented
-  (it took `Content-Language`, say). A `MailError` for refused recipients
-  has the `code` of the first refusal (it was nil). Q113.
-- `examples/lmw/lmwgui.kkl`: the Schematic tab, the synth drawn as its
-  own Schematic tab draws it, live; cables are put in, moved and taken out
-  by dragging between ports, with the keys or with a port's menu. The
-  geometry is the module `lmwschematic` (tested by `schematic.tests`).
-  Q115.
-- `tk`: canvas lines and the outlines of shapes take `dash` (a dash
-  pattern such as `[6, 4]`). Q115.
-- `tk`: `tk::setcolors` also colours menus (menu bars and pop-up menus),
-  which kept Tk's grey before. Q115.
-- `examples/lmw/lmwgui.kkl`: an on-screen keyboard of 88 keys under the
-  tabs, played with the mouse (velocity by where a key is clicked) or,
-  while it has the focus, with the computer keys. Q115.
-- `examples/lmw/lmwgui.kkl`: the window fits a 1024 by 768 screen (it was
-  about 1400 pixels wide). Q115.
-- `examples/lmw/lmwgui.kkl`: notes typed but not yet written when the
-  connection to the synth is lost are kept and written when it is back;
-  the notes, Load, Save and the matrix are greyed while it is lost. Q115.
-- `examples/lmw/lmwgui.kkl`: Load and Save of patch files (also Ctrl+O and
-  Ctrl+S), the Notes tab, and a list of the running synths to switch to
-  another; `lmwctl` gains `-fakeat address`. Q115.
-- `examples/lmw/lmwgui.kkl`: the Matrix tab, a row per input and a column
-  per output of the synth: cables put in and taken out with a click,
-  levels set by dragging, typing or the keys, the normalled sources
-  shown; `-tab name` starts on a tab. `tk::Canvas` gains `focus()`, for
-  the keys of a canvas. Q115.
-- `examples/lmw/lmwgui.kkl`: a GUI for LMW-Synth over 9P (module `tk`),
-  with the synth's module panels on a Synth tab and the reverb on an
-  Effects tab: faders with the synth's value texts (typed values too),
-  choices as drop-down lists, writes at most every 20 ms while a fader
-  moves, a poll every 200 ms that shows changes made elsewhere, a greyed
-  window and "Connect again" when the synth goes away, and the contrast
-  presets AA, AAA, Max and a custom ratio, kept in `lmw-gui.toml`. With it
-  `lmwtheme.kkl` (the synth's contrast rules and unit colours),
-  `contrast.kkl` (the pairs of a preset, checked) and `lmwctl`'s
-  `serve seconds` (a fake synth for the GUI). Q115.
-- `tk`: colours. `tk::setcolors(palette)` sets the colours of all windows
-  and widgets (background, foreground, field, select, selectforeground,
-  trough, border, active, disabled), `tk::colors()` gives them; a frame
-  takes a `background`, a label a `background` and a `foreground`. Q115.
-- `examples/lmw/`: the synth's `/serial` and `/keys`: `lmw::Synth` gains
-  `serial()`, `play(text)`, `noteon` and `noteoff`; the fake synth serves
-  both as the synth does (`/serial` by default), and `lmwctl` has
-  `serial`, `on`, `off` and `played`. Q115.
+Syntax version 11 and bytecode format 12, as in v1.4: programs and `.kkc`
+files work unchanged. New modules `toml`, `encoding`, `mail`, `logging`
+and `os`; TLS and Unix datagram sockets in `net`; tabs, colours and dashed
+lines in `tk`; and, in `examples/lmw/`, a client and a GUI for LMW-Synth
+written in Kukel.
+
+- A module `toml`: `toml::decode(s)` reads TOML 1.1 (and 1.0) into a map,
+  its tables in the order of the text; `toml::encode(m)` writes a map as
+  TOML. An offset datetime is a `time::Time`; a local date, time or
+  datetime a string. Arrays and tables nest at most 32 deep. Reading uses
+  [BurntSushi/toml](https://github.com/BurntSushi/toml). Q112.
+- A module `encoding`: `encoding::base64(s [, width])` and
+  `encoding::unbase64(s)` (which skips line breaks and takes text without
+  padding), `encoding::hex(s)` and `encoding::unhex(s)`; and
+  `net::hostname()`. Q113.
+- TLS in `net`: `net::connect("tls://host:port" [, timeout [, options]])`
+  is encrypted from the start, `c->starttls(servername [, options])`
+  encrypts an open connection, `net::listen("tls://...", {"cert": ...,
+  "key": ...})` hands out encrypted connections, and `c->tls()` tells
+  what was agreed. Certificates are checked against the system's roots
+  (options: `ca`, `servername`, `cert` and `key`, `insecure`); data that
+  came before a STARTTLS handshake is refused (STARTTLS command
+  injection). Q113.
+- The module `mail`, written in Kukel: messages (`mail::Message`, with
+  text and HTML bodies, attachments and inline parts, MIME and encoded
+  headers made from what it holds) and transports by DSN (`smtp://` with
+  STARTTLS required except on localhost, `smtps://`, `memory://`,
+  `null://`; AUTH PLAIN and LOGIN). Q113. Safety:
+  - line breaks in headers are refused (header injection), and
+    `m->header` refuses every `Content-*` header, which the message makes
+    itself;
+  - line endings are made CRLF and dots doubled (SMTP smuggling);
+  - a transport never shows its password. An `@` in the user or password
+    is written `%40` (a DSN such as `smtp://u:p@ss@host` is refused), and
+    the message of a DSN that cannot be read masks everything up to its
+    last `@`;
+  - a `MailError` for refused recipients has the `code` of the first
+    refusal.
 - The module `logging`, written in Kukel: structured logging after PHP's
   Monolog. A logger per channel (`logging::get("shop")`), a member
   function per syslog level, `{name}` placeholders filled from the
@@ -87,57 +72,54 @@ From v1.0.0 on, what keeps working is in
   binds one to a socket file (removed by `close`), `"unixgram://"` makes
   one that sends, to the local syslog's `"unixgram:///dev/log"` say. Not
   on Windows. Q114.
+- `tk` (Q115):
+  - `tk::Notebook`: pages with tabs. Its pages are frames made in it,
+    added with `n->add(frame, title)`; `n->select(i)` (or a frame),
+    `n->selected()`, and `n->onchange(f)` when the user picks a tab.
+  - Colours: `tk::setcolors(palette)` sets the colours of all windows,
+    widgets and menus (background, foreground, field, select,
+    selectforeground, trough, border, active, disabled), `tk::colors()`
+    gives them; a frame takes a `background`, a label a `background` and
+    a `foreground`.
+  - Canvas lines and the outlines of shapes take `dash` (a dash pattern
+    such as `[6, 4]`), and `tk::Canvas` gains `focus()`, for the keys of a
+    canvas.
+
+- `examples/lmw/`: a client of LMW-Synth over 9P: the module `lmw`
+  (connecting, parameters, cables, ports, patch files, changes, the
+  synth's `/serial` and `/keys` to play notes), a fake synth in Kukel for
+  its tests, and the command-line client `lmwctl` (with `serve seconds`,
+  a fake synth for the GUI, and `-fakeat address`). The example tests
+  also run programs of several files in a directory of their own. Q115.
+- `examples/lmw/lmwgui.kkl`: a GUI for LMW-Synth (module `tk`) that fits a
+  1024 by 768 screen. Q115.
+  - Tabs: the synth's module panels (Synth), the reverb (Effects), the
+    cables as a matrix of inputs and outputs (Matrix), the synth drawn as
+    its own Schematic tab draws it, live (Schematic), and the patch's
+    notes (Notes); `-tab name` starts on a tab.
+  - Faders with the synth's value texts (typed values too), choices as
+    drop-down lists; writes at most every 20 ms while a fader moves, and
+    a poll every 200 ms that shows changes made elsewhere.
+  - Cables put in and taken out with a click in the matrix, levels set by
+    dragging, typing or the keys; in the schematic they are put in, moved
+    and taken out by dragging between ports, with the keys or with a
+    port's menu.
+  - An on-screen keyboard of 88 keys, played with the mouse (velocity by
+    where a key is clicked) or with the computer keys.
+  - Load and Save of patch files (also Ctrl+O and Ctrl+S), and a list of
+    the running synths to switch to another.
+  - When the synth goes away the window is greyed, with "Connect again";
+    notes typed but not yet written are kept and written when it is back.
+  - The contrast presets AA, AAA, Max and a custom ratio, kept in
+    `lmw-gui.toml` (`lmwtheme.kkl` has the synth's contrast rules and unit
+    colours, `contrast.kkl` the pairs of a preset, checked).
+- [docs/future.md](docs/future.md): designs for Kukel-MVC, applications
+  built on the schemas of the designer (§10, Q111; not built), email
+  (§11), structured logging (§12) and the GUI for LMW-Synth (§13), the
+  last three built in this release.
 - CI fuzzes for a number of executions instead of seconds (`make fuzz
   FUZZTIME=200000x FUZZSLOW=30000x`), since Go can report the end of a
   time as a failure (golang/go#75804). Q116.
-- The module `mail`, written in Kukel: messages (`mail::Message`, with
-  text and HTML bodies, attachments and inline parts, MIME and encoded
-  headers made from what it holds) and transports by DSN (`smtp://` with
-  STARTTLS required except on localhost, `smtps://`, `memory://`,
-  `null://`; AUTH PLAIN and LOGIN). Line breaks in headers are refused
-  (header injection), line endings are made CRLF and dots doubled (SMTP
-  smuggling), and a transport never shows its password. Q113.
-- `examples/lmw/`: a client of LMW-Synth over 9P: the module `lmw`
-  (connecting, parameters, cables, ports, patch files, changes), a fake
-  synth in Kukel for its tests, and the command-line client `lmwctl`.
-  The example tests also run programs of several files in a directory of
-  their own. Q115.
-- `tk::Notebook`: pages with tabs. Its pages are frames made in it,
-  added with `n->add(frame, title)`; `n->select(i)` (or a frame),
-  `n->selected()`, and `n->onchange(f)` when the user picks a tab. Q115.
-- docs/future.md §13: a design for a GUI for LMW-Synth, written in Kukel
-  with `tk` and `p9` on the synth's 9P files (parameters, cables, ports,
-  patch, notes), with what the synth and Kukel still lack (`/info`,
-  `tk::Notebook`) and its open questions F-55 to F-63. Not built. Q115.
-- A module `encoding`: `encoding::base64(s [, width])` and
-  `encoding::unbase64(s)` (which skips line breaks and takes text without
-  padding), `encoding::hex(s)` and `encoding::unhex(s)`; and
-  `net::hostname()`. Q113.
-- TLS in `net`: `net::connect("tls://host:port" [, timeout [, options]])`
-  is encrypted from the start, `c->starttls(servername [, options])`
-  encrypts an open connection, `net::listen("tls://...", {"cert": ...,
-  "key": ...})` hands out encrypted connections, and `c->tls()` tells
-  what was agreed. Certificates are checked against the system's roots
-  (options: `ca`, `servername`, `cert` and `key`, `insecure`); data that
-  came before a STARTTLS handshake is refused (STARTTLS command
-  injection). Q113.
-- docs/future.md §11: a design for email: TLS in `net` (`tls://`,
-  `starttls`), a small module `encoding` (base64), and a module `mail`
-  written in Kukel (messages, MIME, SMTP), after Symfony Mailer, with its
-  open questions F-39 to F-46. Not built. Q113.
-- docs/future.md §12: a design for structured logging, a module `logging`
-  written in Kukel after Monolog (channels, handlers, processors,
-  formatters, syslog in RFC 5424 over `unixgram://`, UDP, TCP and TLS,
-  configuration from a map such as a TOML file), with its open questions
-  F-47 to F-54. Not built. Q114.
-- A module `toml`: `toml::decode(s)` reads TOML 1.1 (and 1.0) into a map,
-  its tables in the order of the text; `toml::encode(m)` writes a map as
-  TOML. An offset datetime is a `time::Time`; a local date, time or
-  datetime a string. Arrays and tables nest at most 32 deep. Reading uses
-  [BurntSushi/toml](https://github.com/BurntSushi/toml). Q112.
-- docs/future.md §10: a design for Kukel-MVC, applications built on the
-  schemas of the designer (a data dictionary tool), with its open
-  questions F-32 to F-38. Not built. Q111.
 
 ## v1.4.1 (2026-11-09)
 
