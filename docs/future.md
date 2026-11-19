@@ -21,6 +21,7 @@ Contents:
 11. [Email: TLS in `net`, and a module `mail` written in Kukel](#11-email-tls-in-net-and-a-module-mail-written-in-kukel) (a proposal, 2026-11-16)
 12. [Structured logging and syslog: a module `logging` written in Kukel](#12-structured-logging-and-syslog-a-module-logging-written-in-kukel) (a proposal, 2026-11-16)
 13. [A GUI for LMW-Synth over 9P](#13-a-gui-for-lmw-synth-over-9p) (a proposal, 2026-11-16)
+14. [Decimals: a type `decimal` in the language](#14-decimals-a-type-decimal-in-the-language) (a proposal, 2026-11-19)
 
 ---
 
@@ -808,15 +809,20 @@ Each step is usable on its own and prepares the next:
 | 18 | LMW-Synth GUI: the Matrix tab (13.5) | 17 | done, with `c->focus()` of a canvas (Q115) |
 | 19 | LMW-Synth GUI: Load, Save, Notes, choosing a synth (13.5) | 17 | done (Q115) |
 | 20 | LMW-Synth GUI: the Schematic tab (13.5) | 18 | done, with `dash` for canvas lines and menus in `tk::setcolors` (Q115) |
+| 21 | Decimals: the value and its arithmetic (14.8, step 1) | — | proposed (Q117) |
+| 22 | Decimals: the literal `12.50d`, the VM, the built-ins (14.8, step 2) | 21 | proposed (Q117) |
+| 23 | Decimals in `json`, `db` and the Go package (14.8, step 3) | 22 | proposed (Q117) |
+| 24 | Decimals: documents, editors, an invoice example (14.8, step 4) | 23 | proposed (Q117) |
 
 Steps 4, 5, 7 and 8 are independent of each other once 1 and 3 exist. A
 `ffi` module (1.6) can come at any point after step 1.
 
-The open questions **F-1** to **F-63** are best answered just before the
+The open questions **F-1** to **F-70** are best answered just before the
 step that needs them; F-28 to F-31 are those of the named arguments
 (section 9), F-32 to F-38 those of Kukel-MVC (section 10), F-39 to F-46
 those of email (section 11), F-47 to F-54 those of logging (section 12),
-F-55 to F-63 those of the LMW-Synth GUI (section 13).
+F-55 to F-63 those of the LMW-Synth GUI (section 13), F-64 to F-70
+those of decimals (section 14).
 
 ---
 
@@ -1162,7 +1168,8 @@ it is cheap to change.
 
 - **F-32** Decimals (10.7): a type in the language, a standard module, or
   ints of the smallest unit? *Answered (2026-11-09): a decimal type in
-  the language, added to kukel; its own design and questions come first.*
+  the language, added to kukel; its own design and questions come first:
+  section 14.*
 - **F-33** The rules (10.6): generated into Kukel code from the export
   (proposed), or interpreted while the application runs?
 - **F-34** Screens (10.4): where do screen descriptions come from? A new
@@ -2143,3 +2150,203 @@ schematic's blocks once the synth serves `/schematic` (the layout alone).
   contrast settings shared with the synth's `config.ini` (one setting for
   both GUIs, but a file another program writes)?
   *Answered (2026-11-17): the GUI's own TOML file.*
+
+---
+
+## 14. Decimals: a type `decimal` in the language
+
+*A proposal (2026-11-19, TODO.md Q117); not built. F-32 (section 10.9)
+chose a decimal type in the language; the literal (`12.50d`), keeping the
+scale, refusing floats in arithmetic, and the number of digits were
+chosen the same day (14.2, 14.3). The open questions are in 14.10.*
+
+Prices and amounts are `decimal` in the designer (precision 12, scale 2:
+section 10.7), in SQL (`NUMERIC`, `DECIMAL`) and in most business data.
+Kukel has `int` and `float`, and a float cannot hold 0.10 exactly:
+`0.1 + 0.2` is `0.30000000000000004`, and a sum of many prices drifts. A
+decimal is a number in base 10, exact for `+`, `-` and `*`, that keeps
+the number of digits after its point:
+
+```
+local price = 12.50d;
+local total = price * 3;         // 37.50
+local vat = round(total * 0.21d, 2); // 7.88 (7.8750 rounded)
+println(total + vat);            // 45.38
+```
+
+The model is SQL's `NUMERIC` and Python's `decimal` module, without
+Python's contexts: one rule for every program, so that a function behaves
+the same wherever it is called.
+
+### 14.1 What it is not
+
+- Not a float in base 10 (IEEE decimal128): `+`, `-` and `*` never round.
+  Only `/` and the functions that say so round.
+- Not money: no currency, no formatting with thousands separators or a
+  locale. Those belong in a module (or Kukel-MVC's view) on top.
+- Not a change to `int` or `float`: `1.5` stays a float, `7 / 2` stays 3.
+
+### 14.2 The value
+
+- **Literals**: a decimal-form number with the suffix `d`: `12.50d`, `3d`,
+  `0.5d`, `.5d`, `1_000.00d`, `1.5e3d` (1500), `2.5e-3d` (0.0025). Only
+  base 10: `0x12d` stays a hex int. The scale of a literal is the number
+  of digits after its point, less the exponent (`1.5e3d` has scale 0,
+  `1.50d` scale 2); a negative scale becomes 0 (`1e3d` is `1000`).
+  `-12.50d` is the unary minus on `12.50d`, as for ints.
+- **`typeof`** gives `"decimal"`.
+- **The scale is kept**: `12.50d` prints as `12.50`, and the scale of a
+  result follows SQL: `a + b`, `a - b` and `a % b` have the larger scale,
+  `a * b` the sum of the scales, an int counts as scale 0.
+  `2.50d * 1.10d` is `2.7500`; `round` (14.4) brings it back.
+- **Equality ignores the scale**: `12.50d == 12.5d` is true, and they are
+  the same map key; `2d == 2` is true and `2d` and `2` are the same key,
+  as `1` and `1.0` are today. (With floats: F-65.)
+- **Truth**: a zero of any scale (`0d`, `0.00d`) is false, like `0` and
+  `0.0`.
+- **Size**: at most 1000 significant digits and a scale of at most 1000
+  (F-69). A result beyond is a `RangeError`, so that `x * x` in a loop
+  cannot fill memory; repeated `*` without `round` grows the scale until
+  it is reached.
+
+### 14.3 Arithmetic
+
+| | Result |
+|---|---|
+| `d + d`, `d - d`, `d * d`, `d % d` | exact decimal (scale as in 14.2); `%` has the sign of the left side, as for ints |
+| `d / d` | decimal: the exact quotient when it has at most 34 significant digits, else rounded to 34, halves to even; its scale the scale of `a` less that of `b` when that is enough (`7.50d / 2` is `3.75`, `10.00d / 4` is `2.50`), else as many as the quotient needs (`1d / 3d` is `0.3333333333333333333333333333333333`) |
+| a decimal and an int, either side | the int is a decimal of scale 0 first: exact |
+| a decimal and a float in `+ - * / %` | `TypeError` ("decimal * float: write the float as a decimal (1.1d) or convert it with decimal(x)") |
+| `d / 0`, `d % 0` (any zero) | `ZeroDivisionError`, as for ints |
+| `-d`, `d++`, `d--`, `+=` and the others | as for ints; `d++` adds 1 and keeps the scale |
+| `<`, `<=`, `>`, `>=` | with decimals and ints: exact. With floats: F-65 |
+| bitwise operators, `<<`, `>>`, `~` | `TypeError`, as for floats |
+
+`int / int` is unchanged (it truncates). A constant may be a decimal
+(`const VAT = 0.21d;`); the compiler folds decimal constants with the same
+code the VM uses, as it does for ints and floats.
+
+### 14.4 Built-in functions
+
+| Function | With decimals |
+|---|---|
+| `decimal(x [, scale])` | New (F-70). A decimal from an int (scale 0), a decimal, a string (`"12.50"`, `" -1_000.5 "`, `"1.5e3"`; the rules of `float`'s strings, without `inf`, `nan` and hex) or a float, which becomes the decimal of its shortest text (`decimal(0.1)` is `0.1`, not `0.1000000000000000055511151231257827`). With `scale`, rounded to it as `round` does. A string that is not a number is a `ValueError` |
+| `int(d)` | truncated toward zero, as for floats; `RangeError` if it does not fit |
+| `float(d)` | the nearest float |
+| `str(d)` | `"12.50"`: digits, never an exponent |
+| `round(d)`, `floor(d)`, `ceil(d)` | an int, as for floats (`round`: halves away from zero) |
+| `round(x, n)` | New optional argument: `x` rounded to `n` digits after the point (0..1000), halves away from zero (F-64); a decimal for a decimal or int, a float for a float (`round(2.675, 2)`, with the float's own inexactness) |
+| `abs(d)`, `min`, `max` | as for other numbers; `min` and `max` mix decimals and ints |
+| `pow(d, n)` | exact for an int `n >= 0` (scale times `n`); another `n` is a `TypeError` |
+| `sqrt`, `exp`, `log` | `TypeError`: they give floats; convert with `float(d)` first |
+| `typeof(d)` | `"decimal"` |
+
+### 14.5 Printing and reading back
+
+- `print` and `str`: `12.50`.
+- Inside vectors, maps and objects, where strings are quoted so that the
+  text reads back: `[12.50d, 1.5]` (F-66), so that `12.50d` and the float
+  `12.5` look different.
+- `kukel fmt` keeps a literal as written; the REPL and the debuggers show
+  values as inside a vector (`12.50d`).
+
+### 14.6 Modules
+
+- **`json`**: `json::encode` writes a decimal as a JSON number with its
+  digits (`12.50`); JSON has no decimal type, so it reads back as a float
+  unless asked: `json::decode(s, {"decimals": true})` makes every number
+  with a fraction or exponent a decimal, exact (F-68).
+- **`db`**: a decimal is passed to the database as its text, which
+  `NUMERIC` and `DECIMAL` columns take exactly (SQLite stores up to 15
+  digits as a REAL or INTEGER and longer text as TEXT, without loss). Read
+  back, a column declared `NUMERIC(p, s)` or `DECIMAL(p, s)` gives a
+  decimal of scale `s`, once a connection asks for it:
+  `db::open(url, {"decimals": true})` (F-68). Today such columns give ints
+  or floats, and v1 keeps that. The ORM's models follow their
+  connection.
+- **`toml`**: TOML has no decimals; `toml::encode` writes one as a float's
+  text, and `decode` is unchanged.
+- **The Go package**: `kukel.Decimal(text)` makes a decimal (an error
+  for text that is not a number), `v.AsDecimal()` gives its text with an
+  `ok`, `v.Kind()` is `"decimal"`; `FromGo` is unchanged and `ToGo` gives
+  the text, as a `string`.
+
+### 14.7 How it would be built
+
+- **The value**: a new `value.Kind`, `Decimal`. A decimal whose
+  coefficient fits in 63 bits (every price, any `DECIMAL(18, s)`) keeps it
+  in `num` and its scale as a pointer into a fixed table of scales in
+  `obj`, so it does not allocate, as an int does not; a larger one keeps a
+  `*big.Int` and its scale in `obj`. The arithmetic is written on
+  `math/big` in `internal/value` (about 600 lines with tests): Go has no
+  decimal type, and `shopspring/decimal` and `cockroachdb/apd` would each
+  bring rules (contexts, a fixed division precision) to adapt rather than
+  use.
+- **The lexer and parser**: the suffix `d` on a decimal-form number; a
+  new token kind `DECIMAL`. **Syntax version 12**: programs of version 11
+  are unchanged, since `12.50d` was an error before.
+- **The bytecode**: decimal constants in the constant pool, so **bytecode
+  format 13**; `.kkc` files are built again. The instructions stay: the
+  arithmetic instructions dispatch on kinds already, and the fused int
+  forms (ARITH_LK, CMP_JUMP_LK, ...) fall back to the general path for
+  any other kind, so ints and floats run as fast as before (measured).
+- **The rest**: `typeof`, equality and map hashing (a decimal hashes as
+  the int or float it equals, if one does), printing, `kukel fmt`, the
+  debuggers' display, syntax.ebnf, syntax.lark, the VS Code grammar and
+  Geany's notes, the reference (§2, §3, §6, the built-ins, `json`, `db`),
+  the booklet (chapter 2 and a page on money), docs/compatibility.md and
+  vm.md §7.
+
+### 14.8 Steps
+
+1. The value, its arithmetic and printing in `internal/value`, with the
+   conversions; unit tests and a fuzz test against `math/big.Rat`.
+2. The literal (syntax version 12), constants, the VM and bytecode format
+   13; `typeof`, `decimal()`, `round(x, n)` and the other built-ins;
+   tests/run programs.
+3. `json` and `db` (the options of F-68), the Go package.
+4. The documents, the booklet, the editors' grammars; an example
+   (`examples/invoice.kkl`: lines, VAT, totals, written to SQLite and
+   JSON).
+
+Each step is a branch of its own, merged when its tests pass.
+
+### 14.9 How it would be tested
+
+- **Arithmetic**: tables of cases for every operator and scale rule
+  (SQL's and Python's documented examples among them), the division rule
+  (exact, rounded, the preferred scale), halves in `round` and `/`, the
+  1000-digit limit; a fuzz test that compares with `math/big.Rat` for
+  `+ - * %` and checks that `/` is within half a unit of its last digit.
+- **Equality and keys**: `12.50d == 12.5d`, `2d == 2`, one map key for
+  each; hashing agrees with equality (the existing map fuzz test gains
+  decimals).
+- **The literal**: lexer tables (suffixes, `_`, exponents, `0x12d`), the
+  parser's errors, `kukel fmt` round trips, `FuzzLexer` seeds.
+- **Speed**: the existing benchmarks of ints and floats before and after,
+  and a benchmark of a sum of 10⁶ prices (small form: no allocation).
+- **Modules**: `json` and `db` round trips (SQLite in the tests;
+  PostgreSQL and MySQL where CI has them), with and without the options.
+- **Examples**: the invoice example's `.tests`.
+
+### 14.10 Open questions
+
+- **F-64** `round(x, n)` halves away from zero, as `round(x)` does and
+  invoices usually do (proposed), or to even (banker's rounding, as `/`
+  does)? A third argument (`round(x, 2, "even")`) could give the other.
+- **F-65** A decimal and a float in `==` and `<`: compared exactly
+  (proposed: comparing loses nothing, `price > 0.0` works, and `2d == 2.0`
+  is true as `2 == 2.0` is), or a `TypeError` as in arithmetic?
+- **F-66** A decimal inside a vector or map prints as `12.50d` (proposed,
+  so that it reads back and differs from a float), or as `12.50`?
+- **F-67** `/` rounds to 34 significant digits (proposed, as decimal128),
+  or to 28 (Python's default), or to a fixed scale (SQL Server's 6)?
+- **F-68** `json` and `db` give decimals only when asked, per call or
+  connection (proposed, so that v1 programs read what they read today),
+  or always for `NUMERIC` and `DECIMAL` columns (a v2 change)?
+- **F-69** The limit: 1000 significant digits and scale 1000 (proposed),
+  or SQL's 38 digits, which every database column fits?
+- **F-70** Conversion by a new built-in `decimal(x)` (proposed; a
+  program with a top-level name `decimal` must rename it, as with any new
+  built-in, docs/compatibility.md), or by a module (`use decimal;
+  decimal::of(x)`), which no program's names can clash with?
