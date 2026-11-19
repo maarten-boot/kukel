@@ -47,77 +47,221 @@ ProcError::ProcError(message, command = nil, code = nil, signal = nil, err = nil
 // ends the program and is a ProcError).
 run(cmd, options = {}) {
     _command("proc::run", cmd);
+    local o = _options("proc::run", options, false);
+    local r = process::run(cmd, o);
 
-    if (typeof(options) != "map") {
-        throw new Error("proc::run: the options are a map, not " + typeof(options), "TypeError");
+    if (!r["started"]) {
+        throw new ProcError("proc::run: " + r["error"], cmd);
     }
-    local o = {}, check = true;
+    return _finish("proc::run", cmd, r, options);
+}
+
+// pipe(cmds, options): runs the commands of cmds (a vector of commands, as
+// run takes them) at the same time, the standard output of each the input
+// of the next, through the operating system's pipes: no shell, and nothing
+// passes through Kukel. The options are run's: input goes to the first,
+// out comes from the last, err from all of them. It gives run's map for
+// the last program, with "codes", the exit codes of all in order (nil for
+// one a signal ended). With check, any program that fails fails the
+// pipeline (as bash's pipefail), and the ProcError names it; a program
+// before the last that the signal PIPE ended does not count (the next one
+// stopped reading, as head does).
+pipe(cmds, options = {}) {
+    if (typeof(cmds) != "vector" || len(cmds) == 0) {
+        throw new Error("proc::pipe: the commands are a vector of commands, not " + _show(cmds), "TypeError");
+    }
+
+    for (local i = 0; i < len(cmds); i++) {
+        _command("proc::pipe: command " + str(i + 1), cmds[i]);
+    }
+    local o = _options("proc::pipe", options, false);
+    local r = process::pipe(cmds, o);
+
+    if (!r["started"]) {
+        throw new ProcError("proc::pipe: " + r["error"], cmds);
+    }
+    local codes = len(cmds) > 1 ? r["codes"] : [r["code"]];
+    local signals = len(cmds) > 1 ? r["signals"] : [r["signal"]];
+    local check = !haskey(options, "check") || options["check"];
+    local failed = -1;
+
+    for (local i = 0; i < len(codes) && failed < 0; i++) {
+        // A program before the last that PIPE ended was told so because
+        // the next one stopped reading (yes | head): that is no failure.
+        if (codes[i] != 0 && !(i < len(codes) - 1 && signals[i] == "PIPE")) failed = i;
+    }
+
+    if (check && failed >= 0 && !r["timedout"] && !r["truncated"]) {
+        local why = codes[failed] == nil ? "was ended by signal " + signals[failed] : "exited with " + str(codes[failed]);
+        local last = _lastline(r["err"]);
+        throw new ProcError(
+            "proc::pipe: command " + str(failed + 1) + " " + str(cmds[failed]) + " " + why + (last == "" ? "" : ": " + last),
+            cmds[failed],
+            codes[failed],
+            signals[failed],
+            _tail(r["err"]),
+        );
+    }
+    local result = _finish("proc::pipe", cmds, r, options);
+    result["codes"] = codes;
+    return result;
+}
+
+// start(cmd, options): starts cmd and gives a proc::Process at once, for a
+// program to talk to or to watch. The options are run's, and "pipe" for
+// stdin, out and err: then p->stdin(), p->stdout() and p->stderr() are
+// fs::Files to write to and read from. p->wait() gives run's map, and
+// check applies there.
+start(cmd, options = {}) {
+    _command("proc::start", cmd);
+    local o = _options("proc::start", options, true);
+    local c = process::spawn(cmd, o);
+
+    if (typeof(c) == "map") {
+        throw new ProcError("proc::start: " + c["error"], cmd);
+    }
+    return new Process(c, cmd, options);
+}
+
+// A program that start started. command is the vector it was given.
+class Process {
+    command;
+    _child;
+    _options;
+    _result;
+    Process(child, command, options);
+    stdin();
+    stdout();
+    stderr();
+    wait(timeout);
+    kill(signal);
+    pid();
+    running();
+}
+
+Process::Process(child, command, options) {
+    _child = child;
+    this->command = command;
+    _options = options;
+}
+
+// stdin(), stdout(), stderr(): the pipes (with "pipe" among the options),
+// as fs::Files, or nil. A write to stdin() reaches the program at once;
+// close it to tell the program that its input ends.
+Process::stdin() {
+    return _child->stdin();
+}
+
+Process::stdout() {
+    return _child->stdout();
+}
+
+Process::stderr() {
+    return _child->stderr();
+}
+
+// wait([timeout]): waits for the program's end and gives run's map (the
+// same one again later), after closing the stdin() pipe; with check a
+// failure is a ProcError. When timeout (seconds) passes first it gives
+// nil and the program runs on. Read the stdout() and stderr() pipes before
+// waiting: a program that fills a pipe nobody reads waits for ever.
+Process::wait(timeout = nil) {
+    if (_result != nil) return _result;
+    local r = timeout == nil ? _child->wait() : _child->wait(timeout);
+
+    if (r == nil) return nil;
+    _result = _finish("proc::Process::wait", command, r, _options);
+    return _result;
+}
+
+// kill([signal]): sends "TERM" (the default), "KILL", "INT", "HUP",
+// "QUIT", "USR1" or "USR2" to the program and what it started; on Windows
+// each ends it. It gives whether the program was still running.
+Process::kill(signal = "TERM") {
+    return _child->kill(signal);
+}
+
+Process::pid() {
+    return _child->pid();
+}
+
+Process::running() {
+    return _child->running();
+}
+
+// _options checks the options of run, pipe or start (what), and gives
+// them as the module process takes them; pipes: start's "pipe".
+_options(what, options, pipes) {
+    if (typeof(options) != "map") {
+        throw new Error(what + ": the options are a map, not " + typeof(options), "TypeError");
+    }
+    local o = {};
 
     for (local key, v in options) {
         switch (key) {
             case "input":
-                _string("proc::run: option input", v);
+                _string(what + ": option input", v);
 
                 if (haskey(options, "stdin")) {
-                    throw new Error("proc::run: options input and stdin together", "ValueError");
+                    throw new Error(what + ": options input and stdin together", "ValueError");
                 }
                 o["in"] = "data";
                 o["data"] = v;
                 break;
             case "stdin":
-                if (v != "inherit" && v != "null") {
-                    throw new Error("proc::run: option stdin is \"inherit\" or \"null\", not " + _show(v), "ValueError");
+                if (v != "inherit" && v != "null" && !(pipes && v == "pipe")) {
+                    throw new Error(what + ": option stdin is \"inherit\"" + (pipes ? ", \"pipe\"" : "") + " or \"null\", not " + _show(v), "ValueError");
                 }
                 o["in"] = v;
                 break;
             case "out":
             case "err":
-                o[key] = _stream(key, v);
+                o[key] = _stream(what, key, v, pipes);
                 break;
             case "cwd":
-                _string("proc::run: option cwd", v);
+                _string(what + ": option cwd", v);
                 o["dir"] = v;
                 break;
             case "env":
                 if (typeof(v) != "map") {
-                    throw new Error("proc::run: option env is a map, not " + typeof(v), "TypeError");
+                    throw new Error(what + ": option env is a map, not " + typeof(v), "TypeError");
                 }
                 break;
             case "clearenv":
             case "check":
                 if (typeof(v) != "bool") {
-                    throw new Error("proc::run: option " + key + " is true or false, not " + _show(v), "TypeError");
+                    throw new Error(what + ": option " + key + " is true or false, not " + _show(v), "TypeError");
                 }
-
-                if (key == "check") check = v;
                 break;
             case "timeout":
             case "max":
                 o[key] = v; // process checks them
                 break;
             default:
-                throw new Error("proc::run: unknown option " + _show(key) + " (input, stdin, out, err, cwd, env, clearenv, timeout, check, max)", "ValueError");
+                throw new Error(what + ": unknown option " + _show(key) + " (input, stdin, out, err, cwd, env, clearenv, timeout, check, max)", "ValueError");
         }
     }
 
     if (haskey(options, "env") || options["clearenv"] == true) {
-        o["env"] = _environment(options["env"] == nil ? {} : options["env"], options["clearenv"] == true);
+        o["env"] = _environment(what, options["env"] == nil ? {} : options["env"], options["clearenv"] == true);
     }
-    local r = process::run(cmd, o);
+    return o;
+}
 
-    if (!r["started"]) {
-        throw new ProcError("proc::run: " + r["error"], cmd);
-    }
+// _finish makes the result of a program (or pipeline) that ran, r as the
+// module process gives it, and throws the ProcError of one that failed.
+_finish(what, cmd, r, options) {
     local result = {"code": r["code"], "signal": r["signal"], "out": r["out"], "err": r["err"], "time": r["time"], "timedout": r["timedout"]};
 
     if (r["truncated"]) {
-        throw new ProcError("proc::run: " + str(cmd) + " wrote more than the option max allows; it was ended", cmd, r["code"], r["signal"], _tail(r["err"]));
+        throw new ProcError(what + ": " + str(cmd) + " wrote more than the option max allows; it was ended", cmd, r["code"], r["signal"], _tail(r["err"]));
     }
+    local check = !haskey(options, "check") || options["check"];
 
     if (check && (r["timedout"] || r["code"] != 0)) {
         local why = r["timedout"] ? "timed out after " + str(options["timeout"]) + " s" : r["code"] == nil ? "was ended by signal " + r["signal"] : "exited with " + str(r["code"]);
         local last = _lastline(r["err"]);
-        throw new ProcError("proc::run: " + str(cmd) + " " + why + (last == "" ? "" : ": " + last), cmd, r["code"], r["signal"], _tail(r["err"]));
+        throw new ProcError(what + ": " + str(cmd) + " " + why + (last == "" ? "" : ": " + last), cmd, r["code"], r["signal"], _tail(r["err"]));
     }
     return result;
 }
@@ -166,31 +310,31 @@ _string(what, v) {
 }
 
 // _stream checks the option out or err.
-_stream(key, v) {
-    if (typeof(v) == "string" && (v == "capture" || v == "inherit" || v == "null" || key == "err" && v == "out")) return v;
+_stream(what, key, v, pipes) {
+    if (typeof(v) == "string" && (v == "capture" || v == "inherit" || v == "null" || key == "err" && v == "out" || pipes && v == "pipe")) return v;
 
     if (typeof(v) == "map" && len(v) == 1 && (haskey(v, "file") || haskey(v, "append"))) {
         for (local k, p in v) {
             if (typeof(p) == "string" && p != "") return v;
         }
     }
-    throw new Error("proc::run: option " + key + " is \"capture\", \"inherit\", \"null\"" + (key == "err" ? ", \"out\"" : "") + ", {\"file\": path} or {\"append\": path}, not " + _show(v), "ValueError");
+    throw new Error(what + ": option " + key + " is \"capture\", \"inherit\", \"null\"" + (key == "err" ? ", \"out\"" : "") + (pipes ? ", \"pipe\"" : "") + ", {\"file\": path} or {\"append\": path}, not " + _show(v), "ValueError");
 }
 
 // _environment makes the child's environment, as "name=value" strings: the
 // program's own (none with clear), changed by vars.
-_environment(vars, clear) {
+_environment(what, vars, clear) {
     local all = clear ? {} : process::environ();
 
     for (local name, v in vars) {
         if (typeof(name) != "string" || name == "" || find(name, "=") >= 0 || find(name, "\0") >= 0) {
-            throw new Error("proc::run: not a name for an environment variable: " + _show(name), "ValueError");
+            throw new Error(what + ": not a name for an environment variable: " + _show(name), "ValueError");
         }
 
         if (v == nil) {
             delete(all, name);
         } else if (typeof(v) != "string") {
-            throw new Error("proc::run: the environment variable " + name + " is a string, not " + typeof(v), "TypeError");
+            throw new Error(what + ": the environment variable " + name + " is a string, not " + typeof(v), "TypeError");
         } else {
             all[name] = v;
         }

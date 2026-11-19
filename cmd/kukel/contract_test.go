@@ -25,11 +25,12 @@ import (
 // waitExempt are the functions of the modules that wait without
 // native.Wait, and why that is right.
 var waitExempt = map[string]string{
-	"workermod/worker.go: pop":       "its callers pass the wait to begin (native.Wait) as its argument wait",
-	"p9mod/tree.go: call":            "it runs on a 9P server's goroutine, not the interpreter's: the interpreter does not wait",
-	"netmod/tls.go: handshakes":      "a TLS listener's own goroutine (go l.handshakes in listen): the interpreter does not wait",
-	"processmod/process.go: StopAll": "kukel's signal goroutine calls it, ending the programs before kukel ends: no interpreter waits",
-	"processmod/process.go: stop":    "only runCmd calls it, which waits under native.Wait already",
+	"workermod/worker.go: pop":   "its callers pass the wait to begin (native.Wait) as its argument wait",
+	"p9mod/tree.go: call":        "it runs on a 9P server's goroutine, not the interpreter's: the interpreter does not wait",
+	"netmod/tls.go: handshakes":  "a TLS listener's own goroutine (go l.handshakes in listen): the interpreter does not wait",
+	"processmod/job.go: StopAll": "kukel's signal goroutine calls it, ending the programs before kukel ends: no interpreter waits",
+	"processmod/job.go: watch":   "a job's own goroutine (go j.watch() in start): the interpreter does not wait",
+	"processmod/job.go: wait":    "its callers, runJob and Child::wait, wait under native.Wait already",
 }
 
 // TestModulesWait checks that the Go functions of the modules that wait
@@ -545,6 +546,7 @@ var working = map[string]string{
 	"net::Conn":        `local l = net::listen("tcp://127.0.0.1:0"); local r = net::connect(l->endpoint());`,
 	"net::Listener":    `local r = net::listen("tcp://127.0.0.1:0");`,
 	"net::UDP":         `local r = net::udp("udp://127.0.0.1:0");`,
+	"process::Child":   `local r = process::spawn(["go", "version"], {});`,
 	"p9::Tree":         `local r = new p9::Tree();`,
 	"p9::Server":       `local r = p9::serve(new p9::Tree(), "tcp://127.0.0.1:0");`,
 	"p9::Client":       `local s = p9::serve(new p9::Tree(), "tcp://127.0.0.1:0"); local r = p9::dial(s->endpoint());`,

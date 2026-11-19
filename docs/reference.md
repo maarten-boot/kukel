@@ -2470,6 +2470,12 @@ only when it names it in `StandardModules`, also when that is `nil`
 | Function | Description |
 |---|---|
 | `process::run(argv, options)` | Runs `argv` to its end with the options `proc::run` makes (`in`, `data`, `out`, `err`, `dir`, `env` as `"name=value"` strings, `timeout`, `max`), and gives a map: `started` (false, with `error`, when it could not be started), `code`, `signal`, `signum`, `out`, `err`, `time`, `timedout`, `truncated` |
+| `process::pipe(argvs, options)` | Runs the commands of `argvs` as a pipeline (`proc::pipe`), and gives `run`'s map for the last, with `codes` and `signals` of all when there are two or more |
+| `process::spawn(argv, options)` | Starts `argv` (with `"pipe"` also allowed for `in`, `out` and `err`) and gives a `process::Child` at once, or `run`'s map with `started` false |
+| `c->stdin()`, `c->stdout()`, `c->stderr()` | Its pipes, as `fs::File`s, or `nil` |
+| `c->wait([timeout])` | `run`'s map once it has ended (the same map later); `nil` when `timeout` seconds pass first |
+| `c->kill([signal])` | Sends a signal to it and what it started (`proc::Process::kill`); whether it still ran |
+| `c->pid()`, `c->running()` | Its process id; whether it has not ended |
 | `process::lookpath(name)` | The path of the program `name` stands for, or `nil` |
 | `process::environ()` | The environment as a map |
 | `process::signum(name)` | The number of a signal (`"TERM"`: 15), or `nil` (also on Windows) |
@@ -3895,6 +3901,8 @@ ProcError 2 2
 | Function | Description |
 |---|---|
 | `proc::run(cmd [, options])` | Runs `cmd`, a vector of strings (the program, found on `PATH` unless it holds a `/`, and its arguments), to its end, and gives a map: `"code"` (the exit code; `nil` when a signal ended it), `"signal"` (that signal, `"TERM"`, `"KILL"`, ...; else `nil`), `"out"` and `"err"` (what it wrote, when captured; else `nil`), `"time"` (the seconds it ran) and `"timedout"`. A program that fails, an exit code other than 0, a signal or the time limit, is a `proc::ProcError` (unless `check` is false), and so is one that cannot be started (`program x not found`) |
+| `proc::pipe(cmds [, options])` | Runs the commands of `cmds` (a vector of commands) at the same time, the standard output of each the standard input of the next, through the operating system's pipes: no shell, and nothing passes through Kukel. The options are `run`'s: `input` goes to the first, `out` comes from the last, `err` from all of them. It gives `run`'s map for the last program, with `"codes"`: the exit codes of all, in order (`nil` for one a signal ended). With `check`, any program that fails fails the pipeline, as bash's `pipefail`, and the `ProcError` names it (`proc::pipe: command 2 ["grep", "x"] exited with 1`); a program before the last that the signal PIPE ended does not count, since the next one stopped reading (`yes` before `head`) |
+| `proc::start(cmd [, options])` | Starts `cmd` and gives a `proc::Process` at once, for a program to talk to or to watch. The options are `run`'s, and `"pipe"` for `stdin`, `out` and `err`: the program's input, output and errors are then pipes, which `p->stdin()`, `p->stdout()` and `p->stderr()` give |
 | `proc::which(name)` | The path of the program `run` would start for `name`, or `nil` |
 | `proc::env()` | The environment, as a map by name (`getenv(name)` reads one variable) |
 | `proc::exitcode(r)` | The exit code of a result of `run` as a shell gives it: the code, or 128 plus the signal's number for a program a signal ended (TERM: 143). For `exit(proc::exitcode(r))` |
@@ -3911,6 +3919,41 @@ The options of `run`, a map (another key is a `ValueError`):
 | `"timeout"` | Seconds (more than 0). When they pass, the program gets TERM, and KILL 2 seconds later; the result has `"timedout": true`, which `check` makes a `ProcError` (`... timed out after 5 s`) |
 | `"check"` | `true` (the default): a failing program is a `ProcError`; `false`: the result says how it ended, and the program goes on |
 | `"max"` | The most bytes captured of `out` and of `err` each, 64 MiB by default. A program that writes more is ended, and that is a `ProcError` also without `check`: its output is not all there |
+
+A **`proc::Process`**, from `proc::start`, has the data member `command`
+(the vector it was given) and these member functions:
+
+| Member function | Description |
+|---|---|
+| `p->stdin()`, `p->stdout()`, `p->stderr()` | The pipes, with `"pipe"` among the options, as `fs::File`s (section 11, `fs`), else `nil`: `write` to `stdin()` (each write reaches the program at once; `close` it to end the program's input), and `readline`, `read` or `for (local line in p->stdout())` from the others |
+| `p->wait([timeout])` | Closes the `stdin()` pipe, waits for the program's end and gives `run`'s map (the same map at every call); with `check` a failure is a `ProcError`. When `timeout` seconds pass first, it gives `nil` and the program runs on. Read the `stdout()` and `stderr()` pipes before waiting: a program that fills a pipe nobody reads waits for ever |
+| `p->kill([signal])` | Sends `"TERM"` (the default), `"KILL"`, `"INT"`, `"HUP"`, `"QUIT"`, `"USR1"` or `"USR2"` to the program and what it started (its process group); another name is a `ValueError`. On Windows each ends the program. It gives whether the program still ran |
+| `p->pid()`, `p->running()` | The program's process id; whether it has not ended |
+
+```
+use proc;
+
+main() {
+    local p = proc::start(["go", "env", "GOOS", "GOARCH"], {"out": "pipe"});
+    local n = 0;
+
+    for (local line in p->stdout()) {
+        n++;
+    }
+    println(n, "lines;", p->wait()["code"], p->running());
+}
+```
+
+```
+$ kukel run start.kkl
+2 lines; 0 false
+```
+
+A program that `start` started and the Kukel program did not wait for is
+waited for when `kukel run` ends (its pipes are closed first, so that a
+program that reads its input to the end, or writes to a pipe nobody reads,
+ends); a Go program's `Interp.Close` ends such programs instead, as a
+cancellation does.
 
 - **`proc::ProcError`** (kind `ProcError`) has, besides `message` and
   `kind`: `command` (the vector), `code`, `signal`, and `err`, the last
@@ -3932,6 +3975,5 @@ The options of `run`, a map (another key is a `ValueError`):
 - An argument a program cannot take arrives anyway (it is the program's to
   refuse); a `cmd` that is not a non-empty vector of strings is a
   `TypeError`.
-- Not there yet (docs/future.md §15): pipelines without a shell
-  (`proc::pipe`), talking to a running program (`proc::start`), a shell
-  for when it is wanted (`proc::sh`).
+- Not there yet (docs/future.md §15): a shell for when it is wanted
+  (`proc::sh`), and `onexit` and lines from a pipe in the event loop.

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -1490,5 +1491,27 @@ func TestNoFuse(t *testing.T) {
 	}
 	if code := run([]string{"build", "-nofuse", "-o", "f.kkc", "f.kkl"}, nil, &out, &errOut); code != 0 {
 		t.Errorf("build -nofuse: exit %d, %q", code, errOut.String())
+	}
+}
+
+// kukel run waits for a program that proc::start started and the Kukel
+// program left running: it ends after it, and the program's output is
+// not lost (docs/future.md §15.5). (A Go program's Interp.Close ends such
+// a program instead: internal/stdlib TestProcLeftRunning.)
+func TestProcLeftRunning(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.ToSlash(filepath.Join(dir, "goos.txt"))
+	src := filepath.Join(dir, "left.kkl")
+	os.WriteFile(src, []byte(`use proc;
+main() {
+    proc::start(["go", "env", "GOOS"], {"out": {"file": "`+out+`"}});
+}
+`), 0o644)
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"run", src}, strings.NewReader(""), &stdout, &stderr); code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	if b, err := os.ReadFile(out); err != nil || strings.TrimSpace(string(b)) != runtime.GOOS {
+		t.Errorf("the output of the program left running: %q, %v", b, err)
 	}
 }

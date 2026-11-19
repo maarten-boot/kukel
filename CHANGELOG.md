@@ -32,6 +32,14 @@ From v1.0.0 on, what keeps working is in
   they did. A Go program that embeds Kukel gets `process` only when it
   names it in `StandardModules` (`nil` leaves it out). docs/future.md §15,
   Q118.
+- `proc::pipe([cmd1, cmd2, ...], options)`: a pipeline through the
+  operating system's pipes, without a shell, with the exit codes of all
+  (`pipefail`: any failure fails it, but not a program that the next one
+  stopped reading). `proc::start(cmd, options)` gives a `proc::Process` to
+  talk to: its `stdin()`, `stdout()` and `stderr()` pipes as `fs::File`s
+  (`"pipe"` among the options), `wait([timeout])`, `kill([signal])`,
+  `pid()` and `running()`; a program left running is waited for when
+  `kukel run` ends. Q118.
 - `fs::glob(pattern)`: the paths that match a pattern, sorted. Q118.
 
 ## v1.6.0 (2026-11-19)

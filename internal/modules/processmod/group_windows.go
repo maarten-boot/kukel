@@ -11,13 +11,17 @@ import (
 
 // Windows has no process groups that a signal reaches: a child is ended
 // alone (its own children are not; a job object would, later).
-func setGroup(cmd *exec.Cmd, grouped bool) {}
+func setGroup(cmd *exec.Cmd, grouped bool, pgid int) {}
 
-func terminate(cmd *exec.Cmd, grouped bool) { kill(cmd, grouped) }
+// signals are the signals kill takes, by name: on Windows each ends the
+// program.
+var signals = map[string]bool{"TERM": true, "KILL": true, "INT": true, "HUP": true, "QUIT": true, "USR1": true, "USR2": true}
 
-func kill(cmd *exec.Cmd, grouped bool) {
-	if cmd.Process != nil {
-		cmd.Process.Kill()
+func signalJob(j *job, name string) {
+	for _, cmd := range j.cmds {
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
 	}
 }
 

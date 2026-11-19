@@ -1,7 +1,9 @@
 package stdlib_test
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
@@ -30,7 +32,9 @@ func TestMain(m *testing.M) {
 // (the variable's value, or <unset>), pwd, args (each argument after it
 // in brackets, then stops), flood (writes without end), sleep SECONDS,
 // spawn SECONDS (starts a copy of itself that sleeps, and prints its
-// pid), kill (ends itself with TERM), exit CODE.
+// pid), kill (ends itself with KILL), exit CODE, upper (each input line
+// in capitals, at once), count (the number of input lines), head N (the
+// first N bytes of the input, then stops).
 func helper(args []string) int {
 	for i := 0; i < len(args); i++ {
 		next := func() string { i++; return args[i] }
@@ -79,6 +83,24 @@ func helper(args []string) int {
 		case "exit":
 			n, _ := strconv.Atoi(next())
 			return n
+		case "upper": // each line of the input in capitals, at once
+			sc := bufio.NewScanner(os.Stdin)
+			for sc.Scan() {
+				fmt.Println(strings.ToUpper(sc.Text()))
+			}
+		case "count": // the number of lines of the input
+			sc := bufio.NewScanner(os.Stdin)
+			n := 0
+			for sc.Scan() {
+				n++
+			}
+			fmt.Println(n)
+		case "head": // the first N bytes of the input, then stops
+			n, _ := strconv.Atoi(next())
+			buf := make([]byte, n)
+			got, _ := io.ReadFull(os.Stdin, buf)
+			os.Stdout.Write(buf[:got])
+			return 0
 		}
 	}
 	return 0
@@ -112,6 +134,7 @@ func runProc(t *testing.T, src string) (string, error) {
 		t.Fatal(err)
 	}
 	_, err = in.Run()
+	in.Close() // ends what the program left running
 	return out.String() + errOut.String(), err
 }
 
@@ -312,5 +335,120 @@ func TestProcOptIn(t *testing.T) {
 	}
 	if _, err := kukel.CompileSource("t.kkl", "use proc; main() {}", kukel.CompileOptions{StandardModules: []string{"process"}}); err != nil {
 		t.Errorf("StandardModules [process]: %v", err)
+	}
+}
+
+func TestProcPipe(t *testing.T) {
+	out, err := runProc(t, `use proc;
+h(args..) { return [@HELPER@, args..]; }
+main() {
+    local o = {"env": @HENV@};
+    local r = proc::pipe([h("out", "one", "out", "two", "out", "three"), h("upper"), h("count")], o);
+    println(r["out"], r["codes"], r["code"]);
+    println(proc::pipe([h("out", "a b"), h("upper")], o)["out"]);
+    local f = proc::pipe([h("exit", "0"), h("exit", "3"), h("count")], {"env": @HENV@, "check": false});
+    println(f["codes"], f["code"], f["out"]);
+    try {
+        proc::pipe([h("exit", "0"), h("err", "broken here", "exit", "3"), h("count")], {"env": @HENV@, "err": "capture"});
+    } catch (e) {
+        println(e->kind, e->code, e->message == "proc::pipe: command 2 " + str(e->command) + " exited with 3: broken here");
+    }
+    println(len(proc::pipe([h("out", "only")], o)["codes"]));
+    local e = proc::pipe([h("err", "first"), h("err", "second")], {"env": @HENV@, "err": "capture"});
+    println(len(split(trim(e["err"]), "\n")));
+}`)
+	want := "3\n [0, 0, 0] 0\nA B\n\n[0, 3, 0] 0 0\n\nProcError 3 true\n1\n2\n"
+	if err != nil || out != want {
+		t.Errorf("got %v:\n%q\nwant:\n%q", err, out, want)
+	}
+}
+
+// A program before the last that PIPE ends (yes | head) is no failure.
+func TestProcPipeSIGPIPE(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no SIGPIPE on Windows")
+	}
+	out, err := runProc(t, `use proc;
+main() {
+    local r = proc::pipe([[@HELPER@, "flood"], [@HELPER@, "head", "5000"]], {"env": @HENV@});
+    println(len(r["out"]), r["codes"][1]);
+}`)
+	if err != nil || out != "5000 0\n" {
+		t.Errorf("got %v: %q", err, out)
+	}
+}
+
+func TestProcStart(t *testing.T) {
+	out, err := runProc(t, `use proc;
+h(args..) { return [@HELPER@, args..]; }
+main() {
+    local p = proc::start(h("upper"), {"env": @HENV@, "stdin": "pipe", "out": "pipe"});
+    println(p->running(), typeof(p->pid()), p->command[1]);
+    p->stdin()->write("hello\n");
+    println(p->stdout()->readline());
+    p->stdin()->write("world\n");
+    println(p->stdout()->readline());
+    local r = p->wait();
+    println(r["code"], p->running(), p->wait() == r, p->stdout()->readline());
+
+    local s = proc::start(h("sleep", "30"), {"env": @HENV@, "check": false});
+    println(s->wait(0.2), s->kill(), s->wait(10) != nil, s->running(), s->kill());
+
+    local q = proc::start(h("out", "1", "out", "2", "err", "e"), {"env": @HENV@, "out": "pipe", "err": "pipe"});
+    local lines = [];
+    for (local l in q->stdout()) push(lines, l);
+    println(lines, q->stderr()->readline(), q->wait()["out"]);
+
+    local c = proc::start(h("out", "kept"), {"env": @HENV@});
+    println(c->stdin(), c->stdout(), c->wait()["out"]);
+    try {
+        proc::start(h("exit", "2"), {"env": @HENV@})->wait();
+    } catch (e) {
+        println(e->kind, e->code, find(e->message, "proc::Process::wait: ") == 0);
+    }
+}`)
+	want := "true int upper\nHELLO\nWORLD\n0 false true nil\nnil true true false false\n[\"1\", \"2\"] e nil\nnil nil kept\n\nProcError 2 true\n"
+	if err != nil || out != want {
+		t.Errorf("got %v:\n%q\nwant:\n%q", err, out, want)
+	}
+}
+
+// A program the Kukel program did not wait for is ended when a Go
+// program closes the interpreter (Interp.Close cancels it): it is not
+// left running. (kukel run waits for it instead: cmd/kukel
+// TestProcLeftRunning.)
+func TestProcLeftRunning(t *testing.T) {
+	start := time.Now()
+	out, err := runProc(t, `use proc;
+main() {
+    print(proc::start([@HELPER@, "sleep", "30"], {"env": @HENV@})->pid());
+}`)
+	pid, perr := strconv.Atoi(out)
+	if err != nil || perr != nil || time.Since(start) > 10*time.Second {
+		t.Fatalf("got %v %v %q after %v", err, perr, out, time.Since(start))
+	}
+	if runtime.GOOS != "windows" {
+		if p, err := os.FindProcess(pid); err == nil && p.Signal(syscallZero) == nil {
+			p.Kill()
+			t.Errorf("process %d still runs after Close", pid)
+		}
+	}
+}
+
+func TestProcStartErrors(t *testing.T) {
+	cases := map[string]string{
+		`proc::run(["ls"], {"out": "pipe"})`:                   `ValueError: proc::run: option out is "capture", "inherit", "null", {"file": path} or {"append": path}, not "pipe"`,
+		`proc::pipe([])`:                                       `TypeError: proc::pipe: the commands are a vector of commands, not []`,
+		`proc::pipe([["ls"], "wc"])`:                           `TypeError: proc::pipe: command 2: the command is a vector of strings`,
+		`proc::start(["no-such-program-x"])`:                   `ProcError: proc::start: program no-such-program-x not found`,
+		`proc::start(["ls"], {"stdin": "bogus"})`:              `ValueError: proc::start: option stdin is "inherit", "pipe" or "null", not "bogus"`,
+		`proc::start(["ls"], {"check": false})->kill("BOGUS")`: `ValueError: process::Child::kill: unknown signal "BOGUS"`,
+		`proc::start(["ls"], {"check": false})->wait(-1)`:      `ValueError`,
+	}
+	for call, want := range cases {
+		out, err := runProc(t, "use proc; main() { "+call+"; }")
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v (output %q), want %s", call, err, out, want)
+		}
 	}
 }

@@ -13,28 +13,33 @@ import (
 	"github.com/maarten-boot/kukel/internal/value"
 )
 
-// setGroup puts the child in a process group of its own.
-func setGroup(cmd *exec.Cmd, grouped bool) {
+// setGroup puts the child in a process group: a new one (pgid 0), or that
+// of the pipeline's first program.
+func setGroup(cmd *exec.Cmd, grouped bool, pgid int) {
 	if grouped {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: pgid}
 	}
 }
 
-// terminate sends TERM to the child, or to its whole group.
-func terminate(cmd *exec.Cmd, grouped bool) { signalTo(cmd, grouped, syscall.SIGTERM) }
+// signals are the signals kill takes, by name.
+var signals = map[string]syscall.Signal{
+	"TERM": syscall.SIGTERM, "KILL": syscall.SIGKILL, "INT": syscall.SIGINT, "HUP": syscall.SIGHUP,
+	"QUIT": syscall.SIGQUIT, "USR1": syscall.SIGUSR1, "USR2": syscall.SIGUSR2,
+}
 
-// kill sends KILL to the child, or to its whole group.
-func kill(cmd *exec.Cmd, grouped bool) { signalTo(cmd, grouped, syscall.SIGKILL) }
-
-func signalTo(cmd *exec.Cmd, grouped bool, sig syscall.Signal) {
-	if cmd.Process == nil {
+// signalJob sends a signal to the job's group, or to each of its programs
+// when they have none of their own.
+func signalJob(j *job, name string) {
+	sig := signals[name]
+	if j.grouped && j.pgid > 0 {
+		syscall.Kill(-j.pgid, sig)
 		return
 	}
-	if grouped {
-		syscall.Kill(-cmd.Process.Pid, sig) // the group's id is the child's pid
-		return
+	for _, cmd := range j.cmds {
+		if cmd.Process != nil {
+			cmd.Process.Signal(sig)
+		}
 	}
-	cmd.Process.Signal(sig)
 }
 
 // signalNumber gives the number of a signal by its name without SIG, or 0.

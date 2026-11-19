@@ -815,7 +815,7 @@ Each step is usable on its own and prepares the next:
 | 23 | Decimals in `json`, `db` and the Go package (14.8, step 3) | 22 | done (Q117), and `toml::encode` |
 | 24 | Decimals: documents, editors, an invoice example (14.8, step 4) | 23 | done (Q117): the booklet (chapters 2, 14 and 16) and `examples/invoice.kkl` |
 | 25 | Processes: `proc::run`, `ProcError`, cancellation; `fs::glob` (15.8, step 1) | — | done (Q118): `proc` in Kukel on the Go module `process` |
-| 26 | Processes: `proc::pipe`, `proc::start` and `proc::Process` (15.8, step 2) | 25 | proposed (Q118) |
+| 26 | Processes: `proc::pipe`, `proc::start` and `proc::Process` (15.8, step 2) | 25 | done (Q118) |
 | 27 | Processes: `proc::sh` with `args`; events (15.8, step 3) | 26 | proposed (Q118) |
 | 28 | Processes: documents, the booklet, an example (15.8, step 4) | 27 | proposed (Q118) |
 
@@ -2376,8 +2376,8 @@ Each step is a branch of its own, merged when its tests pass.
 
 ## 15. Processes: a module `proc`
 
-*A proposal (2026-11-19, TODO.md Q118); step 1 built (2026-11-19, 15.8,
-with the changes below). The open questions of 15.10 were all answered
+*A proposal (2026-11-19, TODO.md Q118); steps 1 and 2 built (2026-11-19,
+15.8, with the changes below). The open questions of 15.10 were all answered
 as proposed the same day.*
 
 *As built, step 1*: (1) A module written in Go cannot throw an object of
@@ -2394,6 +2394,18 @@ group, which alone may read a terminal. (4) A child in a group of its own
 does not get the terminal's Ctrl-C, so `kukel run` and `kukel exec` now
 catch INT, TERM and HUP, end every process `process` started, and then
 let the signal end `kukel` as before (exit status 130 for Ctrl-C).
+
+*As built, step 2*: (5) `start`'s pipes are asked for with `"stdin":
+"pipe"`, `"out": "pipe"` and `"err": "pipe"`; a write to the `stdin()`
+pipe reaches the program at once (`fs::File`s made by `fs` for `process`
+flush each write). (6) `pipe` does not count a program before the last
+that the signal PIPE ended (`yes` before `head`): the next one stopped
+reading, which is no failure (bash's `pipefail` says 141 there). (7) A
+program left running is waited for when `kukel run` ends, but ended by
+`Interp.Close` in a Go program, which cancels the interpreter. (8)
+`kill` signals the program's process group, so what it started gets the
+signal too. (9) `wait` closes the `stdin()` pipe first, so that a program
+reading to the end of its input ends.
 
 Kukel cannot start a program today: `os` has only `os::pid()`. That keeps
 it out of the work bash scripts do, gluing programs together, although

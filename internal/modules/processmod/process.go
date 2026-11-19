@@ -1,26 +1,22 @@
-// Package processmod is the native module "process": starting a program,
-// feeding it, capturing what it writes, and waiting for it, with time
-// limits and cancellation that leave no processes behind (TODO.md Q118,
-// docs/future.md §15). It has no policy of its own: the standard module
-// proc, written in Kukel (internal/stdlib/proc.kkl), checks the arguments,
-// turns failures into proc::ProcError and is what programs use.
+// Package processmod is the native module "process": starting programs,
+// feeding them, capturing what they write, connecting them with pipes and
+// waiting for them, with time limits and cancellation that leave no
+// processes behind (TODO.md Q118, docs/future.md §15). It has no policy of
+// its own: the standard module proc, written in Kukel
+// (internal/stdlib/proc.kkl), checks the arguments, turns failures into
+// proc::ProcError and is what programs use.
 //
 // A Go program that embeds Kukel gets it only when it names it in
 // StandardModules (F-74): it is the largest power a module gives.
 package processmod
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"sort"
 	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
 
 	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/value"
@@ -33,53 +29,14 @@ func init() {
 		OptIn: true,
 		Funcs: map[string]native.Func{
 			"run":      run,
+			"pipe":     pipe,
+			"spawn":    spawn,
 			"lookpath": lookpath,
 			"environ":  environ,
 			"signum":   signumFunc,
 		},
+		Classes: []*native.Class{Child},
 	})
-}
-
-// Grace is how long a process that a time limit or a cancellation ends
-// gets after TERM before it is killed.
-var Grace = 2 * time.Second
-
-// live holds the processes that run, with whether each has a group of its
-// own, for StopAll.
-var live = struct {
-	sync.Mutex
-	m map[*exec.Cmd]bool
-}{m: map[*exec.Cmd]bool{}}
-
-// stopping is set by StopAll: kukel is about to end by a signal, so a run
-// whose process it ended waits for that instead of reporting a failure.
-var stopping atomic.Bool
-
-// StopAll ends every process the module started that still runs, with
-// what it started in turn: TERM, and KILL to what is left after Grace.
-// kukel run calls it when it gets Ctrl-C, TERM or HUP, before it ends as
-// the signal would end it: a child in a group of its own does not get the
-// terminal's Ctrl-C.
-func StopAll() {
-	stopping.Store(true)
-	live.Lock()
-	cmds := make(map[*exec.Cmd]bool, len(live.m))
-	for c, g := range live.m {
-		cmds[c] = g
-		terminate(c, g)
-	}
-	live.Unlock()
-	for end := time.Now().Add(Grace); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
-		live.Lock()
-		n := len(live.m)
-		live.Unlock()
-		if n == 0 {
-			break
-		}
-	}
-	for c, g := range cmds {
-		kill(c, g)
-	}
 }
 
 // process::lookpath(name): the path of the program name stands for (found
@@ -133,10 +90,10 @@ func environ(env value.Env, args []value.Value) (value.Value, error) {
 	return value.MakeMap(m), nil
 }
 
-// options are run's, as proc gives them (checked there; checked again
-// here, so that the module cannot be misused alone).
+// options are run's, pipe's and spawn's, as proc gives them (checked
+// there; checked again here, so that the module cannot be misused alone).
 type options struct {
-	in     string // "inherit", "null" or "data"
+	in     string // "inherit", "null", "data", or "pipe" (spawn)
 	data   string // with in "data"
 	out    stream
 	err    stream
@@ -148,7 +105,7 @@ type options struct {
 }
 
 // stream is where output goes: "capture", "inherit", "null", "file",
-// "append", or for err also "out".
+// "append", "pipe" (spawn), or for err also "out".
 type stream struct {
 	kind, path string
 }
@@ -164,39 +121,84 @@ func run(env value.Env, args []value.Value) (value.Value, error) {
 	if err != nil {
 		return value.NilValue, err
 	}
-	argv, err := argvOf(a)
+	argv, err := argvOf(a, a.V[0], "the command")
 	if err != nil {
 		return value.NilValue, err
 	}
-	o, err := optionsOf(a)
+	o, err := optionsOf(a, false)
 	if err != nil {
 		return value.NilValue, err
 	}
-	return runCmd(env, argv, o)
+	return runJob(env, [][]string{argv}, o)
 }
 
-func argvOf(a native.Args) ([]string, error) {
+// process::pipe(argvs, options): runs the programs of argvs at the same
+// time, the output of each the input of the next, through the operating
+// system's pipes; in goes to the first, out comes from the last, err from
+// all. It gives run's map for the last program, with "codes", the exit
+// codes of all (nil for one a signal ended), and "signals".
+func pipe(env value.Env, args []value.Value) (value.Value, error) {
+	a, err := native.Check("process::pipe", args, 2, 2)
+	if err != nil {
+		return value.NilValue, err
+	}
 	v := a.V[0]
 	if v.Kind() != value.Vector || len(v.AsVector().Elems) == 0 {
-		return nil, a.TypeError(0, "a vector of strings: the program and its arguments")
+		return value.NilValue, a.TypeError(0, "a vector of commands")
+	}
+	var argvs [][]string
+	for i, c := range v.AsVector().Elems {
+		argv, err := argvOf(a, c, fmt.Sprintf("command %d", i+1))
+		if err != nil {
+			return value.NilValue, err
+		}
+		argvs = append(argvs, argv)
+	}
+	o, err := optionsOf(a, false)
+	if err != nil {
+		return value.NilValue, err
+	}
+	return runJob(env, argvs, o)
+}
+
+// runJob runs a job to its end and gives its result.
+func runJob(env value.Env, argvs [][]string, o options) (value.Value, error) {
+	j, failed := newJob(env, argvs, o)
+	if failed.Kind() != value.Nil {
+		return failed, nil
+	}
+	defer native.Wait(env).Done()
+	if failed := j.start(); failed.Kind() != value.Nil {
+		return failed, nil
+	}
+	if _, err := j.wait(env, nil); err != nil {
+		return value.NilValue, err
+	}
+	return j.result(), nil
+}
+
+// argvOf checks a command: a vector of strings, not empty, without NUL.
+func argvOf(a native.Args, v value.Value, what string) ([]string, error) {
+	if v.Kind() != value.Vector || len(v.AsVector().Elems) == 0 {
+		return nil, a.Errorf(value.TypeError, "%s must be a vector of strings: the program and its arguments", what)
 	}
 	var argv []string
 	for i, e := range v.AsVector().Elems {
 		if e.Kind() != value.String {
-			return nil, a.Errorf(value.TypeError, "argument %d of the command must be a string, not %s", i+1, e.Kind())
+			return nil, a.Errorf(value.TypeError, "argument %d of %s must be a string, not %s", i+1, what, e.Kind())
 		}
 		if strings.IndexByte(e.AsString(), 0) >= 0 {
-			return nil, a.Errorf(value.ValueError, "argument %d of the command holds a NUL byte", i+1)
+			return nil, a.Errorf(value.ValueError, "argument %d of %s holds a NUL byte", i+1, what)
 		}
 		argv = append(argv, e.AsString())
 	}
 	if argv[0] == "" {
-		return nil, a.Errorf(value.ValueError, "the program's name is empty")
+		return nil, a.Errorf(value.ValueError, "the program's name in %s is empty", what)
 	}
 	return argv, nil
 }
 
-func optionsOf(a native.Args) (options, error) {
+func optionsOf(a native.Args, pipes bool) (options, error) {
 	o := options{in: "null", out: stream{kind: "capture"}, err: stream{kind: "inherit"}, max: 64 << 20}
 	m := a.V[1]
 	if m.Kind() != value.Map {
@@ -218,8 +220,8 @@ func optionsOf(a native.Args) (options, error) {
 		switch key {
 		case "in":
 			if s, ok := str(key, v); ok {
-				if s != "inherit" && s != "null" && s != "data" {
-					bad = a.Errorf(value.ValueError, "option in: %q (inherit, null or data)", s)
+				if s != "inherit" && s != "null" && s != "data" && !(pipes && s == "pipe") {
+					bad = a.Errorf(value.ValueError, "option in: %q (inherit, null, data%s)", s, map[bool]string{true: ", pipe", false: ""}[pipes])
 				}
 				o.in = s
 			}
@@ -228,7 +230,7 @@ func optionsOf(a native.Args) (options, error) {
 				o.data = s
 			}
 		case "out", "err":
-			st, err := streamOf(a, key, v)
+			st, err := streamOf(a, key, v, pipes)
 			if err != nil {
 				bad = err
 			} else if key == "out" {
@@ -281,13 +283,21 @@ func optionsOf(a native.Args) (options, error) {
 	return o, bad
 }
 
-func streamOf(a native.Args, key string, v value.Value) (stream, error) {
+func streamOf(a native.Args, key string, v value.Value, pipes bool) (stream, error) {
+	kinds := "capture, inherit, null"
+	if key == "err" {
+		kinds += ", out"
+	}
+	if pipes {
+		kinds += ", pipe"
+	}
 	if v.Kind() == value.String {
 		switch s := v.AsString(); s {
-		case "capture", "inherit", "null", "out":
-			return stream{kind: s}, nil
+		case "capture", "inherit", "null", "out", "pipe":
+			if s != "pipe" || pipes {
+				return stream{kind: s}, nil
+			}
 		}
-		return stream{}, a.Errorf(value.ValueError, "option %s: %s (capture, inherit, null%s, or {\"file\": path} or {\"append\": path})", key, v.Repr(), map[bool]string{true: ", out", false: ""}[key == "err"])
 	}
 	if v.Kind() == value.Map && v.AsMap().Len() == 1 {
 		k := v.AsMap().Keys()[0]
@@ -296,184 +306,7 @@ func streamOf(a native.Args, key string, v value.Value) (stream, error) {
 			return stream{kind: k.String(), path: p.AsString()}, nil
 		}
 	}
-	return stream{}, a.Errorf(value.ValueError, "option %s: %s (capture, inherit, null, or {\"file\": path} or {\"append\": path})", key, v.Repr())
-}
-
-// overflow tells, once, that a capture went over its cap.
-type overflow struct {
-	once sync.Once
-	ch   chan struct{}
-}
-
-func (o *overflow) trip() { o.once.Do(func() { close(o.ch) }) }
-
-// capture is a writer that keeps at most max bytes; more trips over.
-type capture struct {
-	b    bytes.Buffer
-	max  int
-	over *overflow
-}
-
-func (c *capture) Write(p []byte) (int, error) {
-	if room := c.max - c.b.Len(); len(p) > room {
-		c.b.Write(p[:max(room, 0)])
-		c.over.trip()
-		return len(p), nil // the rest is dropped; the process is ended
-	}
-	return c.b.Write(p)
-}
-
-func runCmd(env value.Env, argv []string, o options) (value.Value, error) {
-	cmd := exec.Command(argv[0], argv[1:]...)
-	cmd.Dir = o.dir
-	if o.hasEnv {
-		cmd.Env = o.env
-	}
-	term, termOut := native.Terminal(env)
-	var files []*os.File
-	defer func() {
-		for _, f := range files {
-			f.Close()
-		}
-	}()
-	over := &overflow{ch: make(chan struct{})}
-	var outCap, errCap *capture
-	sink := func(s stream, std io.Writer, isErr bool) (io.Writer, error) {
-		switch s.kind {
-		case "capture":
-			c := &capture{max: o.max, over: over}
-			if isErr {
-				errCap = c
-			} else {
-				outCap = c
-			}
-			return c, nil
-		case "inherit":
-			if !isErr && termOut != nil {
-				return termOut, nil
-			}
-			return std, nil
-		case "null":
-			return nil, nil
-		}
-		flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
-		if s.kind == "append" {
-			flags = os.O_WRONLY | os.O_CREATE | os.O_APPEND
-		}
-		f, err := os.OpenFile(s.path, flags, 0o644)
-		if err != nil {
-			return nil, err
-		}
-		files = append(files, f)
-		return f, nil
-	}
-	w, err := sink(o.out, env.Stdout(), false)
-	if err != nil {
-		return notStarted(argv, err), nil
-	}
-	cmd.Stdout = w
-	if o.err.kind == "out" {
-		cmd.Stderr = cmd.Stdout
-	} else if cmd.Stderr, err = sink(o.err, env.Stderr(), true); err != nil {
-		return notStarted(argv, err), nil
-	}
-	inherited := false
-	switch o.in {
-	case "data":
-		cmd.Stdin = strings.NewReader(o.data)
-	case "inherit":
-		inherited = true
-		if term != nil && env.Stdin().Buffered() == 0 {
-			cmd.Stdin = term
-		} else {
-			cmd.Stdin = env.Stdin()
-		}
-	}
-	// A process group of its own, so that a time limit or a cancellation
-	// ends what it started too; not when it reads the terminal, which
-	// only the foreground group may.
-	grouped := !inherited
-	setGroup(cmd, grouped)
-	cmd.WaitDelay = Grace // pipes a grandchild keeps open do not hold the wait
-
-	defer native.Wait(env).Done()
-	start := time.Now()
-	if err := cmd.Start(); err != nil {
-		return notStarted(argv, err), nil
-	}
-	live.Lock()
-	live.m[cmd] = grouped
-	live.Unlock()
-	done := make(chan error, 1)
-	go func() {
-		err := cmd.Wait()
-		live.Lock()
-		delete(live.m, cmd)
-		live.Unlock()
-		done <- err
-	}()
-	var limit <-chan time.Time
-	if o.limit > 0 {
-		t := time.NewTimer(time.Duration(o.limit * float64(time.Second)))
-		defer t.Stop()
-		limit = t.C
-	}
-	timedout, truncated, cancelled := false, false, false
-	var waitErr error
-	select {
-	case waitErr = <-done:
-	case <-limit:
-		timedout = true
-	case <-over.ch:
-		truncated = true
-	case <-env.Done():
-		cancelled = true
-	}
-	if timedout || truncated || cancelled {
-		waitErr = stop(cmd, grouped, done)
-	}
-	if stopping.Load() {
-		select {} // kukel ends by the signal that made StopAll run
-	}
-	elapsed := time.Since(start).Seconds()
-	if cancelled {
-		if e := env.Err(); e != nil {
-			return value.NilValue, e
-		}
-	}
-	r := value.NewMap()
-	set := func(k string, v value.Value) { r.Set(value.MakeString(k), v) }
-	set("started", value.True)
-	code, signal, signum := exitOf(cmd, waitErr)
-	set("code", code)
-	set("signal", signal)
-	set("signum", signum)
-	set("out", captured(outCap))
-	set("err", captured(errCap))
-	set("time", value.MakeFloat(elapsed))
-	set("timedout", value.MakeBool(timedout))
-	set("truncated", value.MakeBool(truncated))
-	return value.MakeMap(r), nil
-}
-
-func captured(c *capture) value.Value {
-	if c == nil {
-		return value.NilValue
-	}
-	return value.MakeString(c.b.String())
-}
-
-// stop ends a process: TERM (to its group), and KILL after Grace.
-func stop(cmd *exec.Cmd, grouped bool, done chan error) error {
-	terminate(cmd, grouped)
-	select {
-	case err := <-done:
-		kill(cmd, grouped) // what the group left running
-		return err
-	case <-time.After(Grace):
-		kill(cmd, grouped)
-		return <-done
-	}
+	return stream{}, a.Errorf(value.ValueError, "option %s: %s (%s, or {\"file\": path} or {\"append\": path})", key, v.Repr(), kinds)
 }
 
 // notStarted is the result for a program that could not be started.

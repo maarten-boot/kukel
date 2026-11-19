@@ -99,6 +99,7 @@ type file struct {
 	env           value.Env     // of a standard stream: the interpreter whose streams it uses
 	reads, writes bool          // open for reading, for writing
 	waits         bool          // reading is a wait: standard input, a pipe, a terminal, a device
+	pipe          bool          // a pipe to a program (NewPipe): each write goes out at once
 	closed        bool
 	locked        string      // "", "shared" or "exclusive"
 	open          *openFiles  // the interpreter's open files
@@ -172,6 +173,24 @@ func newFile(env value.Env, name, mode string, osf *os.File, waits bool) value.V
 	f.open.files[f] = struct{}{}
 	f.self = File.Object(f)
 	return f.self
+}
+
+// NewPipe makes the fs::File of a pipe to or from a program the module
+// process started: mode "r" reads what it writes, "w" writes to it, each
+// write at once. It is one of the interpreter's open files, closed when
+// the program ends if it is still open.
+func NewPipe(env value.Env, name, mode string, osf *os.File) value.Value {
+	v := newFile(env, name, mode, osf, true)
+	v.AsObject().State.(*file).pipe = true
+	return v
+}
+
+// Close closes an fs::File (again: nothing), as f->close() does.
+func Close(v value.Value) error {
+	if f, ok := v.AsObject().State.(*file); ok {
+		return f.close()
+	}
+	return nil
 }
 
 // fs::memory([text]): an fs::File in memory, open for reading and writing
@@ -406,7 +425,9 @@ func (f *file) put(a native.Args, s string) error {
 			}
 			f.r.Reset(f.f)
 		}
-		_, err = f.w.WriteString(s)
+		if _, err = f.w.WriteString(s); err == nil && f.pipe {
+			err = f.w.Flush() // the program reads it now, not when 64 KiB have gathered
+		}
 	}
 	if err != nil {
 		return ioError(a, err)
