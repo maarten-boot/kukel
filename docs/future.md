@@ -22,6 +22,7 @@ Contents:
 12. [Structured logging and syslog: a module `logging` written in Kukel](#12-structured-logging-and-syslog-a-module-logging-written-in-kukel) (a proposal, 2026-11-16)
 13. [A GUI for LMW-Synth over 9P](#13-a-gui-for-lmw-synth-over-9p) (a proposal, 2026-11-16)
 14. [Decimals: a type `decimal` in the language](#14-decimals-a-type-decimal-in-the-language) (a proposal, 2026-11-19)
+15. [Processes: a module `proc`](#15-processes-a-module-proc) (a proposal, 2026-11-19)
 
 ---
 
@@ -813,16 +814,21 @@ Each step is usable on its own and prepares the next:
 | 22 | Decimals: the literal `12.50d`, the VM, the built-ins (14.8, step 2) | 21 | done (Q117), with the reference, the grammars and the editors |
 | 23 | Decimals in `json`, `db` and the Go package (14.8, step 3) | 22 | done (Q117), and `toml::encode` |
 | 24 | Decimals: documents, editors, an invoice example (14.8, step 4) | 23 | done (Q117): the booklet (chapters 2, 14 and 16) and `examples/invoice.kkl` |
+| 25 | Processes: `proc::run`, `ProcError`, cancellation; `fs::glob` (15.8, step 1) | — | proposed (Q118) |
+| 26 | Processes: `proc::pipe`, `proc::start` and `proc::Process` (15.8, step 2) | 25 | proposed (Q118) |
+| 27 | Processes: `proc::sh` with `args`; events (15.8, step 3) | 26 | proposed (Q118) |
+| 28 | Processes: documents, the booklet, an example (15.8, step 4) | 27 | proposed (Q118) |
 
 Steps 4, 5, 7 and 8 are independent of each other once 1 and 3 exist. A
 `ffi` module (1.6) can come at any point after step 1.
 
-The open questions **F-1** to **F-70** are best answered just before the
+The open questions **F-1** to **F-79** are best answered just before the
 step that needs them; F-28 to F-31 are those of the named arguments
 (section 9), F-32 to F-38 those of Kukel-MVC (section 10), F-39 to F-46
 those of email (section 11), F-47 to F-54 those of logging (section 12),
 F-55 to F-63 those of the LMW-Synth GUI (section 13), F-64 to F-70
-those of decimals (section 14).
+those of decimals (section 14), F-71 to F-79 those of processes (section
+15).
 
 ---
 
@@ -2365,3 +2371,241 @@ Each step is a branch of its own, merged when its tests pass.
   built-in, docs/compatibility.md), or by a module (`use decimal;
   decimal::of(x)`), which no program's names can clash with?
   *Answered (2026-11-19): as proposed.*
+
+---
+
+## 15. Processes: a module `proc`
+
+*A proposal (2026-11-19, TODO.md Q118); not built. The open questions
+are in 15.10.*
+
+Kukel cannot start a program today: `os` has only `os::pid()`. That keeps
+it out of the work bash scripts do, gluing programs together, although
+Kukel does the rest of such scripts better: values with types instead of
+words that split, exceptions instead of `set -e`, and `json`, `db`,
+`net` and decimals built in, at about a hundred times bash's speed for
+work done in the script itself (a loop of 10^6 additions: 0.018 s against
+1.98 s, measured 2026-11-19). A module `proc`, written in Go on
+`os/exec`, runs programs, captures their output, connects them with
+pipes and waits for them.
+
+The aim is scripts, not an interactive shell: no job control, no prompt,
+no command syntax in the language, and no POSIX `sh` (the reasons are in
+TODO.md Q118). A program is given as a vector of its arguments, so that
+nothing is split or expanded and no value can turn into a command:
+
+```
+use proc;
+
+main() {
+    local r = proc::run(["git", "log", "--format=%an", "-n", "200"]);
+    local count = {};
+    for (local name in split(trim(r["out"]), "\n")) {
+        count[name] = (haskey(count, name) ? count[name] : 0) + 1;
+    }
+    println(count);
+
+    // a pipeline, without a shell: gzip -dc app.log.gz | grep -c ERROR
+    local p = proc::pipe([["gzip", "-dc", "app.log.gz"], ["grep", "-c", "ERROR"]], {"check": false});
+    println(trim(p["out"]), p["codes"]);
+}
+```
+
+The model is Python's `subprocess` (run, the arguments as a list, a
+result to look at, check on request) and Go's `os/exec`, with Kukel's
+manners: options as a map, errors of their own kind, waits that the
+event loop, the profiler and cancellation know about.
+
+### 15.1 What it is not
+
+- Not a shell: `proc::run` starts the program itself (found on `PATH`),
+  with exactly the arguments given; `*`, `$HOME`, `|` and `>` mean
+  nothing. `proc::sh` (15.4) is the way to a real shell, said so in its
+  name.
+- Not job control, terminals or sessions: a child gets the program's
+  standard input, output and error, or pipes; Ctrl-Z, `fg` and pseudo
+  terminals are out.
+- Not a change of the program's own process: no `chdir`, no `setenv` for
+  the whole process (F-75). A child gets its directory and environment as
+  options, so that workers and embedding Go programs, which share the
+  process, are not affected.
+
+### 15.2 Running a program: `proc::run`
+
+`proc::run(cmd [, options])` starts `cmd` (a vector of strings: the
+program, then its arguments), waits for it, and gives a map:
+
+| Key | |
+|---|---|
+| `"code"` | the exit code (0: success), or `nil` when a signal ended it |
+| `"signal"` | the signal that ended it (`"TERM"`, `"KILL"`, ...), else `nil` |
+| `"out"`, `"err"` | its standard output and error as strings, when captured (else `nil`) |
+| `"time"` | the seconds it ran, a float |
+
+The options (a map; another key is a `ValueError`):
+
+| Option | |
+|---|---|
+| `"input"` | a string written to its standard input, which is then closed; without it, the input is empty (`"inherit"`: the program's own) |
+| `"out"`, `"err"` | `"capture"` (the default for `out`), `"inherit"` (the default for `err`: it goes where the program's own goes), `"null"` (dropped), a path to write to (`{"file": "x.log"}`, `{"append": "x.log"}`), and for `err` also `"out"` (into the same stream as the output, in order) |
+| `"cwd"` | the directory it runs in |
+| `"env"` | a map of variables to set (`nil` as a value removes one), on top of the program's environment; with `"clearenv": true`, only these |
+| `"timeout"` | seconds; when they pass the process is ended (TERM, and KILL 2 seconds later) and the result has `"timedout": true` (with `check`, a `ProcError`) |
+| `"check"` | `true` (the default, F-72): an exit code other than 0, or a signal, is a `proc::ProcError` |
+| `"max"` | the most bytes captured of `out` and `err` each (default 64 MiB, F-78); more is a `ProcError` and the process is ended |
+
+A program that cannot be started (not found, not executable) is a
+`ProcError` too, before anything runs. `cmd` that is not a non-empty
+vector of strings is a `TypeError`; a string with a NUL byte a
+`ValueError`.
+
+`proc::ProcError` (kind `ProcError`, like `mail::MailError`) carries the
+`command` (the vector), the `code`, the `signal` and the last 4 KiB of
+`err` when it was captured, so that a message is useful without the
+caller reading anything: `proc::run: [git, log] exited with 128: fatal:
+not a git repository`.
+
+### 15.3 Pipelines: `proc::pipe`
+
+`proc::pipe(cmds [, options])` runs the programs of `cmds` (a vector of
+command vectors) at the same time, the standard output of each the input
+of the next, through operating-system pipes (no shell, nothing passes
+through Kukel). The options are those of `run`: `input` goes to the
+first, `out` comes from the last, `err` from all of them. The result is
+`run`'s, for the last program, and `"codes"`: the codes of all, in order.
+With `check`, any program that fails fails the pipeline (bash's
+`pipefail`), and the `ProcError` names which.
+
+### 15.4 A shell when wanted: `proc::sh`
+
+`proc::sh(script [, options])` runs `script` with `/bin/sh -c`, for what
+a shell does best (globs, `&&`, redirection, a one-line pipeline). Values
+never go into the text: the option `"args"` passes them as `$1`, `$2`,
+..., so that they cannot become commands (F-73):
+
+```
+proc::sh("grep -c -- \"$1\" \"$2\" || true", {"args": [pattern, path]});
+```
+
+On Windows there is no `/bin/sh`: `proc::sh` is a `ValueError` there
+(F-76); `run`, `pipe` and `start` work.
+
+### 15.5 Talking to a running program: `proc::start`
+
+`proc::start(cmd [, options])` starts `cmd` and gives a `proc::Process`
+at once, for a program to talk to or to watch:
+
+| | |
+|---|---|
+| `p->stdin()`, `p->stdout()`, `p->stderr()` | the pipes (with the options `"in": "pipe"`, `"out": "pipe"`, `"err": "pipe"`), as `fs::File`s: `write`, `readline`, `read`, `for (local line in p->stdout())`, `close` (F-77) |
+| `p->wait([timeout])` | waits for the end and gives `run`'s result (`out` and `err` are those captured, not piped); with `check`, a failure is a `ProcError`; a timeout that passes gives `nil` and leaves it running |
+| `p->kill([signal])` | sends `"TERM"` (the default), `"KILL"`, `"INT"`, `"HUP"`, `"USR1"` or `"USR2"`; on Windows every signal ends it |
+| `p->pid()`, `p->running()` | its process id; whether it has not ended |
+| `p->onexit(f)` | the event loop (`events`) calls `f(result)` when it ends; `p->stdout()->onlines(f)`... later (15.8, step 3) |
+
+A `Process` that is not waited for is waited for when the program ends,
+and killed first if the program was cancelled.
+
+### 15.6 Other functions
+
+| | |
+|---|---|
+| `proc::which(name)` | the path of the program `run` would start for `name`, or `nil` |
+| `proc::env()` | the program's environment as a map (`getenv` reads one variable) |
+| `proc::exitcode(r)` | 0 for a result that succeeded, else its code (128 + the signal number for a signal, as shells say): for `exit(proc::exitcode(r))` |
+
+Globs belong in `fs`: `fs::glob(pattern)` (`"logs/*.gz"`, sorted), a
+small addition to that module made in the same step (15.8).
+
+### 15.7 Safety, cancellation and embedding
+
+- **No injection by design**: arguments are a vector, never a line to
+  split; `proc::sh` takes values only as `args`. The reference says so
+  with an example of what goes wrong when text is glued.
+- **Cancellation**: every child runs in a process group of its own (on
+  Unix; a job object on Windows). When the Kukel program is cancelled
+  (Ctrl-C in `kukel run`, a Go program's time limit) or ends with
+  children still running, the groups get TERM, then KILL: no processes
+  are left behind. Waits go through `native.Wait`, so the profiler counts
+  them as waiting and the event loop goes on in `start`'s handlers.
+- **Embedding**: starting programs is the largest power a module can
+  give, beyond `fs` and `net`. A Go program gets `proc` only when it names
+  it in `StandardModules` (F-74), even when that is `nil` (every other
+  standard module); `kukel run` and the REPL have it. The examples of
+  docs/embedding.md §5 for untrusted code stay as they are.
+- **Output in memory**: captured output is capped (`"max"`), so a program
+  that writes without end cannot fill the memory of the script.
+
+### 15.8 How it would be built
+
+- **`internal/modules/procmod`**, on `os/exec`: `exec.Cmd` with
+  `SysProcAttr` for the process group (`Setpgid` on Unix), `Cancel` and
+  `WaitDelay` for TERM then KILL, `os.Pipe` between the programs of a
+  pipeline, a goroutine per captured stream (so that a full pipe never
+  blocks the other), and `native.Wait` around every wait. The pipes are
+  `fs::File` objects (`fsmod`'s class, as `db` gives `time::Time`s).
+- **Errors**: the class `proc::ProcError`, derived from `Error`, as
+  `mail::MailError` is.
+- **Embedding**: `StandardModules` `nil` leaves `proc` out (F-74);
+  `kukel.Options` gains nothing.
+- **Steps**:
+  1. `proc::run` with its options, `ProcError`, `which`, `env`,
+     `exitcode`, cancellation and process groups; `fs::glob`.
+  2. `proc::pipe` and `proc::start` with `proc::Process`, its pipes as
+     `fs::File`s, `kill`, `wait` with a timeout.
+  3. `proc::sh` with `args`; `onexit` and lines from a pipe in the event
+     loop.
+  4. The reference, the booklet (a chapter "Running programs": a bash
+     script turned into Kukel), the embedding notes, and an example
+     (`examples/release.kkl`, say: build, test and pack with `go`, `git`
+     and `tar`, the steps' output in a log).
+
+  Each step a branch, merged when its tests pass, as for decimals.
+
+### 15.9 How it would be tested
+
+- **Children that behave as asked**: the Go test binary runs itself as
+  the child (the `os/exec` tests' helper-process pattern), so that the
+  tests need no `sh`, `cat` or `grep` and run on Windows too: write this
+  to standard output and that to standard error, exit with 3, sleep, die
+  of a signal, read the input back, print the environment and directory.
+- **Each option**, alone and with the others: `input`, `out` and `err`
+  in each form (also `err` into `out` in order), `cwd`, `env` and
+  `clearenv`, `timeout` (the process and its own children gone: a child
+  that starts a grandchild), `check` on and off, `max`.
+- **Pipelines**: data through three programs, the codes of all, a
+  failure in the middle with and without `check`, a large stream (more
+  than a pipe buffer) without a deadlock.
+- **Processes**: talking over the pipes line by line, `kill` with each
+  signal, `wait` with a timeout, `onexit` in the event loop, a process
+  left running when the program ends or is cancelled (none must remain:
+  checked by its pid).
+- **Safety**: arguments with spaces, quotes, `$`, `;`, `*` and newlines
+  arrive as they were given; `proc::sh` with such `args`; a NUL byte.
+- **Embedding**: `use proc;` is a compile error under `StandardModules`
+  `nil` and with a list that does not name it.
+- **Examples**: the example's `.tests` (with the helper programs it can
+  count on in CI: `go` and `git`).
+
+### 15.10 Open questions
+
+- **F-71** `run`'s result: a map (proposed: it prints, goes into `json`
+  and needs no methods), or an object `proc::Result`?
+- **F-72** A failing program: a `ProcError` unless `{"check": false}`
+  (proposed, as `set -e` but catchable, so that a script does not go on
+  after a failed step without saying so), or a result to look at unless
+  asked to check (Python's default)?
+- **F-73** `proc::sh`: in the module with `args` for values (proposed),
+  or left out, so that there is no shell at all?
+- **F-74** Embedding: `proc` only when a Go program names it in
+  `StandardModules` (proposed), or, like every other standard module,
+  also under `nil`?
+- **F-75** Directory and environment only per child (proposed), or also
+  `fs::chdir` and `os::setenv` for the whole process?
+- **F-76** `proc::sh` on Windows: a `ValueError` (proposed), or `cmd.exe
+  /c` (another language under the same name)?
+- **F-77** The pipes of a `Process`: `fs::File`s (proposed: one set of
+  reading and writing functions to learn), or a class of `proc`'s own?
+- **F-78** The default cap on captured output: 64 MiB (proposed), or
+  none?
+- **F-79** The name: `proc` (proposed), `process`, or functions in `os`?
