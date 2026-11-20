@@ -15,41 +15,57 @@ Two kinds of change need care when you upgrade:
 From v1.0.0 on, what keeps working is in
 [docs/compatibility.md](docs/compatibility.md).
 
-## Unreleased
+## v1.7.0 (2026-11-20)
 
-- Running programs: the module `proc` (written in Kukel, on a new module
-  `process` written in Go). `proc::run(["git", "log", "-n", "5"],
-  options)` runs a program with its arguments as a vector (nothing split,
-  expanded or run by a shell) and gives its exit code, signal, output,
-  errors and time; options `input`, `stdin`, `out`, `err` (capture,
-  inherit, null, a file, errors into the output), `cwd`, `env`,
-  `clearenv`, `timeout`, `check` and `max`. A program that fails is a
-  `proc::ProcError` (with `command`, `code`, `signal` and `err`) unless
-  `check` is false. `proc::which`, `proc::env`, `proc::exitcode`. Every
-  program runs in a process group of its own, which a time limit, a
-  cancellation or Ctrl-C ends with what it started: `kukel run` and `kukel
-  exec` now end those processes on Ctrl-C, TERM and HUP before ending as
-  they did. A Go program that embeds Kukel gets `process` only when it
-  names it in `StandardModules` (`nil` leaves it out). docs/future.md §15,
-  Q118.
-- `proc::pipe([cmd1, cmd2, ...], options)`: a pipeline through the
-  operating system's pipes, without a shell, with the exit codes of all
-  (`pipefail`: any failure fails it, but not a program that the next one
-  stopped reading). `proc::start(cmd, options)` gives a `proc::Process` to
-  talk to: its `stdin()`, `stdout()` and `stderr()` pipes as `fs::File`s
-  (`"pipe"` among the options), `wait([timeout])`, `kill([signal])`,
-  `pid()` and `running()`; a program left running is waited for when
-  `kukel run` ends. Q118.
-- `proc::sh(script, {"args": [...]})`: a script for `/bin/sh -c`, the
-  values only as `$1`, `$2`, ... (not on Windows). In the event loop,
-  `p->onlines(f [, stream])` calls `f(line)` for each line a started
-  program writes, and `p->onexit(f)` calls `f(result)` when it ends,
-  after its last lines. Q118.
+Syntax version 12 and bytecode format 13, as in v1.6: programs and `.kkc`
+files work unchanged. Running other programs from Kukel: the module
+`proc`, with the arguments of a program as values, so that nothing is
+split, expanded or run by a shell, and no value can turn into a command.
+A Go program that embeds Kukel gives scripts this power only by naming
+the new module `process` in `StandardModules`.
+
+- Running programs: the module `proc`, written in Kukel on a new module
+  `process` written in Go. Q118, docs/future.md §15.
+  - `proc::run(["git", "log", "-n", "5"], options)` runs a program and
+    gives its exit code, signal, output, errors and time. Options:
+    `input`, `stdin`, `out` and `err` (capture, inherit, null, a file, or
+    the errors into the output), `cwd`, `env`, `clearenv`, `timeout`,
+    `check` and `max`.
+  - A program that fails is a `proc::ProcError` (with `command`, `code`,
+    `signal` and the end of `err`) unless `check` is false; its message
+    names the command and the last line of its errors.
+  - `proc::pipe([cmd1, cmd2, ...], options)`: a pipeline through the
+    operating system's pipes, without a shell, with the exit codes of all
+    (`pipefail`: any failure fails it, but not a program that the next one
+    stopped reading, as `yes` before `head`).
+  - `proc::start(cmd, options)` gives a `proc::Process` to talk to: its
+    `stdin()`, `stdout()` and `stderr()` pipes as `fs::File`s (`"pipe"`
+    among the options; a write reaches the program at once),
+    `wait([timeout])`, `kill([signal])`, `pid()` and `running()`. In the
+    event loop, `p->onlines(f [, stream])` calls `f(line)` for each line,
+    and `p->onexit(f)` calls `f(result)` when it ends, after its last
+    lines.
+  - `proc::sh(script, {"args": [...]})`: a script for `/bin/sh -c`, with
+    values only as `$1`, `$2`, ... (not on Windows).
+  - `proc::which`, `proc::env`, `proc::exitcode` (128 plus the signal's
+    number for a program a signal ended).
+- Nothing is left running: every program runs in a process group of its
+  own, which a time limit, the cap on output, a cancellation or Ctrl-C ends
+  with what it started. `kukel run` and `kukel exec` now end those
+  processes on Ctrl-C, TERM and HUP, and then end as before (exit status
+  130 for Ctrl-C); a program a script left running is waited for when
+  `kukel run` ends, and ended by a Go program's `Interp.Close`. Q118.
+- Embedding: `StandardModules` `nil` (every standard module) leaves out
+  `process`, which a Go program must name: starting programs is the
+  largest power a module gives. Q118.
 - `fs::glob(pattern)`: the paths that match a pattern, sorted. Q118.
 - Booklet: a new chapter 19, "Running programs" (`proc`, and a bash
   script turned into Kukel); The terminal, The tools and Windows are now
-  chapters 20 to 22. `examples/steps.kkl`: the steps of a TOML file run in
+  chapters 20 to 22, and the appendices list `proc`, `ProcError` and
+  `decimal()`. `examples/steps.kkl` runs the steps of a TOML file in
   order, as a small make or CI would. Q118.
+- A test of the LMW-Synth GUI no longer loses a typed key: it waits until
+  the GUI has the notes before it stops the synth.
 
 ## v1.6.0 (2026-11-19)
 
