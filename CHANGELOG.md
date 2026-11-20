@@ -15,19 +15,31 @@ Two kinds of change need care when you upgrade:
 From v1.0.0 on, what keeps working is in
 [docs/compatibility.md](docs/compatibility.md).
 
-## Unreleased
+## v1.8.0 (2026-11-20)
 
-- `kukel fmt -strict` also puts a vector or map literal one element per
-  line when it has more than 3 elements, or is longer than half of
-  `-linelength` (60 characters by default) on one line; a short literal
-  inside it stays (`-vertical` folds every literal of 2 or more, as
-  before). A function literal written on one line that such a split
-  reaches into gets each of its statements on a line of its own, instead
-  of `f(fn() { local w = [` ... `]; return w; });`. Q119.
+Syntax version 12 and bytecode format 13, as in v1.7: programs and `.kkc`
+files work unchanged. `kukel fmt -strict` lays out long literals and
+definitions with many parameters differently than before, so that fewer
+lines run up to `-linelength`: run it again on code formatted with it
+(formatting is not among what v1 keeps the same:
+[docs/compatibility.md](docs/compatibility.md)). `-vertical` and plain
+`kukel fmt` are unchanged.
+
+- `kukel fmt -strict` puts a vector or map literal one element per line
+  when it has more than 3 elements, or is longer than half of
+  `-linelength` (60 characters by default) on one line: `[1, 2, 3]`
+  stays, `[1, 2, 3, 4]` and a long map of settings do not. A short
+  literal inside a folded one stays; a call around it is split too, as
+  for calls. Q119.
 - `kukel fmt -strict` puts the parameters of a function or member
   function definition one per line when there are more than 3, as it does
-  the arguments of a call (before, only when the line was too long).
+  the arguments of a call (before, only when the line was too long). The
+  parameters of function literals and the declarations in a class stay.
   Q120.
+- A function literal written on one line that such a split reaches into
+  gets each of its statements on a line of its own (also with
+  `-vertical`), instead of `f(fn() { local w = [` ... `]; return w; });`;
+  one written over lines keeps its lines. Q119.
 
 ## v1.7.0 (2026-11-20)
 
