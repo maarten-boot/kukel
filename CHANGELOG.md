@@ -24,6 +24,10 @@ From v1.0.0 on, what keeps working is in
   before). A function literal written on one line that such a split
   reaches into gets each of its statements on a line of its own, instead
   of `f(fn() { local w = [` ... `]; return w; });`. Q119.
+- `kukel fmt -strict` puts the parameters of a function or member
+  function definition one per line when there are more than 3, as it does
+  the arguments of a call (before, only when the line was too long).
+  Q120.
 
 ## v1.7.0 (2026-11-20)
 

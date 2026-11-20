@@ -124,8 +124,9 @@ func TestLists(t *testing.T) {
 		// is kept; a call written over lines by hand is put one per line
 		{strict, "main() {\n    f(1, /* two */ 2, 3,\n      4 // four\n    );\n    g(1, 2, 3, 4,);\n}\n",
 			"main() {\n    f(\n        1,\n        /* two */ 2,\n        3,\n        4, // four\n    );\n    g(\n        1,\n        2,\n        3,\n        4,\n    );\n}\n"},
-		// definitions are not split by count in strict, by length they are
-		{strict, "add(a, b, c, d) { return a; }\nmain() {}\n", "add(a, b, c, d) {\n    return a;\n}\nmain() {}\n"},
+		// definitions are split by count too (Q120): more than 3 parameters
+		{strict, "add(a, b, c, d) { return a; }\nsum(a, b, c) { return a; }\nmain() {}\n",
+			"add(\n    a,\n    b,\n    c,\n    d,\n) {\n    return a;\n}\nsum(a, b, c) {\n    return a;\n}\nmain() {}\n"},
 		{short, "addition(firstnumber, secondnumber) { return firstnumber; }\nmain() { println(addition(1, 2), \"a long text\"); }\n",
 			"addition(\n    firstnumber,\n    secondnumber,\n) {\n    return firstnumber;\n}\nmain() {\n    println(\n        addition(1, 2),\n        \"a long text\",\n    );\n}\n"},
 		// vertical: every list of 2 or more, definitions too; one item, an

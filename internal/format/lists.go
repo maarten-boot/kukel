@@ -1,7 +1,8 @@
 package format
 
 // Lists put one per line (TODO.md Q106): with Strict, the arguments of a
-// call with more than 3 of them, the elements of a vector or map literal
+// call and the parameters of a definition with more than 3 of them (Q120),
+// the elements of a vector or map literal
 // with more than 3 of them or longer than half of Options.LineLength on
 // one line (Q119), and those of a call, the parameters of a definition or
 // the elements of a literal on a line longer than Options.LineLength; with Vertical, every argument list of a call,
@@ -121,7 +122,9 @@ func code(toks []token.Token, i, end int) int {
 	return -1
 }
 
-// byCount chooses the lists that Strict (more than 3 arguments of a call)
+// byCount chooses the lists that Strict (more than 3 arguments of a call
+// or parameters of a definition, more than 3 elements of a literal or one
+// longer than half a line)
 // and Vertical (2 or more items of a call, definition or vector or map
 // literal) put one per line,
 // and the lists around them that they are an item of (directly or inside
@@ -133,7 +136,7 @@ func byCount(ls []list, toks []token.Token, src []byte, vertical bool, lineLengt
 	chosen := map[int]bool{}
 	for _, l := range ls {
 		n := l.items()
-		if !l.def && !l.literal && n > 3 || vertical && n >= 2 ||
+		if !l.literal && n > 3 || vertical && n >= 2 ||
 			l.literal && n >= 2 && (n > 3 || width(l, toks, src) > lineLength/2) {
 			chosen[l.lp] = true
 		}
