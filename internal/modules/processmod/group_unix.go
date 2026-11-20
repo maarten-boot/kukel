@@ -42,6 +42,9 @@ func signalJob(j *job, name string) {
 	}
 }
 
+// shell is what proc::sh runs.
+const shell = "/bin/sh"
+
 // signalNumber gives the number of a signal by its name without SIG, or 0.
 func signalNumber(name string) int { return int(unix.SignalNum("SIG" + name)) }
 

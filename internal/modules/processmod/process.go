@@ -34,6 +34,7 @@ func init() {
 			"lookpath": lookpath,
 			"environ":  environ,
 			"signum":   signumFunc,
+			"shell":    shellFunc,
 		},
 		Classes: []*native.Class{Child},
 	})
@@ -72,6 +73,18 @@ func signumFunc(env value.Env, args []value.Value) (value.Value, error) {
 		return value.MakeInt(int64(n)), nil
 	}
 	return value.NilValue, nil
+}
+
+// process::shell(): the shell proc::sh runs, "/bin/sh", or nil where there
+// is none (Windows).
+func shellFunc(env value.Env, args []value.Value) (value.Value, error) {
+	if _, err := native.Check("process::shell", args, 0, 0); err != nil {
+		return value.NilValue, err
+	}
+	if shell == "" {
+		return value.NilValue, nil
+	}
+	return value.MakeString(shell), nil
 }
 
 // process::environ(): the environment as a map, by name.

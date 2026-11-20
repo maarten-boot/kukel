@@ -1,8 +1,12 @@
 package processmod
 
 import (
+	"io"
+	"strings"
+	"sync"
 	"time"
 
+	"github.com/maarten-boot/kukel/internal/modules/eventsmod"
 	"github.com/maarten-boot/kukel/internal/modules/fsmod"
 	"github.com/maarten-boot/kukel/internal/native"
 	"github.com/maarten-boot/kukel/internal/value"
@@ -19,6 +23,8 @@ var Child = &native.Class{
 		"wait":    childMethod("wait", 0, 1, waitChild),
 		"kill":    childMethod("kill", 0, 1, killChild),
 		"pid":     childMethod("pid", 0, 0, pidOf),
+		"onexit":  childMethod("onexit", 1, 1, onexit),
+		"onlines": childMethod("onlines", 2, 2, onlines),
 		"running": childMethod("running", 0, 0, runningOf),
 	},
 	Show: func(o *value.ObjectObj) string {
@@ -34,8 +40,9 @@ var Child = &native.Class{
 // child is the Go part of a process::Child.
 type child struct {
 	j                   *job
-	stdin, out, errPipe value.Value // fs::Files, or nil
-	result              value.Value // run's map, once waited for
+	stdin, out, errPipe value.Value    // fs::Files, or nil
+	result              value.Value    // run's map, once waited for
+	readers             sync.WaitGroup // onlines's: onexit comes after their last line
 }
 
 func (c *child) isRunning() bool {
@@ -160,6 +167,90 @@ func killChild(a native.Args, env value.Env, c *child) (value.Value, error) {
 	}
 	signalJob(c.j, name)
 	return value.True, nil
+}
+
+// c->onexit(f): the event loop (events::run) calls f(result) when the
+// program has ended, with run's map, after the lines of its onlines
+// handlers; until then the loop goes on. The program counts as waited for.
+func onexit(a native.Args, env value.Env, c *child) (value.Value, error) {
+	f := a.V[0]
+	if !f.IsCallable() {
+		return value.NilValue, a.TypeError(0, "a function")
+	}
+	loop := eventsmod.For(env)
+	release := loop.Hold()
+	go func() {
+		<-c.j.done
+		c.readers.Wait() // the lines first, then the end
+		loop.Post(func() error {
+			defer release()
+			if c.result.Kind() == value.Nil {
+				c.result = c.j.result()
+				delete(children(env).set, c)
+			}
+			_, err := env.Call(f, []value.Value{c.result})
+			return err
+		})
+	}()
+	return value.NilValue, nil
+}
+
+// c->onlines(f, stream): the event loop calls f(line) for each line of the
+// pipe stream ("out" or "err"), without its line ending, and f(nil) at its
+// end; until then the loop goes on. The pipe's fs::File is read here from
+// now on (what it had buffered too): read it no more.
+func onlines(a native.Args, env value.Env, c *child) (value.Value, error) {
+	f := a.V[0]
+	if !f.IsCallable() {
+		return value.NilValue, a.TypeError(0, "a function")
+	}
+	name, err := a.String(1)
+	if err != nil {
+		return value.NilValue, err
+	}
+	var pipe value.Value
+	switch name {
+	case "out":
+		pipe = c.out
+	case "err":
+		pipe = c.errPipe
+	default:
+		return value.NilValue, a.Errorf(value.ValueError, "the stream is \"out\" or \"err\", not %q", name)
+	}
+	if pipe.Kind() == value.Nil {
+		return value.NilValue, a.Errorf(value.ValueError, "the program's %s is no pipe (\"pipe\" among the options)", name)
+	}
+	r := fsmod.Reader(pipe)
+	if r == nil {
+		return value.NilValue, a.Errorf(value.ValueError, "the program's %s pipe is closed", name)
+	}
+	loop := eventsmod.For(env)
+	release := loop.Hold()
+	c.readers.Add(1)
+	call := func(v value.Value) {
+		loop.Post(func() error {
+			_, err := env.Call(f, []value.Value{v})
+			return err
+		})
+	}
+	go func() {
+		defer release()
+		defer c.readers.Done()
+		for {
+			line, err := r.ReadString('\n')
+			if line != "" {
+				call(value.MakeString(strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")))
+			}
+			if err != nil {
+				if err != io.EOF {
+					break // the pipe was closed meanwhile
+				}
+				call(value.NilValue)
+				return
+			}
+		}
+	}()
+	return value.NilValue, nil
 }
 
 // childrenKey finds an interpreter's running children.

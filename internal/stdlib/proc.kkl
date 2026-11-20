@@ -107,6 +107,40 @@ pipe(cmds, options = {}) {
     return result;
 }
 
+// sh(script, options): runs script with /bin/sh -c, for what a shell does
+// best (globs, &&, redirection, a pipeline on one line). Values never go
+// into the text: the option args (a vector of strings) passes them as $1,
+// $2, ..., so that they cannot become commands. The other options, and the
+// result, are run's. Windows has no /bin/sh: there it is a ValueError.
+//
+//     proc::sh("grep -c -- \"$1\" \"$2\" || true", {"args": [pattern, path]});
+sh(script, options = {}) {
+    _string("proc::sh: the script", script);
+
+    if (typeof(options) != "map") {
+        throw new Error("proc::sh: the options are a map, not " + typeof(options), "TypeError");
+    }
+    local shell = process::shell();
+
+    if (shell == nil) {
+        throw new Error("proc::sh: there is no /bin/sh here (Windows): run the program itself with proc::run", "ValueError");
+    }
+    local args = haskey(options, "args") ? options["args"] : [];
+    _command("proc::sh: option args", ["sh", args..]);
+    local rest = {};
+
+    for (local key, v in options) {
+        if (key != "args") rest[key] = v;
+    }
+    local cmd = [shell, "-c", script, "sh", args..];
+    local r = process::run(cmd, _options("proc::sh", rest, false));
+
+    if (!r["started"]) {
+        throw new ProcError("proc::sh: " + r["error"], cmd);
+    }
+    return _finish("proc::sh", cmd, r, rest);
+}
+
 // start(cmd, options): starts cmd and gives a proc::Process at once, for a
 // program to talk to or to watch. The options are run's, and "pipe" for
 // stdin, out and err: then p->stdin(), p->stdout() and p->stderr() are
@@ -137,6 +171,8 @@ class Process {
     kill(signal);
     pid();
     running();
+    onexit(f);
+    onlines(f, stream);
 }
 
 Process::Process(child, command, options) {
@@ -187,6 +223,22 @@ Process::pid() {
 
 Process::running() {
     return _child->running();
+}
+
+// onexit(f): the event loop (events::run()) calls f(result) when the
+// program has ended, with run's map as wait gives it but without check
+// (the handler looks at the code itself), after the last line of its
+// onlines handlers; until then the loop goes on.
+Process::onexit(f) {
+    _child->onexit(f);
+}
+
+// onlines(f [, stream]): the event loop calls f(line) for each line the
+// program writes to the pipe stream ("out", the default, or "err"),
+// without its line ending, and f(nil) at its end; until then the loop goes
+// on. From then on the pipe's fs::File is read for f: read it no more.
+Process::onlines(f, stream = "out") {
+    _child->onlines(f, stream);
 }
 
 // _options checks the options of run, pipe or start (what), and gives

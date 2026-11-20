@@ -816,7 +816,7 @@ Each step is usable on its own and prepares the next:
 | 24 | Decimals: documents, editors, an invoice example (14.8, step 4) | 23 | done (Q117): the booklet (chapters 2, 14 and 16) and `examples/invoice.kkl` |
 | 25 | Processes: `proc::run`, `ProcError`, cancellation; `fs::glob` (15.8, step 1) | — | done (Q118): `proc` in Kukel on the Go module `process` |
 | 26 | Processes: `proc::pipe`, `proc::start` and `proc::Process` (15.8, step 2) | 25 | done (Q118) |
-| 27 | Processes: `proc::sh` with `args`; events (15.8, step 3) | 26 | proposed (Q118) |
+| 27 | Processes: `proc::sh` with `args`; events (15.8, step 3) | 26 | done (Q118): `onlines` and `onexit` on `proc::Process` |
 | 28 | Processes: documents, the booklet, an example (15.8, step 4) | 27 | proposed (Q118) |
 
 Steps 4, 5, 7 and 8 are independent of each other once 1 and 3 exist. A
@@ -2376,8 +2376,8 @@ Each step is a branch of its own, merged when its tests pass.
 
 ## 15. Processes: a module `proc`
 
-*A proposal (2026-11-19, TODO.md Q118); steps 1 and 2 built (2026-11-19,
-15.8, with the changes below). The open questions of 15.10 were all answered
+*A proposal (2026-11-19, TODO.md Q118); steps 1 to 3 built (2026-11-19
+and 20, 15.8, with the changes below). The open questions of 15.10 were all answered
 as proposed the same day.*
 
 *As built, step 1*: (1) A module written in Go cannot throw an object of
@@ -2406,6 +2406,14 @@ program left running is waited for when `kukel run` ends, but ended by
 `kill` signals the program's process group, so what it started gets the
 signal too. (9) `wait` closes the `stdin()` pipe first, so that a program
 reading to the end of its input ends.
+
+*As built, step 3*: (10) Lines from a pipe are `p->onlines(f [,
+stream])` on the `Process` (15.5 had `p->stdout()->onlines(f)`, which
+would have put an event handler on every `fs::File`); from then on the
+pipe is read for `f`. (11) `onexit(f)` gets the result without `check`,
+and comes after the last lines of the `onlines` handlers, so that a
+handler that sums up has seen them all. (12) `process::shell()` tells
+`proc::sh` where the shell is (`nil` on Windows).
 
 Kukel cannot start a program today: `os` has only `os::pid()`. That keeps
 it out of the work bash scripts do, gluing programs together, although

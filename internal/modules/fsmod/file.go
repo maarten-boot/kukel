@@ -185,6 +185,16 @@ func NewPipe(env value.Env, name, mode string, osf *os.File) value.Value {
 	return v
 }
 
+// Reader gives the reader of an fs::File open for reading (with what it
+// has buffered), for a module that reads it in its own goroutine from now
+// on (process: onlines); nil when it is not open for reading or closed.
+func Reader(v value.Value) *bufio.Reader {
+	if f, ok := v.AsObject().State.(*file); ok && f.reads && !f.closed {
+		return f.r
+	}
+	return nil
+}
+
 // Close closes an fs::File (again: nothing), as f->close() does.
 func Close(v value.Value) error {
 	if f, ok := v.AsObject().State.(*file); ok {

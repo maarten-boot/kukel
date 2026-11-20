@@ -452,3 +452,73 @@ func TestProcStartErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestProcSh(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		_, err := runProc(t, `use proc; main() { proc::sh("echo hi"); }`)
+		if err == nil || !strings.Contains(err.Error(), "proc::sh: there is no /bin/sh here (Windows)") {
+			t.Errorf("proc::sh on Windows: %v", err)
+		}
+		return
+	}
+	out, err := runProc(t, `use proc;
+main() {
+    local r = proc::sh("printf '[%s]' \"$@\"; echo; echo $#", {"args": ["a b", "$(echo injected)", "*", ";", "x\ny"]});
+    print(r["out"]);
+    println(trim(proc::sh("echo $X", {"env": {"X": "set"}})["out"]));
+    try {
+        proc::sh("echo oh no >&2; exit 4", {"err": "capture"});
+    } catch (e) {
+        println(e->kind, e->code, e->command[1], find(e->message, "exited with 4: oh no") > 0);
+    }
+    println(proc::sh("exit 5", {"check": false})["code"]);
+}`)
+	want := "[a b][$(echo injected)][*][;][x\ny]\n5\nset\nProcError 4 -c true\n5\n"
+	if err != nil || out != want {
+		t.Errorf("got %v:\n%q\nwant:\n%q", err, out, want)
+	}
+	for call, want := range map[string]string{
+		`proc::sh(1)`:                     `TypeError: proc::sh: the script is a string, not int`,
+		`proc::sh("true", {"args": [1]})`: `TypeError: proc::sh: option args: argument 2 of the command is a int, not a string`,
+		`proc::sh("true", {"args": "x"})`: `TypeError`,
+		`proc::sh("true", {"bogus": 1})`:  `ValueError: proc::sh: unknown option "bogus"`,
+	} {
+		if _, err := runProc(t, "use proc; main() { "+call+"; }"); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v, want %s", call, err, want)
+		}
+	}
+}
+
+// onlines and onexit: the lines of each stream in order, then the end of
+// each, then onexit, all in the event loop, which ends when they are done.
+func TestProcEvents(t *testing.T) {
+	out, err := runProc(t, `use proc;
+use events;
+main() {
+    local p = proc::start([@HELPER@, "out", "one", "sleep", "0.1", "out", "two", "err", "bad", "exit", "3"], {"env": @HENV@, "out": "pipe", "err": "pipe", "check": false});
+    local seen = {"out": [], "err": []};
+    p->onlines(fn(l) { push(seen["out"], l); });
+    p->onlines(fn(l) { push(seen["err"], l); }, "err");
+    p->onexit(fn(r) { println(seen, r["code"], p->running()); });
+    events::run();
+    println("after the loop", p->wait()["code"]);
+
+    local q = proc::start([@HELPER@, "out", "x"], {"env": @HENV@, "out": "pipe"});
+    println(q->stdout()->readline());
+    q->onlines(fn(l) { println("rest", l); });
+    events::run();
+}`)
+	want := "{\"out\": [\"one\", \"two\", nil], \"err\": [\"bad\", nil]} 3 false\nafter the loop 3\nx\nrest nil\n"
+	if err != nil || out != want {
+		t.Errorf("got %v:\n%q\nwant:\n%q", err, out, want)
+	}
+	for call, want := range map[string]string{
+		`proc::start([@HELPER@], {"env": @HENV@})->onlines(fn(l) {})`:                     `ValueError: process::Child::onlines: the program's out is no pipe`,
+		`proc::start([@HELPER@], {"env": @HENV@, "out": "pipe"})->onlines(fn(l) {}, "x")`: `ValueError: process::Child::onlines: the stream is "out" or "err", not "x"`,
+		`proc::start([@HELPER@], {"env": @HENV@})->onexit(1)`:                             `TypeError: process::Child::onexit: argument 1 must be a function`,
+	} {
+		if _, err := runProc(t, "use proc; main() { "+call+"; }"); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v, want %s", call, err, want)
+		}
+	}
+}

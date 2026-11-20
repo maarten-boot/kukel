@@ -2476,9 +2476,11 @@ only when it names it in `StandardModules`, also when that is `nil`
 | `c->wait([timeout])` | `run`'s map once it has ended (the same map later); `nil` when `timeout` seconds pass first |
 | `c->kill([signal])` | Sends a signal to it and what it started (`proc::Process::kill`); whether it still ran |
 | `c->pid()`, `c->running()` | Its process id; whether it has not ended |
+| `c->onexit(f)`, `c->onlines(f, stream)` | Handlers in the event loop (`proc::Process::onexit`, `onlines`) |
 | `process::lookpath(name)` | The path of the program `name` stands for, or `nil` |
 | `process::environ()` | The environment as a map |
 | `process::signum(name)` | The number of a signal (`"TERM"`: 15), or `nil` (also on Windows) |
+| `process::shell()` | The shell `proc::sh` runs, `"/bin/sh"`, or `nil` on Windows |
 
 ### re
 
@@ -3903,6 +3905,7 @@ ProcError 2 2
 | `proc::run(cmd [, options])` | Runs `cmd`, a vector of strings (the program, found on `PATH` unless it holds a `/`, and its arguments), to its end, and gives a map: `"code"` (the exit code; `nil` when a signal ended it), `"signal"` (that signal, `"TERM"`, `"KILL"`, ...; else `nil`), `"out"` and `"err"` (what it wrote, when captured; else `nil`), `"time"` (the seconds it ran) and `"timedout"`. A program that fails, an exit code other than 0, a signal or the time limit, is a `proc::ProcError` (unless `check` is false), and so is one that cannot be started (`program x not found`) |
 | `proc::pipe(cmds [, options])` | Runs the commands of `cmds` (a vector of commands) at the same time, the standard output of each the standard input of the next, through the operating system's pipes: no shell, and nothing passes through Kukel. The options are `run`'s: `input` goes to the first, `out` comes from the last, `err` from all of them. It gives `run`'s map for the last program, with `"codes"`: the exit codes of all, in order (`nil` for one a signal ended). With `check`, any program that fails fails the pipeline, as bash's `pipefail`, and the `ProcError` names it (`proc::pipe: command 2 ["grep", "x"] exited with 1`); a program before the last that the signal PIPE ended does not count, since the next one stopped reading (`yes` before `head`) |
 | `proc::start(cmd [, options])` | Starts `cmd` and gives a `proc::Process` at once, for a program to talk to or to watch. The options are `run`'s, and `"pipe"` for `stdin`, `out` and `err`: the program's input, output and errors are then pipes, which `p->stdin()`, `p->stdout()` and `p->stderr()` give |
+| `proc::sh(script [, options])` | Runs `script` with `/bin/sh -c`, for what a shell does best: globs, `&&`, redirection, a pipeline written on one line. Values never go into the text: the option `"args"` (a vector of strings) passes them to the script as `$1`, `$2`, ... (`$@`), so that they cannot become commands: `proc::sh("grep -c -- \"$1\" \"$2\" \|\| true", {"args": [pattern, path]})`. The other options, the result and `check` are `run`'s. Windows has no `/bin/sh`: there it is a `ValueError` (run the program itself with `run`) |
 | `proc::which(name)` | The path of the program `run` would start for `name`, or `nil` |
 | `proc::env()` | The environment, as a map by name (`getenv(name)` reads one variable) |
 | `proc::exitcode(r)` | The exit code of a result of `run` as a shell gives it: the code, or 128 plus the signal's number for a program a signal ended (TERM: 143). For `exit(proc::exitcode(r))` |
@@ -3929,6 +3932,8 @@ A **`proc::Process`**, from `proc::start`, has the data member `command`
 | `p->wait([timeout])` | Closes the `stdin()` pipe, waits for the program's end and gives `run`'s map (the same map at every call); with `check` a failure is a `ProcError`. When `timeout` seconds pass first, it gives `nil` and the program runs on. Read the `stdout()` and `stderr()` pipes before waiting: a program that fills a pipe nobody reads waits for ever |
 | `p->kill([signal])` | Sends `"TERM"` (the default), `"KILL"`, `"INT"`, `"HUP"`, `"QUIT"`, `"USR1"` or `"USR2"` to the program and what it started (its process group); another name is a `ValueError`. On Windows each ends the program. It gives whether the program still ran |
 | `p->pid()`, `p->running()` | The program's process id; whether it has not ended |
+| `p->onlines(f [, stream])` | The event loop (`events::run()`, section 11) calls `f(line)` for each line the program writes to the pipe `stream` (`"out"`, the default, or `"err"`), without its line ending, and `f(nil)` at its end; until then the loop goes on. The pipe's `fs::File` is read for `f` from then on (also what it had read ahead): read it no more. A stream that is no pipe is a `ValueError` |
+| `p->onexit(f)` | The event loop calls `f(result)` when the program has ended, with `run`'s map as `wait` gives it but without `check` (the handler looks at the code itself), after the last lines of its `onlines` handlers; until then the loop goes on |
 
 ```
 use proc;
@@ -3975,5 +3980,3 @@ cancellation does.
 - An argument a program cannot take arrives anyway (it is the program's to
   refuse); a `cmd` that is not a non-empty vector of strings is a
   `TypeError`.
-- Not there yet (docs/future.md §15): a shell for when it is wanted
-  (`proc::sh`), and `onexit` and lines from a pipe in the event loop.

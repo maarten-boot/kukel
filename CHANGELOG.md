@@ -40,6 +40,11 @@ From v1.0.0 on, what keeps working is in
   (`"pipe"` among the options), `wait([timeout])`, `kill([signal])`,
   `pid()` and `running()`; a program left running is waited for when
   `kukel run` ends. Q118.
+- `proc::sh(script, {"args": [...]})`: a script for `/bin/sh -c`, the
+  values only as `$1`, `$2`, ... (not on Windows). In the event loop,
+  `p->onlines(f [, stream])` calls `f(line)` for each line a started
+  program writes, and `p->onexit(f)` calls `f(result)` when it ends,
+  after its last lines. Q118.
 - `fs::glob(pattern)`: the paths that match a pattern, sorted. Q118.
 
 ## v1.6.0 (2026-11-19)

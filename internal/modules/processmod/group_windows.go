@@ -25,6 +25,9 @@ func signalJob(j *job, name string) {
 	}
 }
 
+// shell: Windows has no /bin/sh, and cmd.exe is another language.
+const shell = ""
+
 // signalNumber: Windows has no signals.
 func signalNumber(name string) int { return 0 }
 
