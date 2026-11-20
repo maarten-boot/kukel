@@ -15,6 +15,16 @@ Two kinds of change need care when you upgrade:
 From v1.0.0 on, what keeps working is in
 [docs/compatibility.md](docs/compatibility.md).
 
+## Unreleased
+
+- `kukel fmt -strict` also puts a vector or map literal one element per
+  line when it has more than 3 elements, or is longer than half of
+  `-linelength` (60 characters by default) on one line; a short literal
+  inside it stays (`-vertical` folds every literal of 2 or more, as
+  before). A function literal written on one line that such a split
+  reaches into gets each of its statements on a line of its own, instead
+  of `f(fn() { local w = [` ... `]; return w; });`. Q119.
+
 ## v1.7.0 (2026-11-20)
 
 Syntax version 12 and bytecode format 13, as in v1.6: programs and `.kkc`

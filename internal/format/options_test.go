@@ -100,7 +100,26 @@ func TestLists(t *testing.T) {
 		// member calls and new; the call around a split one is split too,
 		// not one inside a function literal's body
 		{strict, "main() { f(p->m(1, 2, 3, 4), new C(1, 2, 3, 4)); g(fn() { h(1, 2, 3, 4); }); }\n",
-			"main() {\n    f(\n        p->m(\n            1,\n            2,\n            3,\n            4,\n        ),\n        new C(\n            1,\n            2,\n            3,\n            4,\n        ),\n    );\n    g(fn() { h(\n        1,\n        2,\n        3,\n        4,\n    ); });\n}\n"},
+			"main() {\n    f(\n        p->m(\n            1,\n            2,\n            3,\n            4,\n        ),\n        new C(\n            1,\n            2,\n            3,\n            4,\n        ),\n    );\n    g(fn() {\n        h(\n            1,\n            2,\n            3,\n            4,\n        );\n    });\n}\n"},
+		// vector and map literals (Q119): more than 3 elements, or longer
+		// than half the line length, one per line; a short one inside stays
+		{strict, "main() { local a = [1, 2, 3]; local b = [1, 2, 3, 4]; local c = {\"a\": 1, \"b\": 2, \"c\": 3, \"d\": 4}; }\n",
+			"main() {\n    local a = [1, 2, 3];\n    local b = [\n        1,\n        2,\n        3,\n        4,\n    ];\n    local c = {\n        \"a\": 1,\n        \"b\": 2,\n        \"c\": 3,\n        \"d\": 4,\n    };\n}\n"},
+		{strict, "main() { local m = {\"name\": \"Ann Smith\", \"langs\": [\"Go\", \"Kukel\"], \"city\": \"Leiden\"}; }\n",
+			"main() {\n    local m = {\n        \"name\": \"Ann Smith\",\n        \"langs\": [\"Go\", \"Kukel\"],\n        \"city\": \"Leiden\",\n    };\n}\n"},
+		// 60 characters (half of 120) stay on one line, 61 do not
+		{strict, "main() { local p = [\"a rather long first element\", \"and a second one, as long\"]; }\n",
+			"main() {\n    local p = [\"a rather long first element\", \"and a second one, as long\"];\n}\n"},
+		{strict, "main() { local p = [\"a rather long first element\", \"and a second one, as long!\"]; }\n",
+			"main() {\n    local p = [\n        \"a rather long first element\",\n        \"and a second one, as long!\",\n    ];\n}\n"},
+		{Options{Strict: true, LineLength: 40}, "main() { local p = [\"twenty-one chars\", \"x\"]; local q = [\"short\", \"x\"]; }\n",
+			"main() {\n    local p = [\n        \"twenty-one chars\",\n        \"x\",\n    ];\n    local q = [\"short\", \"x\"];\n}\n"},
+		// the call around a literal put one per line is split too
+		{strict, "main() { push(v, [1, 2, 3, 4]); }\n",
+			"main() {\n    push(\n        v,\n        [\n            1,\n            2,\n            3,\n            4,\n        ],\n    );\n}\n"},
+		// a function literal written over lines keeps its lines
+		{strict, "main() {\n    f(fn() {\n        a(); b();\n        local w = [1, 2, 3, 4];\n    });\n}\n",
+			"main() {\n    f(fn() {\n        a(); b();\n        local w = [\n            1,\n            2,\n            3,\n            4,\n        ];\n    });\n}\n"},
 		// comments stay with their items; a "," already after the last item
 		// is kept; a call written over lines by hand is put one per line
 		{strict, "main() {\n    f(1, /* two */ 2, 3,\n      4 // four\n    );\n    g(1, 2, 3, 4,);\n}\n",

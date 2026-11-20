@@ -26,7 +26,10 @@ formats standard input, for editors. Comments stay where they are.
 lacks, puts each statement of a function on a line of its own, and puts
 the arguments of a call one per line when there are more than 3, or when
 the line is longer than 120 characters (`-linelength 100` sets another
-length). Take this function:
+length). A vector or map literal goes one element per line when it has
+more than 3 elements, or is longer than half that length (60 characters):
+`[1, 2, 3]` stays as it is, a long map of settings does not. Take this
+function:
 
 ```
 report(v, title) {

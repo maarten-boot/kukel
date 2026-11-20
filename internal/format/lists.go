@@ -1,9 +1,10 @@
 package format
 
 // Lists put one per line (TODO.md Q106): with Strict, the arguments of a
-// call with more than 3 of them, and those of a call, the parameters of a
-// definition or the elements of a vector or map literal on a line longer
-// than Options.LineLength; with Vertical, every argument list of a call,
+// call with more than 3 of them, the elements of a vector or map literal
+// with more than 3 of them or longer than half of Options.LineLength on
+// one line (Q119), and those of a call, the parameters of a definition or
+// the elements of a literal on a line longer than Options.LineLength; with Vertical, every argument list of a call,
 // parameter list of a function or member function definition, and vector
 // and map literal with 2 or more items. Such a list gets a line
 // break after its "(" and after each item's ",", a "," after its last item,
@@ -128,11 +129,12 @@ func code(toks []token.Token, i, end int) int {
 // puts g's arguments and f's one per line; a vector or map literal in
 // between is a list itself, so it is split too and passes it on), so that
 // a list is never half on one line and half on several.
-func byCount(ls []list, toks []token.Token, vertical bool) []list {
+func byCount(ls []list, toks []token.Token, src []byte, vertical bool, lineLength int) []list {
 	chosen := map[int]bool{}
 	for _, l := range ls {
 		n := l.items()
-		if !l.def && !l.literal && n > 3 || vertical && n >= 2 {
+		if !l.def && !l.literal && n > 3 || vertical && n >= 2 ||
+			l.literal && n >= 2 && (n > 3 || width(l, toks, src) > lineLength/2) {
 			chosen[l.lp] = true
 		}
 	}
@@ -157,6 +159,22 @@ func byCount(ls []list, toks []token.Token, vertical bool) []list {
 		}
 	}
 	return out
+}
+
+// width gives the length in characters of a list as it reads on one line:
+// from its "[" or "{" to its "]" or "}" in src (laid out), a line break and
+// the indentation after it counting as one space.
+func width(l list, toks []token.Token, src []byte) int {
+	text := src[toks[l.lp].Pos.Offset : toks[l.rp].Pos.Offset+len(toks[l.rp].Text)]
+	n := 0
+	for _, line := range bytes.Split(text, []byte("\n")) {
+		if n > 0 {
+			n++ // the line break, as a space
+			line = bytes.TrimLeft(line, " \t")
+		}
+		n += utf8.RuneCount(line)
+	}
+	return n
 }
 
 // braced reports whether a "{" opened after toks[from] is still open at

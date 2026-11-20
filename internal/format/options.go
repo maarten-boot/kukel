@@ -85,6 +85,13 @@ func SourceWith(file string, src []byte, opt Options) ([]byte, error) {
 		// those on lines too long, a round at a time (the outermost list of
 		// a long line first; what is still too long after that, next).
 		for round := 0; ; round++ {
+			if round == 0 { // the widths of literals are measured as laid out
+				t, err := tokens(file, in)
+				if err != nil {
+					return nil, changed
+				}
+				in = layout(t, in)
+			}
 			tree, err := parser.ParseFile(file, in)
 			if err != nil {
 				return nil, changed
@@ -95,16 +102,27 @@ func SourceWith(file string, src []byte, opt Options) ([]byte, error) {
 			ls := lists(tree, inToks)
 			var chosen []list
 			if round == 0 {
-				chosen = byCount(ls, inToks, opt.Vertical)
+				chosen = byCount(ls, inToks, in, opt.Vertical, opt.LineLength)
 			} else {
 				chosen = tooLong(ls, inToks, in, opt.LineLength)
 			}
 			if len(chosen) == 0 && round > 0 || round == maxRounds {
 				break
 			}
+			oneLine := funcLitsOnOneLine(tree, inToks)
 			next := breakLists(chosen, inToks, in)
 			nextToks, err := tokens(file, next)
 			if err != nil {
+				return nil, changed
+			}
+			// A function literal on one line that a list broke inside of
+			// gets each of its statements on a line of its own.
+			if lits, err := parser.ParseFile(file, next); err == nil {
+				next = openFuncLits(lits, nextToks, next, oneLine)
+				if nextToks, err = tokens(file, next); err != nil {
+					return nil, changed
+				}
+			} else {
 				return nil, changed
 			}
 			in = layout(nextToks, next)
@@ -305,6 +323,66 @@ func expand(tree *ast.File, toks []token.Token, src []byte) []byte {
 		}
 		if i == 0 || endLine(toks[i-1]) < toks[i].Pos.Line || toks[i].Pos.Offset < last {
 			continue // on a line of its own already (or seen twice)
+		}
+		b.Write(src[last:toks[i].Pos.Offset])
+		b.WriteByte('\n')
+		last = toks[i].Pos.Offset
+	}
+	b.Write(src[last:])
+	return b.Bytes()
+}
+
+// funcLitsOnOneLine tells, for the function literals of tree in the order
+// ast.Inspect meets them, whether each is written on one line.
+func funcLitsOnOneLine(tree *ast.File, toks []token.Token) []bool {
+	var one []bool
+	for _, d := range tree.Decls {
+		ast.Inspect(d, func(n ast.Node) bool {
+			if fl, ok := n.(*ast.FuncLit); ok {
+				one = append(one, toks[tokenAt(toks, fl.Body.Lbrace)].Pos.Line == toks[tokenAt(toks, fl.Body.Rbrace)].Pos.Line)
+			}
+			return true
+		})
+	}
+	return one
+}
+
+// openFuncLits puts each statement of a function literal, and its closing
+// brace, on a line of its own when it was on one line (oneLine, in the
+// order of funcLitsOnOneLine) and a list broke inside it, so that its
+// statements would share lines (f(fn() { local w = [ ... ]; return w; })
+// after the vector was put one element per line). Other function literals
+// keep their lines.
+func openFuncLits(tree *ast.File, toks []token.Token, src []byte, oneLine []bool) []byte {
+	var at []int
+	k := -1
+	for _, d := range tree.Decls {
+		ast.Inspect(d, func(n ast.Node) bool {
+			fl, ok := n.(*ast.FuncLit)
+			if !ok {
+				return true
+			}
+			k++
+			if len(fl.Body.Stmts) == 0 || k >= len(oneLine) || !oneLine[k] {
+				return true
+			}
+			lb, rb := tokenAt(toks, fl.Body.Lbrace), tokenAt(toks, fl.Body.Rbrace)
+			if toks[lb].Pos.Line == toks[rb].Pos.Line {
+				return true // still on one line: left alone
+			}
+			for _, s := range fl.Body.Stmts {
+				at = append(at, stmtStart(toks, s))
+			}
+			at = append(at, rb)
+			return true
+		})
+	}
+	sort.Ints(at)
+	var b bytes.Buffer
+	last := 0
+	for _, i := range at {
+		if i == 0 || toks[i-1].Pos.Line+strings.Count(toks[i-1].Text, "\n") < toks[i].Pos.Line || toks[i].Pos.Offset < last {
+			continue // on a line of its own already
 		}
 		b.Write(src[last:toks[i].Pos.Offset])
 		b.WriteByte('\n')
