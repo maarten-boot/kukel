@@ -1,6 +1,6 @@
 # A. Embedding Kukel in Go
 
-[The booklet](README.md) · previous: [21. Windows](21-windows.md) · next: [B. Go in Kukel: host modules](23-host-modules.md)
+[The booklet](README.md) · previous: [22. Windows](22-windows.md) · next: [B. Go in Kukel: host modules](24-host-modules.md)
 
 kukel is written in Go, and a Go program can run Kukel code itself:
 rules a user writes ("orders over 100 get 10% off"), plug-ins, scripts in
@@ -231,4 +231,4 @@ number of interpreters, also at the same time on different goroutines.
 An interpreter, though, is used by one goroutine at a time: a web server
 makes one per request (or keeps a pool), from the same program.
 
-[The booklet](README.md) · previous: [21. Windows](21-windows.md) · next: [B. Go in Kukel: host modules](23-host-modules.md)
+[The booklet](README.md) · previous: [22. Windows](22-windows.md) · next: [B. Go in Kukel: host modules](24-host-modules.md)

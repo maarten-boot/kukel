@@ -1,0 +1,50 @@
+# Tests of steps.kkl, run in examples/ (see examples/README.md). The
+# steps use common Unix programs (printf, cat, wc, grep, sh, sleep).
+
+$ testdata/steps.toml
+1. say hello: ok
+2. count the words of a file: ok
+3. grep, where no match is fine: ok
+4. a script with a value: ok
+5. too slow: timed out
+stopped; 1 step(s) not run
+6 steps, 1 failed
+exit 143
+
+# -keep-going runs the step after the failure; -v shows the output.
+$ -keep-going -v testdata/steps.toml
+1. say hello: ok
+hello, steps
+2. count the words of a file: ok
+4
+3. grep, where no match is fine: ok
+0
+4. a script with a value: ok
+the file is testdata/words.txt
+5. too slow: timed out
+6. after the failure: ok
+reached
+6 steps, 1 failed
+exit 143
+
+# A program that is not there is code 127, as in a shell.
+$ -keep-going -v testdata/steps-missing.toml
+1. no such program: failed (127)
+proc::run: program no-such-program-steps not found
+2. a grep that finds nothing: failed (1)
+2 steps, 2 failed
+exit 127
+
+$ testdata/steps-bad.toml
+! steps: testdata/steps-bad.toml: step 1 needs a name and one of run, sh and pipe
+exit 2
+
+$ -x
+! steps: unknown argument -x
+! usage: steps [-log file] [-keep-going] [-v] steps.toml
+exit 2
+
+$
+! steps: no steps file
+! usage: steps [-log file] [-keep-going] [-v] steps.toml
+exit 2

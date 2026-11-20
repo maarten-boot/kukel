@@ -1,0 +1,3 @@
+# A step without a command, for steps.kkl's tests.
+[[step]]
+name = "nothing to run"

@@ -817,7 +817,7 @@ Each step is usable on its own and prepares the next:
 | 25 | Processes: `proc::run`, `ProcError`, cancellation; `fs::glob` (15.8, step 1) | — | done (Q118): `proc` in Kukel on the Go module `process` |
 | 26 | Processes: `proc::pipe`, `proc::start` and `proc::Process` (15.8, step 2) | 25 | done (Q118) |
 | 27 | Processes: `proc::sh` with `args`; events (15.8, step 3) | 26 | done (Q118): `onlines` and `onexit` on `proc::Process` |
-| 28 | Processes: documents, the booklet, an example (15.8, step 4) | 27 | proposed (Q118) |
+| 28 | Processes: documents, the booklet, an example (15.8, step 4) | 27 | done (Q118): booklet chapter 19, `examples/steps.kkl` |
 
 Steps 4, 5, 7 and 8 are independent of each other once 1 and 3 exist. A
 `ffi` module (1.6) can come at any point after step 1.
@@ -2376,8 +2376,9 @@ Each step is a branch of its own, merged when its tests pass.
 
 ## 15. Processes: a module `proc`
 
-*A proposal (2026-11-19, TODO.md Q118); steps 1 to 3 built (2026-11-19
-and 20, 15.8, with the changes below). The open questions of 15.10 were all answered
+*A proposal (2026-11-19, TODO.md Q118); built (2026-11-19 and 20, the
+four steps of 15.8, with the changes below; reference.md §11 `process`
+and §12 `proc`, booklet chapter 19). The open questions of 15.10 were all answered
 as proposed the same day.*
 
 *As built, step 1*: (1) A module written in Go cannot throw an object of
@@ -2414,6 +2415,14 @@ pipe is read for `f`. (11) `onexit(f)` gets the result without `check`,
 and comes after the last lines of the `onlines` handlers, so that a
 handler that sums up has seen them all. (12) `process::shell()` tells
 `proc::sh` where the shell is (`nil` on Windows).
+
+*As built, step 4*: (13) The booklet's chapter is 19, "Running
+programs", after Networking (the user's choice; the chapters after it and
+the appendices' files were renumbered). (14) The example is
+`examples/steps.kkl`, a small make or CI runner of the steps of a TOML
+file, instead of `release.kkl`: its tests need no Go build inside `go
+test` and no git repository, and it shows `run`, `sh` with `args`, `pipe`,
+time limits, codes that count as success and the exit code of a failure.
 
 Kukel cannot start a program today: `os` has only `os::pid()`. That keeps
 it out of the work bash scripts do, gluing programs together, although

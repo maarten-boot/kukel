@@ -192,7 +192,7 @@ went wrong, so that a `catch` can tell them apart. Those met most are
 `TypeError` (a value of the wrong type: `1 + "a"`), `ValueError` (a value
 a function cannot work with: `int("x")`), `RangeError` (an index out of
 range), `ZeroDivisionError`, and in Part II `IOError` and `NetError`.
-[Appendix D](25-tables.md) lists them all, and the
+[Appendix D](26-tables.md) lists them all, and the
 [reference](../reference.md#9-exceptions) says when each comes. Two things
 are not exceptions and cannot be caught: `exit(code)`, which ends the
 program at once, and being stopped from outside (by a Go program that

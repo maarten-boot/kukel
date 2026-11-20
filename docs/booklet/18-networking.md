@@ -1,6 +1,6 @@
 # 18. Networking
 
-[The booklet](README.md) · previous: [17. Events and workers](17-events.md) · next: [19. The terminal](19-terminal.md)
+[The booklet](README.md) · previous: [17. Events and workers](17-events.md) · next: [19. Running programs](19-programs.md)
 
 Three modules connect a program to other programs, on the same computer
 or across the world:
@@ -355,4 +355,4 @@ $ kukel run refused.kkl
 NetError net::connect: tcp://127.0.0.1:1: connection refused
 ```
 
-[The booklet](README.md) · previous: [17. Events and workers](17-events.md) · next: [19. The terminal](19-terminal.md)
+[The booklet](README.md) · previous: [17. Events and workers](17-events.md) · next: [19. Running programs](19-programs.md)

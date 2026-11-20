@@ -1,6 +1,6 @@
 # B. Go in Kukel: host modules
 
-[The booklet](README.md) · previous: [A. Embedding Kukel in Go](22-embedding.md) · next: [C. Code that is not trusted](24-untrusted.md)
+[The booklet](README.md) · previous: [A. Embedding Kukel in Go](23-embedding.md) · next: [C. Code that is not trusted](25-untrusted.md)
 
 Appendix A called Kukel from Go. The other way round, Kukel code calls Go:
 the Go program gives it a *host module*, a module written in Go that the
@@ -206,4 +206,4 @@ one.
 - Kukel workers (chapter 17) may call host functions from their own
   goroutines: make such functions safe for concurrent use.
 
-[The booklet](README.md) · previous: [A. Embedding Kukel in Go](22-embedding.md) · next: [C. Code that is not trusted](24-untrusted.md)
+[The booklet](README.md) · previous: [A. Embedding Kukel in Go](23-embedding.md) · next: [C. Code that is not trusted](25-untrusted.md)

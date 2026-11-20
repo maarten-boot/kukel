@@ -57,7 +57,7 @@ to a worker.
 
 Other modules deliver their events through the same loop: connections
 and packets of `net`, sockets of `zmq` (next chapter), messages of
-workers, and windows of `tk` (chapter 21). One program can mix them all.
+workers, and windows of `tk` (chapter 22). One program can mix them all.
 
 ## When a handler fails
 

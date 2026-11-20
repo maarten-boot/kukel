@@ -1,0 +1,9 @@
+# A program that is not there, and a code that is not ok, for steps.kkl's
+# tests (with -keep-going).
+[[step]]
+name = "no such program"
+run = ["no-such-program-steps"]
+
+[[step]]
+name = "a grep that finds nothing"
+run = ["grep", "-q", "zebra", "testdata/words.txt"]

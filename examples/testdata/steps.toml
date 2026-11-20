@@ -1,0 +1,29 @@
+# Steps for steps.kkl's tests: each one a command, a shell script or a
+# pipeline, run in order.
+
+[[step]]
+name = "say hello"
+run = ["printf", "%s\n", "hello, steps"]
+
+[[step]]
+name = "count the words of a file"
+pipe = [["cat", "testdata/words.txt"], ["wc", "-w"]]
+
+[[step]]
+name = "grep, where no match is fine"
+run = ["grep", "-c", "zebra", "testdata/words.txt"]
+ok = [0, 1]
+
+[[step]]
+name = "a script with a value"
+sh = "echo \"the file is $1\"; test -f \"$1\""
+args = ["testdata/words.txt"]
+
+[[step]]
+name = "too slow"
+run = ["sleep", "5"]
+timeout = 0.3
+
+[[step]]
+name = "after the failure"
+run = ["printf", "%s\n", "reached"]

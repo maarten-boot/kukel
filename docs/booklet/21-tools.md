@@ -1,6 +1,6 @@
-# 20. The tools
+# 21. The tools
 
-[The booklet](README.md) · previous: [19. The terminal](19-terminal.md) · next: [21. Windows](21-windows.md)
+[The booklet](README.md) · previous: [20. The terminal](20-terminal.md) · next: [22. Windows](22-windows.md)
 
 `kukel` is one program with many commands. Chapter 1 showed `run`,
 `check` and `repl`. This chapter shows the others: for laying out code,
@@ -164,4 +164,4 @@ For the curious, and for those who work on kukel itself:
 | `kukel disasm a.kkl` | the bytecode, the instructions of the virtual machine ([vm.md](../vm.md)) |
 | `kukel version` | the version, and the modules this kukel has |
 
-[The booklet](README.md) · previous: [19. The terminal](19-terminal.md) · next: [21. Windows](21-windows.md)
+[The booklet](README.md) · previous: [20. The terminal](20-terminal.md) · next: [22. Windows](22-windows.md)

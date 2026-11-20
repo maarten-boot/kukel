@@ -1,6 +1,6 @@
-# 19. The terminal
+# 20. The terminal
 
-[The booklet](README.md) · previous: [18. Networking](18-networking.md) · next: [20. The tools](20-tools.md)
+[The booklet](README.md) · previous: [19. Running programs](19-programs.md) · next: [21. The tools](21-tools.md)
 
 Most programs talk to people with `println` and `readline()`: a line at a
 time, after Enter. A program that reacts to every key, such as a menu, a
@@ -98,4 +98,4 @@ Without a terminal, `raw` changes nothing, and `size()` is what the
 environment variables `COLUMNS` and `LINES` say, else `[80, 24]`. This is how
 the tests of `examples/vi.kkl` drive the editor.
 
-[The booklet](README.md) · previous: [18. Networking](18-networking.md) · next: [20. The tools](20-tools.md)
+[The booklet](README.md) · previous: [19. Running programs](19-programs.md) · next: [21. The tools](21-tools.md)

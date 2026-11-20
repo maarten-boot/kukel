@@ -1,0 +1,137 @@
+// steps: runs the steps of a TOML file in order, as a small make or CI
+// would, with module proc (and toml, fs):
+//
+//     kukel run examples/steps.kkl -- [-log file] [-keep-going] [-v] steps.toml
+//
+// A step is a table [[step]] with a name and one of
+//
+//     run = ["program", "arg", ...]          a program and its arguments
+//     sh = "script with $1"                  a script for /bin/sh, with
+//     args = ["value", ...]                  its values as $1, $2, ...
+//     pipe = [["program", ...], [...], ...]  a pipeline, without a shell
+//
+// and, optionally, timeout (seconds) and ok (the exit codes that count as
+// success, [0] by default). Each step's output and errors go together to
+// the log (-log file, appended to), or are shown with -v. The first step
+// that fails stops the run, unless -keep-going; the exit code is then that
+// of the failed step (128 plus the signal's number for a signal), else 0.
+// A wrong command line or steps file gives 2.
+use fs;
+use proc;
+use toml;
+
+main(args) {
+    local log = nil, keepGoing = false, verbose = false, file = nil;
+
+    for (local i = 0; i < len(args); i++) {
+        switch (args[i]) {
+            case "-log":
+                if (i + 1 == len(args)) return usage("-log needs a file");
+                log = args[++i];
+                break;
+            case "-keep-going":
+                keepGoing = true;
+                break;
+            case "-v":
+                verbose = true;
+                break;
+            default:
+                if (file != nil || find(args[i], "-") == 0) return usage("unknown argument " + args[i]);
+                file = args[i];
+        }
+    }
+
+    if (file == nil) return usage("no steps file");
+    local steps;
+
+    try {
+        steps = toml::decode(readfile(file))["step"];
+        check(steps);
+    } catch (e) {
+        eprintln("steps: " + file + ": " + e->message);
+        return 2;
+    }
+    local out = log == nil ? nil : fs::open(log, "a");
+    local failed = 0, code = 0;
+
+    for (local i = 0; i < len(steps); i++) {
+        local s = steps[i];
+        local r = runstep(s);
+        local good = r["code"] != nil && succeeded(s, r["code"]) && !r["timedout"];
+        local status = good ? "ok" : r["timedout"] ? "timed out" : r["code"] == nil ? "ended by " + r["signal"] : "failed (" + str(r["code"]) + ")";
+        println(str(i + 1) + ".", s["name"] + ":", status);
+
+        if (out != nil) out->write("== " + s["name"] + ": " + status + "\n", r["out"]);
+
+        if (verbose) print(r["out"]);
+
+        if (!good) {
+            failed++;
+
+            if (code == 0) code = r["code"] == nil ? proc::exitcode(r) : r["code"];
+
+            if (!keepGoing) {
+                println("stopped; " + str(len(steps) - i - 1) + " step(s) not run");
+                break;
+            }
+        }
+    }
+
+    if (out != nil) out->close();
+    println(str(len(steps)) + " steps, " + str(failed) + " failed");
+    return code;
+}
+
+usage(why) {
+    eprintln("steps: " + why);
+    eprintln("usage: steps [-log file] [-keep-going] [-v] steps.toml");
+    return 2;
+}
+
+// check says what is wrong with the steps, as an exception.
+check(steps) {
+    if (typeof(steps) != "vector" || len(steps) == 0) {
+        throw new Error("no [[step]] tables", "ValueError");
+    }
+
+    for (local i = 0; i < len(steps); i++) {
+        local s = steps[i], kinds = 0;
+
+        for (local k in ["run", "sh", "pipe"]) {
+            if (haskey(s, k)) kinds++;
+        }
+
+        if (typeof(s["name"]) != "string" || kinds != 1) {
+            throw new Error("step " + str(i + 1) + " needs a name and one of run, sh and pipe", "ValueError");
+        }
+    }
+}
+
+// succeeded tells whether an exit code counts as success for step s: one
+// of its ok codes, [0] by default.
+succeeded(s, code) {
+    for (local c in haskey(s, "ok") ? s["ok"] : [0]) {
+        if (c == code) return true;
+    }
+    return false;
+}
+
+// runstep runs a step, with its output and errors together, and gives
+// proc's result; a program that cannot be started gives code 127, as a
+// shell does.
+runstep(s) {
+    local o = {"err": "out", "check": false};
+
+    if (haskey(s, "timeout")) o["timeout"] = s["timeout"];
+
+    try {
+        if (haskey(s, "run")) return proc::run(s["run"], o);
+
+        if (haskey(s, "pipe")) return proc::pipe(s["pipe"], o);
+        o["args"] = haskey(s, "args") ? s["args"] : [];
+        return proc::sh(s["sh"], o);
+    } catch (e) {
+        if (e->kind != "ProcError") throw e;
+        return {"code": 127, "signal": nil, "out": e->message + "\n", "timedout": false};
+    }
+}

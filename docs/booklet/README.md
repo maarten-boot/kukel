@@ -60,21 +60,24 @@ takes them one by one.
     parallel (`worker`)
 18. [Networking](18-networking.md): TCP and UDP (`net`), messages (`zmq`),
     files over the network (`p9`)
-19. [The terminal](19-terminal.md): a key at a time (`term`)
-20. [The tools](20-tools.md): formatting, the debugger, the profiler,
+19. [Running programs](19-programs.md): other programs from Kukel, with
+    their arguments as values; pipelines, conversations, a bash script
+    turned into Kukel (`proc`)
+20. [The terminal](20-terminal.md): a key at a time (`term`)
+21. [The tools](21-tools.md): formatting, the debugger, the profiler,
     building
-21. [Windows](21-windows.md): windows, forms, menus and drawing (`tk`, in
+22. [Windows](22-windows.md): windows, forms, menus and drawing (`tk`, in
     `kukel-tk`)
 
 ## Appendices
 
 For Go programmers, and to look things up:
 
-- A. [Embedding Kukel in Go](22-embedding.md): compiling, interpreters,
+- A. [Embedding Kukel in Go](23-embedding.md): compiling, interpreters,
   calling Kukel functions, values, errors
-- B. [Go in Kukel: host modules](23-host-modules.md): Go functions and
+- B. [Go in Kukel: host modules](24-host-modules.md): Go functions and
   classes that Kukel code uses
-- C. [Code that is not trusted](24-untrusted.md): what a script may use,
+- C. [Code that is not trusted](25-untrusted.md): what a script may use,
   and how long it may run
-- D. [Tables](25-tables.md): keywords, operators, statements, escapes,
+- D. [Tables](26-tables.md): keywords, operators, statements, escapes,
   built-in functions, kinds of errors, the modules, what stays the same

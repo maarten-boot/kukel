@@ -1,6 +1,6 @@
 # D. Tables
 
-[The booklet](README.md) · previous: [C. Code that is not trusted](24-untrusted.md)
+[The booklet](README.md) · previous: [C. Code that is not trusted](25-untrusted.md)
 
 The short forms of what the chapters explain, to look things up. The
 [reference](../reference.md) has every detail, and
@@ -70,7 +70,7 @@ yield x;          local y = yield x;          yield from g;
 |---|---|
 | Output and input | `print`, `println`, `eprint`, `eprintln`, `readline` |
 | Whole files | `readfile`, `writefile`, `appendfile` |
-| Types | `typeof`, `str`, `int`, `float`, `classof`, `instanceof` |
+| Types | `typeof`, `str`, `int`, `float`, `decimal`, `classof`, `instanceof` |
 | Strings | `len`, `find`, `split`, `join`, `slice`, `upper`, `lower`, `trim`, `replace`, `char`, `ord` |
 | Vectors and maps | `push`, `pop`, `insert`, `remove`, `slice`, `sort`, `keys`, `values`, `haskey`, `delete` |
 | Math | `abs`, `min`, `max`, `pow`, `sqrt`, `exp`, `log`, `sin`, `cos`, `tan`, `atan2`, `floor`, `ceil`, `round`, `random`, `randint`, `seed` |
@@ -89,6 +89,7 @@ yield x;          local y = yield x;          yield from g;
 | `IOError` | a file that cannot be read or written |
 | `NetError` | a network problem (`net`, `zmq`, `p9`) |
 | `DBError` | an error the database reports |
+| `ProcError` | a program `proc` ran failed, or could not be started |
 | `WorkerError` | a worker that failed, from `w->wait()` |
 | `CompileError` | `worker::startfile` of a program that does not compile |
 | `StackOverflowError` | more than 10000 nested calls |
@@ -106,8 +107,9 @@ yield x;          local y = yield x;          yield from g;
 | `db` | SQLite, PostgreSQL, MySQL | 16 |
 | `events`, `worker` | the event loop, work in parallel | 17 |
 | `net`, `zmq`, `p9` | TCP and UDP, messages, files over the network | 18 |
-| `term` | the terminal a key at a time | 19 |
-| `tk` | windows (in `kukel-tk`) | 21 |
+| `proc` (on `process`) | running other programs: pipelines, conversations, a shell when wanted (written in Kukel) | 19 |
+| `term` | the terminal a key at a time | 20 |
+| `tk` | windows (in `kukel-tk`) | 22 |
 | `iter` | generators to make and combine sequences (written in Kukel) | 11 |
 
 ## What stays the same
@@ -120,4 +122,4 @@ change is the bytecode format (rebuild `.kkc` files from their source when
 the CHANGELOG says so), the words of error messages, and how fast things
 run.
 
-[The booklet](README.md) · previous: [C. Code that is not trusted](24-untrusted.md)
+[The booklet](README.md) · previous: [C. Code that is not trusted](25-untrusted.md)

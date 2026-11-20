@@ -46,6 +46,10 @@ From v1.0.0 on, what keeps working is in
   program writes, and `p->onexit(f)` calls `f(result)` when it ends,
   after its last lines. Q118.
 - `fs::glob(pattern)`: the paths that match a pattern, sorted. Q118.
+- Booklet: a new chapter 19, "Running programs" (`proc`, and a bash
+  script turned into Kukel); The terminal, The tools and Windows are now
+  chapters 20 to 22. `examples/steps.kkl`: the steps of a TOML file run in
+  order, as a small make or CI would. Q118.
 
 ## v1.6.0 (2026-11-19)
 

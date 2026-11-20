@@ -58,7 +58,8 @@ func TestFuseKeepsLines(t *testing.T) {
 			continue // a program that does not compile (compile_error.kkl, named_errors.kkl, ...)
 		}
 		sameLines(t, file, func() (*Program, error) {
-			return CompileFiles([]string{file}, CompileOptions{Path: []string{"tests/run/lib"}})
+			// every module, process too (steps.kkl uses proc)
+			return CompileFiles([]string{file}, CompileOptions{Path: []string{"tests/run/lib"}, StandardModules: StandardModules()})
 		})
 	}
 	for _, src := range []string{

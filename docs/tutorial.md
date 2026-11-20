@@ -303,9 +303,10 @@ The [booklet](booklet/README.md) goes on from here:
 | databases | [chapter 16](booklet/16-databases.md) |
 | timers, events and workers in parallel | [chapter 17](booklet/17-events.md) |
 | the network | [chapter 18](booklet/18-networking.md) |
-| the debugger, the profiler and the other tools | [chapter 20](booklet/20-tools.md) |
-| windows | [chapter 21](booklet/21-windows.md) |
-| running Kukel from a Go program | [appendix A](booklet/22-embedding.md) |
+| running other programs | [chapter 19](booklet/19-programs.md) |
+| the debugger, the profiler and the other tools | [chapter 21](booklet/21-tools.md) |
+| windows | [chapter 22](booklet/22-windows.md) |
+| running Kukel from a Go program | [appendix A](booklet/23-embedding.md) |
 
 And elsewhere:
 
